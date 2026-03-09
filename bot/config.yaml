@@ -77,9 +77,9 @@ correlation:
   lookback: 50
 
 market:
-  min_24h_volume_usdt: 50000000
-  max_symbols: 40
-  trade_symbols: 20
+  min_24h_volume_usdt: 10000000
+  max_symbols: 100
+  trade_symbols: 50
   whitelist_enabled: true
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XAUTUSDT"]
   blacklist_substrings:
