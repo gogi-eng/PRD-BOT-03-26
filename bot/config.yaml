@@ -1,0 +1,94 @@
+# ================================================
+# TRADING BOT v8.0 - Clean Architecture
+# Based on professional evaluation recommendations
+# ================================================
+
+timezone_offset: 3
+
+bybit:
+  testnet: false
+  category: linear
+
+bot:
+  candle_interval: "5"
+  htf_interval: "240"
+  cycle_sleep_sec: 60
+  klines_limit: 200
+
+trading:
+  leverage: 20
+  margin_total_pct: 10.0
+  risk_per_trade_pct: 2.0
+  min_rr_ratio: 2.2
+  max_positions: 3
+  tp_pct: 3.0
+  sl_pct: 1.5
+  trailing_stop_pct: 1.5
+  entry_order_type: market
+  trend_filter_enabled: true
+  min_position_usdt: 10.0
+  symbol_cooldown_minutes: 5
+  blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
+
+pullback:
+  enabled: true
+  lookback_bars: 100
+  min_swing_pct: 0.5
+
+atr:
+  period: 14
+  min_atr_pct: 0.50
+
+signals:
+  min_confluence_score: 0.50
+  min_signal_score: 0.7
+
+liquidity:
+  lookback_bars: 20
+  wick_ratio: 2.0
+  min_break_pct: 0.1
+
+exit:
+  hard_sl_atr_mult: 2.0
+  early_exit_bars: 10
+  early_exit_min_profit_atr: 0.5
+  trailing_activation_atr: 1.0
+  trailing_distance_atr: 1.5
+  tp_cap_atr_mult: 10.0
+
+risk:
+  max_daily_loss_pct: 5.0
+  max_daily_loss_usdt: 100
+  max_trades_per_day: 20
+  max_consecutive_losses: 4
+  cooldown_after_loss_sec: 300
+  cooldown_after_stop_hours: 2
+  max_trades_per_symbol_24h: 8
+  reduce_after_losses: 2
+  reduction_factor: 0.5
+
+funding:
+  high_threshold: 0.0005
+  extreme_threshold: 0.001
+
+correlation:
+  threshold: 0.70
+  max_correlated: 1
+  lookback: 50
+
+market:
+  min_24h_volume_usdt: 50000000
+  max_symbols: 40
+  trade_symbols: 20
+  whitelist_enabled: true
+  whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XAUTUSDT"]
+  blacklist_substrings:
+    - "1000"
+    - "LUNA"
+    - "UST"
+    - "BUSD"
+
+ai:
+  enabled: true
+  min_confidence: 60
+  fail_open: true
