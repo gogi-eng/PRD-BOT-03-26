@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Telegram Controller — управление ботом через Telegram.
-Адаптирован под новую чистую архитектуру.
+Адаптирован под новую чистую архитектуру. Русский язык.
 """
 from __future__ import annotations
 import asyncio
@@ -45,26 +45,26 @@ class TelegramController:
         self.app.add_error_handler(self.on_error)
 
     def start(self):
-        print("[TG] Telegram bot started")
+        print("[TG] Telegram бот запущен")
         self.app.run_polling(close_loop=False)
 
     async def start_async(self):
-        print("[TG] Telegram bot starting (async)...")
+        print("[TG] Telegram бот запускается (async)...")
         await asyncio.sleep(1)
         try:
             await self.app.initialize()
         except Exception as e:
-            print(f"[TG] Init error: {e}, retrying...")
+            print(f"[TG] Ошибка инициализации: {e}, повтор...")
             await asyncio.sleep(3)
             await self.app.initialize()
         try:
             await self.app.bot.delete_webhook(drop_pending_updates=True)
         except Exception as e:
-            print(f"[TG] Webhook error (non-fatal): {e}")
+            print(f"[TG] Ошибка вебхука (не критично): {e}")
         await asyncio.sleep(1)
         await self.app.start()
         await self.app.updater.start_polling(drop_pending_updates=True)
-        print("[TG] Polling active")
+        print("[TG] Polling активен")
 
     async def stop_async(self):
         await self.app.updater.stop()
@@ -79,14 +79,14 @@ class TelegramController:
 
     async def _deny(self, update: Update):
         if update.message:
-            await update.message.reply_text("Access denied")
+            await update.message.reply_text("Доступ запрещён")
         elif update.callback_query:
-            await update.callback_query.answer("Access denied", show_alert=True)
+            await update.callback_query.answer("Доступ запрещён", show_alert=True)
 
     def _build_keyboard(self) -> InlineKeyboardMarkup:
         c = self.controls
-        enabled_btn = "ACTIVE" if c.enabled else "PAUSED"
-        mode_btn = "DRY RUN" if c.dry_run else "LIVE"
+        enabled_btn = "АКТИВЕН" if c.enabled else "ПАУЗА"
+        mode_btn = "ТЕСТ" if c.dry_run else "LIVE"
 
         rows = [
             [
@@ -94,42 +94,42 @@ class TelegramController:
                 InlineKeyboardButton(mode_btn, callback_data="TOGGLE_DRY"),
             ],
             [
-                InlineKeyboardButton(f"Leverage: {c.leverage}x", callback_data="INFO_LEV"),
+                InlineKeyboardButton(f"Плечо: {c.leverage}x", callback_data="INFO_LEV"),
                 InlineKeyboardButton("-", callback_data="LEV_DOWN"),
                 InlineKeyboardButton("+", callback_data="LEV_UP"),
             ],
             [
-                InlineKeyboardButton(f"Margin: {c.margin_total_pct:.0f}%", callback_data="INFO_MARGIN"),
+                InlineKeyboardButton(f"Маржа: {c.margin_total_pct:.0f}%", callback_data="INFO_MARGIN"),
                 InlineKeyboardButton("-", callback_data="MARGIN_DOWN"),
                 InlineKeyboardButton("+", callback_data="MARGIN_UP"),
             ],
             [
-                InlineKeyboardButton(f"Trail: {c.trailing_stop_pct:.1f}%", callback_data="INFO_TRAIL"),
+                InlineKeyboardButton(f"Трейл: {c.trailing_stop_pct:.1f}%", callback_data="INFO_TRAIL"),
                 InlineKeyboardButton("-", callback_data="TRAIL_DOWN"),
                 InlineKeyboardButton("+", callback_data="TRAIL_UP"),
             ],
             [
-                InlineKeyboardButton("TP: " + f"{c.tp_pct:.1f}%", callback_data="INFO_TP"),
-                InlineKeyboardButton("SL: " + f"{c.sl_pct:.1f}%", callback_data="INFO_SL"),
+                InlineKeyboardButton(f"ТП: {c.tp_pct:.1f}%", callback_data="INFO_TP"),
+                InlineKeyboardButton(f"СЛ: {c.sl_pct:.1f}%", callback_data="INFO_SL"),
             ],
             [
-                InlineKeyboardButton("Balance", callback_data="SHOW_BALANCE"),
-                InlineKeyboardButton("Stats", callback_data="SHOW_STATS"),
+                InlineKeyboardButton("Баланс", callback_data="SHOW_BALANCE"),
+                InlineKeyboardButton("Статистика", callback_data="SHOW_STATS"),
             ],
             [
-                InlineKeyboardButton("PnL Panel", callback_data="SHOW_PNL"),
+                InlineKeyboardButton("Панель PnL", callback_data="SHOW_PNL"),
             ],
             [
-                InlineKeyboardButton("Reset Guard", callback_data="RESET_GUARD"),
+                InlineKeyboardButton("Сброс Guard", callback_data="RESET_GUARD"),
             ],
             [
-                InlineKeyboardButton("EMERGENCY STOP", callback_data="EMERGENCY"),
+                InlineKeyboardButton("АВАРИЙНАЯ ОСТАНОВКА", callback_data="EMERGENCY"),
             ],
             [
-                InlineKeyboardButton("Resume Trading", callback_data="RESUME"),
+                InlineKeyboardButton("Возобновить торговлю", callback_data="RESUME"),
             ],
             [
-                InlineKeyboardButton("Refresh", callback_data="REFRESH"),
+                InlineKeyboardButton("Обновить", callback_data="REFRESH"),
             ],
         ]
         return InlineKeyboardMarkup(rows)
@@ -137,41 +137,41 @@ class TelegramController:
     def _menu_text(self) -> str:
         c = self.controls
         if c.emergency:
-            status = "EMERGENCY STOP"
+            status = "АВАРИЙНАЯ ОСТАНОВКА"
         elif c.enabled:
-            status = "ACTIVE"
+            status = "АКТИВЕН"
         else:
-            status = "PAUSED"
+            status = "ПАУЗА"
 
-        mode = "DRY RUN" if c.dry_run else "LIVE"
+        mode = "ТЕСТ" if c.dry_run else "LIVE"
 
         lines = [
-            "<b>TRADING BOT v8.0</b>",
-            "<i>Clean Architecture</i>",
+            "<b>ТОРГОВЫЙ БОТ v8.0</b>",
+            "<i>Чистая Архитектура</i>",
             "",
-            f"Status: <b>{status}</b>",
-            f"Mode: {mode}",
-            "Strategy: Trend + Pullback + Liquidity Sweep",
+            f"Статус: <b>{status}</b>",
+            f"Режим: {mode}",
+            "Стратегия: Тренд + Откат + Ликвидити Свип",
             "",
-            "<b>PARAMS</b>",
-            f"Leverage: <code>{c.leverage}x</code>",
-            f"Margin: <code>{c.margin_total_pct:.1f}%</code>",
-            f"Trailing: <code>{c.trailing_stop_pct:.1f}%</code>",
-            f"TP: <code>{c.tp_pct:.1f}%</code>",
-            f"SL: <code>{c.sl_pct:.1f}%</code>",
-            f"Max positions: <code>{c.max_positions}</code>",
+            "<b>ПАРАМЕТРЫ</b>",
+            f"Плечо: <code>{c.leverage}x</code>",
+            f"Маржа: <code>{c.margin_total_pct:.1f}%</code>",
+            f"Трейлинг: <code>{c.trailing_stop_pct:.1f}%</code>",
+            f"ТП: <code>{c.tp_pct:.1f}%</code>",
+            f"СЛ: <code>{c.sl_pct:.1f}%</code>",
+            f"Макс. позиций: <code>{c.max_positions}</code>",
         ]
 
         try:
             snap = c.guard_snapshot()
             if snap:
                 lines.append("")
-                lines.append("<b>RISK GUARD</b>")
-                lines.append(f"PnL today: <code>${snap['pnl_today']:.2f}</code>")
-                lines.append(f"Trades: <code>{snap['trades_today']}</code>")
+                lines.append("<b>РИСК GUARD</b>")
+                lines.append(f"PnL сегодня: <code>${snap['pnl_today']:.2f}</code>")
+                lines.append(f"Сделок: <code>{snap['trades_today']}</code>")
                 if snap.get("blocked"):
                     reason = snap.get("block_reason", "")
-                    lines.append(f"<b>BLOCKED</b>: {reason}")
+                    lines.append(f"<b>ЗАБЛОКИРОВАН</b>: {reason}")
         except Exception:
             pass
 
@@ -196,12 +196,12 @@ class TelegramController:
                 mode = ParseMode.HTML if parse_mode in [None, "HTML"] else parse_mode
                 await self.app.bot.send_message(chat_id=self.allowed_chat_id, text=text, parse_mode=mode)
             except Exception as e:
-                logger.error(f"Send error: {e}")
+                logger.error(f"Ошибка отправки: {e}")
 
     async def render_menu(self, update: Update):
         await self._send_or_edit(update, self._menu_text(), reply_markup=self._build_keyboard())
 
-    # === Commands ===
+    # === Команды ===
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._allowed(update):
@@ -212,14 +212,14 @@ class TelegramController:
         if not self._allowed(update):
             return await self._deny(update)
         help_text = (
-            "<b>HELP</b>\n\n"
-            "/start - Main menu\n"
-            "/stats - Statistics\n"
-            "/balance - Balance\n"
-            "/help - This help\n\n"
-            "<b>Architecture:</b>\n"
-            "Market Analyzer -> Entry Engine -> Risk Manager -> Execution -> Exit Engine\n\n"
-            "<b>Strategy:</b> Trend + Pullback + Liquidity Sweep\n"
+            "<b>ПОМОЩЬ</b>\n\n"
+            "/start - Главное меню\n"
+            "/stats - Статистика\n"
+            "/balance - Баланс\n"
+            "/help - Эта справка\n\n"
+            "<b>Архитектура:</b>\n"
+            "Анализ рынка -> Вход -> Риск -> Исполнение -> Выход\n\n"
+            "<b>Стратегия:</b> Тренд + Откат + Ликвидити Свип\n"
             "1 Entry Engine | 1 Risk Manager | 1 Exit Engine"
         )
         await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
@@ -233,14 +233,14 @@ class TelegramController:
         if not self._allowed(update):
             return await self._deny(update)
         balance = self.controls.get_balance()
-        await update.message.reply_text(f"<b>BALANCE</b>\n\nAvailable: <code>${balance:.2f}</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(f"<b>БАЛАНС</b>\n\nДоступно: <code>${balance:.2f}</code>", parse_mode=ParseMode.HTML)
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._allowed(update):
             return await self._deny(update)
         await self.render_menu(update)
 
-    # === Buttons ===
+    # === Кнопки ===
 
     async def on_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._allowed(update):
@@ -269,7 +269,7 @@ class TelegramController:
             c.trailing_stop_pct = max(0.5, c.trailing_stop_pct - 0.5)
         elif action == "SHOW_BALANCE":
             balance = c.get_balance()
-            await query.message.reply_text(f"<b>BALANCE</b>\n\n<code>${balance:.2f}</code>", parse_mode=ParseMode.HTML)
+            await query.message.reply_text(f"<b>БАЛАНС</b>\n\n<code>${balance:.2f}</code>", parse_mode=ParseMode.HTML)
             return
         elif action == "SHOW_STATS":
             await query.message.reply_text(c.stats(), parse_mode=ParseMode.HTML)
@@ -280,30 +280,30 @@ class TelegramController:
         elif action == "RESET_GUARD":
             if c._guard:
                 c._guard.reset_guard()
-                await query.message.reply_text("<b>Guard reset!</b>\nConsecutive losses cleared.", parse_mode=ParseMode.HTML)
+                await query.message.reply_text("<b>Guard сброшен!</b>\nСерия убытков обнулена.", parse_mode=ParseMode.HTML)
             else:
-                await query.message.reply_text("Guard not connected", parse_mode=ParseMode.HTML)
+                await query.message.reply_text("Guard не подключён", parse_mode=ParseMode.HTML)
         elif action == "EMERGENCY":
             c.enabled = False
             c.emergency = True
             if c._guard:
                 c._guard.emergency_stop()
-            await query.message.reply_text("<b>EMERGENCY STOP!</b>\nTrading stopped.", parse_mode=ParseMode.HTML)
+            await query.message.reply_text("<b>АВАРИЙНАЯ ОСТАНОВКА!</b>\nТорговля остановлена.", parse_mode=ParseMode.HTML)
         elif action == "RESUME":
             c.emergency = False
             c.enabled = True
             if c._guard:
                 c._guard.resume()
-            await query.message.reply_text("<b>Trading resumed</b>", parse_mode=ParseMode.HTML)
+            await query.message.reply_text("<b>Торговля возобновлена</b>", parse_mode=ParseMode.HTML)
         elif action == "REFRESH":
             pass
 
         await self.render_menu(update)
 
     async def on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE):
-        logger.error(f"[TG ERROR] {context.error}")
+        logger.error(f"[TG ОШИБКА] {context.error}")
 
-    # === Notifications ===
+    # === Уведомления ===
 
     async def send_trade_notification(self, symbol: str, side: str, qty: float, price: float,
                                       pnl: Optional[float] = None, is_open: bool = True, reason: str = ""):
@@ -311,21 +311,37 @@ class TelegramController:
             return
         try:
             if is_open:
-                direction = "LONG" if side.upper() in ["BUY", "LONG"] else "SHORT"
-                text = f"<b>NEW TRADE</b>\n\n{symbol}\n{direction}\nQty: <code>{qty}</code>\nPrice: <code>${price:.4f}</code>"
+                direction = "ЛОНГ" if side.upper() in ["BUY", "LONG"] else "ШОРТ"
+                text = (
+                    f"<b>НОВАЯ СДЕЛКА</b>\n\n"
+                    f"Монета: <code>{symbol}</code>\n"
+                    f"Направление: <b>{direction}</b>\n"
+                    f"Объём: <code>{qty}</code>\n"
+                    f"Цена: <code>${price:.4f}</code>"
+                )
                 if reason:
-                    text += f"\n\nReason:\n{reason}"
+                    text += f"\n\nПричина:\n{reason}"
             else:
-                result = f"+${pnl:.2f}" if pnl and pnl >= 0 else f"${pnl:.2f}" if pnl else ""
-                text = f"<b>TRADE CLOSED</b>\n\n{symbol}\nPrice: <code>${price:.4f}</code>\nResult: {result}"
+                if pnl and pnl >= 0:
+                    result_str = f"+${pnl:.2f}"
+                elif pnl:
+                    result_str = f"${pnl:.2f}"
+                else:
+                    result_str = ""
+                text = (
+                    f"<b>СДЕЛКА ЗАКРЫТА</b>\n\n"
+                    f"Монета: <code>{symbol}</code>\n"
+                    f"Цена: <code>${price:.4f}</code>\n"
+                    f"Результат: {result_str}"
+                )
             await self.app.bot.send_message(chat_id=self.allowed_chat_id, text=text, parse_mode=ParseMode.HTML)
         except Exception as e:
-            logger.error(f"Notification error: {e}")
+            logger.error(f"Ошибка уведомления: {e}")
 
     async def send_alert(self, message: str):
         if not self.allowed_chat_id:
             return
         try:
-            await self.app.bot.send_message(chat_id=self.allowed_chat_id, text=f"ALERT: {message}", parse_mode=ParseMode.HTML)
+            await self.app.bot.send_message(chat_id=self.allowed_chat_id, text=f"ОПОВЕЩЕНИЕ: {message}", parse_mode=ParseMode.HTML)
         except Exception as e:
-            logger.error(f"Alert error: {e}")
+            logger.error(f"Ошибка алерта: {e}")

@@ -229,10 +229,10 @@ class TradingBot:
             asyncio.create_task(self.tg.start_async())
             await asyncio.sleep(2)
             await self.tg.send_message(
-                f"<b>Bot v8.0 started</b>\n"
-                f"Balance: <code>${balance:.2f}</code>\n"
-                f"Mode: {'DRY' if self.controls.dry_run else 'LIVE'}\n"
-                f"Strategy: Trend + Pullback + Liquidity Sweep"
+                f"<b>Бот v8.0 запущен</b>\n"
+                f"Баланс: <code>${balance:.2f}</code>\n"
+                f"Режим: {'ТЕСТ' if self.controls.dry_run else 'LIVE'}\n"
+                f"Стратегия: Тренд + Откат + Ликвидити Свип"
             )
 
         self._running = True
@@ -279,7 +279,7 @@ class TradingBot:
         # Cleanup
         await self.client.close()
         if self.tg:
-            await self.tg.send_message("<b>Bot stopped</b>")
+            await self.tg.send_message("<b>Бот остановлен</b>")
             try:
                 await self.tg.stop_async()
             except Exception:

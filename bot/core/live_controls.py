@@ -81,7 +81,7 @@ class LiveControls:
 
     def get_strategy_mode_display(self) -> str:
         modes = {
-            "trend_pullback": "Trend + Pullback + Liquidity",
+            "trend_pullback": "Тренд + Откат + Ликвидити",
         }
         return modes.get(self.strategy_mode, self.strategy_mode)
 
@@ -90,33 +90,33 @@ class LiveControls:
         positions_lines = []
         with self._lock:
             if self._current_positions:
-                positions_lines.append(f"\nOTKRYTYE POZICII ({len(self._current_positions)})")
+                positions_lines.append(f"\n<b>ОТКРЫТЫЕ ПОЗИЦИИ ({len(self._current_positions)})</b>")
                 for symbol, pos in self._current_positions.items():
                     side = pos.get("side", "?")
+                    direction = "ЛОНГ" if side.upper() in ["BUY", "LONG"] else "ШОРТ"
                     entry = pos.get("entry", 0)
                     unrealized = pos.get("unrealized_pnl", 0)
-                    positions_lines.append(f"{symbol} {side} entry=${entry:.4f} PnL=${unrealized:+.2f}")
+                    positions_lines.append(f"<code>{symbol}</code> {direction} вход=${entry:.4f} PnL=${unrealized:+.2f}")
             unrealized_total = self._unrealized_pnl
 
         lines = [
-            "STATISTIKA SESSII",
-            f"Balans: ${self._balance:.2f}",
-            f"PnL sessii: ${self._session_pnl:.2f}",
-            f"Unrealized PnL: ${unrealized_total:+.2f}",
-            f"Sdelok: {self._session_trades}",
-            f"Strategiya: {self.get_strategy_mode_display()}",
+            "<b>СТАТИСТИКА СЕССИИ</b>",
+            f"Баланс: <code>${self._balance:.2f}</code>",
+            f"PnL сессии: <code>${self._session_pnl:+.2f}</code>",
+            f"Нереализованный PnL: <code>${unrealized_total:+.2f}</code>",
+            f"Сделок: <code>{self._session_trades}</code>",
+            f"Стратегия: {self.get_strategy_mode_display()}",
         ]
         lines.extend(positions_lines)
         lines.extend([
-            "\nSEGODNYA",
-            f"PnL: ${snap['pnl_today']:.2f}",
-            f"Sdelok: {snap['trades_today']}",
-            f"Blokirovka: {'Da' if snap['blocked'] else 'Net'}",
+            "\n<b>СЕГОДНЯ</b>",
+            f"PnL: <code>${snap['pnl_today']:.2f}</code>",
+            f"Сделок: <code>{snap['trades_today']}</code>",
+            f"Блокировка: {'Да' if snap['blocked'] else 'Нет'}",
         ])
         return "\n".join(lines)
 
     def pnl_report(self) -> str:
-        _ = self.guard_snapshot()
         with self._lock:
             history = self._trade_history.copy()
             balance = self._balance
@@ -147,19 +147,19 @@ class LiveControls:
         last5 = history[-5:]
 
         lines = [
-            "<b>PANEL PnL</b>",
-            f"Balans: <code>${balance:.2f}</code>",
-            f"Unrealized: <code>${unrealized:+.2f}</code>",
-            f"Itogo: <code>${balance + unrealized:.2f}</code>",
-            f"\nPnL sessiya: <code>${session_pnl:+.2f}</code>",
-            f"PnL segodnya: <code>${pnl_today:+.2f}</code>",
-            f"PnL poslednij chas: <code>${pnl_hour:+.2f}</code>",
-            f"\nSdelok: <code>{session_trades}</code>",
-            f"Wins/Losses: <code>{wins}/{losses}</code>",
+            "<b>ПАНЕЛЬ PnL</b>",
+            f"Баланс: <code>${balance:.2f}</code>",
+            f"Нереализованный: <code>${unrealized:+.2f}</code>",
+            f"Итого: <code>${balance + unrealized:.2f}</code>",
+            f"\nPnL сессия: <code>${session_pnl:+.2f}</code>",
+            f"PnL сегодня: <code>${pnl_today:+.2f}</code>",
+            f"PnL за час: <code>${pnl_hour:+.2f}</code>",
+            f"\nСделок: <code>{session_trades}</code>",
+            f"Побед/Поражений: <code>{wins}/{losses}</code>",
             f"Winrate: <code>{winrate:.1f}%</code>",
         ]
         if last5:
-            lines.append("\nPOSLEDNIE SDELKI")
+            lines.append("\n<b>ПОСЛЕДНИЕ СДЕЛКИ</b>")
             for trade in reversed(last5):
                 sym = trade.get("symbol", "?")
                 p = trade.get("pnl", 0)
