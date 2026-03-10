@@ -16,18 +16,18 @@ bot:
   klines_limit: 200
 
 trading:
-  leverage: 20
+  leverage: 10
   margin_total_pct: 10.0
-  risk_per_trade_pct: 2.0
-  min_rr_ratio: 2.2
-  max_positions: 3
+  risk_per_trade_pct: 1.0
+  min_rr_ratio: 3.0
+  max_positions: 1
   tp_pct: 3.0
   sl_pct: 1.5
   trailing_stop_pct: 1.5
   entry_order_type: market
   trend_filter_enabled: true
-  min_position_usdt: 10.0
-  symbol_cooldown_minutes: 5
+  min_position_usdt: 5.0
+  symbol_cooldown_minutes: 10
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
 
 pullback:
@@ -37,10 +37,10 @@ pullback:
 
 atr:
   period: 14
-  min_atr_pct: 0.50
+  min_atr_pct: 0.80
 
 signals:
-  min_confluence_score: 0.50
+  min_confluence_score: 0.65
   min_signal_score: 0.7
 
 liquidity:
@@ -57,14 +57,14 @@ exit:
   tp_cap_atr_mult: 10.0
 
 risk:
-  max_daily_loss_pct: 5.0
-  max_daily_loss_usdt: 100
-  max_trades_per_day: 20
-  max_consecutive_losses: 4
-  cooldown_after_loss_sec: 300
-  cooldown_after_stop_hours: 2
-  max_trades_per_symbol_24h: 8
-  reduce_after_losses: 2
+  max_daily_loss_pct: 3.0
+  max_daily_loss_usdt: 5
+  max_trades_per_day: 8
+  max_consecutive_losses: 2
+  cooldown_after_loss_sec: 600
+  cooldown_after_stop_hours: 4
+  max_trades_per_symbol_24h: 3
+  reduce_after_losses: 1
   reduction_factor: 0.5
 
 funding:
@@ -90,5 +90,5 @@ market:
 
 ai:
   enabled: true
-  min_confidence: 60
-  fail_open: true
+  min_confidence: 75
+  fail_open: false

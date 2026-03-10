@@ -104,41 +104,47 @@ class EntryEngine:
         confluence_score = 0.0
         reasons = []
 
+        # --- HTF Trend REQUIRED ---
+        if trend_direction == 0:
+            return signal  # Нет тренда — не торгуем
+
         # --- Liquidity Sweep (основной сигнал) ---
         if sweep_signal.detected:
             sweep_dir = sweep_signal.direction  # 1 = bullish, -1 = bearish
+
+            # КРИТИЧНО: свип ДОЛЖЕН совпадать с HTF трендом
+            if sweep_dir != trend_direction:
+                return signal  # Свип против тренда — пропускаем
+
             confluence_score += 0.35 * sweep_signal.strength
             reasons.append(f"Sweep: {sweep_signal.description}")
-
-            # Если свип совпадает с трендом → усиление
-            if sweep_dir == trend_direction:
-                confluence_score += 0.15
-                reasons.append("Sweep aligns with HTF trend")
+            confluence_score += 0.15
+            reasons.append("Sweep aligns with HTF trend")
         else:
             sweep_dir = 0
 
         # --- Trend alignment ---
-        if trend_direction != 0:
-            confluence_score += 0.15
-            reasons.append(f"HTF trend: {'bullish' if trend_direction > 0 else 'bearish'}")
+        confluence_score += 0.15
+        reasons.append(f"HTF trend: {'bullish' if trend_direction > 0 else 'bearish'}")
 
         # --- Pullback check ---
         pullback_dir = self._detect_pullback(klines, market_analysis)
-        if pullback_dir != 0:
+        if pullback_dir != 0 and pullback_dir == trend_direction:
             confluence_score += 0.15
             reasons.append(f"Pullback: {'bullish' if pullback_dir > 0 else 'bearish'}")
 
-        # --- RSI extremes ---
+        # --- RSI extremes (только по тренду) ---
         rsi = market_analysis.rsi
-        rsi_dir = 0
-        if rsi < 30:
-            rsi_dir = 1
+        if rsi < 30 and trend_direction > 0:
             confluence_score += 0.10
             reasons.append(f"RSI oversold: {rsi:.1f}")
-        elif rsi > 70:
-            rsi_dir = -1
+        elif rsi > 70 and trend_direction < 0:
             confluence_score += 0.10
             reasons.append(f"RSI overbought: {rsi:.1f}")
+
+        # --- ADX minimum (тренд должен быть сильным) ---
+        if market_analysis.adx < 20:
+            return signal  # Слабый тренд — не входим
 
         # --- Funding signal ---
         if funding_signal and funding_signal.signal != 0:
@@ -151,17 +157,13 @@ class EntryEngine:
             reasons.append(f"Liq magnet: {liq_analysis.magnet_direction}")
 
         # === 4. Determine entry side ===
-        # Приоритет: sweep > pullback > trend > RSI
+        # Требуем: sweep ИЛИ (pullback + trend + RSI)
         if sweep_dir != 0:
             entry_side = sweep_dir
-        elif pullback_dir != 0 and trend_direction != 0 and pullback_dir == trend_direction:
+        elif pullback_dir == trend_direction and pullback_dir != 0:
             entry_side = pullback_dir
-        elif trend_direction != 0 and rsi_dir == trend_direction:
-            entry_side = trend_direction
-        elif trend_direction != 0 and confluence_score >= 0.5:
-            entry_side = trend_direction
         else:
-            return signal  # No clear direction
+            return signal  # Нет чёткого сигнала
 
         # === 5. Calculate SL/TP ===
         if atr_value <= 0:
