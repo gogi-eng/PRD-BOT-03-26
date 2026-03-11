@@ -104,8 +104,6 @@ class ExecutionEngine:
             if order.get("success"):
                 price = await self.client.get_price(symbol)
                 print(f"[EXEC] CLOSED: {symbol} {side} price=${price:.4f} reason={reason}")
-                if self.tg:
-                    await self.tg.send_trade_notification(symbol, side, qty or 0, price, is_open=False, reason=reason)
             return order
         except Exception as e:
             print(f"[EXEC] Close error: {e}")

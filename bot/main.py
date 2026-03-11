@@ -333,6 +333,7 @@ class TradingBot:
                 pos = self.position_manager.remove(symbol)
                 if pos:
                     logger.info(f"Position {symbol} closed on exchange")
+                    pnl = 0.0
                     # Try to get PnL from closed
                     try:
                         closed = await self.client.get_closed_pnl(symbol, limit=5)
@@ -342,6 +343,23 @@ class TradingBot:
                             self.controls.add_trade(pnl, symbol, pos.side, "exchange_closed")
                     except Exception:
                         pass
+
+                    # Уведомление в Telegram
+                    if self.tg:
+                        direction = "ЛОНГ" if pos.is_long else "ШОРТ"
+                        pnl_sign = "+" if pnl >= 0 else ""
+                        result_emoji = "ПРОФИТ" if pnl >= 0 else "УБЫТОК"
+                        current_price = await self.client.get_price(symbol)
+                        text = (
+                            f"<b>СДЕЛКА ЗАКРЫТА (БИРЖА) — {result_emoji}</b>\n\n"
+                            f"Монета: <code>{symbol}</code>\n"
+                            f"Направление: <b>{direction}</b>\n"
+                            f"Вход: <code>${pos.entry_price:.4f}</code>\n"
+                            f"Выход: <code>${current_price:.4f}</code>\n\n"
+                            f"Результат: <b>{pnl_sign}${pnl:.2f}</b>\n"
+                            f"Причина: SL/TP на бирже"
+                        )
+                        await self.tg.send_message(text)
 
         # Update unrealized PnL
         total_unrealized = 0.0
@@ -389,6 +407,24 @@ class TradingBot:
                     self.controls.add_trade(pnl, symbol, pos.side, reason.value)
                     self.position_manager.remove(symbol)
                     logger.info(f"Closed {symbol}: PnL=${pnl:.2f}")
+
+                    # Уведомление в Telegram с PnL
+                    if self.tg:
+                        pnl_pct = (pnl / (pos.entry_price * pos.qty)) * 100 if pos.entry_price * pos.qty > 0 else 0
+                        direction = "ЛОНГ" if pos.is_long else "ШОРТ"
+                        pnl_sign = "+" if pnl >= 0 else ""
+                        result_emoji = "ПРОФИТ" if pnl >= 0 else "УБЫТОК"
+                        text = (
+                            f"<b>СДЕЛКА ЗАКРЫТА — {result_emoji}</b>\n\n"
+                            f"Монета: <code>{symbol}</code>\n"
+                            f"Направление: <b>{direction}</b>\n"
+                            f"Вход: <code>${pos.entry_price:.4f}</code>\n"
+                            f"Выход: <code>${current_price:.4f}</code>\n"
+                            f"Объём: <code>{pos.qty}</code>\n\n"
+                            f"Результат: <b>{pnl_sign}${pnl:.2f}</b> ({pnl_sign}{pnl_pct:.1f}%)\n"
+                            f"Причина: {reason.value}"
+                        )
+                        await self.tg.send_message(text)
             else:
                 # Increment bars counter
                 pos.bars_since_entry += 1
