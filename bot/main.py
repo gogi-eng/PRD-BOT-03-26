@@ -45,6 +45,7 @@ from engine.execution_engine import ExecutionEngine
 from engine.position_manager import PositionManager, Position
 from engine.exit_engine import ExitEngine, ExitReason
 
+from portfolio_profit_lock import PortfolioProfitLock
 from utils import ATRCalculator
 
 logging.basicConfig(
@@ -144,6 +145,21 @@ class TradingBot:
         # Execution Engine
         self.execution_engine = ExecutionEngine(self.client, self.controls, self.tg)
 
+        # Portfolio Profit Lock
+        self.profit_lock = PortfolioProfitLock(
+            client=self.client,
+            tg=self.tg,
+            min_profit_pct=self.cfg.get("profit_lock", "min_profit_pct", default=5.0),
+            decline_threshold_pct=self.cfg.get("profit_lock", "decline_threshold_pct", default=20.0),
+            decline_duration_sec=self.cfg.get("profit_lock", "decline_duration_sec", default=300.0),
+            cooldown_sec=self.cfg.get("profit_lock", "cooldown_sec", default=3600.0),
+            dry_run=self.controls.dry_run,
+        )
+
+        # Connect profit_lock to TG
+        if self.tg:
+            self.tg.set_profit_lock(self.profit_lock)
+
         # State
         self._running = False
         self._stop_event = threading.Event()
@@ -222,6 +238,7 @@ class TradingBot:
             return
         self.controls.set_balance(balance)
         self.risk_guard.initial_balance = balance
+        self.profit_lock.set_initial_balance(balance)
         logger.info(f"Balance: ${balance:.2f}")
 
         # Start Telegram
@@ -247,9 +264,22 @@ class TradingBot:
                 balance = await self.client.get_balance()
                 if balance > 0:
                     self.controls.set_balance(balance)
+                    self.profit_lock.set_initial_balance(balance)
 
                 # Phase 1: Manage existing positions
                 await self._manage_positions()
+
+                # Phase 1.5: Portfolio Profit Lock check
+                if self.position_manager.count() > 0:
+                    closed_symbols = await self.profit_lock.check(
+                        self.position_manager.all_positions()
+                    )
+                    if closed_symbols:
+                        for sym in closed_symbols:
+                            pos = self.position_manager.remove(sym)
+                            if pos:
+                                self.controls.add_trade(0, sym, pos.side, "profit_lock")
+                        logger.info(f"Profit Lock closed {len(closed_symbols)} positions")
 
                 # Phase 2: Scan for new entries (if allowed)
                 if self.controls.enabled and not self.controls.emergency:

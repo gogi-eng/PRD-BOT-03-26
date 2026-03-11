@@ -92,3 +92,9 @@ ai:
   enabled: true
   min_confidence: 75
   fail_open: false
+
+profit_lock:
+  min_profit_pct: 5.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600

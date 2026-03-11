@@ -33,6 +33,7 @@ class TelegramController:
         self.allowed_chat_id = allowed_chat_id
         self.stop_event = stop_event
         self._last_menu_id: dict[int, int] = {}
+        self._profit_lock = None
 
         self.app: Application = ApplicationBuilder().token(token).build()
         self.app.add_handler(CommandHandler("start", self.cmd_start))
@@ -40,9 +41,13 @@ class TelegramController:
         self.app.add_handler(CommandHandler("help", self.cmd_help))
         self.app.add_handler(CommandHandler("stats", self.cmd_stats))
         self.app.add_handler(CommandHandler("balance", self.cmd_balance))
+        self.app.add_handler(CommandHandler("profitlock", self.cmd_profitlock))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         self.app.add_error_handler(self.on_error)
+
+    def set_profit_lock(self, profit_lock):
+        self._profit_lock = profit_lock
 
     def start(self):
         print("[TG] Telegram бот запущен")
@@ -118,6 +123,7 @@ class TelegramController:
             ],
             [
                 InlineKeyboardButton("Панель PnL", callback_data="SHOW_PNL"),
+                InlineKeyboardButton("Profit Lock", callback_data="SHOW_PROFITLOCK"),
             ],
             [
                 InlineKeyboardButton("Сброс Guard", callback_data="RESET_GUARD"),
@@ -216,11 +222,15 @@ class TelegramController:
             "/start - Главное меню\n"
             "/stats - Статистика\n"
             "/balance - Баланс\n"
+            "/profitlock - Статус Portfolio Profit Lock\n"
             "/help - Эта справка\n\n"
             "<b>Архитектура:</b>\n"
             "Анализ рынка -> Вход -> Риск -> Исполнение -> Выход\n\n"
             "<b>Стратегия:</b> Тренд + Откат + Ликвидити Свип\n"
-            "1 Entry Engine | 1 Risk Manager | 1 Exit Engine"
+            "1 Entry Engine | 1 Risk Manager | 1 Exit Engine\n\n"
+            "<b>Profit Lock:</b>\n"
+            "Если общая прибыль >= 5% депо — защита активна.\n"
+            "Снижение на 20% от пика 5 мин подряд — закрывает всё."
         )
         await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
@@ -234,6 +244,14 @@ class TelegramController:
             return await self._deny(update)
         balance = self.controls.get_balance()
         await update.message.reply_text(f"<b>БАЛАНС</b>\n\nДоступно: <code>${balance:.2f}</code>", parse_mode=ParseMode.HTML)
+
+    async def cmd_profitlock(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._allowed(update):
+            return await self._deny(update)
+        if self._profit_lock:
+            await update.message.reply_text(self._profit_lock.get_report(), parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text("Profit Lock не подключён", parse_mode=ParseMode.HTML)
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._allowed(update):
@@ -276,6 +294,12 @@ class TelegramController:
             return
         elif action == "SHOW_PNL":
             await query.message.reply_text(c.pnl_report(), parse_mode=ParseMode.HTML)
+            return
+        elif action == "SHOW_PROFITLOCK":
+            if self._profit_lock:
+                await query.message.reply_text(self._profit_lock.get_report(), parse_mode=ParseMode.HTML)
+            else:
+                await query.message.reply_text("Profit Lock не подключён", parse_mode=ParseMode.HTML)
             return
         elif action == "RESET_GUARD":
             if c._guard:
