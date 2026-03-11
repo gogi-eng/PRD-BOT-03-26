@@ -16,6 +16,7 @@ import signal
 import threading
 import logging
 import time
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -344,6 +345,9 @@ class TradingBot:
                     except Exception:
                         pass
 
+                    current_price = await self.client.get_price(symbol)
+                    self._save_trade(symbol, pos.side, pos.qty, pos.entry_price, current_price, pnl, "exchange_sl_tp")
+
                     # Уведомление в Telegram
                     if self.tg:
                         direction = "ЛОНГ" if pos.is_long else "ШОРТ"
@@ -406,6 +410,7 @@ class TradingBot:
                     self.risk_guard.record_trade(pnl, symbol)
                     self.controls.add_trade(pnl, symbol, pos.side, reason.value)
                     self.position_manager.remove(symbol)
+                    self._save_trade(symbol, pos.side, pos.qty, pos.entry_price, current_price, pnl, reason.value)
                     logger.info(f"Closed {symbol}: PnL=${pnl:.2f}")
 
                     # Уведомление в Telegram с PnL
@@ -582,9 +587,17 @@ class TradingBot:
         )
 
         # Min check
-        min_usdt = self.cfg.get("trading", "min_position_usdt", default=10.0)
+        min_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         if qty * signal.entry_price < min_usdt:
             logger.info(f"Position too small for {symbol}: ${qty * signal.entry_price:.2f} < ${min_usdt}")
+            return
+
+        # ЖЁСТКАЯ проверка маржи
+        notional = qty * signal.entry_price
+        margin = notional / leverage if leverage > 0 else notional
+        max_margin = balance * 0.15  # 15% баланса макс
+        if margin > max_margin:
+            logger.warning(f"Margin too high for {symbol}: ${margin:.2f} > ${max_margin:.2f} (15% of ${balance:.2f})")
             return
 
         reason = " | ".join(signal.reasons[:3])
@@ -615,7 +628,36 @@ class TradingBot:
             self.exit_engine.initialize_position(pos, atr_val)
 
             self.position_manager.add(pos)
-            logger.info(f"ENTERED: {signal.side} {symbol} qty={qty:.6f} price=${signal.entry_price:.4f}")
+            logger.info(f"ENTERED: {signal.side} {symbol} qty={qty:.6f} price=${signal.entry_price:.4f} "
+                        f"margin=${margin:.2f} notional=${notional:.2f}")
+
+    def _save_trade(self, symbol: str, side: str, qty: float, entry: float,
+                    exit_price: float, pnl: float, reason: str):
+        """Сохранить сделку в trade_history.json."""
+        trade = {
+            "time": datetime.now(timezone.utc).isoformat(),
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "entry": entry,
+            "exit": exit_price,
+            "pnl": round(pnl, 2),
+            "pnl_pct": round((pnl / (entry * qty)) * 100, 2) if entry * qty > 0 else 0,
+            "strategy": "trend_pullback_sweep",
+            "reason": reason,
+        }
+        history_path = BOT_DIR / "trade_history.json"
+        try:
+            if history_path.exists():
+                with open(history_path, "r") as f:
+                    history = json.load(f)
+            else:
+                history = []
+            history.append(trade)
+            with open(history_path, "w") as f:
+                json.dump(history, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error saving trade: {e}")
 
     def stop(self):
         self._running = False
