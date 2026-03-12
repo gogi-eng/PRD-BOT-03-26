@@ -12,7 +12,7 @@ bybit:
 bot:
   candle_interval: "5"
   htf_interval: "240"
-  cycle_sleep_sec: 90
+  cycle_sleep_sec: 120
   klines_limit: 200
 
 trading:
@@ -77,9 +77,9 @@ correlation:
   lookback: 50
 
 market:
-  min_24h_volume_usdt: 10000000
-  max_symbols: 100
-  trade_symbols: 30
+  min_24h_volume_usdt: 20000000
+  max_symbols: 50
+  trade_symbols: 20
   whitelist_enabled: true
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XAUTUSDT"]
   blacklist_substrings:

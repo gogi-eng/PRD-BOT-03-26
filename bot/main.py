@@ -443,7 +443,17 @@ class TradingBot:
     async def _scan_entries(self):
         """Сканирование символов для новых входов."""
         symbols = await self.get_trade_symbols()
+        # Убираем дубликаты, сохраняя порядок
+        seen = set()
+        unique_symbols = []
+        for s in symbols:
+            if s not in seen:
+                seen.add(s)
+                unique_symbols.append(s)
+        symbols = unique_symbols
+
         logger.info(f"Scanning {len(symbols)} symbols...")
+        analyzed_count = 0
 
         for symbol in symbols:
             # Skip if already in position
@@ -461,13 +471,16 @@ class TradingBot:
 
             try:
                 signal = await self._analyze_symbol(symbol)
+                analyzed_count += 1
                 if signal and signal.should_enter:
                     await self._execute_entry(symbol, signal)
             except Exception as e:
                 logger.error(f"Error analyzing {symbol}: {e}")
 
-            # Rate limit: 0.8с между символами (макс ~75 запросов/мин)
-            await asyncio.sleep(0.8)
+            # Rate limit: 1.5с между символами
+            await asyncio.sleep(1.5)
+
+        logger.info(f"Analyzed {analyzed_count} symbols")
 
     async def _analyze_symbol(self, symbol: str) -> EntrySignal:
         """
@@ -666,16 +679,32 @@ class TradingBot:
 
 
 async def main():
+    # PID lock — защита от двойного запуска
+    pid_file = BOT_DIR / "bot.pid"
+    if pid_file.exists():
+        old_pid = pid_file.read_text().strip()
+        try:
+            os.kill(int(old_pid), 0)  # Проверяем жив ли процесс
+            logger.error(f"Bot already running (PID {old_pid})! Kill it first: kill {old_pid}")
+            return
+        except (OSError, ValueError):
+            pass  # Старый процесс мёртв, продолжаем
+    pid_file.write_text(str(os.getpid()))
+
     bot = TradingBot()
 
     def handle_signal(sig, frame):
         logger.info("Shutting down...")
         bot.stop()
+        pid_file.unlink(missing_ok=True)
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    await bot.run()
+    try:
+        await bot.run()
+    finally:
+        pid_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
