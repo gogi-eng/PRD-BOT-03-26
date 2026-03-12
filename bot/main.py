@@ -466,7 +466,8 @@ class TradingBot:
             except Exception as e:
                 logger.error(f"Error analyzing {symbol}: {e}")
 
-            await asyncio.sleep(0.3)
+            # Rate limit: 0.8с между символами (макс ~75 запросов/мин)
+            await asyncio.sleep(0.8)
 
     async def _analyze_symbol(self, symbol: str) -> EntrySignal:
         """

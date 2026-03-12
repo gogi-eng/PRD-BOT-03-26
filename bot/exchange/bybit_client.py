@@ -104,6 +104,14 @@ class BybitClient:
                     print(f"[BYBIT] API error: {error_msg} (code: {ret_code})")
                     if ret_code in [10001, 10002, 10003]:
                         return {"_error": error_msg, "_code": ret_code}
+                    # Rate limit — ждём и повторяем
+                    if ret_code == 10006:
+                        if attempt < retries - 1:
+                            wait = 3 * (attempt + 1)
+                            print(f"[BYBIT] Rate limit, waiting {wait}s...")
+                            await asyncio.sleep(wait)
+                            continue
+                        return {"_error": "Rate limit exceeded", "_code": 10006}
 
             except aiohttp.ClientError as e:
                 print(f"[BYBIT] Request error (attempt {attempt + 1}/{retries}): {e}")
