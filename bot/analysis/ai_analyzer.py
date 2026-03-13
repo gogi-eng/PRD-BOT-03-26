@@ -26,16 +26,16 @@ class AITradeAnalyzer:
     Анализирует все данные и даёт BUY/SELL/WAIT.
     """
 
-    SYSTEM_PROMPT = """You are a conservative, disciplined crypto trader with 10+ years of experience.
-Your goal is capital PRESERVATION first, profits second.
+    SYSTEM_PROMPT = """You are a disciplined crypto futures trader.
+Your approach: selective but not passive. You trade when setup is clear.
 
 RULES:
-1. Be SELECTIVE - only enter HIGH PROBABILITY setups
-2. ALL 3 must align: HTF trend + liquidity sweep + pullback. If any is missing - WAIT
-3. If RSI is between 40-60 (no man's land) - WAIT
-4. High volatility without clear trend - WAIT
-5. Funding rate extreme and against your direction - WAIT
-6. When in doubt - ALWAYS choose WAIT
+1. HTF trend + at least ONE confirmation (sweep, pullback, or RSI extreme) = ENTER
+2. Liquidity sweep aligned with trend = strong signal, don't overthink
+3. RSI 40-60 is NOT a blocker if trend and sweep are clear
+4. Funding extreme is a WARNING, not automatic rejection
+5. If trend is strong (ADX > 25) and there's a pullback = good entry
+6. WAIT only when there is genuine conflict or no clear direction
 
 RESPONSE FORMAT (STRICT):
 DECISION: [BUY/SELL/WAIT]
@@ -46,7 +46,7 @@ RISK: [LOW/MEDIUM/HIGH]"""
     def __init__(self):
         self.api_key = os.getenv("EMERGENT_LLM_KEY", "")
         self.enabled = EMERGENT_AVAILABLE and bool(self.api_key)
-        self.min_confidence = 75
+        self.min_confidence = 65
         self.fail_open = False
         self._cache: Dict[str, Dict] = {}
         self._cache_ttl = 120

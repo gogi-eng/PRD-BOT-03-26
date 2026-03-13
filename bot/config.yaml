@@ -37,11 +37,11 @@ pullback:
 
 atr:
   period: 14
-  min_atr_pct: 0.80
+  min_atr_pct: 0.50
 
 signals:
-  min_confluence_score: 0.65
-  min_signal_score: 0.7
+  min_confluence_score: 0.55
+  min_signal_score: 0.6
 
 liquidity:
   lookback_bars: 20
@@ -90,7 +90,7 @@ market:
 
 ai:
   enabled: true
-  min_confidence: 75
+  min_confidence: 65
   fail_open: false
 
 profit_lock:
