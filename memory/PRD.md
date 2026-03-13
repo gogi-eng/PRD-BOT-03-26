@@ -72,6 +72,11 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
   - `position_idx` протянут через close / update SL / update TP для корректной работы с подхваченными позициями
   - исправлен цикл profit lock: `None` больше не ломает `for symbol in closed_symbols`
   - для подхваченных/ручных позиций отключён `early_exit`, чтобы бот не закрывал их слишком рано этой внутренней логикой
+  - добавлен отдельный **manual-safe mode** для ручных позиций:
+    - RL выключен
+    - трейлинг мягче, чем у сигналов бота
+    - если у ручной позиции уже есть TP на бирже, бот его сохраняет и не строит partial TP поверх него
+    - Telegram-логи по событиям: подхват / partial TP / перенос SL / portfolio TP
 - Новый backend smoke test suite в `/app/backend_test.py`
 
 ## Current Strategy Logic
@@ -114,6 +119,7 @@ SHORT:
 - `/app/backend_test.py` updated for new architecture — **13/13 PASS**
 - `testing_agent` report `/app/test_reports/iteration_3.json` — **44/44 PASS**
 - `deep_testing_backend_v2` verification — **PASS**
+- manual-safe mode self-test `/app/backend_test.py` — **14/14 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
