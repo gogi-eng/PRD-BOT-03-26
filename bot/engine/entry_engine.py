@@ -169,6 +169,15 @@ class EntryEngine:
                 if sl_from_sweep > current_price:
                     sl_price = sl_from_sweep
 
+        # Минимальный SL = 1 ATR (не ближе!)
+        min_sl_distance = atr_value * 1.0
+        actual_distance = abs(current_price - sl_price)
+        if actual_distance < min_sl_distance:
+            if entry_side > 0:
+                sl_price = current_price - min_sl_distance
+            else:
+                sl_price = current_price + min_sl_distance
+
         # RR
         risk = abs(current_price - sl_price)
         reward = abs(tp_price - current_price)

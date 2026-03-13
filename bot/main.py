@@ -542,6 +542,13 @@ class TradingBot:
         if not signal.should_enter:
             return signal
 
+        # Детальный лог ПОЧЕМУ вход
+        current_price = float(klines[-1]["close"])
+        logger.info(f"[ENTRY] {symbol}: {signal.side} price=${current_price:.4f} "
+                    f"htf={market.htf_trend.name} ltf={market.trend.name} "
+                    f"ADX={market.adx:.0f} RSI={market.rsi:.0f} "
+                    f"conf={signal.confidence:.0%} reasons={signal.reasons}")
+
         # 9. Funding filter check
         blocked, fr_reason = self.funding_filter.should_filter_entry(funding, signal.side)
         if blocked:

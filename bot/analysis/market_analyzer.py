@@ -89,22 +89,35 @@ class MarketAnalyzer:
         current_price = closes[-1]
         result.atr_pct = (atr / current_price * 100) if current_price > 0 else 0
 
-        # Trend direction (LTF)
+        # Trend direction (LTF) — EMA cross + price position
         if result.ema_fast > result.ema_slow * 1.001:
             result.trend = TrendDirection.BULLISH
         elif result.ema_fast < result.ema_slow * 0.999:
             result.trend = TrendDirection.BEARISH
         else:
-            result.trend = TrendDirection.NEUTRAL
+            # EMAs close — используем цену как арбитр
+            if current_price > result.ema_fast and current_price > result.ema_slow:
+                result.trend = TrendDirection.BULLISH
+            elif current_price < result.ema_fast and current_price < result.ema_slow:
+                result.trend = TrendDirection.BEARISH
+            else:
+                result.trend = TrendDirection.NEUTRAL
 
-        # HTF trend (4H candles)
+        # HTF trend (4H candles) — ЦЕНА должна подтверждать
         if htf_klines and len(htf_klines) >= self.ema_slow_period + 5:
             htf_closes = [float(k["close"]) for k in htf_klines]
+            htf_price = htf_closes[-1]
             htf_ema_fast = self._ema(htf_closes, self.ema_fast_period)
             htf_ema_slow = self._ema(htf_closes, self.ema_slow_period)
-            if htf_ema_fast > htf_ema_slow * 1.001:
+
+            ema_bullish = htf_ema_fast > htf_ema_slow * 1.001
+            ema_bearish = htf_ema_fast < htf_ema_slow * 0.999
+            price_above = htf_price > htf_ema_fast and htf_price > htf_ema_slow
+            price_below = htf_price < htf_ema_fast and htf_price < htf_ema_slow
+
+            if ema_bullish or price_above:
                 result.htf_trend = TrendDirection.BULLISH
-            elif htf_ema_fast < htf_ema_slow * 0.999:
+            elif ema_bearish or price_below:
                 result.htf_trend = TrendDirection.BEARISH
             else:
                 result.htf_trend = TrendDirection.NEUTRAL
