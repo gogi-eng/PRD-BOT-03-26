@@ -25,6 +25,12 @@ class Position:
     trailing_activation_price: float = 0.0
     bars_since_entry: int = 0
     unrealized_pnl: float = 0.0
+    capital_weight: float = 1.0
+    heatmap_target: float = 0.0
+    protective_liq_level: float = 0.0
+    model_confidence: float = 0.0
+    last_rl_action: str = "hold"
+    add_count: int = 0
 
     @property
     def is_long(self) -> bool:
@@ -50,6 +56,23 @@ class PositionManager:
     def get(self, symbol: str) -> Optional[Position]:
         return self.positions.get(symbol)
 
+    def increase(self, symbol: str, qty: float, price: float):
+        pos = self.positions.get(symbol)
+        if not pos or qty <= 0 or price <= 0:
+            return
+        total_cost = pos.entry_price * pos.qty + price * qty
+        pos.qty += qty
+        pos.entry_price = total_cost / pos.qty
+        pos.add_count += 1
+
+    def reduce(self, symbol: str, qty: float):
+        pos = self.positions.get(symbol)
+        if not pos or qty <= 0:
+            return
+        pos.qty = max(0.0, pos.qty - qty)
+        if pos.qty <= 0:
+            self.remove(symbol)
+
     def has(self, symbol: str) -> bool:
         return symbol in self.positions
 
@@ -71,5 +94,9 @@ class PositionManager:
                 "qty": pos.qty,
                 "entry": pos.entry_price,
                 "unrealized_pnl": pos.unrealized_pnl,
+                "stop_loss": pos.stop_loss,
+                "take_profit": pos.take_profit,
+                "heatmap_target": pos.heatmap_target,
+                "rl_action": pos.last_rl_action,
             }
         return result

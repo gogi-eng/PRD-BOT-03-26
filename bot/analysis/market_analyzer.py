@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""
-MARKET ANALYZER — единый анализатор рынка.
-Объединяет: trend detection + volatility regime + market regime.
-Заменяет все разрозненные analysis модули.
-"""
-from typing import Dict, List, Optional
+"""Core market feature extraction for the AI-fund style entry stack."""
+from __future__ import annotations
+
+from dataclasses import dataclass
 from enum import Enum
-import math
+from typing import Dict, List, Optional
 
 
 class MarketRegime(Enum):
-    STRONG_TREND = "strong_trend"
     TREND = "trend"
-    RANGE = "range"
-    VOLATILE = "volatile"
-    CRASH = "crash"
-    PUMP = "pump"
+    CHOP = "chop"
+    BREAKOUT = "breakout"
 
 
 class TrendDirection(Enum):
@@ -31,39 +26,35 @@ class VolatilityRegime(Enum):
     EXTREME = "extreme"
 
 
+@dataclass
 class MarketAnalysis:
-    """Результат анализа рынка."""
-    def __init__(self):
-        self.regime: MarketRegime = MarketRegime.RANGE
-        self.trend: TrendDirection = TrendDirection.NEUTRAL
-        self.volatility: VolatilityRegime = VolatilityRegime.NORMAL
-        self.adx: float = 0.0
-        self.rsi: float = 50.0
-        self.atr_pct: float = 0.0
-        self.ema_fast: float = 0.0
-        self.ema_slow: float = 0.0
-        self.htf_trend: TrendDirection = TrendDirection.NEUTRAL
-        self.can_trade: bool = True
-        self.reason: str = ""
+    regime: MarketRegime = MarketRegime.CHOP
+    trend: TrendDirection = TrendDirection.NEUTRAL
+    htf_trend: TrendDirection = TrendDirection.NEUTRAL
+    volatility: VolatilityRegime = VolatilityRegime.NORMAL
+    adx: float = 0.0
+    rsi: float = 50.0
+    atr_pct: float = 0.0
+    ema_fast: float = 0.0
+    ema_slow: float = 0.0
+    range_compression: float = 1.0
+    volume_expansion: float = 1.0
+    current_range_pct: float = 0.0
+    can_trade: bool = True
+    reason: str = ""
 
 
 class MarketAnalyzer:
-    """
-    Единый анализатор рынка.
-    Определяет: тренд (HTF), волатильность, режим рынка.
-    """
+    """Computes the features needed by the AI models and entry engine."""
 
-    def __init__(self, ema_fast_period: int = 21, ema_slow_period: int = 50,
-                 adx_period: int = 14, rsi_period: int = 14,
-                 atr_period: int = 14):
+    def __init__(self, ema_fast_period: int = 21, ema_slow_period: int = 55, adx_period: int = 14, rsi_period: int = 14, atr_period: int = 14):
         self.ema_fast_period = ema_fast_period
         self.ema_slow_period = ema_slow_period
         self.adx_period = adx_period
         self.rsi_period = rsi_period
         self.atr_period = atr_period
 
-    def analyze(self, klines: List[Dict], htf_klines: List[Dict] = None) -> MarketAnalysis:
-        """Полный анализ рынка из свечей."""
+    def analyze(self, klines: List[Dict], htf_klines: Optional[List[Dict]] = None) -> MarketAnalysis:
         result = MarketAnalysis()
         if not klines or len(klines) < self.ema_slow_period + 5:
             result.can_trade = False
@@ -73,103 +64,68 @@ class MarketAnalyzer:
         closes = [float(k["close"]) for k in klines]
         highs = [float(k["high"]) for k in klines]
         lows = [float(k["low"]) for k in klines]
+        volumes = [float(k.get("volume", 0.0)) for k in klines]
+        current_price = closes[-1]
 
-        # EMA
         result.ema_fast = self._ema(closes, self.ema_fast_period)
         result.ema_slow = self._ema(closes, self.ema_slow_period)
-
-        # RSI
         result.rsi = self._rsi(closes, self.rsi_period)
-
-        # ADX
         result.adx = self._adx(highs, lows, closes, self.adx_period)
-
-        # ATR %
         atr = self._atr(highs, lows, closes, self.atr_period)
-        current_price = closes[-1]
-        result.atr_pct = (atr / current_price * 100) if current_price > 0 else 0
+        result.atr_pct = (atr / current_price * 100) if current_price > 0 else 0.0
+        result.current_range_pct = ((highs[-1] - lows[-1]) / current_price) if current_price > 0 else 0.0
 
-        # Trend direction (LTF) — EMA cross + price position
-        if result.ema_fast > result.ema_slow * 1.001:
-            result.trend = TrendDirection.BULLISH
-        elif result.ema_fast < result.ema_slow * 0.999:
-            result.trend = TrendDirection.BEARISH
-        else:
-            # EMAs close — используем цену как арбитр
-            if current_price > result.ema_fast and current_price > result.ema_slow:
-                result.trend = TrendDirection.BULLISH
-            elif current_price < result.ema_fast and current_price < result.ema_slow:
-                result.trend = TrendDirection.BEARISH
-            else:
-                result.trend = TrendDirection.NEUTRAL
+        recent_ranges = [((highs[i] - lows[i]) / closes[i]) for i in range(max(0, len(closes) - 10), len(closes)) if closes[i] > 0]
+        baseline_ranges = [((highs[i] - lows[i]) / closes[i]) for i in range(max(0, len(closes) - 40), max(0, len(closes) - 10)) if closes[i] > 0]
+        avg_recent_range = sum(recent_ranges) / len(recent_ranges) if recent_ranges else 0.0
+        avg_baseline_range = sum(baseline_ranges) / len(baseline_ranges) if baseline_ranges else avg_recent_range or 1.0
+        result.range_compression = avg_recent_range / avg_baseline_range if avg_baseline_range > 0 else 1.0
 
-        # HTF trend (4H candles) — ЦЕНА должна подтверждать
+        recent_volume = sum(volumes[-5:]) / max(1, len(volumes[-5:]))
+        baseline_volume = sum(volumes[-25:-5]) / max(1, len(volumes[-25:-5])) if len(volumes) > 10 else recent_volume
+        result.volume_expansion = recent_volume / baseline_volume if baseline_volume > 0 else 1.0
+
+        result.trend = self._resolve_trend(current_price, result.ema_fast, result.ema_slow)
         if htf_klines and len(htf_klines) >= self.ema_slow_period + 5:
             htf_closes = [float(k["close"]) for k in htf_klines]
-            htf_price = htf_closes[-1]
-            htf_ema_fast = self._ema(htf_closes, self.ema_fast_period)
-            htf_ema_slow = self._ema(htf_closes, self.ema_slow_period)
+            htf_fast = self._ema(htf_closes, self.ema_fast_period)
+            htf_slow = self._ema(htf_closes, self.ema_slow_period)
+            result.htf_trend = self._resolve_trend(htf_closes[-1], htf_fast, htf_slow)
+        else:
+            result.htf_trend = result.trend
 
-            ema_bullish = htf_ema_fast > htf_ema_slow * 1.001
-            ema_bearish = htf_ema_fast < htf_ema_slow * 0.999
-            price_above = htf_price > htf_ema_fast and htf_price > htf_ema_slow
-            price_below = htf_price < htf_ema_fast and htf_price < htf_ema_slow
+        if result.range_compression <= 0.82 and result.volume_expansion >= 1.25 and result.current_range_pct >= (result.atr_pct / 100):
+            result.regime = MarketRegime.BREAKOUT
+        elif result.adx >= 20 and result.trend.value != 0:
+            result.regime = MarketRegime.TREND
+        else:
+            result.regime = MarketRegime.CHOP
 
-            if ema_bullish or price_above:
-                result.htf_trend = TrendDirection.BULLISH
-            elif ema_bearish or price_below:
-                result.htf_trend = TrendDirection.BEARISH
-            else:
-                result.htf_trend = TrendDirection.NEUTRAL
-
-        # Volatility regime (based on ATR %)
-        if result.atr_pct < 0.5:
+        if result.atr_pct < 0.2:
             result.volatility = VolatilityRegime.LOW
-        elif result.atr_pct < 1.5:
+        elif result.atr_pct < 1.2:
             result.volatility = VolatilityRegime.NORMAL
-        elif result.atr_pct < 3.0:
+        elif result.atr_pct < 2.5:
             result.volatility = VolatilityRegime.HIGH
         else:
             result.volatility = VolatilityRegime.EXTREME
 
-        # Market regime
-        result.regime = self._determine_regime(result)
-
-        # Can trade?
-        if result.regime == MarketRegime.CRASH:
-            result.can_trade = False
-            result.reason = "Market crash detected"
-        elif result.volatility == VolatilityRegime.EXTREME:
+        if result.volatility == VolatilityRegime.EXTREME:
             result.can_trade = False
             result.reason = "Extreme volatility"
-        elif result.adx < 15 and result.regime == MarketRegime.RANGE:
-            result.can_trade = False
-            result.reason = "Low ADX range — no clear direction"
-
         return result
 
-    def _determine_regime(self, analysis: MarketAnalysis) -> MarketRegime:
-        adx = analysis.adx
-        atr_pct = analysis.atr_pct
-        rsi = analysis.rsi
-
-        # Crash: extreme sell-off
-        if rsi < 20 and atr_pct > 3.0:
-            return MarketRegime.CRASH
-        # Pump: extreme buying
-        if rsi > 80 and atr_pct > 3.0:
-            return MarketRegime.PUMP
-        # Volatile
-        if atr_pct > 2.5:
-            return MarketRegime.VOLATILE
-        # Strong trend
-        if adx > 35:
-            return MarketRegime.STRONG_TREND
-        # Trend
-        if adx > 20:
-            return MarketRegime.TREND
-        # Range
-        return MarketRegime.RANGE
+    @staticmethod
+    def _resolve_trend(price: float, ema_fast: float, ema_slow: float) -> TrendDirection:
+        if price > ema_fast > ema_slow:
+            return TrendDirection.BULLISH
+        if price < ema_fast < ema_slow:
+            return TrendDirection.BEARISH
+        if ema_fast > ema_slow * 1.001:
+            return TrendDirection.BULLISH
+        if ema_fast < ema_slow * 0.999:
+            return TrendDirection.BEARISH
+        return TrendDirection.NEUTRAL
 
     # === Индикаторы ===
 

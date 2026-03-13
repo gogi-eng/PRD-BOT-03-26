@@ -1,128 +1,110 @@
 #!/usr/bin/env python3
-"""
-Liquidation Clusters Detector — анализ зон ликвидаций.
+"""Liquidation heatmap builder following the new technical specification."""
+from __future__ import annotations
 
-Оценивает где сосредоточены ликвидации (на основе расчёта):
-- Вычисляем уровни ликвидации для типичных плечей (5x, 10x, 25x, 50x, 100x)
-- Определяем магнит — куда цена притягивается
-"""
-from typing import Dict, List, Optional
 from dataclasses import dataclass
-import math
+from typing import Dict, List, Optional
 
 
 @dataclass
-class LiquidationLevel:
-    price: float
-    leverage: int
-    side: str  # "long" or "short"
+class LiquidationCluster:
+    level: float
+    size: float
+    hits: int
     distance_pct: float
+    side_bias: str
 
 
 @dataclass
 class LiquidationAnalysis:
-    levels_above: List[LiquidationLevel]
-    levels_below: List[LiquidationLevel]
-    magnet_direction: str  # "up", "down", "neutral"
-    nearest_long_liq: Optional[LiquidationLevel]
-    nearest_short_liq: Optional[LiquidationLevel]
-    signal: int  # 1 = price likely to go up (clear longs below), -1 = down, 0 = neutral
+    clusters_above: List[LiquidationCluster]
+    clusters_below: List[LiquidationCluster]
+    max_liq_cluster_above: Optional[LiquidationCluster]
+    max_liq_cluster_below: Optional[LiquidationCluster]
+    target_level: float
+    target_density: float
+    magnet_direction: str
+    signal: int
+    distance_to_target_pct: float
 
 
 class LiquidationClusterDetector:
-    """
-    Расчётный детектор ликвидационных кластеров.
+    """Aggregates liquidation events into Coinglass-style density clusters."""
 
-    Идея: крупные игроки целятся в зоны где много ликвидаций.
-    Мы можем определить эти зоны, зная текущую цену и типичные плечи.
-    """
+    def __init__(self, cluster_step: int = 20, max_levels: int = 10):
+        self.cluster_step = cluster_step
+        self.max_levels = max_levels
 
-    LEVERAGE_LEVELS = [5, 10, 25, 50, 100]
-
-    def __init__(self):
-        pass
-
-    def analyze(self, current_price: float, recent_highs: List[float] = None,
-                recent_lows: List[float] = None) -> LiquidationAnalysis:
-        """
-        Вычисляет уровни ликвидаций на основе цены и стандартных плечей.
-
-        Ликвидация LONG при плече Nx: price * (1 - 1/N) (упрощённо, без maintenance margin)
-        Ликвидация SHORT при плече Nx: price * (1 + 1/N)
-        """
+    def analyze(self, current_price: float, liquidation_events: Optional[List[Dict]] = None) -> LiquidationAnalysis:
         if current_price <= 0:
-            return LiquidationAnalysis([], [], "neutral", None, None, 0)
+            return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
 
-        levels_above = []
-        levels_below = []
+        cluster_step = 100 if current_price >= 1000 and self.cluster_step < 100 else self.cluster_step
+        clusters: Dict[float, Dict[str, float]] = {}
+        for event in liquidation_events or []:
+            price = float(event.get("price", 0.0))
+            size = float(event.get("size", 0.0))
+            side = str(event.get("side", "")).lower()
+            if price <= 0 or size <= 0:
+                continue
+            level = round(price / cluster_step) * cluster_step
+            bucket = clusters.setdefault(level, {"size": 0.0, "hits": 0, "buy": 0.0, "sell": 0.0})
+            bucket["size"] += size
+            bucket["hits"] += 1
+            if side == "buy":
+                bucket["buy"] += size
+            elif side == "sell":
+                bucket["sell"] += size
 
-        # Reference prices: текущая цена + недавние high/low
-        ref_prices = [current_price]
-        if recent_highs:
-            ref_prices.extend(recent_highs[-5:])
-        if recent_lows:
-            ref_prices.extend(recent_lows[-5:])
+        above: List[LiquidationCluster] = []
+        below: List[LiquidationCluster] = []
+        for level, info in clusters.items():
+            distance_pct = abs(level - current_price) / current_price * 100
+            side_bias = "shorts" if info["sell"] >= info["buy"] else "longs"
+            cluster = LiquidationCluster(
+                level=float(level),
+                size=round(info["size"], 4),
+                hits=int(info["hits"]),
+                distance_pct=round(distance_pct, 4),
+                side_bias=side_bias,
+            )
+            if level > current_price:
+                above.append(cluster)
+            elif level < current_price:
+                below.append(cluster)
 
-        for ref_price in ref_prices:
-            for lev in self.LEVERAGE_LEVELS:
-                # Long liquidation (ниже entry)
-                long_liq = ref_price * (1 - 0.9 / lev)  # ~90% margin
-                dist = abs(current_price - long_liq) / current_price * 100
-                if long_liq < current_price:
-                    levels_below.append(LiquidationLevel(
-                        price=long_liq, leverage=lev, side="long", distance_pct=dist
-                    ))
+        above.sort(key=lambda item: item.distance_pct)
+        below.sort(key=lambda item: item.distance_pct)
+        strongest_above = max(above, key=lambda item: item.size) if above else None
+        strongest_below = max(below, key=lambda item: item.size) if below else None
 
-                # Short liquidation (выше entry)
-                short_liq = ref_price * (1 + 0.9 / lev)
-                dist = abs(short_liq - current_price) / current_price * 100
-                if short_liq > current_price:
-                    levels_above.append(LiquidationLevel(
-                        price=short_liq, leverage=lev, side="short", distance_pct=dist
-                    ))
-
-        # Sort by distance
-        levels_above.sort(key=lambda x: x.distance_pct)
-        levels_below.sort(key=lambda x: x.distance_pct)
-
-        # Deduplicate close levels
-        levels_above = self._deduplicate(levels_above)
-        levels_below = self._deduplicate(levels_below)
-
-        # Nearest
-        nearest_long = levels_below[0] if levels_below else None
-        nearest_short = levels_above[0] if levels_above else None
-
-        # Magnet direction: where are more high-leverage liquidations?
-        high_lev_above = sum(1 for lv in levels_above if lv.leverage >= 25 and lv.distance_pct < 5)
-        high_lev_below = sum(1 for lv in levels_below if lv.leverage >= 25 and lv.distance_pct < 5)
-
-        if high_lev_below > high_lev_above + 2:
-            magnet = "down"
-            signal = -1
-        elif high_lev_above > high_lev_below + 2:
-            magnet = "up"
+        signal = 0
+        magnet = "neutral"
+        target_level = 0.0
+        target_density = 0.0
+        distance_to_target_pct = 0.0
+        if strongest_above and (not strongest_below or strongest_above.size >= strongest_below.size * 1.1):
             signal = 1
-        else:
-            magnet = "neutral"
-            signal = 0
+            magnet = "up"
+            target_level = strongest_above.level
+            target_density = strongest_above.size
+            distance_to_target_pct = strongest_above.distance_pct
+        elif strongest_below:
+            signal = -1
+            magnet = "down"
+            target_level = strongest_below.level
+            target_density = strongest_below.size
+            distance_to_target_pct = strongest_below.distance_pct
 
         return LiquidationAnalysis(
-            levels_above=levels_above[:10],
-            levels_below=levels_below[:10],
+            clusters_above=above[: self.max_levels],
+            clusters_below=below[: self.max_levels],
+            max_liq_cluster_above=strongest_above,
+            max_liq_cluster_below=strongest_below,
+            target_level=target_level,
+            target_density=round(target_density, 4),
             magnet_direction=magnet,
-            nearest_long_liq=nearest_long,
-            nearest_short_liq=nearest_short,
             signal=signal,
+            distance_to_target_pct=round(distance_to_target_pct, 4),
         )
 
-    @staticmethod
-    def _deduplicate(levels: List[LiquidationLevel], min_gap_pct: float = 0.5) -> List[LiquidationLevel]:
-        """Убираем уровни, которые слишком близко друг к другу."""
-        if not levels:
-            return []
-        result = [levels[0]]
-        for lvl in levels[1:]:
-            if abs(lvl.price - result[-1].price) / result[-1].price * 100 >= min_gap_pct:
-                result.append(lvl)
-        return result

@@ -1,57 +1,32 @@
 #!/usr/bin/env python3
-"""
-EXECUTION ENGINE — ЕДИНСТВЕННЫЙ модуль исполнения ордеров.
-
-Отвечает за:
-- Установку leverage
-- Расчёт qty с учётом instrument info
-- Отправку ордеров на биржу
-- Уведомления через Telegram
-"""
+"""Execution engine with post-only limit orders and market fallback."""
 from __future__ import annotations
-from typing import Dict, Optional
+
+import asyncio
 import math
+from typing import Dict, Optional
 
 
 class ExecutionEngine:
-    """Исполнение ордеров на бирже."""
+    """Executes entries and adjustments with conservative order handling."""
 
-    def __init__(self, client, controls, tg=None):
+    def __init__(self, client, controls, tg=None, limit_retries: int = 3):
         self.client = client
         self.controls = controls
         self.tg = tg
+        self.limit_retries = limit_retries
 
-    async def execute_entry(
-        self,
-        symbol: str,
-        side: str,
-        qty: float,
-        stop_loss: float,
-        take_profit: float,
-        leverage: int,
-        reason: str = "",
-    ) -> Dict:
-        """
-        Открыть позицию.
-
-        Returns:
-            {"success": bool, "orderId": str, "error": str, "executed_qty": float}
-        """
-        result = {"success": False, "orderId": "", "error": "", "executed_qty": 0.0}
-
+    async def execute_entry(self, symbol: str, side: str, qty: float, stop_loss: float, take_profit: float, leverage: int, reason: str = "", preferred_price: float = 0.0) -> Dict:
+        result = {"success": False, "orderId": "", "error": "", "executed_qty": 0.0, "avg_price": 0.0}
         if self.controls.dry_run:
             print(f"[EXEC] DRY RUN: {side} {symbol} qty={qty} SL={stop_loss} TP={take_profit}")
-            result["success"] = True
-            result["executed_qty"] = qty
+            result.update({"success": True, "executed_qty": qty, "avg_price": preferred_price})
             if self.tg:
-                await self.tg.send_trade_notification(symbol, side, qty, 0, is_open=True, reason=f"[DRY] {reason}")
+                await self.tg.send_trade_notification(symbol, side, qty, preferred_price, is_open=True, reason=f"[DRY] {reason}")
             return result
 
         try:
-            # Set leverage
             await self.client.set_leverage(symbol, leverage)
-
-            # Get instrument info for qty rounding
             inst = await self.client.get_instrument_info(symbol)
             if inst:
                 qty = self._round_qty(qty, inst["min_qty"], inst["qty_step"])
@@ -61,37 +36,88 @@ class ExecutionEngine:
                 stop_loss = self._round_price(stop_loss, inst["price_step"])
                 take_profit = self._round_price(take_profit, inst["price_step"])
 
-            # Place order
-            bybit_side = "Buy" if side.upper() in ["BUY", "LONG"] else "Sell"
+            opened = await self._open_with_limit_fallback(symbol, side, qty, stop_loss, take_profit, preferred_price)
+            result.update(opened)
+            if result.get("success") and self.tg:
+                await self.tg.send_trade_notification(symbol, side, result["executed_qty"], result.get("avg_price", 0.0), is_open=True, reason=reason)
+        except Exception as exc:
+            result["error"] = str(exc)
+            print(f"[EXEC] Exception: {exc}")
+        return result
+
+    async def execute_add(self, symbol: str, side: str, qty: float, leverage: int, reason: str = "") -> Dict:
+        result = {"success": False, "orderId": "", "error": "", "executed_qty": 0.0, "avg_price": 0.0}
+        if self.controls.dry_run:
+            result.update({"success": True, "executed_qty": qty})
+            return result
+        try:
+            await self.client.set_leverage(symbol, leverage)
+            inst = await self.client.get_instrument_info(symbol)
+            if inst:
+                qty = self._round_qty(qty, inst["min_qty"], inst["qty_step"])
+                if qty < inst["min_qty"]:
+                    result["error"] = f"Qty {qty} below min {inst['min_qty']}"
+                    return result
+            result.update(await self._open_with_limit_fallback(symbol, side, qty, None, None, 0.0))
+            if result.get("success"):
+                print(f"[EXEC] ADDED: {side} {symbol} qty={result['executed_qty']}")
+                if self.tg:
+                    await self.tg.send_message(f"<b>RL ADD</b>\n<code>{symbol}</code> {side} qty=<code>{result['executed_qty']}</code>\n{reason}")
+        except Exception as exc:
+            result["error"] = str(exc)
+        return result
+
+    async def _open_with_limit_fallback(self, symbol: str, side: str, qty: float, stop_loss: Optional[float], take_profit: Optional[float], preferred_price: float) -> Dict:
+        bybit_side = "Buy" if side.upper() in ["BUY", "LONG"] else "Sell"
+        for attempt in range(self.limit_retries):
+            limit_price = preferred_price or await self._derive_passive_price(symbol, side)
             order = await self.client.place_order(
                 symbol=symbol,
                 side=bybit_side,
                 qty=qty,
-                order_type="Market",
+                order_type="Limit",
+                price=limit_price,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
+                time_in_force="PostOnly",
             )
+            if not order.get("success"):
+                continue
+            order_id = order.get("orderId", "")
+            await asyncio.sleep(2 + attempt)
+            status = await self.client.get_order_status(symbol, order_id)
+            filled_qty = float(status.get("filled_qty", 0.0))
+            avg_price = float(status.get("avg_price", 0.0) or limit_price)
+            if filled_qty >= qty * 0.999:
+                print(f"[EXEC] LIMIT FILLED: {side} {symbol} qty={filled_qty} price=${avg_price:.4f}")
+                return {"success": True, "orderId": order_id, "error": "", "executed_qty": filled_qty, "avg_price": avg_price}
+            if filled_qty > 0:
+                remaining = max(0.0, qty - filled_qty)
+                if remaining > 0:
+                    await self.client.cancel_order(symbol, order_id)
+                    market = await self.client.place_order(symbol=symbol, side=bybit_side, qty=remaining, order_type="Market", stop_loss=stop_loss, take_profit=take_profit)
+                    if market.get("success"):
+                        price = await self.client.get_price(symbol)
+                        return {"success": True, "orderId": market.get("orderId", order_id), "error": "", "executed_qty": qty, "avg_price": price or avg_price}
+                return {"success": True, "orderId": order_id, "error": "", "executed_qty": filled_qty, "avg_price": avg_price}
+            await self.client.cancel_order(symbol, order_id)
 
-            if order.get("success"):
-                result["success"] = True
-                result["orderId"] = order.get("orderId", "")
-                result["executed_qty"] = qty
+        market = await self.client.place_order(symbol=symbol, side=bybit_side, qty=qty, order_type="Market", stop_loss=stop_loss, take_profit=take_profit)
+        if market.get("success"):
+            price = await self.client.get_price(symbol)
+            print(f"[EXEC] MARKET FALLBACK: {side} {symbol} qty={qty} price=${price:.4f}")
+            return {"success": True, "orderId": market.get("orderId", ""), "error": "", "executed_qty": qty, "avg_price": price}
+        return {"success": False, "orderId": "", "error": market.get("error", "Order failed"), "executed_qty": 0.0, "avg_price": 0.0}
 
-                # Get actual entry price
-                price = await self.client.get_price(symbol)
-                print(f"[EXEC] OPENED: {side} {symbol} qty={qty} price=${price:.4f} SL=${stop_loss:.4f} TP=${take_profit:.4f}")
-
-                if self.tg:
-                    await self.tg.send_trade_notification(symbol, side, qty, price, is_open=True, reason=reason)
-            else:
-                result["error"] = order.get("error", "Unknown")
-                print(f"[EXEC] FAILED: {side} {symbol} - {result['error']}")
-
-        except Exception as e:
-            result["error"] = str(e)
-            print(f"[EXEC] Exception: {e}")
-
-        return result
+    async def _derive_passive_price(self, symbol: str, side: str) -> float:
+        orderbook = await self.client.get_orderbook(symbol, limit=5)
+        bids = orderbook.get("bids", [])
+        asks = orderbook.get("asks", [])
+        if side.upper() in ["BUY", "LONG"] and bids:
+            return float(bids[0][0])
+        if side.upper() in ["SELL", "SHORT"] and asks:
+            return float(asks[0][0])
+        return await self.client.get_price(symbol)
 
     async def execute_close(self, symbol: str, side: str, qty: float = None, reason: str = "") -> Dict:
         """Закрыть позицию."""

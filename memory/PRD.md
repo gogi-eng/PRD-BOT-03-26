@@ -1,79 +1,123 @@
-# Trading Bot v8.0 — PRD
+# Trading Bot v9.0 — PRD
 
 ## Original Problem Statement
-Переписать бот по рекомендациям из файла "Оценка 08.03.26" — чистая архитектура, один Entry Engine, один Risk Manager, добавить 5 новых фильтров, AI analyzer.
+Пользователь потребовал переписать бота в строгом соответствии с новым ТЗ `ТЗ 13.03.26.txt` и выбрал режим реализации:
 
-## Architecture
+**A. Максимально строгое следование ТЗ без сохранения старых компромиссов.**
+
+Цель: превратить бота в многоуровневую AI-архитектуру с новым Entry Engine, liquidation heatmap, transformer-прогнозом, market regime AI, RL-управлением позицией и allocator-логикой по символам.
+
+## Current Architecture
 ```
-MARKET DATA → MARKET ANALYZER → ENTRY ENGINE → RISK MANAGER → EXECUTION ENGINE → POSITION MANAGER → EXIT ENGINE
-```
-
-## Core Requirements
-- ONE Entry Engine (Trend + Pullback + Liquidity Sweep)
-- ONE Risk Manager (position sizing + daily limits + consecutive losses)
-- ONE Execution Engine
-- ONE Exit Engine (ATR-based trailing + TP + SL)
-- 5 фильтров: Liquidity Sweep, Funding, Correlation, Liquidation Clusters, ATR Volatility Regime
-- AI signal filter (Gemini 3 Flash через Emergent Universal Key)
-- Telegram управление
-- Bybit v5 API
-
-## What's Been Implemented (2026-01-26)
-- **13 Python модулей** в `/app/bot/`
-- Полный пайплайн: данные → анализ → вход → риск → исполнение → позиции → выход
-- Все 5 рекомендованных фильтров
-- AI analyzer (Gemini 3 Flash)
-- Telegram controller с кнопками
-- Чистый config.yaml
-- **3405 строк** вместо 20000+
-- **13/13 тестов пройдено (100%)**
-
-## Tech Stack
-- Python 3.11 (asyncio)
-- Bybit v5 API (aiohttp)
-- python-telegram-bot 20+
-- emergentintegrations (Gemini 3 Flash)
-- PyYAML, python-dotenv
-
-## File Structure
-```
-/app/bot/
-├── main.py                        # Entry point
-├── config.yaml                    # Configuration
-├── .env.example                   # Environment template
-├── requirements.txt               # Dependencies
-├── core/
-│   ├── config.py                  # YAML config loader
-│   ├── security.py                # Key management
-│   └── live_controls.py           # Runtime controls
-├── exchange/
-│   └── bybit_client.py            # Bybit v5 API
-├── analysis/
-│   ├── market_analyzer.py         # Trend + Volatility + Regime
-│   ├── liquidity_sweep.py         # Sweep detector
-│   ├── funding_filter.py          # Funding rate filter
-│   ├── correlation_filter.py      # Correlation filter
-│   ├── liquidation_clusters.py    # Liquidation zones
-│   └── ai_analyzer.py             # AI signal filter
-├── engine/
-│   ├── entry_engine.py            # ONE entry engine
-│   ├── risk_manager.py            # ONE risk manager
-│   ├── execution_engine.py        # Order execution
-│   ├── position_manager.py        # Position tracking
-│   └── exit_engine.py             # ATR-based exits
-├── tg/
-│   └── controller.py              # Telegram bot
-└── utils/
-    └── __init__.py                # ATR calculator
+DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
+→ ENTRY ENGINE → CAPITAL ALLOCATOR → RISK MANAGER → EXECUTION ENGINE
+→ POSITION MANAGER → RL POSITION AGENT → EXIT ENGINE → TELEGRAM CONTROL
 ```
 
-## Backlog (P0/P1/P2)
+## Core Requirements from ТЗ 13.03.26
+- Liquidation Heatmap с кластерами и целями `max_liq_cluster_above / max_liq_cluster_below`
+- Новый Entry Engine только на основе:
+  - Transformer probability
+  - Liquidation magnet proximity
+  - Orderflow imbalance
+  - Regime filter
+- Market Regime AI: `TREND / CHOP / BREAKOUT`
+- RL agent для действий `hold / add / reduce / close`
+- Multi-symbol capital allocator c softmax weighting
+- Risk per trade: **0.5% капитала**
+- ATR stop + liquidation stop
+- Execution: **LIMIT + POST ONLY + fallback to market**
+- Telegram controls: START/STOP, risk, AI, RL, heatmap, positions
+- Monitoring/logging of predictions, heatmap, signals, PnL
+
+## What Has Been Implemented
+
+### Previous foundation
+- Полностью переписанный бот в `/app/bot` вместо большого legacy-кода
+- Profit lock, Telegram interface, trade history, базовый risk management
+- Bybit v5 integration, AI filter via `emergentintegrations`
+
+### New implementation for ТЗ 13.03.26 (current fork)
+- **`main.py` переписан под v9.0 AI-fund pipeline**
+- Добавлены новые модули:
+  - `analysis/orderflow_analyzer.py`
+  - `analysis/feature_engineering.py`
+  - `analysis/market_regime_ai.py`
+  - `analysis/transformer_model.py`
+  - `engine/capital_allocator.py`
+  - `engine/rl_position_agent.py`
+- Переписаны ключевые модули:
+  - `analysis/market_analyzer.py`
+  - `analysis/liquidation_clusters.py`
+  - `analysis/ai_analyzer.py`
+  - `engine/entry_engine.py`
+  - `engine/execution_engine.py`
+  - `engine/exit_engine.py`
+  - `engine/position_manager.py`
+  - `core/live_controls.py`
+  - `tg/controller.py`
+  - `config.yaml`
+- Bybit client расширен:
+  - public orderbook
+  - recent trades
+  - liquidation WebSocket cache
+  - order status / cancel order
+  - post-only limit support
+- Новый backend smoke test suite в `/app/backend_test.py`
+
+## Current Strategy Logic
+
+### Entry
+LONG:
+- `transformer_prob_up >= 0.62`
+- target heatmap above price
+- distance to heatmap target `<= 0.4%`
+- bullish orderflow ratio `>= 1.2`
+- regime in `trend/breakout`
+
+SHORT:
+- `transformer_prob_down >= 0.62`
+- target heatmap below price
+- distance to heatmap target `<= 0.4%`
+- bearish orderflow ratio `>= 1.2`
+- regime in `trend/breakout`
+
+### Risk & execution
+- Base risk per trade: `0.5%`
+- Capital allocation modifies size through symbol weight
+- Orders: post-only limit first, then market fallback
+- Exit stack:
+  - liquidation stop
+  - hard SL
+  - early exit
+  - trailing stop
+  - TP cap
+- RL agent can `add / reduce / close / hold`
+
+## Testing Status
+- Ruff lint: `/app/bot` and `/app/backend_test.py` — **PASS**
+- Local smoke script for synthetic pipeline — **PASS**
+- `/app/backend_test.py` updated for new architecture — **11/11 PASS**
+
+## Running Notes for User
+- Бот запускается отдельно от preview-среды
+- После передачи изменений пользователю нужно **скопировать весь `/app/bot` каталог целиком**
+- Затем на сервере пользователя выполнить:
+  - `pip install -r requirements.txt`
+  - запустить уже новую версию `main.py`
+
+## Priority Backlog
+
+### P0
+- Прогнать уже на реальном сервере пользователя с их Bybit/Telegram ключами
+- Проверить реальное поведение liquidation stream и post-only execution на Bybit
+
 ### P1
-- Orderflow analysis (CVD, Delta, Bid/Ask imbalance)
-- Backtesting framework для новой архитектуры
-- WebSocket real-time data вместо polling
+- Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
+- Добавить отдельный лог/дамп AI predictions и heatmap snapshots в jsonl
+- Добиться точной настройки capital allocator под разные классы активов
 
 ### P2
-- Portfolio risk (max exposure, max sector)
-- Multi-exchange support
-- Dashboard для мониторинга
+- Отдельный backtesting harness под новую архитектуру v9.0
+- Portfolio-level exposure caps across symbols
+- Web dashboard / observer panel

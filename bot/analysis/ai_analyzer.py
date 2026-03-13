@@ -26,16 +26,22 @@ class AITradeAnalyzer:
     Анализирует все данные и даёт BUY/SELL/WAIT.
     """
 
-    SYSTEM_PROMPT = """You are a disciplined crypto futures trader.
-Your approach: selective but not passive. You trade when setup is clear.
+    SYSTEM_PROMPT = """You are the final risk committee for an AI-driven crypto futures fund.
+Approve a trade only when the new entry engine is fully aligned.
 
-RULES:
-1. HTF trend + at least ONE confirmation (sweep, pullback, or RSI extreme) = ENTER
-2. Liquidity sweep aligned with trend = strong signal, don't overthink
-3. RSI 40-60 is NOT a blocker if trend and sweep are clear
-4. Funding extreme is a WARNING, not automatic rejection
-5. If trend is strong (ADX > 25) and there's a pullback = good entry
-6. WAIT only when there is genuine conflict or no clear direction
+REQUIRED LONG CONDITIONS:
+1. transformer_prob_up is strong
+2. liquidation heatmap target is close and above price
+3. orderflow imbalance is bullish
+4. regime is TREND or BREAKOUT
+
+REQUIRED SHORT CONDITIONS:
+1. transformer_prob_down is strong
+2. liquidation heatmap target is close and below price
+3. orderflow imbalance is bearish
+4. regime is TREND or BREAKOUT
+
+Reject trades when the inputs conflict, spread is poor, or the move is too late.
 
 RESPONSE FORMAT (STRICT):
 DECISION: [BUY/SELL/WAIT]
@@ -78,24 +84,24 @@ RISK: [LOW/MEDIUM/HIGH]"""
             f"  Trend: {data.get('trend', 'neutral')}",
             f"  HTF Trend: {data.get('htf_trend', 'neutral')}",
             f"  ADX: {data.get('adx', 0):.1f}",
-            f"  RSI: {data.get('rsi', 50):.1f}",
             f"  ATR%: {data.get('atr_pct', 0):.2f}%",
             f"  Volatility: {data.get('volatility', 'normal')}",
             "",
-            "LIQUIDITY SWEEP:",
-            f"  Detected: {data.get('sweep_detected', False)}",
-            f"  Direction: {data.get('sweep_direction', 0)} (1=bullish, -1=bearish)",
-            f"  Strength: {data.get('sweep_strength', 0):.2f}",
-            f"  Description: {data.get('sweep_description', 'none')}",
+            "TRANSFORMER MODEL:",
+            f"  Prob up: {data.get('transformer_prob_up', 0):.2f}",
+            f"  Prob down: {data.get('transformer_prob_down', 0):.2f}",
+            f"  Prob flat: {data.get('transformer_prob_flat', 0):.2f}",
             "",
-            "FUNDING:",
-            f"  Rate: {data.get('funding_rate', 0)*100:.4f}%",
-            f"  Sentiment: {data.get('funding_sentiment', 'neutral')}",
-            f"  OI Change: {data.get('oi_change', 0)*100:.1f}%",
+            "ORDERFLOW:",
+            f"  Bullish ratio: {data.get('orderflow_bullish_ratio', 1):.2f}",
+            f"  Bearish ratio: {data.get('orderflow_bearish_ratio', 1):.2f}",
+            f"  Spread: {data.get('spread_pct', 0):.4f}%",
             "",
-            "LIQUIDATION CLUSTERS:",
+            "LIQUIDATION HEATMAP:",
             f"  Magnet: {data.get('liq_magnet', 'neutral')}",
             f"  Signal: {data.get('liq_signal', 0)}",
+            f"  Target level: {data.get('liq_target', 0):.4f}",
+            f"  Distance to target: {data.get('liq_distance_pct', 0):.3f}%",
             "",
             "PROPOSED ENTRY:",
             f"  Signal: {data.get('proposed_signal', 'NONE')}",
@@ -139,7 +145,7 @@ RISK: [LOW/MEDIUM/HIGH]"""
         if not self.enabled:
             proposed = analysis_data.get("proposed_signal", "NEUTRAL")
             confluence = analysis_data.get("confluence_score", 0)
-            if proposed in ["BUY", "SELL"] and confluence >= 0.5:
+            if proposed in ["BUY", "SELL"] and confluence >= 0.62:
                 return {
                     "decision": proposed, "confidence": int(confluence * 100),
                     "reason": "AI disabled, confluence sufficient",

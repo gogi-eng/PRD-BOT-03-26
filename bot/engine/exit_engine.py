@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 class ExitReason(Enum):
     HARD_SL = "hard_sl"
+    LIQUIDATION_STOP = "liquidation_stop"
     EARLY_EXIT = "early_exit"
     TRAILING_EXIT = "trailing_exit"
     TP_CAP = "tp_cap"
@@ -45,7 +46,7 @@ class ExitEngine:
         self.trailing_distance_atr = trailing_distance_atr
         self.tp_cap_atr_mult = tp_cap_atr_mult
 
-    def initialize_position(self, position, atr_value: float):
+    def initialize_position(self, position, atr_value: float, protective_liq_level: float = 0.0):
         """
         Рассчитать exit levels при входе.
         Модифицирует position in-place.
@@ -83,11 +84,13 @@ class ExitEngine:
             position.trailing_stop = position.stop_loss
 
         position.best_price = entry
+        if hasattr(position, "protective_liq_level") and protective_liq_level > 0:
+            position.protective_liq_level = protective_liq_level
 
         print(f"   [EXIT] {position.symbol}: SL=${position.stop_loss:.4f} "
               f"TP=${position.take_profit:.4f} trail_dist={position.trailing_distance:.4f}")
 
-    def check_exit(self, position, current_price: float, atr_value: float = 0) -> Tuple[bool, Optional[ExitReason], str]:
+    def check_exit(self, position, current_price: float, atr_value: float = 0, protective_level: float = 0.0) -> Tuple[bool, Optional[ExitReason], str]:
         """
         Проверить условия выхода.
 
@@ -105,6 +108,12 @@ class ExitEngine:
             profit = current_price - entry
         else:
             profit = entry - current_price
+
+        if protective_level > 0:
+            if is_long and current_price <= protective_level:
+                return True, ExitReason.LIQUIDATION_STOP, f"Price ${current_price:.4f} <= liq stop ${protective_level:.4f}"
+            if not is_long and current_price >= protective_level:
+                return True, ExitReason.LIQUIDATION_STOP, f"Price ${current_price:.4f} >= liq stop ${protective_level:.4f}"
 
         # 1. HARD SL
         if is_long and current_price <= position.stop_loss:

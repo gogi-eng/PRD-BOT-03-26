@@ -236,7 +236,8 @@ class RiskGuard:
     # === Position sizing ===
 
     def calculate_position_size(self, balance: float, risk_pct: float, entry: float,
-                                stop_loss: float, leverage: int, atr_value: float = 0) -> float:
+                                stop_loss: float, leverage: int, atr_value: float = 0,
+                                capital_weight: float = 1.0, margin_cap_pct: float = 10.0) -> float:
         """
         Рассчитать размер позиции с ЖЁСТКИМИ лимитами.
 
@@ -247,7 +248,8 @@ class RiskGuard:
         if entry <= 0 or stop_loss <= 0 or balance <= 0:
             return 0.0
 
-        risk_amount = balance * (risk_pct / 100)
+        capital_weight = max(0.2, min(capital_weight, 1.5))
+        risk_amount = balance * (risk_pct / 100) * capital_weight
         distance = abs(entry - stop_loss)
         if distance <= 0:
             return 0.0
@@ -259,7 +261,6 @@ class RiskGuard:
         qty = (risk_amount * multiplier) / distance
 
         # 2. ЖЁСТКИЙ ЛИМИТ: маржа не более margin_cap_pct% от баланса
-        margin_cap_pct = 15.0  # Максимум 15% баланса на одну сделку
         max_margin = balance * (margin_cap_pct / 100)
         max_notional = max_margin * leverage
         max_qty_by_margin = max_notional / entry if entry > 0 else 0
@@ -270,7 +271,7 @@ class RiskGuard:
             qty = max_qty_by_margin
 
         # 3. Абсолютный лимит: notional не более 50% баланса * leverage
-        absolute_max_notional = balance * 0.5 * leverage
+        absolute_max_notional = balance * 0.35 * leverage * max(capital_weight, 0.5)
         absolute_max_qty = absolute_max_notional / entry if entry > 0 else 0
         if qty > absolute_max_qty:
             print(f"[RISK] HARD CAP: qty {qty:.4f} -> {absolute_max_qty:.4f}")

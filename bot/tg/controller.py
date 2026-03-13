@@ -90,32 +90,26 @@ class TelegramController:
 
     def _build_keyboard(self) -> InlineKeyboardMarkup:
         c = self.controls
-        enabled_btn = "АКТИВЕН" if c.enabled else "ПАУЗА"
-        mode_btn = "ТЕСТ" if c.dry_run else "LIVE"
+        ai_btn = f"AI {'ON' if c.ai_enabled else 'OFF'}"
+        rl_btn = f"RL {'ON' if c.rl_enabled else 'OFF'}"
 
         rows = [
             [
-                InlineKeyboardButton(enabled_btn, callback_data="TOGGLE_ENABLED"),
-                InlineKeyboardButton(mode_btn, callback_data="TOGGLE_DRY"),
+                InlineKeyboardButton("START BOT", callback_data="START_BOT"),
+                InlineKeyboardButton("STOP BOT", callback_data="STOP_BOT"),
             ],
             [
-                InlineKeyboardButton(f"Плечо: {c.leverage}x", callback_data="INFO_LEV"),
-                InlineKeyboardButton("-", callback_data="LEV_DOWN"),
-                InlineKeyboardButton("+", callback_data="LEV_UP"),
+                InlineKeyboardButton(f"RISK {c.risk_per_trade_pct:.2f}%", callback_data="INFO_RISK"),
+                InlineKeyboardButton("-", callback_data="RISK_DOWN"),
+                InlineKeyboardButton("+", callback_data="RISK_UP"),
             ],
             [
-                InlineKeyboardButton(f"Маржа: {c.margin_total_pct:.0f}%", callback_data="INFO_MARGIN"),
-                InlineKeyboardButton("-", callback_data="MARGIN_DOWN"),
-                InlineKeyboardButton("+", callback_data="MARGIN_UP"),
+                InlineKeyboardButton(ai_btn, callback_data="TOGGLE_AI"),
+                InlineKeyboardButton(rl_btn, callback_data="TOGGLE_RL"),
             ],
             [
-                InlineKeyboardButton(f"Трейл: {c.trailing_stop_pct:.1f}%", callback_data="INFO_TRAIL"),
-                InlineKeyboardButton("-", callback_data="TRAIL_DOWN"),
-                InlineKeyboardButton("+", callback_data="TRAIL_UP"),
-            ],
-            [
-                InlineKeyboardButton(f"ТП: {c.tp_pct:.1f}%", callback_data="INFO_TP"),
-                InlineKeyboardButton(f"СЛ: {c.sl_pct:.1f}%", callback_data="INFO_SL"),
+                InlineKeyboardButton("VIEW HEATMAP", callback_data="SHOW_HEATMAP"),
+                InlineKeyboardButton("VIEW POSITIONS", callback_data="SHOW_POSITIONS"),
             ],
             [
                 InlineKeyboardButton("Баланс", callback_data="SHOW_BALANCE"),
@@ -130,9 +124,6 @@ class TelegramController:
             ],
             [
                 InlineKeyboardButton("АВАРИЙНАЯ ОСТАНОВКА", callback_data="EMERGENCY"),
-            ],
-            [
-                InlineKeyboardButton("Возобновить торговлю", callback_data="RESUME"),
             ],
             [
                 InlineKeyboardButton("Обновить", callback_data="REFRESH"),
@@ -157,14 +148,14 @@ class TelegramController:
             "",
             f"Статус: <b>{status}</b>",
             f"Режим: {mode}",
-            "Стратегия: Тренд + Откат + Ликвидити Свип",
+            "Стратегия: Transformer + Heatmap + Orderflow",
+            f"AI: <code>{'ON' if c.ai_enabled else 'OFF'}</code> | RL: <code>{'ON' if c.rl_enabled else 'OFF'}</code>",
             "",
             "<b>ПАРАМЕТРЫ</b>",
             f"Плечо: <code>{c.leverage}x</code>",
             f"Маржа: <code>{c.margin_total_pct:.1f}%</code>",
+            f"Риск на сделку: <code>{c.risk_per_trade_pct:.2f}%</code>",
             f"Трейлинг: <code>{c.trailing_stop_pct:.1f}%</code>",
-            f"ТП: <code>{c.tp_pct:.1f}%</code>",
-            f"СЛ: <code>{c.sl_pct:.1f}%</code>",
             f"Макс. позиций: <code>{c.max_positions}</code>",
         ]
 
@@ -225,9 +216,9 @@ class TelegramController:
             "/profitlock - Статус Portfolio Profit Lock\n"
             "/help - Эта справка\n\n"
             "<b>Архитектура:</b>\n"
-            "Анализ рынка -> Вход -> Риск -> Исполнение -> Выход\n\n"
-            "<b>Стратегия:</b> Тренд + Откат + Ликвидити Свип\n"
-            "1 Entry Engine | 1 Risk Manager | 1 Exit Engine\n\n"
+            "Data Layer -> Features -> Transformer -> Entry -> RL -> Execution\n\n"
+            "<b>Стратегия:</b> Transformer + Liquidation Heatmap + Orderflow\n"
+            "1 Entry Engine | 1 Capital Allocator | 1 RL Agent\n\n"
             "<b>Profit Lock:</b>\n"
             "Если общая прибыль >= 5% депо — защита активна.\n"
             "Снижение на 20% от пика 5 мин подряд — закрывает всё."
@@ -269,28 +260,31 @@ class TelegramController:
         action = query.data
         c = self.controls
 
-        if action == "TOGGLE_ENABLED":
-            c.enabled = not c.enabled
-        elif action == "TOGGLE_DRY":
-            c.dry_run = not c.dry_run
-        elif action == "LEV_UP":
-            c.leverage = min(50, c.leverage + 5)
-        elif action == "LEV_DOWN":
-            c.leverage = max(1, c.leverage - 5)
-        elif action == "MARGIN_UP":
-            c.margin_total_pct = min(100, c.margin_total_pct + 5)
-        elif action == "MARGIN_DOWN":
-            c.margin_total_pct = max(1, c.margin_total_pct - 5)
-        elif action == "TRAIL_UP":
-            c.trailing_stop_pct = min(10.0, c.trailing_stop_pct + 0.5)
-        elif action == "TRAIL_DOWN":
-            c.trailing_stop_pct = max(0.5, c.trailing_stop_pct - 0.5)
+        if action == "START_BOT":
+            c.emergency = False
+            c.enabled = True
+        elif action == "STOP_BOT":
+            c.enabled = False
+        elif action == "RISK_UP":
+            c.risk_per_trade_pct = min(2.0, c.risk_per_trade_pct + 0.1)
+        elif action == "RISK_DOWN":
+            c.risk_per_trade_pct = max(0.1, c.risk_per_trade_pct - 0.1)
+        elif action == "TOGGLE_AI":
+            c.ai_enabled = not c.ai_enabled
+        elif action == "TOGGLE_RL":
+            c.rl_enabled = not c.rl_enabled
         elif action == "SHOW_BALANCE":
             balance = c.get_balance()
             await query.message.reply_text(f"<b>БАЛАНС</b>\n\n<code>${balance:.2f}</code>", parse_mode=ParseMode.HTML)
             return
         elif action == "SHOW_STATS":
             await query.message.reply_text(c.stats(), parse_mode=ParseMode.HTML)
+            return
+        elif action == "SHOW_HEATMAP":
+            await query.message.reply_text(c.heatmap_report(), parse_mode=ParseMode.HTML)
+            return
+        elif action == "SHOW_POSITIONS":
+            await query.message.reply_text(c.positions_report(), parse_mode=ParseMode.HTML)
             return
         elif action == "SHOW_PNL":
             await query.message.reply_text(c.pnl_report(), parse_mode=ParseMode.HTML)
@@ -313,12 +307,6 @@ class TelegramController:
             if c._guard:
                 c._guard.emergency_stop()
             await query.message.reply_text("<b>АВАРИЙНАЯ ОСТАНОВКА!</b>\nТорговля остановлена.", parse_mode=ParseMode.HTML)
-        elif action == "RESUME":
-            c.emergency = False
-            c.enabled = True
-            if c._guard:
-                c._guard.resume()
-            await query.message.reply_text("<b>Торговля возобновлена</b>", parse_mode=ParseMode.HTML)
         elif action == "REFRESH":
             pass
 
@@ -346,9 +334,9 @@ class TelegramController:
                 if reason:
                     text += f"\n\nПричина:\n{reason}"
             else:
-                if pnl and pnl >= 0:
+                if pnl is not None and pnl >= 0:
                     result_str = f"+${pnl:.2f}"
-                elif pnl:
+                elif pnl is not None:
                     result_str = f"${pnl:.2f}"
                 else:
                     result_str = ""

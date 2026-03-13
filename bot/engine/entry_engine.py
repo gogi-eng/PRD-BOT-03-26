@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""
-ENTRY ENGINE — ЕДИНСТВЕННЫЙ модуль принятия решений о входе.
-
-Алгоритм:
-1. HTF trend filter (ОБЯЗАТЕЛЬНО)
-2. Минимум 1 подтверждение: sweep ИЛИ pullback ИЛИ RSI extreme
-3. Confluence scoring
-4. SL/TP расчёт
-"""
+"""Entry engine rewritten around transformer + heatmap + orderflow + regime."""
 from __future__ import annotations
-from typing import Dict, List, Optional
-from dataclasses import dataclass
+
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 
 @dataclass
 class EntrySignal:
-    """Сигнал на вход."""
     should_enter: bool = False
     side: str = ""
     confidence: float = 0.0
@@ -23,202 +15,124 @@ class EntrySignal:
     stop_loss: float = 0.0
     take_profit: float = 0.0
     rr_ratio: float = 0.0
-    reasons: list = None
-    filters_passed: dict = None
-
-    def __post_init__(self):
-        if self.reasons is None:
-            self.reasons = []
-        if self.filters_passed is None:
-            self.filters_passed = {}
+    reasons: list = field(default_factory=list)
+    filters_passed: dict = field(default_factory=dict)
+    capital_score: float = 0.0
+    metadata: dict = field(default_factory=dict)
 
 
 class EntryEngine:
-    """
-    Единственный Entry Engine бота.
-
-    Вход если: HTF тренд + минимум 1 подтверждение (sweep / pullback / RSI)
-    """
+    """Strict entry engine from the new specification."""
 
     def __init__(self, cfg):
-        self.min_rr_ratio = cfg.get("trading", "min_rr_ratio", default=3.0)
-        self.min_confluence = cfg.get("signals", "min_confluence_score", default=0.55)
-        self.require_htf_trend = cfg.get("trading", "trend_filter_enabled", default=True)
-        self.pullback_enabled = cfg.get("pullback", "enabled", default=True)
+        self.transformer_threshold = cfg.get("entry", "transformer_threshold", default=0.62)
+        self.max_liq_distance_pct = cfg.get("entry", "max_liq_distance_pct", default=0.4)
+        self.min_orderflow_imbalance = cfg.get("entry", "min_orderflow_imbalance", default=1.2)
+        self.min_rr_ratio = cfg.get("entry", "min_rr_ratio", default=1.8)
+        self.allowed_regimes = set(cfg.get("entry", "allowed_regimes", default=["trend", "breakout"]))
+        self.atr_stop_mult = cfg.get("entry", "atr_stop_mult", default=1.6)
+        self.liq_stop_buffer_atr = cfg.get("entry", "liq_stop_buffer_atr", default=0.35)
 
-    def generate_signal(
-        self,
-        symbol: str,
-        klines: List[Dict],
-        market_analysis,
-        sweep_signal,
-        funding_signal=None,
-        liq_analysis=None,
-        atr_value: float = 0.0,
-    ) -> EntrySignal:
-        signal = EntrySignal()
-        if not klines:
+    def generate_signal(self, symbol: str, current_price: float, market_analysis, regime_prediction, transformer_prediction, orderflow_snapshot, liq_analysis, atr_value: float = 0.0) -> EntrySignal:
+        signal = EntrySignal(entry_price=current_price)
+        regime_value = regime_prediction.regime.value
+        regime_ok = regime_value in self.allowed_regimes and market_analysis.can_trade
+        liq_near = 0 < liq_analysis.distance_to_target_pct <= self.max_liq_distance_pct
+
+        long_ready = (
+            transformer_prediction.prob_up >= self.transformer_threshold
+            and liq_analysis.signal >= 0
+            and liq_analysis.max_liq_cluster_above is not None
+            and liq_near
+            and orderflow_snapshot.bullish_ratio >= self.min_orderflow_imbalance
+            and regime_ok
+        )
+        short_ready = (
+            transformer_prediction.prob_down >= self.transformer_threshold
+            and liq_analysis.signal <= 0
+            and liq_analysis.max_liq_cluster_below is not None
+            and liq_near
+            and orderflow_snapshot.bearish_ratio >= self.min_orderflow_imbalance
+            and regime_ok
+        )
+
+        if not long_ready and not short_ready:
+            signal.filters_passed = {
+                "regime": regime_ok,
+                "heatmap_distance": liq_near,
+                "transformer_long": transformer_prediction.prob_up >= self.transformer_threshold,
+                "transformer_short": transformer_prediction.prob_down >= self.transformer_threshold,
+                "orderflow_long": orderflow_snapshot.bullish_ratio >= self.min_orderflow_imbalance,
+                "orderflow_short": orderflow_snapshot.bearish_ratio >= self.min_orderflow_imbalance,
+            }
             return signal
 
-        current_price = float(klines[-1]["close"])
-        signal.entry_price = current_price
-
-        # === 1. Market regime check ===
-        if not market_analysis.can_trade:
-            return signal
-
-        # === 2. HTF Trend (обязательно) ===
-        htf = market_analysis.htf_trend
-        trend_direction = htf.value if htf.value != 0 else market_analysis.trend.value
-        if trend_direction == 0:
-            return signal
-
-        # === 3. ADX minimum (тренд должен существовать) ===
-        if market_analysis.adx < 15:
-            return signal
-
-        # === 4. Собираем подтверждения ===
-        confluence_score = 0.0
-        reasons = []
-        confirmations = 0
-
-        # Тренд
-        confluence_score += 0.20
-        reasons.append(f"HTF trend: {'bullish' if trend_direction > 0 else 'bearish'} (ADX={market_analysis.adx:.0f})")
-
-        # Сильный тренд — бонус
-        if market_analysis.adx > 30:
-            confluence_score += 0.10
-            reasons.append(f"Strong trend ADX={market_analysis.adx:.0f}")
-
-        # Liquidity Sweep
-        sweep_dir = 0
-        if sweep_signal.detected:
-            sweep_dir = sweep_signal.direction
-            if sweep_dir == trend_direction:
-                # Свип ПО тренду — сильный сигнал
-                confluence_score += 0.30 * sweep_signal.strength
-                confirmations += 1
-                reasons.append(f"Sweep with trend: {sweep_signal.description}")
-            else:
-                # Свип ПРОТИВ тренда — не входим
-                return signal
-
-        # Pullback
-        pullback_dir = self._detect_pullback(klines, market_analysis)
-        if pullback_dir == trend_direction:
-            confluence_score += 0.20
-            confirmations += 1
-            reasons.append(f"Pullback {'bullish' if pullback_dir > 0 else 'bearish'}")
-
-        # RSI
-        rsi = market_analysis.rsi
-        if rsi < 35 and trend_direction > 0:
-            confluence_score += 0.15
-            confirmations += 1
-            reasons.append(f"RSI oversold: {rsi:.1f}")
-        elif rsi > 65 and trend_direction < 0:
-            confluence_score += 0.15
-            confirmations += 1
-            reasons.append(f"RSI overbought: {rsi:.1f}")
-
-        # Funding
-        if funding_signal and funding_signal.signal != 0:
-            if funding_signal.signal == trend_direction:
-                confluence_score += 0.05
-                reasons.append(f"Funding confirms: {funding_signal.reason}")
-            elif funding_signal.strength >= 0.8:
-                # Сильный funding ПРОТИВ нас — бонус не даём, но и не блокируем
-                confluence_score -= 0.05
-
-        # Liquidation clusters
-        if liq_analysis and liq_analysis.signal == trend_direction:
-            confluence_score += 0.05
-            reasons.append(f"Liq magnet: {liq_analysis.magnet_direction}")
-
-        # === 5. Нужно минимум 1 подтверждение помимо тренда ===
-        if confirmations == 0:
-            return signal
-
-        # === 6. Confluence check ===
-        if confluence_score < self.min_confluence:
-            return signal
-
-        # === 7. Определяем сторону ===
-        entry_side = trend_direction
-
-        # === 8. SL/TP ===
+        is_long = long_ready and (transformer_prediction.prob_up >= transformer_prediction.prob_down or not short_ready)
+        target_cluster = liq_analysis.max_liq_cluster_above if is_long else liq_analysis.max_liq_cluster_below
+        target_level = target_cluster.level if target_cluster else liq_analysis.target_level
         if atr_value <= 0:
-            atr_value = current_price * 0.01
+            atr_value = current_price * 0.008
 
-        if entry_side > 0:
-            sl_price = current_price - atr_value * 2.0
-            tp_price = current_price + atr_value * self.min_rr_ratio * 2.0
+        atr_stop = current_price - atr_value * self.atr_stop_mult if is_long else current_price + atr_value * self.atr_stop_mult
+        liq_stop = 0.0
+        if is_long and liq_analysis.max_liq_cluster_below:
+            liq_stop = liq_analysis.max_liq_cluster_below.level - atr_value * self.liq_stop_buffer_atr
+            stop_loss = max(atr_stop, liq_stop)
+        elif (not is_long) and liq_analysis.max_liq_cluster_above:
+            liq_stop = liq_analysis.max_liq_cluster_above.level + atr_value * self.liq_stop_buffer_atr
+            stop_loss = min(atr_stop, liq_stop)
         else:
-            sl_price = current_price + atr_value * 2.0
-            tp_price = current_price - atr_value * self.min_rr_ratio * 2.0
+            stop_loss = atr_stop
 
-        # Sweep-based SL
-        if sweep_signal.detected and sweep_signal.sweep_level > 0:
-            if entry_side > 0:
-                sl_from_sweep = sweep_signal.sweep_level - atr_value * 0.3
-                if sl_from_sweep > 0 and sl_from_sweep < current_price:
-                    sl_price = sl_from_sweep
-            else:
-                sl_from_sweep = sweep_signal.sweep_level + atr_value * 0.3
-                if sl_from_sweep > current_price:
-                    sl_price = sl_from_sweep
+        risk = abs(current_price - stop_loss)
+        if risk <= 0:
+            return signal
 
-        # Минимальный SL = 1 ATR (не ближе!)
-        min_sl_distance = atr_value * 1.0
-        actual_distance = abs(current_price - sl_price)
-        if actual_distance < min_sl_distance:
-            if entry_side > 0:
-                sl_price = current_price - min_sl_distance
-            else:
-                sl_price = current_price + min_sl_distance
+        rr_target = current_price + risk * self.min_rr_ratio if is_long else current_price - risk * self.min_rr_ratio
+        take_profit = max(target_level, rr_target) if is_long and target_level > 0 else min(target_level, rr_target) if (not is_long and target_level > 0) else rr_target
+        reward = abs(take_profit - current_price)
+        rr_ratio = reward / risk if risk > 0 else 0.0
+        if rr_ratio + 1e-6 < self.min_rr_ratio:
+            return signal
 
-        # RR
-        risk = abs(current_price - sl_price)
-        reward = abs(tp_price - current_price)
-        rr = reward / risk if risk > 0 else 0
+        transformer_edge = transformer_prediction.prob_up if is_long else transformer_prediction.prob_down
+        flow_edge = orderflow_snapshot.bullish_ratio if is_long else orderflow_snapshot.bearish_ratio
+        proximity_score = max(0.0, 1.0 - (liq_analysis.distance_to_target_pct / max(self.max_liq_distance_pct, 0.0001)))
+        confidence = min(0.99, transformer_edge * 0.5 + min(flow_edge / 2.0, 1.0) * 0.25 + proximity_score * 0.15 + regime_prediction.confidence * 0.1)
 
-        if rr < self.min_rr_ratio:
-            if entry_side > 0:
-                tp_price = current_price + risk * self.min_rr_ratio
-            else:
-                tp_price = current_price - risk * self.min_rr_ratio
-            rr = self.min_rr_ratio
-
+        side = "BUY" if is_long else "SELL"
         signal.should_enter = True
-        signal.side = "BUY" if entry_side > 0 else "SELL"
-        signal.confidence = min(1.0, confluence_score)
-        signal.entry_price = current_price
-        signal.stop_loss = round(sl_price, 8)
-        signal.take_profit = round(tp_price, 8)
-        signal.rr_ratio = round(rr, 2)
-        signal.reasons = reasons
+        signal.side = side
+        signal.confidence = round(confidence, 4)
+        signal.stop_loss = round(stop_loss, 8)
+        signal.take_profit = round(take_profit, 8)
+        signal.rr_ratio = round(rr_ratio, 2)
+        signal.capital_score = round(confidence * rr_ratio, 4)
+        signal.reasons = [
+            f"Transformer {('up' if is_long else 'down')}={transformer_edge:.2f}",
+            f"Heatmap target={target_level:.4f} dist={liq_analysis.distance_to_target_pct:.3f}%",
+            f"Orderflow {('bullish' if is_long else 'bearish')} ratio={flow_edge:.2f}",
+            f"Regime={regime_value} conf={regime_prediction.confidence:.2f}",
+        ]
+        signal.filters_passed = {
+            "transformer": True,
+            "heatmap": True,
+            "orderflow": True,
+            "regime": True,
+        }
+        signal.metadata = {
+            "target_level": target_level,
+            "protective_liq_level": liq_stop,
+            "transformer_prob_up": transformer_prediction.prob_up,
+            "transformer_prob_down": transformer_prediction.prob_down,
+            "transformer_prob_flat": transformer_prediction.prob_flat,
+            "regime": regime_value,
+            "orderflow_bullish_ratio": orderflow_snapshot.bullish_ratio,
+            "orderflow_bearish_ratio": orderflow_snapshot.bearish_ratio,
+            "spread_pct": orderflow_snapshot.spread_pct,
+            "liq_distance_pct": liq_analysis.distance_to_target_pct,
+            "liq_signal": liq_analysis.signal,
+            "liq_magnet": liq_analysis.magnet_direction,
+            "liq_density": liq_analysis.target_density,
+        }
         return signal
-
-    def _detect_pullback(self, klines: List[Dict], market_analysis) -> int:
-        if not self.pullback_enabled or len(klines) < 20:
-            return 0
-
-        closes = [float(k["close"]) for k in klines[-20:]]
-        trend = market_analysis.trend.value
-        if trend == 0:
-            return 0
-
-        ema = market_analysis.ema_fast
-        current = closes[-1]
-        prev = closes[-3] if len(closes) > 3 else closes[0]
-
-        if trend > 0:
-            # Цена была ниже/около EMA, возвращается выше
-            if prev < ema * 1.002 and current >= ema * 0.998 and current > prev:
-                return 1
-        elif trend < 0:
-            # Цена была выше/около EMA, возвращается ниже
-            if prev > ema * 0.998 and current <= ema * 1.002 and current < prev:
-                return -1
-        return 0

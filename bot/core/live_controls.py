@@ -22,13 +22,15 @@ class LiveControls:
 
     leverage: int = 10
     margin_total_pct: float = 10.0
-    risk_per_trade_pct: float = 2.0
+    risk_per_trade_pct: float = 0.5
     tp_pct: float = 3.0
     sl_pct: float = 1.5
     max_positions: int = 3
     trailing_stop_pct: float = 2.0
+    ai_enabled: bool = True
+    rl_enabled: bool = True
 
-    strategy_mode: str = "trend_pullback"
+    strategy_mode: str = "ai_fund"
 
     _guard: Optional["RiskGuard"] = field(default=None, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -39,6 +41,8 @@ class LiveControls:
     _current_positions: dict = field(default_factory=dict, repr=False)
     _unrealized_pnl: float = field(default=0.0, repr=False)
     _trade_history: list = field(default_factory=list, repr=False)
+    _heatmap_snapshots: dict = field(default_factory=dict, repr=False)
+    _candidate_snapshots: list = field(default_factory=list, repr=False)
 
     def set_guard(self, guard):
         self._guard = guard
@@ -81,9 +85,51 @@ class LiveControls:
 
     def get_strategy_mode_display(self) -> str:
         modes = {
-            "trend_pullback": "Тренд + Откат + Ликвидити",
+            "ai_fund": "Transformer + Heatmap + Orderflow",
         }
         return modes.get(self.strategy_mode, self.strategy_mode)
+
+    def set_heatmap(self, symbol: str, liq_analysis):
+        with self._lock:
+            self._heatmap_snapshots[symbol] = liq_analysis
+            if len(self._heatmap_snapshots) > 20:
+                first = next(iter(self._heatmap_snapshots.keys()))
+                self._heatmap_snapshots.pop(first, None)
+
+    def set_candidates(self, candidates: list):
+        with self._lock:
+            self._candidate_snapshots = candidates[:10]
+
+    def heatmap_report(self) -> str:
+        with self._lock:
+            snapshots = list(self._heatmap_snapshots.items())
+        if not snapshots:
+            return "<b>HEATMAP</b>\n\nНет данных по ликвидациям"
+        lines = ["<b>HEATMAP</b>"]
+        for symbol, liq in snapshots[-6:]:
+            target = liq.target_level or 0.0
+            lines.append(
+                f"\n<code>{symbol}</code> магнит=<b>{liq.magnet_direction}</b> "
+                f"target=<code>{target:.4f}</code> dist=<code>{liq.distance_to_target_pct:.3f}%</code>"
+            )
+        return "\n".join(lines)
+
+    def positions_report(self) -> str:
+        with self._lock:
+            positions = self._current_positions.copy()
+        if not positions:
+            return "<b>ПОЗИЦИИ</b>\n\nОткрытых позиций нет"
+        lines = ["<b>ПОЗИЦИИ</b>"]
+        for symbol, pos in positions.items():
+            side = pos.get("side", "?")
+            target = pos.get("heatmap_target", 0)
+            lines.append(
+                f"\n<code>{symbol}</code> {side} qty=<code>{pos.get('qty', 0):.6f}</code>"
+                f"\nentry=<code>${pos.get('entry', 0):.4f}</code> pnl=<code>${pos.get('unrealized_pnl', 0):+.2f}</code>"
+                f"\nSL=<code>${pos.get('stop_loss', 0):.4f}</code> TP=<code>${pos.get('take_profit', 0):.4f}</code> target=<code>${target:.4f}</code>"
+                f"\nRL=<code>{pos.get('rl_action', 'hold')}</code>"
+            )
+        return "\n".join(lines)
 
     def stats(self) -> str:
         snap = self.guard_snapshot()
@@ -106,6 +152,7 @@ class LiveControls:
             f"Нереализованный PnL: <code>${unrealized_total:+.2f}</code>",
             f"Сделок: <code>{self._session_trades}</code>",
             f"Стратегия: {self.get_strategy_mode_display()}",
+            f"AI: {'ON' if self.ai_enabled else 'OFF'} | RL: {'ON' if self.rl_enabled else 'OFF'}",
         ]
         lines.extend(positions_lines)
         lines.extend([
@@ -158,6 +205,13 @@ class LiveControls:
             f"Побед/Поражений: <code>{wins}/{losses}</code>",
             f"Winrate: <code>{winrate:.1f}%</code>",
         ]
+        if self._candidate_snapshots:
+            lines.append("\n<b>ТОП КАНДИДАТЫ</b>")
+            for item in self._candidate_snapshots[:5]:
+                lines.append(
+                    f"{item.get('symbol', '?')}: <code>{item.get('signal_strength', 0):.2f}</code> "
+                    f"w=<code>{item.get('capital_weight', 0):.2f}</code>"
+                )
         if last5:
             lines.append("\n<b>ПОСЛЕДНИЕ СДЕЛКИ</b>")
             for trade in reversed(last5):
