@@ -265,6 +265,11 @@ class BotTester:
         should_exit, reason, _ = exit_engine.check_exit(manager.get("BTCUSDT"), 61670.0, 120.0, protective_level=61680.0)
         assert should_exit and reason == ExitReason.LIQUIDATION_STOP
 
+        manual = Position(symbol="ETHUSDT", side="BUY", entry_price=3000.0, qty=1.0, stop_loss=2940.0, take_profit=3120.0, origin="manual")
+        manual.bars_since_entry = 20
+        should_exit, reason, _ = exit_engine.check_exit(manual, 3002.0, 120.0, allow_early_exit=False)
+        assert not should_exit and reason is None
+
         controls = LiveControls()
         controls.set_positions(manager.to_controls_dict())
         controls.set_balance(1000.0)

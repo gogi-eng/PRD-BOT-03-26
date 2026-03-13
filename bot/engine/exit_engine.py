@@ -90,7 +90,7 @@ class ExitEngine:
         print(f"   [EXIT] {position.symbol}: SL=${position.stop_loss:.4f} "
               f"TP=${position.take_profit:.4f} trail_dist={position.trailing_distance:.4f}")
 
-    def check_exit(self, position, current_price: float, atr_value: float = 0, protective_level: float = 0.0) -> Tuple[bool, Optional[ExitReason], str]:
+    def check_exit(self, position, current_price: float, atr_value: float = 0, protective_level: float = 0.0, allow_early_exit: bool = True) -> Tuple[bool, Optional[ExitReason], str]:
         """
         Проверить условия выхода.
 
@@ -122,7 +122,7 @@ class ExitEngine:
             return True, ExitReason.HARD_SL, f"Price ${current_price:.4f} >= SL ${position.stop_loss:.4f}"
 
         # 2. EARLY EXIT
-        if position.bars_since_entry >= self.early_exit_bars:
+        if allow_early_exit and position.bars_since_entry >= self.early_exit_bars:
             min_profit = atr_value * self.early_exit_min_profit_atr
             if profit < min_profit:
                 return True, ExitReason.EARLY_EXIT, (

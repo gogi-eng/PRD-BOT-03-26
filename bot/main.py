@@ -257,7 +257,7 @@ class TradingBot:
                     await self._check_portfolio_take_profit(total_unrealized)
 
                 if self.position_manager.count() > 0:
-                    closed_symbols = await self.profit_lock.check(self.position_manager.all_positions())
+                    closed_symbols = await self.profit_lock.check(self.position_manager.all_positions()) or []
                     for symbol in closed_symbols:
                         pos = self.position_manager.get(symbol)
                         if pos:
@@ -392,7 +392,13 @@ class TradingBot:
                     continue
 
             self.exit_engine.update_trailing(pos, current_price)
-            should_exit, reason, details = self.exit_engine.check_exit(pos, current_price, atr_val, protective_level=pos.protective_liq_level)
+            should_exit, reason, details = self.exit_engine.check_exit(
+                pos,
+                current_price,
+                atr_val,
+                protective_level=pos.protective_liq_level,
+                allow_early_exit=(pos.origin == "bot"),
+            )
             if should_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)
                 if close_result.get("success"):

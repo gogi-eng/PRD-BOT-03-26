@@ -70,6 +70,8 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
   - partial TP: закрытие **50% объёма на 50% пути к финальному TP**
   - portfolio total TP: закрытие **всех позиций аккаунта** по суммарной прибыли
   - `position_idx` протянут через close / update SL / update TP для корректной работы с подхваченными позициями
+  - исправлен цикл profit lock: `None` больше не ломает `for symbol in closed_symbols`
+  - для подхваченных/ручных позиций отключён `early_exit`, чтобы бот не закрывал их слишком рано этой внутренней логикой
 - Новый backend smoke test suite в `/app/backend_test.py`
 
 ## Current Strategy Logic
