@@ -153,6 +153,14 @@ class TradingBot:
         self.min_atr_pct = self.cfg.get("atr", "min_atr_pct", default=0.25)
         self.max_stream_symbols = self.cfg.get("bot", "liquidation_stream_symbols", default=12)
         self.max_rl_adds = 1
+        self.adopt_all_positions = self.cfg.get("position_sync", "adopt_all_positions", default=True)
+        self.preserve_existing_sl_tp = self.cfg.get("position_sync", "preserve_existing_sl_tp", default=True)
+        self.partial_tp_enabled = self.cfg.get("partial_tp", "enabled", default=True)
+        self.partial_tp_trigger_progress = self.cfg.get("partial_tp", "trigger_progress", default=0.5)
+        self.partial_tp_close_fraction = self.cfg.get("partial_tp", "close_fraction", default=0.5)
+        self.partial_tp_move_stop_to_entry = self.cfg.get("partial_tp", "move_stop_to_entry", default=True)
+        self.portfolio_tp_enabled = self.cfg.get("portfolio_tp", "enabled", default=True)
+        self.portfolio_tp_target_pct = self.cfg.get("portfolio_tp", "target_profit_pct", default=2.0)
 
     async def _notify_tg(self, message: str):
         if self.tg:
@@ -237,11 +245,16 @@ class TradingBot:
                         self.risk_guard.initial_balance = balance
                     self.profit_lock.set_initial_balance(balance)
 
+                exchange_positions = await self.client.get_positions()
+                exchange_symbols = [item["symbol"] for item in exchange_positions]
                 symbols = await self.get_trade_symbols()
-                subscribed = list(dict.fromkeys((self.position_manager.symbols() + symbols)[: self.max_stream_symbols]))
+                subscribed = self._unique_symbols(exchange_symbols + self.position_manager.symbols() + symbols)[: self.max_stream_symbols]
                 await self.client.set_liquidation_symbols(subscribed)
 
-                await self._manage_positions()
+                total_unrealized = await self._manage_positions(exchange_positions)
+
+                if self.portfolio_tp_enabled and self.position_manager.count() > 0:
+                    await self._check_portfolio_take_profit(total_unrealized)
 
                 if self.position_manager.count() > 0:
                     closed_symbols = await self.profit_lock.check(self.position_manager.all_positions())
@@ -277,11 +290,8 @@ class TradingBot:
             except Exception:
                 pass
 
-    async def _manage_positions(self):
-        if self.position_manager.count() == 0:
-            return
-
-        exchange_positions = await self.client.get_positions()
+    async def _manage_positions(self, exchange_positions: list | None = None) -> float:
+        exchange_positions = exchange_positions if exchange_positions is not None else await self.client.get_positions()
         if exchange_positions:
             exchange_symbols = {item["symbol"] for item in exchange_positions}
             for symbol in self.position_manager.symbols():
@@ -295,6 +305,10 @@ class TradingBot:
                             pnl = float(closed[0].get("closedPnl", 0) or 0)
                         await self._finalize_full_close(symbol, pos, current_price, pnl, "exchange_closed", already_removed=True)
 
+        if self.adopt_all_positions:
+            for exchange_position in exchange_positions:
+                await self._sync_exchange_position(exchange_position)
+
         total_unrealized = 0.0
         for exchange_position in exchange_positions:
             symbol = exchange_position["symbol"]
@@ -304,6 +318,9 @@ class TradingBot:
             if pos:
                 pos.unrealized_pnl = unrealized
         self.controls.set_unrealized_pnl(total_unrealized)
+
+        if self.position_manager.count() == 0:
+            return total_unrealized
 
         for symbol in list(self.position_manager.symbols()):
             pos = self.position_manager.get(symbol)
@@ -329,7 +346,7 @@ class TradingBot:
             transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
             pnl_pct = self._calc_pnl_pct(pos, current_price)
-            if self.controls.rl_enabled:
+            if self.controls.rl_enabled and pos.origin == "bot":
                 state = {
                     "trend_bias": market.htf_trend.value if market.htf_trend.value != 0 else market.trend.value,
                     "volatility": market.atr_pct / 100,
@@ -341,14 +358,14 @@ class TradingBot:
                 decision = self.rl_agent.decide(pos, state)
                 pos.last_rl_action = decision.action.value
                 if decision.action == RLAction.CLOSE:
-                    close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=decision.reason)
+                    close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=decision.reason, position_idx=pos.position_idx)
                     if close_result.get("success"):
                         pnl = self._calc_pnl(pos, current_price, pos.qty)
                         await self._finalize_full_close(symbol, pos, current_price, pnl, f"rl_close:{decision.reason}")
                         continue
                 elif decision.action == RLAction.REDUCE and pos.qty > 0:
                     reduce_qty = pos.qty * decision.fraction
-                    close_result = await self.execution_engine.execute_close(symbol, pos.side, qty=reduce_qty, reason=decision.reason)
+                    close_result = await self.execution_engine.execute_close(symbol, pos.side, qty=reduce_qty, reason=decision.reason, position_idx=pos.position_idx)
                     if close_result.get("success"):
                         await self._finalize_partial_close(symbol, pos, current_price, reduce_qty, f"rl_reduce:{decision.reason}")
                 elif decision.action == RLAction.ADD and pos.add_count < self.max_rl_adds:
@@ -368,17 +385,25 @@ class TradingBot:
                             if add_result.get("success"):
                                 self.position_manager.increase(symbol, add_result.get("executed_qty", 0.0), add_result.get("avg_price", current_price) or current_price)
 
+            partial_closed = await self._maybe_execute_partial_tp(pos, current_price)
+            if partial_closed:
+                pos = self.position_manager.get(symbol)
+                if not pos:
+                    continue
+
             self.exit_engine.update_trailing(pos, current_price)
             should_exit, reason, details = self.exit_engine.check_exit(pos, current_price, atr_val, protective_level=pos.protective_liq_level)
             if should_exit:
-                close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}")
+                close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)
                 if close_result.get("success"):
                     pnl = self._calc_pnl(pos, current_price, pos.qty)
                     await self._finalize_full_close(symbol, pos, current_price, pnl, reason.value)
             else:
                 pos.bars_since_entry += 1
                 if pos.trailing_active and pos.trailing_stop > 0:
-                    await self.execution_engine.update_sl(symbol, pos.trailing_stop)
+                    await self.execution_engine.update_sl(symbol, pos.trailing_stop, position_idx=pos.position_idx)
+
+        return total_unrealized
 
     async def _scan_entries(self, symbols: list):
         candidates = []
@@ -527,6 +552,10 @@ class TradingBot:
                 heatmap_target=signal.metadata.get("target_level", 0.0),
                 protective_liq_level=signal.metadata.get("protective_liq_level", 0.0),
                 model_confidence=signal.confidence,
+                origin="bot",
+                partial_tp_price=self._compute_partial_tp_price(executed_price, signal.take_profit, signal.side),
+                partial_close_fraction=self.partial_tp_close_fraction,
+                total_tp_price=signal.take_profit,
             )
             klines = await self.client.get_klines(symbol, self.candle_interval, 50)
             atr_val = self.atr.get_atr(symbol, klines)
@@ -575,6 +604,177 @@ class TradingBot:
         if pos.is_long:
             return (price - pos.entry_price) / pos.entry_price * 100
         return (pos.entry_price - price) / pos.entry_price * 100
+
+    def _compute_partial_tp_price(self, entry: float, total_tp: float, side: str) -> float:
+        if entry <= 0 or total_tp <= 0:
+            return 0.0
+        progress = max(0.05, min(self.partial_tp_trigger_progress, 0.95))
+        if side.upper() in ["BUY", "LONG"]:
+            return entry + (total_tp - entry) * progress if total_tp > entry else 0.0
+        return entry - (entry - total_tp) * progress if total_tp < entry else 0.0
+
+    def _unique_symbols(self, symbols: list[str]) -> list[str]:
+        unique = []
+        seen = set()
+        for symbol in symbols:
+            if symbol and symbol not in seen:
+                unique.append(symbol)
+                seen.add(symbol)
+        return unique
+
+    async def _sync_exchange_position(self, exchange_position: dict):
+        symbol = exchange_position.get("symbol", "")
+        if not symbol:
+            return
+        size = float(exchange_position.get("size", 0) or 0)
+        if size <= 0:
+            return
+        entry_price = float(exchange_position.get("avgPrice", 0) or exchange_position.get("entryPrice", 0) or 0)
+        mark_price = float(exchange_position.get("markPrice", 0) or entry_price or 0)
+        side = "BUY" if str(exchange_position.get("side", "")).lower() == "buy" else "SELL"
+        stop_loss = float(exchange_position.get("stopLoss", 0) or 0)
+        take_profit = float(exchange_position.get("takeProfit", 0) or 0)
+        position_idx = int(exchange_position.get("positionIdx", 0) or 0)
+
+        pos = self.position_manager.get(symbol)
+        if pos:
+            pos.qty = size
+            if entry_price > 0:
+                pos.entry_price = entry_price
+            pos.position_idx = position_idx
+            pos.unrealized_pnl = float(exchange_position.get("unrealisedPnl", 0) or 0)
+            if self.preserve_existing_sl_tp:
+                if stop_loss > 0:
+                    pos.stop_loss = stop_loss
+                    if pos.trailing_stop > 0 and pos.is_long and pos.trailing_stop < stop_loss:
+                        pos.trailing_stop = stop_loss
+                    if pos.trailing_stop > 0 and (not pos.is_long) and pos.trailing_stop > stop_loss > 0:
+                        pos.trailing_stop = stop_loss
+                if take_profit > 0:
+                    pos.take_profit = take_profit
+                    pos.total_tp_price = take_profit
+                    if not pos.partial_tp_done:
+                        pos.partial_tp_price = self._compute_partial_tp_price(pos.entry_price, take_profit, pos.side)
+            return
+
+        klines = await self.client.get_klines(symbol, self.candle_interval, max(60, self.feature_window))
+        atr_val = self.atr.get_atr(symbol, klines)
+        derived_sl, derived_tp = self._derive_manual_position_levels(side, entry_price or mark_price, stop_loss, take_profit, atr_val)
+        stop_loss = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else derived_sl
+        take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
+
+        adopted = Position(
+            symbol=symbol,
+            side=side,
+            entry_price=entry_price or mark_price,
+            qty=size,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            unrealized_pnl=float(exchange_position.get("unrealisedPnl", 0) or 0),
+            origin="manual",
+            partial_tp_price=self._compute_partial_tp_price(entry_price or mark_price, take_profit, side),
+            partial_close_fraction=self.partial_tp_close_fraction,
+            total_tp_price=take_profit,
+            position_idx=position_idx,
+        )
+        self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=stop_loss)
+        self.position_manager.add(adopted)
+
+        if not self.controls.dry_run:
+            if float(exchange_position.get("stopLoss", 0) or 0) <= 0 and stop_loss > 0:
+                await self.execution_engine.update_sl(symbol, stop_loss, position_idx=position_idx)
+            if float(exchange_position.get("takeProfit", 0) or 0) <= 0 and take_profit > 0:
+                await self.execution_engine.update_tp(symbol, take_profit, position_idx=position_idx)
+        if self.tg:
+            await self.tg.send_message(
+                f"<b>ПОДХВАЧЕНА ВНЕШНЯЯ ПОЗИЦИЯ</b>\n\n"
+                f"Монета: <code>{symbol}</code>\n"
+                f"Сторона: <b>{side}</b>\n"
+                f"Вход: <code>${adopted.entry_price:.4f}</code>\n"
+                f"Объём: <code>{size}</code>\n"
+                f"SL: <code>${adopted.stop_loss:.4f}</code>\n"
+                f"TP: <code>${adopted.take_profit:.4f}</code>"
+            )
+
+    def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float) -> tuple[float, float]:
+        atr = atr_val if atr_val > 0 else entry_price * 0.01
+        side_upper = side.upper()
+        derived_sl = stop_loss
+        if derived_sl <= 0:
+            derived_sl = entry_price - atr * self.exit_engine.hard_sl_atr_mult if side_upper in ["BUY", "LONG"] else entry_price + atr * self.exit_engine.hard_sl_atr_mult
+        derived_tp = take_profit
+        if derived_tp <= 0:
+            risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
+            rr = self.entry_engine.min_rr_ratio
+            derived_tp = entry_price + risk * rr if side_upper in ["BUY", "LONG"] else entry_price - risk * rr
+        return derived_sl, derived_tp
+
+    async def _maybe_execute_partial_tp(self, pos: Position, current_price: float) -> bool:
+        if not self.partial_tp_enabled or pos.partial_tp_done or pos.partial_tp_price <= 0 or pos.qty <= 0:
+            return False
+        hit = current_price >= pos.partial_tp_price if pos.is_long else current_price <= pos.partial_tp_price
+        if not hit:
+            return False
+        close_qty = pos.qty * max(0.1, min(pos.partial_close_fraction, 0.9))
+        if close_qty * current_price < self.min_position_usdt:
+            pos.partial_tp_done = True
+            return False
+        close_result = await self.execution_engine.execute_close(
+            pos.symbol,
+            pos.side,
+            qty=close_qty,
+            reason=f"partial_tp@{pos.partial_tp_price:.4f}",
+            position_idx=pos.position_idx,
+        )
+        if not close_result.get("success"):
+            return False
+        await self._finalize_partial_close(pos.symbol, pos, current_price, close_qty, "partial_tp_50pct")
+        remaining = self.position_manager.get(pos.symbol)
+        if remaining:
+            remaining.partial_tp_done = True
+            remaining.last_rl_action = "partial_tp"
+            if self.partial_tp_move_stop_to_entry:
+                if remaining.is_long:
+                    remaining.stop_loss = max(remaining.stop_loss, remaining.entry_price)
+                else:
+                    remaining.stop_loss = min(remaining.stop_loss, remaining.entry_price) if remaining.stop_loss > 0 else remaining.entry_price
+                await self.execution_engine.update_sl(remaining.symbol, remaining.stop_loss, position_idx=remaining.position_idx)
+        if self.tg:
+            await self.tg.send_message(
+                f"<b>ЧАСТИЧНЫЙ TP</b>\n\n"
+                f"Монета: <code>{pos.symbol}</code>\n"
+                f"Закрыто: <code>{close_qty:.6f}</code>\n"
+                f"Цена: <code>${current_price:.4f}</code>\n"
+                f"Уровень: <code>${pos.partial_tp_price:.4f}</code>"
+            )
+        return True
+
+    async def _check_portfolio_take_profit(self, total_unrealized: float):
+        if not self.portfolio_tp_enabled or total_unrealized <= 0 or self.position_manager.count() == 0:
+            return
+        balance = self.controls.get_balance()
+        if balance <= 0:
+            return
+        target = balance * (self.portfolio_tp_target_pct / 100)
+        if total_unrealized + 1e-9 < target:
+            return
+        logger.info(f"PORTFOLIO TP HIT: unrealized=${total_unrealized:.2f} target=${target:.2f}")
+        if self.tg:
+            await self.tg.send_message(
+                f"<b>СУММАРНЫЙ TP ДОСТИГНУТ</b>\n\n"
+                f"Нереализованный PnL: <code>${total_unrealized:.2f}</code>\n"
+                f"Цель: <code>${target:.2f}</code>\n"
+                f"Закрываю все позиции аккаунта."
+            )
+        for symbol in list(self.position_manager.symbols()):
+            pos = self.position_manager.get(symbol)
+            if not pos:
+                continue
+            current_price = await self.client.get_price(symbol)
+            close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="portfolio_total_tp", position_idx=pos.position_idx)
+            if close_result.get("success"):
+                pnl = self._calc_pnl(pos, current_price, pos.qty)
+                await self._finalize_full_close(symbol, pos, current_price, pnl, "portfolio_total_tp")
 
     def _save_trade(self, symbol: str, side: str, qty: float, entry: float, exit_price: float, pnl: float, reason: str):
         trade = {

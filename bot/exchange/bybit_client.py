@@ -267,7 +267,8 @@ class BybitClient:
     async def place_order(self, symbol: str, side: str, qty: float,
                           order_type: str = "Market", price: float = None,
                           stop_loss: float = None, take_profit: float = None,
-                          reduce_only: bool = False, time_in_force: str = "GTC") -> Dict:
+                          reduce_only: bool = False, time_in_force: str = "GTC",
+                          position_idx: int = 0) -> Dict:
         params = {
             "category": self.category, "symbol": symbol, "side": side,
             "orderType": order_type, "qty": str(qty), "timeInForce": time_in_force,
@@ -280,6 +281,8 @@ class BybitClient:
             params["takeProfit"] = str(take_profit)
         if reduce_only:
             params["reduceOnly"] = True
+        if position_idx > 0:
+            params["positionIdx"] = position_idx
 
         result = await self._request("POST", "/v5/order/create", params, private=True)
         if result and not result.get("_error"):
@@ -325,7 +328,7 @@ class BybitClient:
         error = result.get("retMsg", "Failed") if isinstance(result, dict) else "Empty response"
         return {"success": False, "error": error}
 
-    async def close_position(self, symbol: str, side: str, qty: float = None) -> Dict:
+    async def close_position(self, symbol: str, side: str, qty: float = None, position_idx: int = 0) -> Dict:
         close_side = "Sell" if side.upper() in ["BUY", "LONG"] else "Buy"
         if qty is None:
             positions = await self.get_positions(symbol)
@@ -333,7 +336,7 @@ class BybitClient:
                 qty = float(positions[0].get("size", 0))
             else:
                 return {"success": False, "orderId": "", "error": "Position not found"}
-        return await self.place_order(symbol=symbol, side=close_side, qty=qty, order_type="Market", reduce_only=True)
+        return await self.place_order(symbol=symbol, side=close_side, qty=qty, order_type="Market", reduce_only=True, position_idx=position_idx)
 
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
         params = {

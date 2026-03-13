@@ -178,12 +178,14 @@ class ExitEngine:
         if position.trailing_active and position.trailing_distance > 0:
             if is_long:
                 new_stop = position.best_price - position.trailing_distance
-                if new_stop > position.trailing_stop:
+                floor = max(position.trailing_stop, position.stop_loss)
+                if new_stop > floor:
                     position.trailing_stop = new_stop
                     updated = True
             else:
                 new_stop = position.best_price + position.trailing_distance
-                if position.trailing_stop <= 0 or new_stop < position.trailing_stop:
+                ceiling = position.trailing_stop if position.trailing_stop > 0 else position.stop_loss
+                if ceiling <= 0 or new_stop < min(ceiling, position.stop_loss if position.stop_loss > 0 else ceiling):
                     position.trailing_stop = new_stop
                     updated = True
 

@@ -123,11 +123,13 @@ class LiveControls:
         for symbol, pos in positions.items():
             side = pos.get("side", "?")
             target = pos.get("heatmap_target", 0)
+            partial_tp = "DONE" if pos.get("partial_tp_done") else f"${pos.get('partial_tp_price', 0):.4f}"
             lines.append(
                 f"\n<code>{symbol}</code> {side} qty=<code>{pos.get('qty', 0):.6f}</code>"
                 f"\nentry=<code>${pos.get('entry', 0):.4f}</code> pnl=<code>${pos.get('unrealized_pnl', 0):+.2f}</code>"
                 f"\nSL=<code>${pos.get('stop_loss', 0):.4f}</code> TP=<code>${pos.get('take_profit', 0):.4f}</code> target=<code>${target:.4f}</code>"
-                f"\nRL=<code>{pos.get('rl_action', 'hold')}</code>"
+                f"\norigin=<code>{pos.get('origin', 'bot')}</code> RL=<code>{pos.get('rl_action', 'hold')}</code>"
+                f" partialTP=<code>{partial_tp}</code>"
             )
         return "\n".join(lines)
 

@@ -2,6 +2,7 @@
 """Backend smoke tests for the AI-fund trading bot architecture."""
 from __future__ import annotations
 
+import asyncio
 import inspect
 import sys
 import traceback
@@ -95,6 +96,8 @@ class BotTester:
         assert cfg.get("entry", "min_rr_ratio") == 1.8
         assert cfg.get("risk", "max_daily_loss_pct") == 2.5
         assert cfg.get("heatmap", "cluster_step") == 20
+        assert cfg.get("partial_tp", "close_fraction") == 0.5
+        assert cfg.get("portfolio_tp", "target_profit_pct") == 2.0
         return True
 
     def test_market_analysis_and_regime(self):
@@ -279,6 +282,109 @@ class BotTester:
         assert "reason" in params
         add_params = inspect.signature(ExecutionEngine.execute_add).parameters
         assert "reason" in add_params
+        close_params = inspect.signature(ExecutionEngine.execute_close).parameters
+        assert "position_idx" in close_params
+        return True
+
+    def test_manual_position_sync_and_take_profit_management(self):
+        from engine.position_manager import Position
+        from main import TradingBot
+
+        bot = TradingBot()
+        bot.tg = None
+        bot._save_trade = lambda *args, **kwargs: None
+
+        klines = self._build_trend_klines(length=140, start=62000.0, direction="up")
+
+        async def fake_get_klines(symbol, interval, limit):
+            return klines[-limit:]
+
+        async def fake_update_sl(symbol, new_sl, position_idx=0):
+            return True
+
+        async def fake_update_tp(symbol, new_tp, position_idx=0):
+            return True
+
+        async def fake_execute_close(symbol, side, qty=None, reason="", position_idx=0):
+            return {"success": True, "orderId": "partial", "error": "", "executed_qty": qty or 0.0, "avg_price": 62500.0}
+
+        bot.client.get_klines = fake_get_klines
+        bot.execution_engine.update_sl = fake_update_sl
+        bot.execution_engine.update_tp = fake_update_tp
+        bot.execution_engine.execute_close = fake_execute_close
+
+        async def scenario():
+            await bot._sync_exchange_position(
+                {
+                    "symbol": "BTCUSDT",
+                    "size": "0.02",
+                    "avgPrice": "62000",
+                    "markPrice": "62400",
+                    "side": "Buy",
+                    "stopLoss": "61800",
+                    "takeProfit": "62600",
+                    "positionIdx": 1,
+                    "unrealisedPnl": "8.5",
+                }
+            )
+            adopted = bot.position_manager.get("BTCUSDT")
+            assert adopted is not None
+            assert adopted.origin == "manual"
+            assert adopted.position_idx == 1
+            assert adopted.stop_loss == 61800
+            assert adopted.take_profit == 62600
+            assert adopted.partial_tp_price == 62300
+
+            partial = Position(
+                symbol="ETHUSDT",
+                side="BUY",
+                entry_price=3000.0,
+                qty=1.0,
+                stop_loss=2940.0,
+                take_profit=3120.0,
+                origin="manual",
+                partial_tp_price=3060.0,
+                partial_close_fraction=0.5,
+                total_tp_price=3120.0,
+            )
+            bot.position_manager.add(partial)
+            closed = await bot._maybe_execute_partial_tp(partial, 3065.0)
+            assert closed
+            remaining = bot.position_manager.get("ETHUSDT")
+            assert remaining is not None
+            assert round(remaining.qty, 4) == 0.5
+            assert remaining.partial_tp_done
+            assert remaining.stop_loss >= remaining.entry_price
+
+        asyncio.run(scenario())
+        return True
+
+    def test_portfolio_total_tp_closes_all_positions(self):
+        from engine.position_manager import Position
+        from main import TradingBot
+
+        bot = TradingBot()
+        bot.tg = None
+        bot._save_trade = lambda *args, **kwargs: None
+        bot.controls.set_balance(1000.0)
+        bot.position_manager.add(Position(symbol="BTCUSDT", side="BUY", entry_price=62000.0, qty=0.01, stop_loss=61700.0, take_profit=62600.0))
+        bot.position_manager.add(Position(symbol="ETHUSDT", side="SELL", entry_price=3000.0, qty=1.0, stop_loss=3060.0, take_profit=2880.0))
+
+        calls = []
+
+        async def fake_execute_close(symbol, side, qty=None, reason="", position_idx=0):
+            calls.append((symbol, side, position_idx))
+            return {"success": True, "orderId": f"{symbol}-closed", "error": ""}
+
+        async def fake_get_price(symbol):
+            return 62500.0 if symbol == "BTCUSDT" else 2950.0
+
+        bot.execution_engine.execute_close = fake_execute_close
+        bot.client.get_price = fake_get_price
+
+        asyncio.run(bot._check_portfolio_take_profit(25.0))
+        assert len(calls) == 2
+        assert bot.position_manager.count() == 0
         return True
 
     def test_trading_bot_initialization(self):
@@ -304,6 +410,8 @@ class BotTester:
             ("Allocator + RL agent", self.test_allocator_and_rl),
             ("Position manager + exit engine + controls", self.test_position_exit_and_controls),
             ("Execution engine signatures", self.test_execution_engine_signatures),
+            ("Manual position sync + partial TP", self.test_manual_position_sync_and_take_profit_management),
+            ("Portfolio total TP closes all", self.test_portfolio_total_tp_closes_all_positions),
             ("TradingBot initialization", self.test_trading_bot_initialization),
         ]
         for name, func in tests:

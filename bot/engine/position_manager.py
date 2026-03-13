@@ -31,6 +31,12 @@ class Position:
     model_confidence: float = 0.0
     last_rl_action: str = "hold"
     add_count: int = 0
+    origin: str = "bot"
+    partial_tp_price: float = 0.0
+    partial_tp_done: bool = False
+    partial_close_fraction: float = 0.5
+    total_tp_price: float = 0.0
+    position_idx: int = 0
 
     @property
     def is_long(self) -> bool:
@@ -98,5 +104,8 @@ class PositionManager:
                 "take_profit": pos.take_profit,
                 "heatmap_target": pos.heatmap_target,
                 "rl_action": pos.last_rl_action,
+                "origin": pos.origin,
+                "partial_tp_price": pos.partial_tp_price,
+                "partial_tp_done": pos.partial_tp_done,
             }
         return result

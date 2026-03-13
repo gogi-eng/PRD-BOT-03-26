@@ -82,6 +82,20 @@ rl:
   reduce_threshold: 0.7
   close_threshold: 0.8
 
+position_sync:
+  adopt_all_positions: true
+  preserve_existing_sl_tp: true
+
+partial_tp:
+  enabled: true
+  trigger_progress: 0.5
+  close_fraction: 0.5
+  move_stop_to_entry: true
+
+portfolio_tp:
+  enabled: true
+  target_profit_pct: 2.0
+
 profit_lock:
   min_profit_pct: 5.0
   decline_threshold_pct: 20.0

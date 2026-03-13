@@ -119,14 +119,14 @@ class ExecutionEngine:
             return float(asks[0][0])
         return await self.client.get_price(symbol)
 
-    async def execute_close(self, symbol: str, side: str, qty: float = None, reason: str = "") -> Dict:
+    async def execute_close(self, symbol: str, side: str, qty: float = None, reason: str = "", position_idx: int = 0) -> Dict:
         """Закрыть позицию."""
         if self.controls.dry_run:
             print(f"[EXEC] DRY RUN CLOSE: {symbol} {side} reason={reason}")
             return {"success": True, "orderId": "", "error": ""}
 
         try:
-            order = await self.client.close_position(symbol, side, qty)
+            order = await self.client.close_position(symbol, side, qty, position_idx=position_idx)
             if order.get("success"):
                 price = await self.client.get_price(symbol)
                 print(f"[EXEC] CLOSED: {symbol} {side} price=${price:.4f} reason={reason}")
@@ -135,24 +135,24 @@ class ExecutionEngine:
             print(f"[EXEC] Close error: {e}")
             return {"success": False, "orderId": "", "error": str(e)}
 
-    async def update_sl(self, symbol: str, new_sl: float) -> bool:
+    async def update_sl(self, symbol: str, new_sl: float, position_idx: int = 0) -> bool:
         """Обновить стоп-лосс."""
         if self.controls.dry_run:
             return True
         inst = await self.client.get_instrument_info(symbol)
         if inst:
             new_sl = self._round_price(new_sl, inst["price_step"])
-        result = await self.client.update_stop_loss(symbol, new_sl)
+        result = await self.client.update_stop_loss(symbol, new_sl, position_idx=position_idx)
         return result.get("success", False)
 
-    async def update_tp(self, symbol: str, new_tp: float) -> bool:
+    async def update_tp(self, symbol: str, new_tp: float, position_idx: int = 0) -> bool:
         """Обновить тейк-профит."""
         if self.controls.dry_run:
             return True
         inst = await self.client.get_instrument_info(symbol)
         if inst:
             new_tp = self._round_price(new_tp, inst["price_step"])
-        result = await self.client.update_take_profit(symbol, new_tp)
+        result = await self.client.update_take_profit(symbol, new_tp, position_idx=position_idx)
         return result.get("success", False)
 
     @staticmethod
