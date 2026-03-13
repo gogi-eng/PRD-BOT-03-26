@@ -161,6 +161,13 @@ class TradingBot:
         self.partial_tp_move_stop_to_entry = self.cfg.get("partial_tp", "move_stop_to_entry", default=True)
         self.portfolio_tp_enabled = self.cfg.get("portfolio_tp", "enabled", default=True)
         self.portfolio_tp_target_pct = self.cfg.get("portfolio_tp", "target_profit_pct", default=2.0)
+        self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
+        self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
+        self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
+        self.manual_trailing_distance_atr = self.cfg.get("manual_management", "trailing_distance_atr", default=2.4)
+        self.manual_notify_on_adopt = self.cfg.get("manual_management", "notify_on_adopt", default=True)
+        self.manual_notify_on_partial_tp = self.cfg.get("manual_management", "notify_on_partial_tp", default=True)
+        self.manual_notify_on_sl_move = self.cfg.get("manual_management", "notify_on_sl_move", default=True)
 
     async def _notify_tg(self, message: str):
         if self.tg:
@@ -346,7 +353,7 @@ class TradingBot:
             transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
             pnl_pct = self._calc_pnl_pct(pos, current_price)
-            if self.controls.rl_enabled and pos.origin == "bot":
+            if self.controls.rl_enabled and (pos.origin == "bot" or (pos.origin == "manual" and self.manual_rl_enabled)):
                 state = {
                     "trend_bias": market.htf_trend.value if market.htf_trend.value != 0 else market.trend.value,
                     "volatility": market.atr_pct / 100,
@@ -407,7 +414,10 @@ class TradingBot:
             else:
                 pos.bars_since_entry += 1
                 if pos.trailing_active and pos.trailing_stop > 0:
-                    await self.execution_engine.update_sl(symbol, pos.trailing_stop, position_idx=pos.position_idx)
+                    updated = await self.execution_engine.update_sl(symbol, pos.trailing_stop, position_idx=pos.position_idx)
+                    if updated and pos.origin == "manual":
+                        pos.stop_loss = pos.trailing_stop
+                        await self._notify_manual_sl_move(pos, "trailing")
 
         return total_unrealized
 
@@ -659,8 +669,11 @@ class TradingBot:
                 if take_profit > 0:
                     pos.take_profit = take_profit
                     pos.total_tp_price = take_profit
-                    if not pos.partial_tp_done:
+                    pos.external_tp_locked = bool(self.manual_preserve_existing_tp and pos.origin == "manual")
+                    if not pos.partial_tp_done and not pos.external_tp_locked:
                         pos.partial_tp_price = self._compute_partial_tp_price(pos.entry_price, take_profit, pos.side)
+                    elif pos.external_tp_locked:
+                        pos.partial_tp_price = 0.0
             return
 
         klines = await self.client.get_klines(symbol, self.candle_interval, max(60, self.feature_window))
@@ -669,6 +682,7 @@ class TradingBot:
         stop_loss = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else derived_sl
         take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
 
+        external_tp_locked = bool(take_profit > 0 and self.manual_preserve_existing_tp)
         adopted = Position(
             symbol=symbol,
             side=side,
@@ -678,12 +692,15 @@ class TradingBot:
             take_profit=take_profit,
             unrealized_pnl=float(exchange_position.get("unrealisedPnl", 0) or 0),
             origin="manual",
-            partial_tp_price=self._compute_partial_tp_price(entry_price or mark_price, take_profit, side),
+            partial_tp_price=0.0 if external_tp_locked else self._compute_partial_tp_price(entry_price or mark_price, take_profit, side),
             partial_close_fraction=self.partial_tp_close_fraction,
             total_tp_price=take_profit,
             position_idx=position_idx,
+            external_tp_locked=external_tp_locked,
+            last_notified_stop_loss=stop_loss,
         )
         self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=stop_loss)
+        self._apply_manual_trailing_profile(adopted, atr_val)
         self.position_manager.add(adopted)
 
         if not self.controls.dry_run:
@@ -691,7 +708,7 @@ class TradingBot:
                 await self.execution_engine.update_sl(symbol, stop_loss, position_idx=position_idx)
             if float(exchange_position.get("takeProfit", 0) or 0) <= 0 and take_profit > 0:
                 await self.execution_engine.update_tp(symbol, take_profit, position_idx=position_idx)
-        if self.tg:
+        if self.tg and self.manual_notify_on_adopt:
             await self.tg.send_message(
                 f"<b>ПОДХВАЧЕНА ВНЕШНЯЯ ПОЗИЦИЯ</b>\n\n"
                 f"Монета: <code>{symbol}</code>\n"
@@ -699,7 +716,8 @@ class TradingBot:
                 f"Вход: <code>${adopted.entry_price:.4f}</code>\n"
                 f"Объём: <code>{size}</code>\n"
                 f"SL: <code>${adopted.stop_loss:.4f}</code>\n"
-                f"TP: <code>${adopted.take_profit:.4f}</code>"
+                f"TP: <code>${adopted.take_profit:.4f}</code>\n"
+                f"Режим: <code>manual-safe-trailing</code>"
             )
 
     def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float) -> tuple[float, float]:
@@ -715,8 +733,32 @@ class TradingBot:
             derived_tp = entry_price + risk * rr if side_upper in ["BUY", "LONG"] else entry_price - risk * rr
         return derived_sl, derived_tp
 
+    def _apply_manual_trailing_profile(self, pos: Position, atr_val: float):
+        atr = atr_val if atr_val > 0 else pos.entry_price * 0.01
+        pos.trailing_distance = atr * self.manual_trailing_distance_atr
+        if pos.is_long:
+            pos.trailing_activation_price = pos.entry_price + atr * self.manual_trailing_activation_atr
+        else:
+            pos.trailing_activation_price = pos.entry_price - atr * self.manual_trailing_activation_atr
+
+    async def _notify_manual_sl_move(self, pos: Position, source: str):
+        if not self.tg or not self.manual_notify_on_sl_move:
+            return
+        if abs(pos.stop_loss - pos.last_notified_stop_loss) < 1e-9:
+            return
+        pos.last_notified_stop_loss = pos.stop_loss
+        await self.tg.send_message(
+            f"<b>РУЧНАЯ ПОЗИЦИЯ: ПЕРЕНОС SL</b>\n\n"
+            f"Монета: <code>{pos.symbol}</code>\n"
+            f"Сторона: <b>{pos.side}</b>\n"
+            f"Новый SL: <code>${pos.stop_loss:.4f}</code>\n"
+            f"Причина: <code>{source}</code>"
+        )
+
     async def _maybe_execute_partial_tp(self, pos: Position, current_price: float) -> bool:
         if not self.partial_tp_enabled or pos.partial_tp_done or pos.partial_tp_price <= 0 or pos.qty <= 0:
+            return False
+        if pos.origin == "manual" and pos.external_tp_locked:
             return False
         hit = current_price >= pos.partial_tp_price if pos.is_long else current_price <= pos.partial_tp_price
         if not hit:
@@ -744,8 +786,10 @@ class TradingBot:
                     remaining.stop_loss = max(remaining.stop_loss, remaining.entry_price)
                 else:
                     remaining.stop_loss = min(remaining.stop_loss, remaining.entry_price) if remaining.stop_loss > 0 else remaining.entry_price
-                await self.execution_engine.update_sl(remaining.symbol, remaining.stop_loss, position_idx=remaining.position_idx)
-        if self.tg:
+                updated = await self.execution_engine.update_sl(remaining.symbol, remaining.stop_loss, position_idx=remaining.position_idx)
+                if updated and remaining.origin == "manual":
+                    await self._notify_manual_sl_move(remaining, "partial_tp_breakeven")
+        if self.tg and self.manual_notify_on_partial_tp:
             await self.tg.send_message(
                 f"<b>ЧАСТИЧНЫЙ TP</b>\n\n"
                 f"Монета: <code>{pos.symbol}</code>\n"

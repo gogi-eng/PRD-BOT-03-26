@@ -37,6 +37,8 @@ class Position:
     partial_close_fraction: float = 0.5
     total_tp_price: float = 0.0
     position_idx: int = 0
+    external_tp_locked: bool = False
+    last_notified_stop_loss: float = 0.0
 
     @property
     def is_long(self) -> bool:
@@ -107,5 +109,6 @@ class PositionManager:
                 "origin": pos.origin,
                 "partial_tp_price": pos.partial_tp_price,
                 "partial_tp_done": pos.partial_tp_done,
+                "external_tp_locked": pos.external_tp_locked,
             }
         return result

@@ -338,7 +338,10 @@ class BotTester:
             assert adopted.position_idx == 1
             assert adopted.stop_loss == 61800
             assert adopted.take_profit == 62600
-            assert adopted.partial_tp_price == 62300
+            assert adopted.external_tp_locked
+            assert adopted.partial_tp_price == 0.0
+            assert adopted.trailing_activation_price > adopted.entry_price
+            assert adopted.trailing_distance > 0
 
             partial = Position(
                 symbol="ETHUSDT",
@@ -392,6 +395,16 @@ class BotTester:
         assert bot.position_manager.count() == 0
         return True
 
+    def test_manual_mode_configuration(self):
+        from main import TradingBot
+
+        bot = TradingBot()
+        assert bot.manual_rl_enabled is False
+        assert bot.manual_preserve_existing_tp is True
+        assert bot.manual_trailing_activation_atr > bot.exit_engine.trailing_activation_atr
+        assert bot.manual_trailing_distance_atr > bot.exit_engine.trailing_distance_atr
+        return True
+
     def test_trading_bot_initialization(self):
         from main import TradingBot
 
@@ -417,6 +430,7 @@ class BotTester:
             ("Execution engine signatures", self.test_execution_engine_signatures),
             ("Manual position sync + partial TP", self.test_manual_position_sync_and_take_profit_management),
             ("Portfolio total TP closes all", self.test_portfolio_total_tp_closes_all_positions),
+            ("Manual mode configuration", self.test_manual_mode_configuration),
             ("TradingBot initialization", self.test_trading_bot_initialization),
         ]
         for name, func in tests:

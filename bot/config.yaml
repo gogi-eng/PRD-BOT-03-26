@@ -96,6 +96,15 @@ portfolio_tp:
   enabled: true
   target_profit_pct: 2.0
 
+manual_management:
+  rl_enabled: false
+  preserve_existing_tp: true
+  trailing_activation_atr: 1.6
+  trailing_distance_atr: 2.4
+  notify_on_adopt: true
+  notify_on_partial_tp: true
+  notify_on_sl_move: true
+
 profit_lock:
   min_profit_pct: 5.0
   decline_threshold_pct: 20.0
