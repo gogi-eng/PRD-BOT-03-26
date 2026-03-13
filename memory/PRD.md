@@ -63,6 +63,13 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
   - liquidation WebSocket cache
   - order status / cancel order
   - post-only limit support
+- Добавлено сопровождение уже открытых позиций на аккаунте:
+  - бот подхватывает **все открытые позиции аккаунта Bybit**, включая открытые вручную
+  - существующие SL/TP на бирже сохраняются и не перетираются
+  - если у внешней позиции SL/TP отсутствуют, бот рассчитывает и выставляет недостающие уровни
+  - partial TP: закрытие **50% объёма на 50% пути к финальному TP**
+  - portfolio total TP: закрытие **всех позиций аккаунта** по суммарной прибыли
+  - `position_idx` протянут через close / update SL / update TP для корректной работы с подхваченными позициями
 - Новый backend smoke test suite в `/app/backend_test.py`
 
 ## Current Strategy Logic
@@ -92,12 +99,19 @@ SHORT:
   - early exit
   - trailing stop
   - TP cap
+- External/manual position stack:
+  - adopt all open exchange positions
+  - preserve existing exchange SL/TP
+  - partial TP at 50% route to final TP
+  - portfolio-wide total TP on aggregate unrealized profit
 - RL agent can `add / reduce / close / hold`
 
 ## Testing Status
 - Ruff lint: `/app/bot` and `/app/backend_test.py` — **PASS**
 - Local smoke script for synthetic pipeline — **PASS**
-- `/app/backend_test.py` updated for new architecture — **11/11 PASS**
+- `/app/backend_test.py` updated for new architecture — **13/13 PASS**
+- `testing_agent` report `/app/test_reports/iteration_3.json` — **44/44 PASS**
+- `deep_testing_backend_v2` verification — **PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -110,7 +124,7 @@ SHORT:
 
 ### P0
 - Прогнать уже на реальном сервере пользователя с их Bybit/Telegram ключами
-- Проверить реальное поведение liquidation stream и post-only execution на Bybit
+- Проверить реальное поведение liquidation stream, adoption ручных позиций и post-only execution на Bybit
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
