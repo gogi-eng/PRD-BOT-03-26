@@ -104,6 +104,10 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
       - `pullback continuation`
       - `momentum continuation`
     - `SCAN SUMMARY` в конце скана показывает причины отказов по символам
+  - по live-логам пользователя найден дополнительный choke point: `atr_too_low=7`
+    - ATR-проверка перенесена **после** построения сигнала
+    - теперь low ATR больше не убивает **breakout**-входы преждевременно
+    - но для `pullback`-входов ATR-контроль сохранён, как попросил пользователь (`Mode C`)
   - TP/SL для подхваченных позиций теперь рассчитываются по структуре:
     - SL = под/над уровнями ликвидности или swing level + ATR buffer
     - TP = следующий liquidity cluster / resistance / support + ATR buffer
@@ -165,6 +169,7 @@ SHORT:
 - adaptive + directional heatmap self-test `/app/backend_test.py` — **20/20 PASS**
 - `testing_agent` report `/app/test_reports/iteration_7.json` — **146/146 PASS**
 - strategy v2 validation `/app/test_reports/iteration_8.json` — **193/193 PASS**
+- low-ATR breakout exception `/app/test_reports/iteration_9.json` — **194/194 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -182,6 +187,7 @@ SHORT:
 - Проверить на реальных сделках новый `profit_drawdown_guard`: активация только после `+3%`, затем закрытие на `25%` откате от пика прибыли
 - Проверить на реальном запуске, что после adaptive/synthetic/directional heatmap fallback бот снова начал выдавать собственные входы, особенно на дешёвых монетах
 - Проверить на реальном рынке, что `SCAN SUMMARY` показывает кандидатов/отказы, а новая Strategy v2 действительно начала открывать сделки без RSI-перефильтрации
+- Проверить на реальных логах, что число отказов `atr_too_low` резко упало и появились хотя бы breakout-кандидаты / реальные входы
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
