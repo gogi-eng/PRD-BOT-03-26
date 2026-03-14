@@ -112,6 +112,15 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - SL = под/над уровнями ликвидности или swing level + ATR buffer
     - TP = следующий liquidity cluster / resistance / support + ATR buffer
     - fallback на RR применяется только если уровней действительно нет
+  - устранён критический баг `micro exits` из live Telegram-логов пользователя:
+    - RL больше **не закрывает** позицию на микропрофите вроде `+0.01%`
+    - RL больше **не режет** позицию на микролоссе вроде `-0.02%` без реальной причины
+    - `RL CLOSE` разрешён только если прибыль уже >= `0.5%` или убыток <= `-0.6%`
+    - `RL REDUCE` разрешён только если прибыль >= `0.8%`
+    - для входов и подхваченных позиций введены минимальные дистанции:
+      - `TP >= 1.2%`
+      - `SL >= 0.35%`
+    - `protective_liq_level` теперь хранит уже **финальный stop_loss**, а не сырой слишком близкий уровень ликвидности
   - параметры входа смягчены до режима **осторожно, но не мёртво**:
     - `transformer_threshold=0.60`
     - `max_liq_distance_pct=0.55`
@@ -170,6 +179,7 @@ SHORT:
 - `testing_agent` report `/app/test_reports/iteration_7.json` — **146/146 PASS**
 - strategy v2 validation `/app/test_reports/iteration_8.json` — **193/193 PASS**
 - low-ATR breakout exception `/app/test_reports/iteration_9.json` — **194/194 PASS**
+- micro-exit prevention `/app/test_reports/iteration_10.json` — **186/186 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -188,6 +198,7 @@ SHORT:
 - Проверить на реальном запуске, что после adaptive/synthetic/directional heatmap fallback бот снова начал выдавать собственные входы, особенно на дешёвых монетах
 - Проверить на реальном рынке, что `SCAN SUMMARY` показывает кандидатов/отказы, а новая Strategy v2 действительно начала открывать сделки без RSI-перефильтрации
 - Проверить на реальных логах, что число отказов `atr_too_low` резко упало и появились хотя бы breakout-кандидаты / реальные входы
+- Проверить в live-логах, что сделки больше не закрываются на `+0.01% / -0.02%` и TP/SL реально покрывают комиссию и движение цены
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
