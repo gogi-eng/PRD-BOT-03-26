@@ -39,6 +39,9 @@ class Position:
     position_idx: int = 0
     external_tp_locked: bool = False
     last_notified_stop_loss: float = 0.0
+    profit_guard_armed: bool = False
+    profit_peak_price: float = 0.0
+    profit_peak_pct: float = 0.0
 
     @property
     def is_long(self) -> bool:
@@ -110,5 +113,7 @@ class PositionManager:
                 "partial_tp_price": pos.partial_tp_price,
                 "partial_tp_done": pos.partial_tp_done,
                 "external_tp_locked": pos.external_tp_locked,
+                "profit_guard_armed": pos.profit_guard_armed,
+                "profit_peak_pct": pos.profit_peak_pct,
             }
         return result

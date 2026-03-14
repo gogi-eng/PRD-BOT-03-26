@@ -103,6 +103,11 @@ basket_profit_guard:
   drawdown_pct_from_peak: 20.0
   min_total_profit_usdt: 0.5
 
+profit_drawdown_guard:
+  enabled: true
+  activation_profit_pct: 3.0
+  retrace_from_peak_pct: 25.0
+
 manual_management:
   rl_enabled: false
   preserve_existing_tp: true

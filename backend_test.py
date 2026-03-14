@@ -99,6 +99,7 @@ class BotTester:
         assert cfg.get("partial_tp", "close_fraction") == 0.5
         assert cfg.get("portfolio_tp", "enabled") is False
         assert cfg.get("basket_profit_guard", "enabled") is True
+        assert cfg.get("profit_drawdown_guard", "activation_profit_pct") == 3.0
         return True
 
     def test_market_analysis_and_regime(self):
@@ -341,7 +342,7 @@ class BotTester:
             assert adopted.take_profit == 62600
             assert adopted.external_tp_locked
             assert adopted.partial_tp_price == 0.0
-            assert adopted.trailing_activation_price > adopted.entry_price
+            assert adopted.trailing_activation_price >= adopted.entry_price * 1.03
             assert adopted.trailing_distance > 0
 
             partial = Position(
@@ -411,6 +412,35 @@ class BotTester:
         assert bot.manual_trailing_distance_atr > bot.exit_engine.trailing_distance_atr
         assert bot.basket_profit_guard_enabled is True
         assert bot.portfolio_tp_enabled is False
+        assert bot.profit_drawdown_guard_enabled is True
+        assert bot.profit_drawdown_activation_pct == 3.0
+        return True
+
+    def test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace(self):
+        from engine.position_manager import Position
+        from main import TradingBot
+
+        bot = TradingBot()
+        bot.tg = None
+        pos = Position(symbol="TRUMPUSDT", side="BUY", entry_price=4.19, qty=100, stop_loss=4.00, take_profit=4.60)
+        bot._apply_profit_drawdown_profile(pos)
+        assert round(pos.trailing_activation_price, 4) >= round(4.19 * 1.03, 4)
+
+        async def scenario():
+            armed, _ = await bot._check_profit_drawdown_guard(pos, 4.3160)  # ~+3%
+            assert not armed
+            assert pos.profit_guard_armed
+            assert pos.profit_peak_pct >= 2.99
+
+            triggered, reason = await bot._check_profit_drawdown_guard(pos, 4.3576)  # ~+4%
+            assert not triggered
+            assert pos.profit_peak_pct > 4.0 - 0.1
+
+            triggered, reason = await bot._check_profit_drawdown_guard(pos, 4.3120)  # slight drop below +3%
+            assert triggered
+            assert "profit_drawdown_guard" in reason
+
+        asyncio.run(scenario())
         return True
 
     def test_risk_guard_reset_clears_emergency(self):
@@ -482,6 +512,7 @@ class BotTester:
             ("Manual position sync + partial TP", self.test_manual_position_sync_and_take_profit_management),
             ("Portfolio total TP closes all", self.test_portfolio_total_tp_closes_all_positions),
             ("Manual mode configuration", self.test_manual_mode_configuration),
+            ("Profit drawdown guard", self.test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace),
             ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
             ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),
             ("TradingBot initialization", self.test_trading_bot_initialization),

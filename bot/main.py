@@ -176,6 +176,9 @@ class TradingBot:
         self.basket_profit_require_negative = self.cfg.get("basket_profit_guard", "require_negative_position", default=True)
         self.basket_profit_drawdown_pct = self.cfg.get("basket_profit_guard", "drawdown_pct_from_peak", default=12.0)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=0.5)
+        self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
+        self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
+        self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
         self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
@@ -418,6 +421,14 @@ class TradingBot:
                 if not pos:
                     continue
 
+            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price)
+            if guard_exit:
+                close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=guard_reason, position_idx=pos.position_idx)
+                if close_result.get("success"):
+                    pnl = self._calc_pnl(pos, current_price, pos.qty)
+                    await self._finalize_full_close(symbol, pos, current_price, pnl, "profit_drawdown_guard")
+                    continue
+
             self.exit_engine.update_trailing(pos, current_price)
             should_exit, reason, details = self.exit_engine.check_exit(
                 pos,
@@ -596,6 +607,7 @@ class TradingBot:
             klines = await self.client.get_klines(symbol, self.candle_interval, 50)
             atr_val = self.atr.get_atr(symbol, klines)
             self.exit_engine.initialize_position(pos, atr_val, protective_liq_level=pos.protective_liq_level)
+            self._apply_profit_drawdown_profile(pos)
             self.position_manager.add(pos)
             logger.info(f"ENTERED {symbol}: {signal.side} qty={pos.qty:.6f} entry=${executed_price:.4f} weight={capital_weight:.2f}")
 
@@ -721,6 +733,7 @@ class TradingBot:
         )
         self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=stop_loss)
         self._apply_manual_trailing_profile(adopted, atr_val)
+        self._apply_profit_drawdown_profile(adopted)
         self.position_manager.add(adopted)
 
         if not self.controls.dry_run:
@@ -760,6 +773,55 @@ class TradingBot:
             pos.trailing_activation_price = pos.entry_price + atr * self.manual_trailing_activation_atr
         else:
             pos.trailing_activation_price = pos.entry_price - atr * self.manual_trailing_activation_atr
+
+    def _apply_profit_drawdown_profile(self, pos: Position):
+        activation_move = self.profit_drawdown_activation_pct / 100
+        if pos.is_long:
+            target_activation = pos.entry_price * (1 + activation_move)
+            pos.trailing_activation_price = max(pos.trailing_activation_price, target_activation)
+        else:
+            target_activation = pos.entry_price * (1 - activation_move)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = target_activation
+            else:
+                pos.trailing_activation_price = min(pos.trailing_activation_price, target_activation)
+        pos.profit_guard_armed = False
+        pos.profit_peak_price = pos.entry_price
+        pos.profit_peak_pct = 0.0
+
+    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float) -> tuple[bool, str]:
+        if not self.profit_drawdown_guard_enabled or current_price <= 0 or pos.entry_price <= 0:
+            return False, ""
+
+        current_profit_pct = self._calc_pnl_pct(pos, current_price)
+        if not pos.profit_guard_armed:
+            if current_profit_pct + 1e-9 < self.profit_drawdown_activation_pct:
+                return False, ""
+            pos.profit_guard_armed = True
+            pos.profit_peak_price = current_price
+            pos.profit_peak_pct = current_profit_pct
+            if self.tg:
+                await self.tg.send_message(
+                    f"<b>PROFIT GUARD АКТИВЕН</b>\n\n"
+                    f"Монета: <code>{pos.symbol}</code>\n"
+                    f"Вход: <code>${pos.entry_price:.4f}</code>\n"
+                    f"Активация: <code>{current_profit_pct:.2f}%</code>\n"
+                    f"Правило: закрытие при откате {self.profit_drawdown_retrace_pct:.0f}% от пика прибыли"
+                )
+            return False, ""
+
+        if current_profit_pct > pos.profit_peak_pct:
+            pos.profit_peak_pct = current_profit_pct
+            pos.profit_peak_price = current_price
+            return False, ""
+
+        trigger_profit_pct = pos.profit_peak_pct * (1 - self.profit_drawdown_retrace_pct / 100)
+        if current_profit_pct <= trigger_profit_pct and current_profit_pct > 0:
+            return True, (
+                f"profit_drawdown_guard: peak={pos.profit_peak_pct:.2f}% current={current_profit_pct:.2f}% "
+                f"retrace={self.profit_drawdown_retrace_pct:.0f}%"
+            )
+        return False, ""
 
     async def _notify_manual_sl_move(self, pos: Position, source: str):
         if not self.tg or not self.manual_notify_on_sl_move:
