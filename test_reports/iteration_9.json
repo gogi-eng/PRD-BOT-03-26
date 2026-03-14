@@ -1,0 +1,42 @@
+{
+  "summary": "Verified ATR filtering fix for low-ATR breakout allowance (Mode C from user request). All 21 backend_test.py tests and 173 pytest tests pass. The key test 'test_low_atr_breakout_allowed_but_pullback_blocked' validates: breakout scenarios pass even when ATR < min_atr_pct, while pullback/non-breakout scenarios are rejected as atr_too_low.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Low ATR breakout allowed: breakout signals pass with ATR 0.05% (below 0.25% threshold)",
+    "Low ATR pullback blocked: pullback signals rejected as atr_too_low when ATR < 0.25%",
+    "ATR check moved to post-signal validation: entry_engine.generate_signal runs first",
+    "structure_breakout metadata flag bypasses ATR filter",
+    "Non-breakout scenarios still properly filtered by low ATR",
+    "All 21 backend_test.py tests pass",
+    "All 173 pytest tests pass (no regressions)"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/test_reports/pytest/pytest_results_iteration9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Line 536-537 in main.py correctly implements Mode C: `if atr_pct < self.min_atr_pct and not signal.metadata.get('structure_breakout'): return reject('atr_too_low')`",
+    "ATR filter now runs AFTER entry_engine.generate_signal() so breakout detection has occurred",
+    "Only signals with structure_breakout=True bypass the ATR filter",
+    "Pullback scenarios (structure_pullback=True but structure_breakout=False) are still rejected with low ATR as intended",
+    "This addresses user's SCAN SUMMARY showing 'atr_too_low=7' rejections for breakout opportunities"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (21/21 backend_test.py + 173/173 pytest)"
+  },
+  "seed_data_creation": "None - all tests use synthetic/mocked data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ATR filtering for breakouts verified. The fix moves ATR validation to post-signal phase so breakout structures (structure_breakout=True) pass even with low ATR, while pullback entries remain blocked by low ATR. The test_low_atr_breakout_allowed_but_pullback_blocked test validates both scenarios with ATR=0.05% vs threshold 0.25%.",
+  "rca_of_the_issue": "User's live logs showed 'atr_too_low=7' rejects during scans. The original code checked ATR BEFORE signal generation, blocking breakout candidates prematurely. Fix: move ATR check to AFTER entry_engine.generate_signal() and add exemption for structure_breakout flag. Now breakout scenarios bypass ATR filter while pullback scenarios are still protected."
+}

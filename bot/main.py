@@ -513,8 +513,6 @@ class TradingBot:
 
         atr_val = self.atr.get_atr(symbol, klines)
         atr_pct = self.atr.get_atr_pct(symbol, klines)
-        if atr_pct < self.min_atr_pct:
-            return reject("atr_too_low")
 
         current_price = float(klines[-1]["close"])
         orderbook = await self.client.get_orderbook(symbol, limit=25)
@@ -534,6 +532,9 @@ class TradingBot:
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
+
+        if atr_pct < self.min_atr_pct and not signal.metadata.get("structure_breakout"):
+            return reject("atr_too_low")
 
         liquidity = sum(float(item.get("volume", 0.0)) for item in klines[-30:]) * current_price
         signal.metadata.update({
