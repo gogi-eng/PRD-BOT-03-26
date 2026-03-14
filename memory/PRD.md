@@ -77,6 +77,23 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - трейлинг мягче, чем у сигналов бота
     - если у ручной позиции уже есть TP на бирже, бот его сохраняет и не строит partial TP поверх него
     - Telegram-логи по событиям: подхват / partial TP / перенос SL / portfolio TP
+  - исправлена блокировка торговли после `EMERGENCY`: теперь `reset_guard()` и `resume()` реально снимают EMERGENCY, а `START_BOT` в Telegram возобновляет guard
+  - добавлен request throttling в `BybitClient`, чтобы снизить `10006 Too many visits`
+  - убрано нежелательное быстрое закрытие одиночной позиции через `portfolio_total_tp`:
+    - `portfolio_tp` теперь выключен по умолчанию
+    - даже если включить его обратно, он работает только при `>= 2` позициях
+  - добавлена новая корзинная логика по пожеланию пользователя:
+    - если открыто `2+` позиций
+    - и хотя бы одна позиция ушла в минус
+    - бот отслеживает пик суммарной прибыли по всем позициям аккаунта
+    - и закрывает всю корзину при откате **20% от максимальной суммарной прибыли**
+  - параметры входа смягчены до режима **осторожно, но не мёртво**:
+    - `transformer_threshold=0.60`
+    - `max_liq_distance_pct=0.55`
+    - `min_orderflow_imbalance=1.12`
+    - `min_atr_pct=0.20`
+    - `trade_symbols=6`
+    - `ai.min_confidence=62`, `fail_open=true`
 - Новый backend smoke test suite в `/app/backend_test.py`
 
 ## Current Strategy Logic
@@ -120,6 +137,8 @@ SHORT:
 - `testing_agent` report `/app/test_reports/iteration_3.json` — **44/44 PASS**
 - `deep_testing_backend_v2` verification — **PASS**
 - manual-safe mode self-test `/app/backend_test.py` — **14/14 PASS**
+- P0 fixes self-test `/app/backend_test.py` — **16/16 PASS**
+- `testing_agent` report `/app/test_reports/iteration_4.json` — **79/79 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -133,6 +152,7 @@ SHORT:
 ### P0
 - Прогнать уже на реальном сервере пользователя с их Bybit/Telegram ключами
 - Проверить реальное поведение liquidation stream, adoption ручных позиций и post-only execution на Bybit
+- Проверить на реальных данных новую корзинную логику: `2+ позиции -> одна в минус -> закрытие по 20% drawdown от пика`
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation

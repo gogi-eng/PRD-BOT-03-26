@@ -300,6 +300,8 @@ class TelegramController:
         elif action == "RESET_GUARD":
             if c._guard:
                 c._guard.reset_guard()
+                c.emergency = False
+                c.enabled = True
                 await query.message.reply_text("<b>Guard сброшен!</b>\nСерия убытков обнулена.", parse_mode=ParseMode.HTML)
             else:
                 await query.message.reply_text("Guard не подключён", parse_mode=ParseMode.HTML)
