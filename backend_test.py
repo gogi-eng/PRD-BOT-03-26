@@ -452,6 +452,25 @@ class BotTester:
         assert liq.distance_to_target_pct >= 0
         return True
 
+    def test_directional_heatmap_fallback_builds_target_without_events(self):
+        from analysis.market_analyzer import MarketAnalysis, MarketRegime, TrendDirection, VolatilityRegime
+        from analysis.orderflow_analyzer import OrderflowSnapshot
+        from main import TradingBot
+
+        bot = TradingBot()
+        market = MarketAnalysis(
+            regime=MarketRegime.TREND,
+            trend=TrendDirection.BULLISH,
+            htf_trend=TrendDirection.BULLISH,
+            volatility=VolatilityRegime.NORMAL,
+            atr_pct=0.8,
+        )
+        orderflow = OrderflowSnapshot(bullish_ratio=1.15, bearish_ratio=0.92, imbalance_score=0.2)
+        liq = bot._build_directional_liq_fallback(4.19, market, orderflow, 0.08)
+        assert liq.target_level > 4.19
+        assert liq.signal == 1
+        return True
+
     def test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace(self):
         from engine.position_manager import Position
         from main import TradingBot
@@ -550,6 +569,7 @@ class BotTester:
             ("Portfolio total TP closes all", self.test_portfolio_total_tp_closes_all_positions),
             ("Manual mode configuration", self.test_manual_mode_configuration),
             ("Synthetic heatmap fallback", self.test_synthetic_heatmap_fallback_builds_context),
+            ("Directional heatmap fallback", self.test_directional_heatmap_fallback_builds_target_without_events),
             ("Profit drawdown guard", self.test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace),
             ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
             ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),

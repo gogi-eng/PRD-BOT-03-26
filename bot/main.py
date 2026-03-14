@@ -21,7 +21,7 @@ if str(BOT_DIR) not in sys.path:
 
 from analysis.ai_analyzer import AITradeAnalyzer
 from analysis.feature_engineering import FeatureEngineer
-from analysis.liquidation_clusters import LiquidationClusterDetector
+from analysis.liquidation_clusters import LiquidationCluster, LiquidationClusterDetector, LiquidationAnalysis
 from analysis.market_analyzer import MarketAnalyzer
 from analysis.market_regime_ai import MarketRegimeAI
 from analysis.orderflow_analyzer import OrderflowAnalyzer
@@ -371,6 +371,8 @@ class TradingBot:
             trades = await self.client.get_recent_trades(symbol, limit=80)
             orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
             liq = self._resolve_liquidation_context(symbol, current_price, klines)
+            if liq.target_level <= 0:
+                liq = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
             self.controls.set_heatmap(symbol, liq)
             features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
             transformer = self.transformer_model.predict(features, regime, orderflow, liq)
@@ -502,6 +504,8 @@ class TradingBot:
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
         liq = self._resolve_liquidation_context(symbol, current_price, klines)
+        if liq.target_level <= 0:
+            liq = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
         self.controls.set_heatmap(symbol, liq)
         if liq.target_level <= 0:
             return EntrySignal()
@@ -694,6 +698,40 @@ class TradingBot:
             if low < current_price:
                 events.append({"price": low, "size": weight, "side": "Buy"})
         return events
+
+    def _build_directional_liq_fallback(self, current_price: float, market, orderflow, atr_val: float) -> LiquidationAnalysis:
+        bullish_votes = 0
+        bearish_votes = 0
+        if market.trend.value > 0:
+            bullish_votes += 1
+        elif market.trend.value < 0:
+            bearish_votes += 1
+        if market.htf_trend.value > 0:
+            bullish_votes += 1
+        elif market.htf_trend.value < 0:
+            bearish_votes += 1
+        if orderflow.bullish_ratio >= 1.03 and orderflow.bullish_ratio >= orderflow.bearish_ratio:
+            bullish_votes += 1
+        if orderflow.bearish_ratio >= 1.03 and orderflow.bearish_ratio > orderflow.bullish_ratio:
+            bearish_votes += 1
+
+        if bullish_votes == bearish_votes or current_price <= 0:
+            return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
+
+        atr = atr_val if atr_val > 0 else current_price * 0.008
+        distance = max(atr * 1.8, current_price * 0.004)
+        if bullish_votes > bearish_votes:
+            target_level = current_price + distance
+            distance_pct = distance / current_price * 100
+            cluster = LiquidationCluster(round(target_level, 8), 1.0, 1, round(distance_pct, 4), "shorts")
+            logger.info("[HEATMAP] directional fallback: bullish target created")
+            return LiquidationAnalysis([cluster], [], cluster, None, cluster.level, cluster.size, "up", 1, cluster.distance_pct)
+
+        target_level = max(current_price - distance, 0.0)
+        distance_pct = distance / current_price * 100
+        cluster = LiquidationCluster(round(target_level, 8), 1.0, 1, round(distance_pct, 4), "longs")
+        logger.info("[HEATMAP] directional fallback: bearish target created")
+        return LiquidationAnalysis([], [cluster], None, cluster, cluster.level, cluster.size, "down", -1, cluster.distance_pct)
 
     async def _sync_exchange_position(self, exchange_position: dict):
         symbol = exchange_position.get("symbol", "")
