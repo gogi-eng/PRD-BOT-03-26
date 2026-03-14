@@ -87,6 +87,10 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - и хотя бы одна позиция ушла в минус
     - бот отслеживает пик суммарной прибыли по всем позициям аккаунта
     - и закрывает всю корзину при откате **20% от максимальной суммарной прибыли**
+  - добавлен `profit_drawdown_guard` для **всех позиций**, включая ручные и сделки самого бота:
+    - сопровождение прибыли и trailing не включаются раньше, чем позиция даст **+3% от входа**
+    - после активации бот отслеживает пик прибыли
+    - и закрывает позицию при откате **25% от накопленной прибыли от пика**
   - параметры входа смягчены до режима **осторожно, но не мёртво**:
     - `transformer_threshold=0.60`
     - `max_liq_distance_pct=0.55`
@@ -139,6 +143,8 @@ SHORT:
 - manual-safe mode self-test `/app/backend_test.py` — **14/14 PASS**
 - P0 fixes self-test `/app/backend_test.py` — **16/16 PASS**
 - `testing_agent` report `/app/test_reports/iteration_4.json` — **79/79 PASS**
+- profit drawdown self-test `/app/backend_test.py` — **17/17 PASS**
+- `testing_agent` report `/app/test_reports/iteration_5.json` — **101/101 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -153,6 +159,7 @@ SHORT:
 - Прогнать уже на реальном сервере пользователя с их Bybit/Telegram ключами
 - Проверить реальное поведение liquidation stream, adoption ручных позиций и post-only execution на Bybit
 - Проверить на реальных данных новую корзинную логику: `2+ позиции -> одна в минус -> закрытие по 20% drawdown от пика`
+- Проверить на реальных сделках новый `profit_drawdown_guard`: активация только после `+3%`, затем закрытие на `25%` откате от пика прибыли
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
