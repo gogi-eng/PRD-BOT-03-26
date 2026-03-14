@@ -1,0 +1,75 @@
+{
+  "summary": "Verified P0 fixes for user-reported issues: EMERGENCY reset/resume, Telegram START_BOT, BybitClient throttling, cautious config defaults, portfolio_tp disabled, basket profit guard with 20% drawdown, manual position TP preservation. All 79 tests pass (16 backend_test.py + 63 pytest).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "RiskGuard reset_guard() clears EMERGENCY status",
+    "RiskGuard resume() clears EMERGENCY status",
+    "RiskGuard resume() clears STOPPED status",
+    "RiskGuard reset clears consecutive losses counter",
+    "Telegram START_BOT clears emergency and resumes guard",
+    "BybitClient has _request_lock for throttling",
+    "BybitClient has public_min_interval and private_min_interval",
+    "BybitClient has _respect_rate_limit method",
+    "BybitClient tracks last request timestamps",
+    "BybitClient _request has retries parameter (default >= 3)",
+    "Config transformer_threshold is cautious at 0.60",
+    "Config max_liq_distance_pct allows reasonable entries",
+    "Config min_orderflow_imbalance is achievable",
+    "Config min_atr_pct allows most trades",
+    "Config trade_symbols count allows diversification",
+    "Config AI min_confidence is reasonable",
+    "Config portfolio_tp.enabled is false by default",
+    "portfolio_tp requires >= 2 positions to trigger",
+    "TradingBot initializes with portfolio_tp disabled",
+    "basket_profit_guard is enabled in config",
+    "basket_profit_guard drawdown_pct_from_peak is ~20%",
+    "basket_profit_guard require_negative_position is true",
+    "basket_profit_guard closes all positions on drawdown with negative position",
+    "basket_profit_guard does NOT close without negative position",
+    "Manual positions preserve existing TP (external_tp_locked)",
+    "Manual positions avoid early_exit (allow_early_exit=False)",
+    "Bot positions CAN early_exit",
+    "manual_rl_enabled is false by default",
+    "TradingBot initialization succeeds",
+    "controls.emergency flag blocks trading",
+    "can_trade respects EMERGENCY status",
+    "basket_profit_state resets when all positions closed",
+    "All original backend_test.py tests (16/16) pass"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_p0_fixes.py",
+    "/app/backend/tests/test_trading_bot_features.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Code correctly implements EMERGENCY reset in both reset_guard() and resume() methods",
+    "BybitClient has proper request throttling with _request_lock and configurable intervals",
+    "BybitClient _request has retry logic with exponential backoff on rate-limit errors (code 10006)",
+    "Telegram START_BOT handler properly calls controls._guard.resume() to clear emergency",
+    "basket_profit_guard correctly checks require_negative_position before closing basket",
+    "Manual positions correctly set external_tp_locked=True when take_profit is set on exchange",
+    "ExitEngine.check_exit properly respects allow_early_exit parameter for manual positions",
+    "portfolio_tp correctly requires position_manager.count() >= 2 before triggering"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_p0_fixes.py"
+  ],
+  "success_rate": {
+    "backend": "100% (79/79 tests passed - 16 backend_test.py + 63 pytest)"
+  },
+  "seed_data_creation": "None - all tests use mocked data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All P0 fixes verified working: (1) RiskGuard.reset_guard() and resume() clear EMERGENCY state allowing trading to resume, (2) Telegram START_BOT calls guard.resume(), (3) BybitClient has rate limiting via _request_lock and retries with backoff, (4) Config tuned with transformer_threshold=0.60 and cautious but active defaults, (5) portfolio_tp disabled by default and requires >=2 positions, (6) basket_profit_guard closes at 20% drawdown from peak when one position is negative, (7) manual positions skip early_exit and preserve existing TP via external_tp_locked flag. No live network testing was performed per instructions - code-level logic only.",
+  "rca_of_issue": "User reported (1) bot not trading - caused by EMERGENCY state not being cleared properly, now fixed via reset_guard()/resume() clearing the status, (2) positions closing early - manual positions now skip early_exit by passing allow_early_exit=False to check_exit(), and preserve existing TP via external_tp_locked flag"
+}

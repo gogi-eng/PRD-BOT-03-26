@@ -52,8 +52,8 @@ RISK: [LOW/MEDIUM/HIGH]"""
     def __init__(self):
         self.api_key = os.getenv("EMERGENT_LLM_KEY", "")
         self.enabled = EMERGENT_AVAILABLE and bool(self.api_key)
-        self.min_confidence = 65
-        self.fail_open = False
+        self.min_confidence = 62
+        self.fail_open = True
         self._cache: Dict[str, Dict] = {}
         self._cache_ttl = 120
 
@@ -145,7 +145,7 @@ RISK: [LOW/MEDIUM/HIGH]"""
         if not self.enabled:
             proposed = analysis_data.get("proposed_signal", "NEUTRAL")
             confluence = analysis_data.get("confluence_score", 0)
-            if proposed in ["BUY", "SELL"] and confluence >= 0.62:
+            if proposed in ["BUY", "SELL"] and confluence >= 0.60:
                 return {
                     "decision": proposed, "confidence": int(confluence * 100),
                     "reason": "AI disabled, confluence sufficient",

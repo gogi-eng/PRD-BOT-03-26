@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,6 +43,13 @@ from utils import ATRCalculator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("BOT")
+
+
+@dataclass
+class BasketProfitState:
+    peak_profit_usdt: float = 0.0
+    armed: bool = False
+    last_reason: str = ""
 
 
 class TradingBot:
@@ -96,6 +104,8 @@ class TradingBot:
         self.feature_engineer = FeatureEngineer(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.transformer_model = TransformerPriceModel(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.ai_analyzer = AITradeAnalyzer()
+        self.ai_analyzer.min_confidence = self.cfg.get("ai", "min_confidence", default=60)
+        self.ai_analyzer.fail_open = self.cfg.get("ai", "fail_open", default=True)
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
@@ -161,6 +171,11 @@ class TradingBot:
         self.partial_tp_move_stop_to_entry = self.cfg.get("partial_tp", "move_stop_to_entry", default=True)
         self.portfolio_tp_enabled = self.cfg.get("portfolio_tp", "enabled", default=True)
         self.portfolio_tp_target_pct = self.cfg.get("portfolio_tp", "target_profit_pct", default=2.0)
+        self.basket_profit_guard_enabled = self.cfg.get("basket_profit_guard", "enabled", default=True)
+        self.basket_profit_min_positions = self.cfg.get("basket_profit_guard", "min_positions", default=2)
+        self.basket_profit_require_negative = self.cfg.get("basket_profit_guard", "require_negative_position", default=True)
+        self.basket_profit_drawdown_pct = self.cfg.get("basket_profit_guard", "drawdown_pct_from_peak", default=12.0)
+        self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=0.5)
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
         self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
@@ -168,6 +183,7 @@ class TradingBot:
         self.manual_notify_on_adopt = self.cfg.get("manual_management", "notify_on_adopt", default=True)
         self.manual_notify_on_partial_tp = self.cfg.get("manual_management", "notify_on_partial_tp", default=True)
         self.manual_notify_on_sl_move = self.cfg.get("manual_management", "notify_on_sl_move", default=True)
+        self.basket_profit_state = BasketProfitState()
 
     async def _notify_tg(self, message: str):
         if self.tg:
@@ -260,7 +276,10 @@ class TradingBot:
 
                 total_unrealized = await self._manage_positions(exchange_positions)
 
-                if self.portfolio_tp_enabled and self.position_manager.count() > 0:
+                if self.basket_profit_guard_enabled and self.position_manager.count() >= self.basket_profit_min_positions:
+                    await self._check_basket_profit_guard(total_unrealized)
+
+                if self.portfolio_tp_enabled and self.position_manager.count() >= 2:
                     await self._check_portfolio_take_profit(total_unrealized)
 
                 if self.position_manager.count() > 0:
@@ -327,6 +346,7 @@ class TradingBot:
         self.controls.set_unrealized_pnl(total_unrealized)
 
         if self.position_manager.count() == 0:
+            self._reset_basket_profit_state()
             return total_unrealized
 
         for symbol in list(self.position_manager.symbols()):
@@ -800,7 +820,7 @@ class TradingBot:
         return True
 
     async def _check_portfolio_take_profit(self, total_unrealized: float):
-        if not self.portfolio_tp_enabled or total_unrealized <= 0 or self.position_manager.count() == 0:
+        if not self.portfolio_tp_enabled or total_unrealized <= 0 or self.position_manager.count() < 2:
             return
         balance = self.controls.get_balance()
         if balance <= 0:
@@ -825,6 +845,57 @@ class TradingBot:
             if close_result.get("success"):
                 pnl = self._calc_pnl(pos, current_price, pos.qty)
                 await self._finalize_full_close(symbol, pos, current_price, pnl, "portfolio_total_tp")
+        self._reset_basket_profit_state()
+
+    def _reset_basket_profit_state(self):
+        self.basket_profit_state = BasketProfitState()
+
+    async def _check_basket_profit_guard(self, total_unrealized: float):
+        positions = self.position_manager.all_positions()
+        if len(positions) < self.basket_profit_min_positions:
+            self._reset_basket_profit_state()
+            return
+
+        any_negative = any(pos.unrealized_pnl < 0 for pos in positions.values())
+        if total_unrealized > self.basket_profit_state.peak_profit_usdt:
+            self.basket_profit_state.peak_profit_usdt = total_unrealized
+
+        if total_unrealized < self.basket_profit_min_total_usdt:
+            return
+        if self.basket_profit_require_negative and not any_negative:
+            return
+
+        self.basket_profit_state.armed = True
+        self.basket_profit_state.last_reason = "negative_position_in_basket"
+        peak = self.basket_profit_state.peak_profit_usdt
+        if peak <= 0:
+            return
+        drawdown_pct = ((peak - total_unrealized) / peak) * 100 if peak > 0 else 0.0
+        if drawdown_pct + 1e-9 < self.basket_profit_drawdown_pct:
+            return
+
+        logger.info(
+            f"BASKET PROFIT GUARD HIT: total=${total_unrealized:.2f}, peak=${peak:.2f}, drawdown={drawdown_pct:.1f}%"
+        )
+        if self.tg:
+            await self.tg.send_message(
+                f"<b>BASKET PROFIT GUARD</b>\n\n"
+                f"Открыто позиций: <code>{len(positions)}</code>\n"
+                f"Пик суммарной прибыли: <code>${peak:.2f}</code>\n"
+                f"Текущая прибыль: <code>${total_unrealized:.2f}</code>\n"
+                f"Откат от пика: <code>{drawdown_pct:.1f}%</code>\n"
+                f"Причина: одна из позиций ушла в минус"
+            )
+        for symbol in list(self.position_manager.symbols()):
+            pos = self.position_manager.get(symbol)
+            if not pos:
+                continue
+            current_price = await self.client.get_price(symbol)
+            close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="basket_profit_guard", position_idx=pos.position_idx)
+            if close_result.get("success"):
+                pnl = self._calc_pnl(pos, current_price, pos.qty)
+                await self._finalize_full_close(symbol, pos, current_price, pnl, "basket_profit_guard")
+        self._reset_basket_profit_state()
 
     def _save_trade(self, symbol: str, side: str, qty: float, entry: float, exit_price: float, pnl: float, reason: str):
         trade = {

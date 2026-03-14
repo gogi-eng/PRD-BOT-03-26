@@ -7,7 +7,7 @@ bybit:
 bot:
   candle_interval: "1"
   htf_interval: "15"
-  cycle_sleep_sec: 45
+  cycle_sleep_sec: 60
   klines_limit: 180
   feature_window: 128
   liquidation_stream_symbols: 12
@@ -24,9 +24,9 @@ trading:
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
 
 entry:
-  transformer_threshold: 0.62
-  max_liq_distance_pct: 0.4
-  min_orderflow_imbalance: 1.2
+  transformer_threshold: 0.60
+  max_liq_distance_pct: 0.55
+  min_orderflow_imbalance: 1.12
   min_rr_ratio: 1.8
   atr_stop_mult: 1.6
   liq_stop_buffer_atr: 0.35
@@ -38,7 +38,7 @@ heatmap:
 
 atr:
   period: 14
-  min_atr_pct: 0.25
+  min_atr_pct: 0.20
 
 exit:
   hard_sl_atr_mult: 1.8
@@ -62,7 +62,7 @@ risk:
 market:
   min_24h_volume_usdt: 15000000
   max_symbols: 15
-  trade_symbols: 5
+  trade_symbols: 6
   whitelist_enabled: true
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ARBUSDT", "OPUSDT"]
   blacklist_substrings:
@@ -73,8 +73,8 @@ market:
 
 ai:
   enabled: true
-  min_confidence: 70
-  fail_open: false
+  min_confidence: 62
+  fail_open: true
 
 rl:
   enabled: true
@@ -93,8 +93,15 @@ partial_tp:
   move_stop_to_entry: true
 
 portfolio_tp:
-  enabled: true
+  enabled: false
   target_profit_pct: 2.0
+
+basket_profit_guard:
+  enabled: true
+  min_positions: 2
+  require_negative_position: true
+  drawdown_pct_from_peak: 20.0
+  min_total_profit_usdt: 0.5
 
 manual_management:
   rl_enabled: false

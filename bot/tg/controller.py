@@ -263,6 +263,8 @@ class TelegramController:
         if action == "START_BOT":
             c.emergency = False
             c.enabled = True
+            if c._guard:
+                c._guard.resume()
         elif action == "STOP_BOT":
             c.enabled = False
         elif action == "RISK_UP":

@@ -31,6 +31,25 @@ class BybitClient:
         self._liq_task: Optional[asyncio.Task] = None
         self._liq_symbols: Tuple[str, ...] = ()
         self._liquidation_cache: Dict[str, List[Dict]] = {}
+        self._request_lock = asyncio.Lock()
+        self._last_public_request_at = 0.0
+        self._last_private_request_at = 0.0
+        self.public_min_interval = 0.22
+        self.private_min_interval = 0.35
+
+    async def _respect_rate_limit(self, is_private: bool):
+        async with self._request_lock:
+            now = time.monotonic()
+            min_interval = self.private_min_interval if is_private else self.public_min_interval
+            last_at = self._last_private_request_at if is_private else self._last_public_request_at
+            wait_for = min_interval - (now - last_at)
+            if wait_for > 0:
+                await asyncio.sleep(wait_for)
+            updated = time.monotonic()
+            if is_private:
+                self._last_private_request_at = updated
+            else:
+                self._last_public_request_at = updated
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -127,6 +146,7 @@ class BybitClient:
 
         for attempt in range(retries):
             try:
+                await self._respect_rate_limit(is_private)
                 data = {}
                 if method == "GET":
                     query = "&".join(f"{key}={value}" for key, value in (params or {}).items())
@@ -161,7 +181,7 @@ class BybitClient:
                 if ret_code == 110043:
                     return data.get("result", {})
                 if ret_code == 10006 and attempt < retries - 1:
-                    await asyncio.sleep(2 + attempt * 2)
+                    await asyncio.sleep(5 + attempt * 5)
                     continue
                 return {"_error": error_msg, "_code": ret_code}
             except aiohttp.ClientError as exc:

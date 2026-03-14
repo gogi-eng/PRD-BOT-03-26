@@ -292,7 +292,7 @@ class RiskGuard:
 
     def reset_guard(self):
         with self._lock:
-            if self.status == GuardStatus.STOPPED:
+            if self.status in [GuardStatus.STOPPED, GuardStatus.EMERGENCY]:
                 self.status = GuardStatus.ACTIVE
             self.stop_reason = ""
             self._consecutive_losses = 0
@@ -302,7 +302,7 @@ class RiskGuard:
 
     def resume(self):
         with self._lock:
-            if self.status in [GuardStatus.STOPPED]:
+            if self.status in [GuardStatus.STOPPED, GuardStatus.EMERGENCY]:
                 self.status = GuardStatus.ACTIVE
                 self.stop_reason = ""
                 self._consecutive_losses = 0

@@ -92,12 +92,13 @@ class BotTester:
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         assert cfg.get("bot", "candle_interval") == "1"
-        assert cfg.get("entry", "transformer_threshold") == 0.62
+        assert cfg.get("entry", "transformer_threshold") == 0.60
         assert cfg.get("entry", "min_rr_ratio") == 1.8
         assert cfg.get("risk", "max_daily_loss_pct") == 2.5
         assert cfg.get("heatmap", "cluster_step") == 20
         assert cfg.get("partial_tp", "close_fraction") == 0.5
-        assert cfg.get("portfolio_tp", "target_profit_pct") == 2.0
+        assert cfg.get("portfolio_tp", "enabled") is False
+        assert cfg.get("basket_profit_guard", "enabled") is True
         return True
 
     def test_market_analysis_and_regime(self):
@@ -208,7 +209,7 @@ class BotTester:
         assert signal.should_enter
         assert signal.side == "SELL"
         assert signal.rr_ratio >= 1.8
-        assert signal.metadata["liq_distance_pct"] <= 0.4
+        assert signal.metadata["liq_distance_pct"] <= 0.55
 
         weak_signal = engine.generate_signal(
             "BTCUSDT",
@@ -391,6 +392,11 @@ class BotTester:
         bot.client.get_price = fake_get_price
 
         asyncio.run(bot._check_portfolio_take_profit(25.0))
+        assert len(calls) == 0
+        assert bot.position_manager.count() == 2
+
+        bot.portfolio_tp_enabled = True
+        asyncio.run(bot._check_portfolio_take_profit(25.0))
         assert len(calls) == 2
         assert bot.position_manager.count() == 0
         return True
@@ -403,6 +409,51 @@ class BotTester:
         assert bot.manual_preserve_existing_tp is True
         assert bot.manual_trailing_activation_atr > bot.exit_engine.trailing_activation_atr
         assert bot.manual_trailing_distance_atr > bot.exit_engine.trailing_distance_atr
+        assert bot.basket_profit_guard_enabled is True
+        assert bot.portfolio_tp_enabled is False
+        return True
+
+    def test_risk_guard_reset_clears_emergency(self):
+        from engine.risk_manager import GuardStatus, RiskGuard
+
+        guard = RiskGuard()
+        guard.emergency_stop("Manual")
+        assert guard.status == GuardStatus.EMERGENCY
+        guard.reset_guard()
+        assert guard.status == GuardStatus.ACTIVE
+        allowed, _ = guard.can_trade()
+        assert allowed
+        return True
+
+    def test_basket_profit_guard_closes_on_drawdown_with_negative_position(self):
+        from engine.position_manager import Position
+        from main import TradingBot
+
+        bot = TradingBot()
+        bot.tg = None
+        bot._save_trade = lambda *args, **kwargs: None
+        bot.position_manager.add(Position(symbol="BTCUSDT", side="BUY", entry_price=62000.0, qty=0.01, stop_loss=61700.0, take_profit=62600.0, unrealized_pnl=18.0))
+        bot.position_manager.add(Position(symbol="ETHUSDT", side="SELL", entry_price=3000.0, qty=1.0, stop_loss=3060.0, take_profit=2880.0, unrealized_pnl=-2.0))
+
+        calls = []
+
+        async def fake_execute_close(symbol, side, qty=None, reason="", position_idx=0):
+            calls.append((symbol, reason))
+            return {"success": True, "orderId": f"{symbol}-closed", "error": ""}
+
+        async def fake_get_price(symbol):
+            return 62500.0 if symbol == "BTCUSDT" else 2990.0
+
+        bot.execution_engine.execute_close = fake_execute_close
+        bot.client.get_price = fake_get_price
+
+        async def scenario():
+            bot.basket_profit_state.peak_profit_usdt = 20.0
+            await bot._check_basket_profit_guard(15.0)
+
+        asyncio.run(scenario())
+        assert len(calls) == 2
+        assert bot.position_manager.count() == 0
         return True
 
     def test_trading_bot_initialization(self):
@@ -410,7 +461,7 @@ class BotTester:
 
         bot = TradingBot()
         assert bot.controls.get_strategy_mode_display() == "Transformer + Heatmap + Orderflow"
-        assert bot.entry_engine.transformer_threshold == 0.62
+        assert bot.entry_engine.transformer_threshold == 0.60
         assert bot.allocator is not None
         assert bot.rl_agent is not None
         assert bot.feature_engineer.sequence_length == 128
@@ -431,6 +482,8 @@ class BotTester:
             ("Manual position sync + partial TP", self.test_manual_position_sync_and_take_profit_management),
             ("Portfolio total TP closes all", self.test_portfolio_total_tp_closes_all_positions),
             ("Manual mode configuration", self.test_manual_mode_configuration),
+            ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
+            ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),
             ("TradingBot initialization", self.test_trading_bot_initialization),
         ]
         for name, func in tests:
