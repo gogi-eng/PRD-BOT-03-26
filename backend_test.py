@@ -92,8 +92,8 @@ class BotTester:
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         assert cfg.get("bot", "candle_interval") == "1"
-        assert cfg.get("entry", "transformer_threshold") == 0.60
-        assert cfg.get("entry", "min_rr_ratio") == 1.8
+        assert cfg.get("entry", "transformer_threshold") == 0.56
+        assert cfg.get("entry", "min_rr_ratio") == 1.4
         assert cfg.get("risk", "max_daily_loss_pct") == 2.5
         assert cfg.get("heatmap", "cluster_step") == 20
         assert cfg.get("partial_tp", "close_fraction") == 0.5
@@ -225,7 +225,7 @@ class BotTester:
 
         assert signal.should_enter
         assert signal.side == "SELL"
-        assert signal.rr_ratio >= 1.8
+        assert signal.rr_ratio >= 1.4
         assert signal.metadata["liq_distance_pct"] <= 0.55
 
         weak_signal = engine.generate_signal(
@@ -235,7 +235,7 @@ class BotTester:
             market,
             regime,
             transformer,
-            type("WeakOrderflow", (), {**orderflow.__dict__, "bearish_ratio": 1.05, "bullish_ratio": 0.8, "spread_pct": orderflow.spread_pct})(),
+            type("WeakOrderflow", (), {**orderflow.__dict__, "bearish_ratio": 0.98, "bullish_ratio": 0.95, "spread_pct": orderflow.spread_pct, "volume_spike": 1.0})(),
             liq,
             110.0,
         )
@@ -547,7 +547,7 @@ class BotTester:
 
         bot = TradingBot()
         assert bot.controls.get_strategy_mode_display() == "Transformer + Heatmap + Orderflow"
-        assert bot.entry_engine.transformer_threshold == 0.60
+        assert bot.entry_engine.transformer_threshold == 0.56
         assert bot.allocator is not None
         assert bot.rl_agent is not None
         assert bot.feature_engineer.sequence_length == 128

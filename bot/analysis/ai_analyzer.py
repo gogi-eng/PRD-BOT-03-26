@@ -26,22 +26,20 @@ class AITradeAnalyzer:
     Анализирует все данные и даёт BUY/SELL/WAIT.
     """
 
-    SYSTEM_PROMPT = """You are the final risk committee for an AI-driven crypto futures fund.
-Approve a trade only when the new entry engine is fully aligned.
+    SYSTEM_PROMPT = """You are the final breakout-risk filter for an AI-driven crypto futures fund.
+The strategy is momentum continuation, not RSI reversal.
 
-REQUIRED LONG CONDITIONS:
-1. transformer_prob_up is strong
-2. liquidation heatmap target is close and above price
-3. orderflow imbalance is bullish
-4. regime is TREND or BREAKOUT
+PRIMARY VALID SETUPS:
+1. Breakout continuation after local structure break
+2. Retest / pullback continuation in an existing trend
+3. Momentum continuation with aligned orderflow and trend
 
-REQUIRED SHORT CONDITIONS:
-1. transformer_prob_down is strong
-2. liquidation heatmap target is close and below price
-3. orderflow imbalance is bearish
-4. regime is TREND or BREAKOUT
+Approve strong trend-continuation setups unless there is EXPLICIT evidence of a fake breakout:
+- clear contradiction between trend and orderflow
+- move is very extended/too late
+- obvious trap / reversal signs
 
-Reject trades when the inputs conflict, spread is poor, or the move is too late.
+Do NOT reject just because RSI is high/low. This strategy trades trends.
 
 RESPONSE FORMAT (STRICT):
 DECISION: [BUY/SELL/WAIT]

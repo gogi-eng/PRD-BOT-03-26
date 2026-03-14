@@ -548,15 +548,17 @@ class TradingBot:
         if self.ai_analyzer.enabled and self.controls.ai_enabled:
             ai_result = await self.ai_analyzer.analyze(symbol, self._build_ai_payload(current_price, market, signal))
             if not ai_result.get("should_trade", False):
+                ai_reason = str(ai_result.get("reason", "")).lower()
+                explicit_fake_breakout = any(token in ai_reason for token in ["fake breakout", "fake", "bull trap", "bear trap", "late breakout", "conflict"]) and ai_result.get("confidence", 0) >= 70
                 structural_override = (
                     signal.confidence >= 0.72
                     and market.trend == market.htf_trend
                     and (signal.metadata.get("structure_breakout") or signal.metadata.get("structure_pullback"))
                 )
-                if not structural_override:
+                if explicit_fake_breakout and not structural_override:
                     logger.info(f"[AI] {symbol} rejected: {ai_result.get('reason', '')}")
                     return reject("ai_rejected")
-                logger.info(f"[AI] {symbol} soft-bypass: strong trend structure overrides veto")
+                logger.info(f"[AI] {symbol} advisory-only: veto ignored unless fake breakout is explicit")
             signal.confidence = round((signal.confidence + ai_result.get("confidence", 0) / 100) / 2, 4)
             signal.capital_score = round(signal.confidence * signal.rr_ratio, 4)
 

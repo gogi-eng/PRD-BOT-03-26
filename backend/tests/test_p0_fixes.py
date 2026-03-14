@@ -176,20 +176,21 @@ class TestConfigCautiousDefaults:
     """Tests config has cautious but active defaults."""
 
     def test_entry_transformer_threshold_cautious(self):
-        """transformer_threshold should be set to cautious value (0.60)."""
+        """transformer_threshold should be set for strategy v2 (0.56 - more permissive for breakout continuation)."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         threshold = cfg.get("entry", "transformer_threshold", default=0.62)
-        assert threshold == 0.60, f"Expected 0.60, got {threshold}"
+        assert threshold == 0.56, f"Expected 0.56, got {threshold}"
 
     def test_entry_max_liq_distance_reasonable(self):
-        """max_liq_distance_pct should allow nearby entries."""
+        """max_liq_distance_pct allows farther heatmap targets in strategy v2 (up to 1.10%)."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         distance = cfg.get("entry", "max_liq_distance_pct", default=0.4)
-        assert 0.3 <= distance <= 0.8, f"Unexpected distance: {distance}"
+        # Strategy v2: increased to 1.10 to allow more entries
+        assert 0.3 <= distance <= 1.5, f"Unexpected distance: {distance}"
 
     def test_entry_min_orderflow_imbalance_reasonable(self):
         """min_orderflow_imbalance should be achievable but meaningful."""

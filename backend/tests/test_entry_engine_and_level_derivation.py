@@ -237,7 +237,8 @@ class TestAIVetoSoftBypass:
         # We verify the bot has the AI analyzer with expected settings
         assert trading_bot.ai_analyzer is not None
         assert hasattr(trading_bot.ai_analyzer, "enabled")
-        assert trading_bot.ai_analyzer.min_confidence == 62
+        # Strategy v2: AI min_confidence lowered to 55 to be more permissive
+        assert trading_bot.ai_analyzer.min_confidence == 55
 
     def test_ai_fail_open_setting(self, trading_bot):
         """Verify AI fail_open is set correctly."""
@@ -473,11 +474,12 @@ class TestNoRegressions:
         assert trading_bot.basket_profit_require_negative is True
 
     def test_entry_engine_config_values(self, entry_engine, bot_config):
-        """Verify EntryEngine config values are loaded correctly."""
-        assert entry_engine.transformer_threshold == 0.60
-        assert entry_engine.max_liq_distance_pct == 0.55
-        assert entry_engine.min_orderflow_imbalance == 1.12
-        assert entry_engine.min_rr_ratio == 1.8
+        """Verify EntryEngine config values are loaded correctly - strategy v2 values."""
+        # Strategy v2: lowered thresholds to address no-trade problem
+        assert entry_engine.transformer_threshold == 0.56
+        assert entry_engine.max_liq_distance_pct == 1.10
+        assert entry_engine.min_orderflow_imbalance == 1.05
+        assert entry_engine.min_rr_ratio == 1.4
         assert entry_engine.breakout_lookback == 20
         assert entry_engine.pullback_lookback == 8
 

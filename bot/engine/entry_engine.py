@@ -139,20 +139,36 @@ class EntryEngine:
         return signal
 
     def _long_ready(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
-        breakout_or_pullback = structure["breakout_long"] or structure["pullback_long"]
-        liq_ok = (liq.signal >= 0 and liq.max_liq_cluster_above is not None and liq_near) or liq.signal > 0
-        transformer_ok = transformer.prob_up >= self.transformer_threshold or (structure["breakout_long"] and transformer.prob_up >= self.transformer_threshold - 0.03)
-        orderflow_ok = orderflow.bullish_ratio >= self.min_orderflow_imbalance or (structure["breakout_long"] and orderflow.bullish_ratio >= self.min_orderflow_imbalance - 0.06)
+        breakout_or_pullback = structure["breakout_long"] or structure["pullback_long"] or structure["continuation_long"]
+        liq_ok = (liq.signal >= 0 and liq.max_liq_cluster_above is not None and liq_near) or liq.signal > 0 or structure["breakout_long"]
+        transformer_ok = (
+            transformer.prob_up >= self.transformer_threshold
+            or (structure["breakout_long"] and transformer.prob_up >= self.transformer_threshold - 0.05)
+            or (structure["pullback_long"] and transformer.prob_up >= self.transformer_threshold - 0.04)
+        )
+        orderflow_ok = (
+            orderflow.bullish_ratio >= self.min_orderflow_imbalance
+            or (orderflow.volume_spike >= 1.05 and orderflow.bullish_ratio >= self.min_orderflow_imbalance - 0.08)
+        )
+        volume_ok = orderflow.volume_spike >= 1.03 or market.volume_expansion >= 1.05 or structure["pullback_long"]
         trend_ok = market.trend.value > 0 and market.htf_trend.value >= 0
-        return regime_ok and breakout_or_pullback and liq_ok and transformer_ok and orderflow_ok and trend_ok
+        return regime_ok and breakout_or_pullback and liq_ok and transformer_ok and orderflow_ok and trend_ok and volume_ok
 
     def _short_ready(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
-        breakout_or_pullback = structure["breakout_short"] or structure["pullback_short"]
-        liq_ok = (liq.signal <= 0 and liq.max_liq_cluster_below is not None and liq_near) or liq.signal < 0
-        transformer_ok = transformer.prob_down >= self.transformer_threshold or (structure["breakout_short"] and transformer.prob_down >= self.transformer_threshold - 0.03)
-        orderflow_ok = orderflow.bearish_ratio >= self.min_orderflow_imbalance or (structure["breakout_short"] and orderflow.bearish_ratio >= self.min_orderflow_imbalance - 0.06)
+        breakout_or_pullback = structure["breakout_short"] or structure["pullback_short"] or structure["continuation_short"]
+        liq_ok = (liq.signal <= 0 and liq.max_liq_cluster_below is not None and liq_near) or liq.signal < 0 or structure["breakout_short"]
+        transformer_ok = (
+            transformer.prob_down >= self.transformer_threshold
+            or (structure["breakout_short"] and transformer.prob_down >= self.transformer_threshold - 0.05)
+            or (structure["pullback_short"] and transformer.prob_down >= self.transformer_threshold - 0.04)
+        )
+        orderflow_ok = (
+            orderflow.bearish_ratio >= self.min_orderflow_imbalance
+            or (orderflow.volume_spike >= 1.05 and orderflow.bearish_ratio >= self.min_orderflow_imbalance - 0.08)
+        )
+        volume_ok = orderflow.volume_spike >= 1.03 or market.volume_expansion >= 1.05 or structure["pullback_short"]
         trend_ok = market.trend.value < 0 and market.htf_trend.value <= 0
-        return regime_ok and breakout_or_pullback and liq_ok and transformer_ok and orderflow_ok and trend_ok
+        return regime_ok and breakout_or_pullback and liq_ok and transformer_ok and orderflow_ok and trend_ok and volume_ok
 
     def _detect_structure(self, klines: List[Dict], current_price: float, market) -> Dict[str, bool | str]:
         if len(klines) < self.breakout_lookback + 2:
@@ -161,6 +177,8 @@ class EntryEngine:
                 "breakout_short": False,
                 "pullback_long": False,
                 "pullback_short": False,
+                "continuation_long": False,
+                "continuation_short": False,
                 "trigger_reason": "No structure",
             }
         highs = [float(k["high"]) for k in klines]
@@ -169,16 +187,27 @@ class EntryEngine:
         breakout_high = max(highs[-self.breakout_lookback - 1 : -1])
         breakout_low = min(lows[-self.breakout_lookback - 1 : -1])
         recent_closes = closes[-self.pullback_lookback :]
-        pullback_long = market.trend.value > 0 and min(recent_closes) <= market.ema_fast * 1.003 and current_price >= market.ema_fast and current_price > closes[-2]
-        pullback_short = market.trend.value < 0 and max(recent_closes) >= market.ema_fast * 0.997 and current_price <= market.ema_fast and current_price < closes[-2]
-        breakout_long = market.trend.value > 0 and current_price >= breakout_high * 0.999 and current_price > closes[-2]
-        breakout_short = market.trend.value < 0 and current_price <= breakout_low * 1.001 and current_price < closes[-2]
-        trigger_reason = "Breakout continuation" if breakout_long or breakout_short else "Pullback continuation" if pullback_long or pullback_short else "No structure"
+        recent_high_band = max(highs[-4:])
+        recent_low_band = min(lows[-4:])
+        pullback_long = market.trend.value > 0 and min(recent_closes) <= market.ema_fast * 1.006 and current_price >= market.ema_fast * 0.999 and current_price > closes[-2]
+        pullback_short = market.trend.value < 0 and max(recent_closes) >= market.ema_fast * 0.994 and current_price <= market.ema_fast * 1.001 and current_price < closes[-2]
+        breakout_long = market.trend.value > 0 and current_price >= breakout_high * 0.998 and current_price >= recent_high_band * 0.999
+        breakout_short = market.trend.value < 0 and current_price <= breakout_low * 1.002 and current_price <= recent_low_band * 1.001
+        continuation_long = market.trend.value > 0 and current_price > closes[-3] > closes[-5] and current_price > market.ema_fast and market.volume_expansion >= 1.02
+        continuation_short = market.trend.value < 0 and current_price < closes[-3] < closes[-5] and current_price < market.ema_fast and market.volume_expansion >= 1.02
+        trigger_reason = (
+            "Breakout continuation" if breakout_long or breakout_short else
+            "Pullback continuation" if pullback_long or pullback_short else
+            "Momentum continuation" if continuation_long or continuation_short else
+            "No structure"
+        )
         return {
             "breakout_long": breakout_long,
             "breakout_short": breakout_short,
             "pullback_long": pullback_long,
             "pullback_short": pullback_short,
+            "continuation_long": continuation_long,
+            "continuation_short": continuation_short,
             "trigger_reason": trigger_reason,
         }
 

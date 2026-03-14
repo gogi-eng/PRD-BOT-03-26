@@ -24,13 +24,16 @@ trading:
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
 
 entry:
-  transformer_threshold: 0.60
-  max_liq_distance_pct: 0.55
-  min_orderflow_imbalance: 1.12
-  min_rr_ratio: 1.8
+  transformer_threshold: 0.56
+  max_liq_distance_pct: 1.10
+  min_orderflow_imbalance: 1.05
+  min_rr_ratio: 1.4
   atr_stop_mult: 1.6
   liq_stop_buffer_atr: 0.35
-  allowed_regimes: ["trend", "breakout"]
+  allowed_regimes: ["trend", "breakout", "chop"]
+  breakout_lookback: 20
+  pullback_lookback: 8
+  level_tp_buffer_atr: 0.20
 
 heatmap:
   cluster_step: 20
@@ -51,9 +54,9 @@ exit:
 risk:
   max_daily_loss_pct: 2.5
   max_daily_loss_usdt: 10
-  max_trades_per_day: 10
-  max_consecutive_losses: 2
-  cooldown_after_loss_sec: 900
+  max_trades_per_day: 15
+  max_consecutive_losses: 3
+  cooldown_after_loss_sec: 300
   cooldown_after_stop_hours: 6
   max_trades_per_symbol_24h: 2
   reduce_after_losses: 1
@@ -62,7 +65,7 @@ risk:
 market:
   min_24h_volume_usdt: 15000000
   max_symbols: 15
-  trade_symbols: 6
+  trade_symbols: 8
   whitelist_enabled: true
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ARBUSDT", "OPUSDT"]
   blacklist_substrings:
@@ -73,7 +76,7 @@ market:
 
 ai:
   enabled: true
-  min_confidence: 62
+  min_confidence: 55
   fail_open: true
 
 rl:
