@@ -94,6 +94,7 @@ class BotTester:
         assert cfg.get("bot", "candle_interval") == "1"
         assert cfg.get("entry", "transformer_threshold") == 0.56
         assert cfg.get("entry", "min_rr_ratio") == 1.4
+        assert cfg.get("entry", "min_target_profit_pct") == 1.2
         assert cfg.get("risk", "max_daily_loss_pct") == 2.5
         assert cfg.get("heatmap", "cluster_step") == 20
         assert cfg.get("partial_tp", "close_fraction") == 0.5
@@ -227,6 +228,7 @@ class BotTester:
         assert signal.side == "SELL"
         assert signal.rr_ratio >= 1.4
         assert signal.metadata["liq_distance_pct"] <= 0.55
+        assert abs(signal.take_profit - current_price) / current_price * 100 >= 1.19
 
         weak_signal = engine.generate_signal(
             "BTCUSDT",
@@ -264,6 +266,16 @@ class BotTester:
             "transformer_edge": 0.5,
         })
         assert decision.action in {RLAction.HOLD, RLAction.ADD, RLAction.REDUCE, RLAction.CLOSE}
+
+        tiny_profit = RLPositionAgent().decide(position, {
+            "trend_bias": -1,
+            "volatility": 0.04,
+            "pnl_pct": 0.01,
+            "liq_signal": -1,
+            "orderflow_edge": -1.0,
+            "transformer_edge": -1.0,
+        })
+        assert tiny_profit.action != RLAction.CLOSE
         return True
 
     def test_position_exit_and_controls(self):

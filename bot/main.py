@@ -115,6 +115,9 @@ class TradingBot:
             add_threshold=self.cfg.get("rl", "add_threshold", default=0.78),
             reduce_threshold=self.cfg.get("rl", "reduce_threshold", default=0.7),
             close_threshold=self.cfg.get("rl", "close_threshold", default=0.8),
+            min_close_profit_pct=self.cfg.get("rl", "min_close_profit_pct", default=0.5),
+            max_panic_loss_pct=self.cfg.get("rl", "max_panic_loss_pct", default=0.6),
+            min_reduce_profit_pct=self.cfg.get("rl", "min_reduce_profit_pct", default=0.8),
         )
         self.exit_engine = ExitEngine(
             hard_sl_atr_mult=self.cfg.get("exit", "hard_sl_atr_mult", default=1.8),
@@ -855,6 +858,8 @@ class TradingBot:
     def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float, liq_analysis=None, klines: list[dict] | None = None) -> tuple[float, float]:
         atr = atr_val if atr_val > 0 else entry_price * 0.01
         side_upper = side.upper()
+        min_stop_distance = entry_price * (self.entry_engine.min_stop_distance_pct / 100)
+        min_target_distance = entry_price * (self.entry_engine.min_target_profit_pct / 100)
         highs = [float(item.get("high", 0.0)) for item in (klines or [])[-30:]]
         lows = [float(item.get("low", 0.0)) for item in (klines or [])[-30:]]
         nearest_resistance = min((level for level in highs if level > entry_price), default=0.0)
@@ -888,6 +893,11 @@ class TradingBot:
                 else:
                     risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
                     derived_tp = entry_price - risk * self.entry_engine.min_rr_ratio
+
+        if abs(entry_price - derived_sl) < min_stop_distance:
+            derived_sl = entry_price - min_stop_distance if side_upper in ["BUY", "LONG"] else entry_price + min_stop_distance
+        if abs(derived_tp - entry_price) < min_target_distance:
+            derived_tp = entry_price + min_target_distance if side_upper in ["BUY", "LONG"] else entry_price - min_target_distance
         return derived_sl, derived_tp
 
     def _apply_manual_trailing_profile(self, pos: Position, atr_val: float):

@@ -24,10 +24,13 @@ class RLDecision:
 class RLPositionAgent:
     """A conservative PPO-style policy approximation for live management."""
 
-    def __init__(self, add_threshold: float = 0.78, reduce_threshold: float = 0.7, close_threshold: float = 0.8):
+    def __init__(self, add_threshold: float = 0.78, reduce_threshold: float = 0.7, close_threshold: float = 0.8, min_close_profit_pct: float = 0.5, max_panic_loss_pct: float = 0.6, min_reduce_profit_pct: float = 0.8):
         self.add_threshold = add_threshold
         self.reduce_threshold = reduce_threshold
         self.close_threshold = close_threshold
+        self.min_close_profit_pct = min_close_profit_pct
+        self.max_panic_loss_pct = max_panic_loss_pct
+        self.min_reduce_profit_pct = min_reduce_profit_pct
 
     def decide(self, position, state: dict) -> RLDecision:
         trend_bias = state.get("trend_bias", 0.0)
@@ -44,11 +47,13 @@ class RLPositionAgent:
         close_score = max(0.0, adverse_edge * 0.55 + max(volatility - 0.03, 0) * 6 + max(-pnl_pct, 0) * 0.08)
         if liq_signal * side < 0:
             close_score += 0.2
-        if close_score >= self.close_threshold:
+        can_close_profit = pnl_pct >= self.min_close_profit_pct
+        can_close_loss = pnl_pct <= -self.max_panic_loss_pct
+        if close_score >= self.close_threshold and (can_close_profit or can_close_loss):
             return RLDecision(RLAction.CLOSE, round(min(close_score, 0.98), 4), 1.0, "RL close: pressure flipped against position")
 
         reduce_score = max(0.0, adverse_edge * 0.4 + max(volatility - 0.025, 0) * 5 + max(pnl_pct, 0) * 0.015)
-        if reduce_score >= self.reduce_threshold:
+        if reduce_score >= self.reduce_threshold and pnl_pct >= self.min_reduce_profit_pct:
             return RLDecision(RLAction.REDUCE, round(min(reduce_score, 0.95), 4), 0.5, "RL reduce: lock gains under rising volatility")
 
         add_score = max(0.0, aligned_edge * 0.7 + max(pnl_pct, 0) * 0.015 - max(volatility - 0.02, 0) * 5)

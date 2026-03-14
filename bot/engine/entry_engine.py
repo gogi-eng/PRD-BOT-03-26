@@ -29,6 +29,8 @@ class EntryEngine:
         self.max_liq_distance_pct = cfg.get("entry", "max_liq_distance_pct", default=0.55)
         self.min_orderflow_imbalance = cfg.get("entry", "min_orderflow_imbalance", default=1.12)
         self.min_rr_ratio = cfg.get("entry", "min_rr_ratio", default=1.8)
+        self.min_target_profit_pct = cfg.get("entry", "min_target_profit_pct", default=1.2)
+        self.min_stop_distance_pct = cfg.get("entry", "min_stop_distance_pct", default=0.35)
         self.allowed_regimes = set(cfg.get("entry", "allowed_regimes", default=["trend", "breakout"]))
         self.atr_stop_mult = cfg.get("entry", "atr_stop_mult", default=1.6)
         self.liq_stop_buffer_atr = cfg.get("entry", "liq_stop_buffer_atr", default=0.35)
@@ -77,6 +79,11 @@ class EntryEngine:
         else:
             stop_loss = atr_stop
 
+        min_stop_distance = current_price * (self.min_stop_distance_pct / 100)
+        actual_stop_distance = abs(current_price - stop_loss)
+        if actual_stop_distance < min_stop_distance:
+            stop_loss = current_price - min_stop_distance if is_long else current_price + min_stop_distance
+
         risk = abs(current_price - stop_loss)
         if risk <= 0:
             return signal
@@ -88,10 +95,20 @@ class EntryEngine:
             take_profit = min(rr_target, target_level + atr_value * self.level_tp_buffer_atr)
         else:
             take_profit = rr_target
+
+        min_target_distance = current_price * (self.min_target_profit_pct / 100)
+        actual_target_distance = abs(take_profit - current_price)
+        if actual_target_distance < min_target_distance:
+            take_profit = current_price + min_target_distance if is_long else current_price - min_target_distance
+
         reward = abs(take_profit - current_price)
         rr_ratio = reward / risk if risk > 0 else 0.0
         if rr_ratio + 1e-6 < self.min_rr_ratio:
-            return signal
+            take_profit = current_price + risk * self.min_rr_ratio if is_long else current_price - risk * self.min_rr_ratio
+            reward = abs(take_profit - current_price)
+            rr_ratio = reward / risk if risk > 0 else 0.0
+            if rr_ratio + 1e-6 < self.min_rr_ratio:
+                return signal
 
         transformer_edge = transformer_prediction.prob_up if is_long else transformer_prediction.prob_down
         flow_edge = orderflow_snapshot.bullish_ratio if is_long else orderflow_snapshot.bearish_ratio
@@ -121,7 +138,7 @@ class EntryEngine:
         }
         signal.metadata = {
             "target_level": target_level,
-            "protective_liq_level": liq_stop,
+            "protective_liq_level": round(stop_loss, 8),
             "transformer_prob_up": transformer_prediction.prob_up,
             "transformer_prob_down": transformer_prediction.prob_down,
             "transformer_prob_flat": transformer_prediction.prob_flat,
