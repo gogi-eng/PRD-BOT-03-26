@@ -221,7 +221,7 @@ class BotTester:
         features = FeatureEngineer().build(klines, orderflow, liq, 110.0)
         transformer = TransformerPriceModel().predict(features, regime, orderflow, liq)
         engine = EntryEngine(BotConfig.load(str(BOT_DIR / "config.yaml")))
-        signal = engine.generate_signal("BTCUSDT", current_price, market, regime, transformer, orderflow, liq, 110.0)
+        signal = engine.generate_signal("BTCUSDT", klines, current_price, market, regime, transformer, orderflow, liq, 110.0)
 
         assert signal.should_enter
         assert signal.side == "SELL"
@@ -230,6 +230,7 @@ class BotTester:
 
         weak_signal = engine.generate_signal(
             "BTCUSDT",
+            klines,
             current_price,
             market,
             regime,

@@ -456,11 +456,18 @@ class TradingBot:
 
     async def _scan_entries(self, symbols: list):
         candidates = []
+        reject_counts: dict[str, int] = {}
+
+        def mark_reject(reason: str):
+            reject_counts[reason] = reject_counts.get(reason, 0) + 1
+
         for symbol in symbols:
             if self.position_manager.has(symbol):
+                mark_reject("already_in_position")
                 continue
             allowed, _ = self.risk_guard.can_trade(symbol)
             if not allowed:
+                mark_reject("risk_blocked")
                 continue
             try:
                 signal = await self._analyze_symbol(symbol)
@@ -475,29 +482,39 @@ class TradingBot:
                             "spread": signal.metadata.get("spread_pct", 0.0),
                         }
                     )
+                else:
+                    mark_reject(signal.metadata.get("reject_reason", "entry_filters"))
             except Exception as exc:
                 logger.error(f"Error analyzing {symbol}: {exc}")
+                mark_reject("exception")
             await asyncio.sleep(0.8)
 
         ranked = self.allocator.allocate(candidates)
         self.controls.set_candidates(ranked)
+        summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
+        logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
         available_slots = max(0, self.controls.max_positions - self.position_manager.count())
         for item in ranked[:available_slots]:
             await self._execute_entry(item["symbol"], item["signal"], item.get("capital_weight", 1.0))
 
     async def _analyze_symbol(self, symbol: str) -> EntrySignal:
+        def reject(reason: str) -> EntrySignal:
+            signal = EntrySignal()
+            signal.metadata["reject_reason"] = reason
+            return signal
+
         klines = await self.client.get_klines(symbol, self.candle_interval, self.klines_limit)
         if len(klines) < 80:
-            return EntrySignal()
+            return reject("not_enough_klines")
         htf_klines = await self.client.get_klines(symbol, self.htf_interval, max(80, self.feature_window))
         market = self.market_analyzer.analyze(klines, htf_klines)
         if not market.can_trade:
-            return EntrySignal()
+            return reject("market_blocked")
 
         atr_val = self.atr.get_atr(symbol, klines)
         atr_pct = self.atr.get_atr_pct(symbol, klines)
         if atr_pct < self.min_atr_pct:
-            return EntrySignal()
+            return reject("atr_too_low")
 
         current_price = float(klines[-1]["close"])
         orderbook = await self.client.get_orderbook(symbol, limit=25)
@@ -508,13 +525,14 @@ class TradingBot:
             liq = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
         self.controls.set_heatmap(symbol, liq)
         if liq.target_level <= 0:
-            return EntrySignal()
+            return reject("no_heatmap_target")
 
         regime = self.regime_ai.classify(market)
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
-        signal = self.entry_engine.generate_signal(symbol, current_price, market, regime, transformer, orderflow, liq, atr_val)
+        signal = self.entry_engine.generate_signal(symbol, klines, current_price, market, regime, transformer, orderflow, liq, atr_val)
         if not signal.should_enter:
+            signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
 
         liquidity = sum(float(item.get("volume", 0.0)) for item in klines[-30:]) * current_price
@@ -530,8 +548,15 @@ class TradingBot:
         if self.ai_analyzer.enabled and self.controls.ai_enabled:
             ai_result = await self.ai_analyzer.analyze(symbol, self._build_ai_payload(current_price, market, signal))
             if not ai_result.get("should_trade", False):
-                logger.info(f"[AI] {symbol} rejected: {ai_result.get('reason', '')}")
-                return EntrySignal()
+                structural_override = (
+                    signal.confidence >= 0.72
+                    and market.trend == market.htf_trend
+                    and (signal.metadata.get("structure_breakout") or signal.metadata.get("structure_pullback"))
+                )
+                if not structural_override:
+                    logger.info(f"[AI] {symbol} rejected: {ai_result.get('reason', '')}")
+                    return reject("ai_rejected")
+                logger.info(f"[AI] {symbol} soft-bypass: strong trend structure overrides veto")
             signal.confidence = round((signal.confidence + ai_result.get("confidence", 0) / 100) / 2, 4)
             signal.capital_score = round(signal.confidence * signal.rr_ratio, 4)
 
@@ -773,7 +798,15 @@ class TradingBot:
 
         klines = await self.client.get_klines(symbol, self.candle_interval, max(60, self.feature_window))
         atr_val = self.atr.get_atr(symbol, klines)
-        derived_sl, derived_tp = self._derive_manual_position_levels(side, entry_price or mark_price, stop_loss, take_profit, atr_val)
+        current_price = entry_price or mark_price
+        market = self.market_analyzer.analyze(klines, klines[-max(60, self.feature_window // 2):] if klines else None)
+        orderbook = await self.client.get_orderbook(symbol, limit=25)
+        trades = await self.client.get_recent_trades(symbol, limit=80)
+        orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
+        liq_analysis = self._resolve_liquidation_context(symbol, current_price, klines)
+        if liq_analysis.target_level <= 0:
+            liq_analysis = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
+        derived_sl, derived_tp = self._derive_manual_position_levels(side, current_price, stop_loss, take_profit, atr_val, liq_analysis=liq_analysis, klines=klines)
         stop_loss = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else derived_sl
         take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
 
@@ -816,17 +849,42 @@ class TradingBot:
                 f"Режим: <code>manual-safe-trailing</code>"
             )
 
-    def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float) -> tuple[float, float]:
+    def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float, liq_analysis=None, klines: list[dict] | None = None) -> tuple[float, float]:
         atr = atr_val if atr_val > 0 else entry_price * 0.01
         side_upper = side.upper()
+        highs = [float(item.get("high", 0.0)) for item in (klines or [])[-30:]]
+        lows = [float(item.get("low", 0.0)) for item in (klines or [])[-30:]]
+        nearest_resistance = min((level for level in highs if level > entry_price), default=0.0)
+        nearest_support = max((level for level in lows if level < entry_price), default=0.0)
         derived_sl = stop_loss
         if derived_sl <= 0:
-            derived_sl = entry_price - atr * self.exit_engine.hard_sl_atr_mult if side_upper in ["BUY", "LONG"] else entry_price + atr * self.exit_engine.hard_sl_atr_mult
+            if side_upper in ["BUY", "LONG"]:
+                cluster_support = liq_analysis.max_liq_cluster_below.level if liq_analysis and liq_analysis.max_liq_cluster_below else 0.0
+                base_support = max(level for level in [nearest_support, cluster_support] if 0 < level < entry_price) if any(0 < level < entry_price for level in [nearest_support, cluster_support]) else 0.0
+                derived_sl = base_support - atr * self.entry_engine.liq_stop_buffer_atr if base_support > 0 else entry_price - atr * self.exit_engine.hard_sl_atr_mult
+            else:
+                cluster_resistance = liq_analysis.max_liq_cluster_above.level if liq_analysis and liq_analysis.max_liq_cluster_above else 0.0
+                above_levels = [level for level in [nearest_resistance, cluster_resistance] if level > entry_price]
+                base_resistance = min(above_levels) if above_levels else 0.0
+                derived_sl = base_resistance + atr * self.entry_engine.liq_stop_buffer_atr if base_resistance > 0 else entry_price + atr * self.exit_engine.hard_sl_atr_mult
         derived_tp = take_profit
         if derived_tp <= 0:
-            risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
-            rr = self.entry_engine.min_rr_ratio
-            derived_tp = entry_price + risk * rr if side_upper in ["BUY", "LONG"] else entry_price - risk * rr
+            if side_upper in ["BUY", "LONG"]:
+                cluster_target = liq_analysis.max_liq_cluster_above.level if liq_analysis and liq_analysis.max_liq_cluster_above else 0.0
+                tp_candidates = [level for level in [cluster_target, nearest_resistance, max(highs) if highs else 0.0] if level > entry_price]
+                if tp_candidates:
+                    derived_tp = min(tp_candidates) - atr * self.entry_engine.level_tp_buffer_atr
+                else:
+                    risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
+                    derived_tp = entry_price + risk * self.entry_engine.min_rr_ratio
+            else:
+                cluster_target = liq_analysis.max_liq_cluster_below.level if liq_analysis and liq_analysis.max_liq_cluster_below else 0.0
+                tp_candidates = [level for level in [cluster_target, nearest_support, min(lows) if lows else 0.0] if 0 < level < entry_price]
+                if tp_candidates:
+                    derived_tp = max(tp_candidates) + atr * self.entry_engine.level_tp_buffer_atr
+                else:
+                    risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
+                    derived_tp = entry_price - risk * self.entry_engine.min_rr_ratio
         return derived_sl, derived_tp
 
     def _apply_manual_trailing_profile(self, pos: Position, atr_val: float):
