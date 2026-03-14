@@ -39,7 +39,7 @@ class LiquidationClusterDetector:
         if current_price <= 0:
             return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
 
-        cluster_step = 100 if current_price >= 1000 and self.cluster_step < 100 else self.cluster_step
+        cluster_step = self._resolve_cluster_step(current_price)
         clusters: Dict[float, Dict[str, float]] = {}
         for event in liquidation_events or []:
             price = float(event.get("price", 0.0))
@@ -107,4 +107,17 @@ class LiquidationClusterDetector:
             signal=signal,
             distance_to_target_pct=round(distance_to_target_pct, 4),
         )
+
+    def _resolve_cluster_step(self, current_price: float) -> float:
+        if current_price >= 1000:
+            return max(float(self.cluster_step), 100.0)
+        if current_price >= 100:
+            return max(float(self.cluster_step), 20.0)
+        if current_price >= 10:
+            return 0.1
+        if current_price >= 1:
+            return 0.01
+        if current_price >= 0.1:
+            return 0.001
+        return 0.0001
 

@@ -152,6 +152,22 @@ class BotTester:
         assert analysis.signal == 1
         return True
 
+    def test_liquidation_heatmap_low_price_symbol(self):
+        from analysis.liquidation_clusters import LiquidationClusterDetector
+
+        current_price = 4.19
+        events = [
+            {"price": 4.24, "size": 120000, "side": "Sell", "timestamp": 1},
+            {"price": 4.26, "size": 180000, "side": "Sell", "timestamp": 2},
+            {"price": 4.11, "size": 90000, "side": "Buy", "timestamp": 3},
+        ]
+        analysis = LiquidationClusterDetector(cluster_step=20).analyze(current_price, events)
+
+        assert analysis.target_level > current_price
+        assert analysis.distance_to_target_pct > 0
+        assert analysis.signal == 1
+        return True
+
     def test_feature_engineering_and_transformer(self):
         from analysis.feature_engineering import FeatureEngineer
         from analysis.liquidation_clusters import LiquidationClusterDetector
@@ -416,6 +432,26 @@ class BotTester:
         assert bot.profit_drawdown_activation_pct == 3.0
         return True
 
+    def test_synthetic_heatmap_fallback_builds_context(self):
+        from main import TradingBot
+
+        bot = TradingBot()
+        klines = []
+        price = 4.10
+        for i in range(50):
+            price += 0.01 if i % 5 else 0.015
+            klines.append({
+                "open": price - 0.01,
+                "high": price + 0.03,
+                "low": price - 0.025,
+                "close": price,
+                "volume": 50000 + i * 1200,
+            })
+        liq = bot._resolve_liquidation_context("TRUMPUSDT", klines[-1]["close"], klines)
+        assert liq.target_level > 0
+        assert liq.distance_to_target_pct >= 0
+        return True
+
     def test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace(self):
         from engine.position_manager import Position
         from main import TradingBot
@@ -504,6 +540,7 @@ class BotTester:
             ("Market analysis + regime AI", self.test_market_analysis_and_regime),
             ("Orderflow analyzer", self.test_orderflow_analyzer),
             ("Liquidation heatmap", self.test_liquidation_heatmap),
+            ("Liquidation heatmap low-price symbol", self.test_liquidation_heatmap_low_price_symbol),
             ("Feature engineering + transformer", self.test_feature_engineering_and_transformer),
             ("Entry engine strict conditions", self.test_entry_engine_strict_conditions),
             ("Allocator + RL agent", self.test_allocator_and_rl),
@@ -512,6 +549,7 @@ class BotTester:
             ("Manual position sync + partial TP", self.test_manual_position_sync_and_take_profit_management),
             ("Portfolio total TP closes all", self.test_portfolio_total_tp_closes_all_positions),
             ("Manual mode configuration", self.test_manual_mode_configuration),
+            ("Synthetic heatmap fallback", self.test_synthetic_heatmap_fallback_builds_context),
             ("Profit drawdown guard", self.test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace),
             ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
             ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),

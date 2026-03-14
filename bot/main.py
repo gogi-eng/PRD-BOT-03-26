@@ -370,7 +370,7 @@ class TradingBot:
             orderbook = await self.client.get_orderbook(symbol, limit=25)
             trades = await self.client.get_recent_trades(symbol, limit=80)
             orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
-            liq = self.liq_detector.analyze(current_price, self.client.get_liquidation_events(symbol))
+            liq = self._resolve_liquidation_context(symbol, current_price, klines)
             self.controls.set_heatmap(symbol, liq)
             features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
             transformer = self.transformer_model.predict(features, regime, orderflow, liq)
@@ -501,7 +501,7 @@ class TradingBot:
         orderbook = await self.client.get_orderbook(symbol, limit=25)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
-        liq = self.liq_detector.analyze(current_price, self.client.get_liquidation_events(symbol))
+        liq = self._resolve_liquidation_context(symbol, current_price, klines)
         self.controls.set_heatmap(symbol, liq)
         if liq.target_level <= 0:
             return EntrySignal()
@@ -669,6 +669,31 @@ class TradingBot:
                 unique.append(symbol)
                 seen.add(symbol)
         return unique
+
+    def _resolve_liquidation_context(self, symbol: str, current_price: float, klines: list[dict]):
+        liq = self.liq_detector.analyze(current_price, self.client.get_liquidation_events(symbol))
+        if liq.target_level > 0:
+            return liq
+        synthetic_events = self._build_synthetic_liquidation_events(klines, current_price)
+        fallback = self.liq_detector.analyze(current_price, synthetic_events)
+        if fallback.target_level > 0:
+            logger.info(f"[HEATMAP] {symbol}: using synthetic price-action fallback")
+        return fallback
+
+    def _build_synthetic_liquidation_events(self, klines: list[dict], current_price: float) -> list[dict]:
+        events = []
+        window = klines[-36:]
+        for candle in window:
+            high = float(candle.get("high", 0.0))
+            low = float(candle.get("low", 0.0))
+            close = float(candle.get("close", current_price) or current_price)
+            volume = float(candle.get("volume", 0.0))
+            weight = max(volume * close, 1.0)
+            if high > current_price:
+                events.append({"price": high, "size": weight, "side": "Sell"})
+            if low < current_price:
+                events.append({"price": low, "size": weight, "side": "Buy"})
+        return events
 
     async def _sync_exchange_position(self, exchange_position: dict):
         symbol = exchange_position.get("symbol", "")
