@@ -96,6 +96,18 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - если live liquidation cache пуст, бот строит **synthetic heatmap** по high/low последних свечей
     - если и этого недостаточно, включается **directional heatmap fallback** по голосам `trend + htf_trend + orderflow`
     - это убирает ситуацию, когда бот вообще не может открыть сделку только потому, что не получил живой liquidation target
+  - реализована **Strategy v2** под текущий импульсный рынок по выбору пользователя `1.A + 2.B`:
+    - RSI полностью убран из условий входа
+    - AI фильтр переведён в режим **soft veto**: он блокирует только явный `fake breakout / bull trap / bear trap`
+    - новый вход использует сразу 3 сценария:
+      - `breakout continuation`
+      - `pullback continuation`
+      - `momentum continuation`
+    - `SCAN SUMMARY` в конце скана показывает причины отказов по символам
+  - TP/SL для подхваченных позиций теперь рассчитываются по структуре:
+    - SL = под/над уровнями ликвидности или swing level + ATR buffer
+    - TP = следующий liquidity cluster / resistance / support + ATR buffer
+    - fallback на RR применяется только если уровней действительно нет
   - параметры входа смягчены до режима **осторожно, но не мёртво**:
     - `transformer_threshold=0.60`
     - `max_liq_distance_pct=0.55`
@@ -152,6 +164,7 @@ SHORT:
 - `testing_agent` report `/app/test_reports/iteration_5.json` — **101/101 PASS**
 - adaptive + directional heatmap self-test `/app/backend_test.py` — **20/20 PASS**
 - `testing_agent` report `/app/test_reports/iteration_7.json` — **146/146 PASS**
+- strategy v2 validation `/app/test_reports/iteration_8.json` — **193/193 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -168,6 +181,7 @@ SHORT:
 - Проверить на реальных данных новую корзинную логику: `2+ позиции -> одна в минус -> закрытие по 20% drawdown от пика`
 - Проверить на реальных сделках новый `profit_drawdown_guard`: активация только после `+3%`, затем закрытие на `25%` откате от пика прибыли
 - Проверить на реальном запуске, что после adaptive/synthetic/directional heatmap fallback бот снова начал выдавать собственные входы, особенно на дешёвых монетах
+- Проверить на реальном рынке, что `SCAN SUMMARY` показывает кандидатов/отказы, а новая Strategy v2 действительно начала открывать сделки без RSI-перефильтрации
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
