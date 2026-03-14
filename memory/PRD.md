@@ -91,6 +91,11 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - сопровождение прибыли и trailing не включаются раньше, чем позиция даст **+3% от входа**
     - после активации бот отслеживает пик прибыли
     - и закрывает позицию при откате **25% от накопленной прибыли от пика**
+  - устранён ещё один choke point по входам:
+    - `liquidation heatmap` теперь использует **адаптивный шаг кластеризации** для дешёвых монет (`0.01` для цен 1–10, `0.001` для 0.1–1 и т.д.)
+    - если live liquidation cache пуст, бот строит **synthetic heatmap** по high/low последних свечей
+    - если и этого недостаточно, включается **directional heatmap fallback** по голосам `trend + htf_trend + orderflow`
+    - это убирает ситуацию, когда бот вообще не может открыть сделку только потому, что не получил живой liquidation target
   - параметры входа смягчены до режима **осторожно, но не мёртво**:
     - `transformer_threshold=0.60`
     - `max_liq_distance_pct=0.55`
@@ -145,6 +150,8 @@ SHORT:
 - `testing_agent` report `/app/test_reports/iteration_4.json` — **79/79 PASS**
 - profit drawdown self-test `/app/backend_test.py` — **17/17 PASS**
 - `testing_agent` report `/app/test_reports/iteration_5.json` — **101/101 PASS**
+- adaptive + directional heatmap self-test `/app/backend_test.py` — **20/20 PASS**
+- `testing_agent` report `/app/test_reports/iteration_7.json` — **146/146 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -160,6 +167,7 @@ SHORT:
 - Проверить реальное поведение liquidation stream, adoption ручных позиций и post-only execution на Bybit
 - Проверить на реальных данных новую корзинную логику: `2+ позиции -> одна в минус -> закрытие по 20% drawdown от пика`
 - Проверить на реальных сделках новый `profit_drawdown_guard`: активация только после `+3%`, затем закрытие на `25%` откате от пика прибыли
+- Проверить на реальном запуске, что после adaptive/synthetic/directional heatmap fallback бот снова начал выдавать собственные входы, особенно на дешёвых монетах
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation
