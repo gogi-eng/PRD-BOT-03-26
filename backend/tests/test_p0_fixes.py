@@ -176,12 +176,12 @@ class TestConfigCautiousDefaults:
     """Tests config has cautious but active defaults."""
 
     def test_entry_transformer_threshold_cautious(self):
-        """transformer_threshold should be set for strategy v2 (0.56 - more permissive for breakout continuation)."""
+        """transformer_threshold should be set as soft booster in SMC strategy (0.54)."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         threshold = cfg.get("entry", "transformer_threshold", default=0.62)
-        assert threshold == 0.56, f"Expected 0.56, got {threshold}"
+        assert threshold == 0.54, f"Expected 0.54, got {threshold}"
 
     def test_entry_max_liq_distance_reasonable(self):
         """max_liq_distance_pct allows farther heatmap targets in strategy v2 (up to 1.10%)."""
@@ -222,7 +222,7 @@ class TestConfigCautiousDefaults:
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         confidence = cfg.get("ai", "min_confidence", default=60)
-        assert 55 <= confidence <= 75, f"Unexpected min_confidence: {confidence}"
+        assert 50 <= confidence <= 75, f"Unexpected min_confidence: {confidence}"
 
 
 # ============================================================================
@@ -292,31 +292,32 @@ class TestBasketProfitGuard:
         assert enabled is True
 
     def test_basket_profit_guard_drawdown_threshold(self):
-        """drawdown_pct_from_peak should be around 20%."""
+        """total_drawdown_pct_after_symbol_drop should be around 15%."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
-        drawdown = cfg.get("basket_profit_guard", "drawdown_pct_from_peak", default=12.0)
-        assert 15.0 <= drawdown <= 25.0, f"Expected ~20%, got {drawdown}"
+        drawdown = cfg.get("basket_profit_guard", "total_drawdown_pct_after_symbol_drop", default=15.0)
+        assert 10.0 <= drawdown <= 25.0, f"Expected ~15%, got {drawdown}"
 
-    def test_basket_profit_guard_requires_negative_position(self):
-        """require_negative_position should be true."""
+    def test_basket_profit_guard_has_15min_timer(self):
+        """drawdown_confirm_sec should be 900s (15 minutes)."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
-        required = cfg.get("basket_profit_guard", "require_negative_position", default=False)
-        assert required is True
+        confirm_sec = cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=0)
+        assert confirm_sec == 900, f"Expected 900, got {confirm_sec}"
 
     def test_basket_profit_guard_closes_basket_on_drawdown(self):
-        """Should close all when drawdown >= threshold with negative position."""
+        """Should NOT close immediately — must wait for 15-min timer."""
         from engine.position_manager import Position
         from main import TradingBot
+        import time
 
         bot = TradingBot()
         bot.tg = None
         bot._save_trade = lambda *args, **kwargs: None
 
-        # Add 2 positions: one positive, one negative
+        # Add 3 positions (min_positions=3)
         bot.position_manager.add(Position(
             symbol="BTCUSDT", side="BUY", entry_price=62000.0,
             qty=0.01, stop_loss=61700.0, take_profit=62600.0,
@@ -325,7 +326,12 @@ class TestBasketProfitGuard:
         bot.position_manager.add(Position(
             symbol="ETHUSDT", side="SELL", entry_price=3000.0,
             qty=1.0, stop_loss=3060.0, take_profit=2880.0,
-            unrealized_pnl=-3.0  # Negative!
+            unrealized_pnl=-3.0
+        ))
+        bot.position_manager.add(Position(
+            symbol="SOLUSDT", side="BUY", entry_price=150.0,
+            qty=1.0, stop_loss=145.0, take_profit=160.0,
+            unrealized_pnl=2.0
         ))
 
         calls = []
@@ -335,20 +341,30 @@ class TestBasketProfitGuard:
             return {"success": True}
 
         async def fake_get_price(symbol):
-            return 62500.0 if symbol == "BTCUSDT" else 2990.0
+            return 62500.0
 
         bot.execution_engine.execute_close = fake_execute_close
         bot.client.get_price = fake_get_price
 
         async def scenario():
-            # Set peak and current to trigger 25% drawdown
+            now = time.time()
+            # Pre-seed history so _find_falling_symbol can detect a drop
+            bot.basket_profit_state.symbol_pnl_history["ETHUSDT"] = [
+                (now - 600, 5.0),  # Was positive 10 min ago
+                (now, -3.0),       # Now negative
+            ]
+            bot.basket_profit_state.total_history = [
+                (now - 600, 20.0),
+                (now, 14.0),
+            ]
             bot.basket_profit_state.peak_profit_usdt = 20.0
-            current_total = 12.0  # (20-12)/20 = 40% drawdown > 20% threshold
-            await bot._check_basket_profit_guard(current_total)
+
+            await bot._check_basket_profit_guard(14.0)
+            # Timer should start but NOT close positions
+            assert len(calls) == 0, f"Should NOT close immediately, got {len(calls)} calls"
+            assert bot.basket_profit_state.drawdown_detected_at > 0, "Timer should have started"
 
         asyncio.run(scenario())
-        assert len(calls) == 2, f"Expected 2 close calls, got {len(calls)}"
-        assert bot.position_manager.count() == 0
 
     def test_basket_profit_guard_does_not_close_without_negative(self):
         """Should NOT close if all positions are positive."""

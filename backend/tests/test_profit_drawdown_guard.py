@@ -487,12 +487,12 @@ class TestNoRegressions:
     """Tests to ensure no regressions in existing features."""
 
     def test_basket_profit_guard_still_works(self):
-        """basket_profit_guard should still close on 20% drawdown with negative position."""
+        """basket_profit_guard should be enabled with 15-min timer."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         assert cfg.get("basket_profit_guard", "enabled") is True
-        assert cfg.get("basket_profit_guard", "drawdown_pct_from_peak") == 20.0
+        assert cfg.get("basket_profit_guard", "drawdown_confirm_sec") == 900
 
     def test_portfolio_tp_still_disabled(self):
         """portfolio_tp should remain disabled by default."""

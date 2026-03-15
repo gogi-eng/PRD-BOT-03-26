@@ -595,7 +595,7 @@ class TestEdgeCasesAndRegression:
 
     def test_derive_manual_position_levels_long(self, trading_bot):
         """Verify SL/TP derivation for manual long positions."""
-        derived_sl, derived_tp = trading_bot._derive_manual_position_levels(
+        derived_sl, derived_tp, partial_tp = trading_bot._derive_manual_position_levels(
             side="BUY",
             entry_price=62000.0,
             stop_loss=0,
@@ -610,7 +610,7 @@ class TestEdgeCasesAndRegression:
 
     def test_derive_manual_position_levels_short(self, trading_bot):
         """Verify SL/TP derivation for manual short positions."""
-        derived_sl, derived_tp = trading_bot._derive_manual_position_levels(
+        derived_sl, derived_tp, partial_tp = trading_bot._derive_manual_position_levels(
             side="SELL",
             entry_price=62000.0,
             stop_loss=0,

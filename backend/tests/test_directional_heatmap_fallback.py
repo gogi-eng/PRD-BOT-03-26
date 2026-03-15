@@ -330,8 +330,8 @@ class TestNoRegressions:
     def test_basket_profit_guard_still_works(self, trading_bot):
         """Basket profit guard should still function correctly."""
         assert trading_bot.basket_profit_guard_enabled is True
-        assert trading_bot.basket_profit_min_positions == 2
-        assert trading_bot.basket_profit_require_negative is True
+        assert trading_bot.basket_profit_min_positions == 3
+        assert trading_bot.basket_drawdown_confirm_sec == 900.0
 
     def test_manual_position_logic_intact(self, trading_bot):
         """Manual position management should still work."""
