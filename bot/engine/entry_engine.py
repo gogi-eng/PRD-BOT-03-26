@@ -38,7 +38,7 @@ class EntryEngine:
         self.pullback_lookback = cfg.get("entry", "pullback_lookback", default=8)
         self.level_tp_buffer_atr = cfg.get("entry", "level_tp_buffer_atr", default=0.20)
 
-    def generate_signal(self, symbol: str, klines: List[Dict], current_price: float, market_analysis, regime_prediction, transformer_prediction, orderflow_snapshot, liq_analysis, atr_value: float = 0.0) -> EntrySignal:
+    def generate_signal(self, symbol: str, klines: List[Dict], current_price: float, market_analysis, regime_prediction, transformer_prediction, orderflow_snapshot, liq_analysis, atr_value: float = 0.0, zone_context=None) -> EntrySignal:
         signal = EntrySignal(entry_price=current_price)
         regime_value = regime_prediction.regime.value
         regime_ok = regime_value in self.allowed_regimes and market_analysis.can_trade
@@ -72,9 +72,11 @@ class EntryEngine:
         if atr_value <= 0:
             atr_value = current_price * 0.008
 
-        level_context = self._resolve_levels(klines, liq_analysis, current_price, is_long)
+        level_context = self._resolve_levels(klines, liq_analysis, current_price, is_long, zone_context=zone_context)
         target_level = level_context["target_level"]
         liq_stop = level_context["protective_level"]
+        tp1_level = level_context.get("tp1_level", 0.0)
+        tp2_level = level_context.get("tp2_level", target_level)
 
         atr_stop = current_price - atr_value * self.atr_stop_mult if is_long else current_price + atr_value * self.atr_stop_mult
         if is_long and liq_stop > 0:
@@ -94,8 +96,12 @@ class EntryEngine:
             return signal
 
         rr_target = current_price + risk * self.min_rr_ratio if is_long else current_price - risk * self.min_rr_ratio
-        if is_long and target_level > current_price:
+        if is_long and tp2_level > current_price:
+            take_profit = max(rr_target, tp2_level - atr_value * self.level_tp_buffer_atr)
+        elif is_long and target_level > current_price:
             take_profit = max(rr_target, target_level - atr_value * self.level_tp_buffer_atr)
+        elif (not is_long) and 0 < tp2_level < current_price:
+            take_profit = min(rr_target, tp2_level + atr_value * self.level_tp_buffer_atr)
         elif (not is_long) and 0 < target_level < current_price:
             take_profit = min(rr_target, target_level + atr_value * self.level_tp_buffer_atr)
         else:
@@ -157,6 +163,9 @@ class EntryEngine:
             "liq_density": liq_analysis.target_density,
             "structure_breakout": structure["breakout_long"] if is_long else structure["breakout_short"],
             "structure_pullback": structure["pullback_long"] if is_long else structure["pullback_short"],
+            "tp1_level": tp1_level,
+            "tp2_level": tp2_level,
+            "zone_confluence": zone_context.bullish_confluence if (zone_context and is_long) else zone_context.bearish_confluence if zone_context else False,
         }
         return signal
 
@@ -269,20 +278,32 @@ class EntryEngine:
             "trigger_reason": trigger_reason,
         }
 
-    def _resolve_levels(self, klines: List[Dict], liq, current_price: float, is_long: bool) -> Dict[str, float]:
+    def _resolve_levels(self, klines: List[Dict], liq, current_price: float, is_long: bool, zone_context=None) -> Dict[str, float]:
         highs = sorted({float(k["high"]) for k in klines[-30:]})
         lows = sorted({float(k["low"]) for k in klines[-30:]})
         nearest_above = min((level for level in highs if level > current_price), default=0.0)
         nearest_below = max((level for level in lows if level < current_price), default=0.0)
+        zone_support = max((level for level in (zone_context.support_levels if zone_context else []) if level < current_price), default=0.0)
+        zone_resistance = min((level for level in (zone_context.resistance_levels if zone_context else []) if level > current_price), default=0.0)
         target_level = liq.target_level
         protective_level = 0.0
+        tp1_level = 0.0
+        tp2_level = 0.0
         if is_long:
             if target_level <= current_price:
-                target_level = min((level for level in [nearest_above, liq.max_liq_cluster_above.level if liq.max_liq_cluster_above else 0.0] if level > current_price), default=0.0)
-            protective_level = max((level for level in [nearest_below, liq.max_liq_cluster_below.level if liq.max_liq_cluster_below else 0.0] if 0 < level < current_price), default=0.0)
+                target_level = min((level for level in [nearest_above, zone_resistance, liq.max_liq_cluster_above.level if liq.max_liq_cluster_above else 0.0] if level > current_price), default=0.0)
+            protective_level = max((level for level in [nearest_below, zone_support, liq.max_liq_cluster_below.level if liq.max_liq_cluster_below else 0.0] if 0 < level < current_price), default=0.0)
+            tp_candidates = sorted(set(level for level in [target_level, zone_resistance, nearest_above] if level > current_price))
+            if tp_candidates:
+                tp1_level = tp_candidates[0]
+                tp2_level = tp_candidates[1] if len(tp_candidates) > 1 else tp_candidates[0]
         else:
             if target_level >= current_price or target_level <= 0:
-                below_candidates = [level for level in [nearest_below, liq.max_liq_cluster_below.level if liq.max_liq_cluster_below else 0.0] if 0 < level < current_price]
+                below_candidates = [level for level in [nearest_below, zone_support, liq.max_liq_cluster_below.level if liq.max_liq_cluster_below else 0.0] if 0 < level < current_price]
                 target_level = max(below_candidates) if below_candidates else 0.0
-            protective_level = min((level for level in [nearest_above, liq.max_liq_cluster_above.level if liq.max_liq_cluster_above else 0.0] if level > current_price), default=0.0)
-        return {"target_level": target_level, "protective_level": protective_level}
+            protective_level = min((level for level in [nearest_above, zone_resistance, liq.max_liq_cluster_above.level if liq.max_liq_cluster_above else 0.0] if level > current_price), default=0.0)
+            tp_candidates = sorted(set(level for level in [target_level, zone_support, nearest_below] if 0 < level < current_price), reverse=True)
+            if tp_candidates:
+                tp1_level = tp_candidates[0]
+                tp2_level = tp_candidates[1] if len(tp_candidates) > 1 else tp_candidates[0]
+        return {"target_level": target_level, "protective_level": protective_level, "tp1_level": tp1_level, "tp2_level": tp2_level or target_level}

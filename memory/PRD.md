@@ -133,6 +133,15 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - SL = под/над уровнями ликвидности или swing level + ATR buffer
     - TP = следующий liquidity cluster / resistance / support + ATR buffer
     - fallback на RR применяется только если уровней действительно нет
+  - по выбору пользователя `1.C + 2.A` добавлены HTF-структурные зоны:
+    - новый модуль `analysis/structure_zones.py`
+    - детектируются `15m FVG` и `15m Order Block`
+    - приоритет входа/SL теперь идёт по **confluence FVG + OB**, если доступны обе зоны
+    - для auto/manual позиций рассчитываются:
+      - `TP1 = ближайшая ликвидность / уровень`
+      - `TP2 = следующий уровень`
+      - остаток удерживается через trailing / existing management
+    - `partial_tp_price` для auto/manual сопровождения теперь может ставиться именно в `TP1`, а не только как % от финального TP
   - устранён критический баг `micro exits` из live Telegram-логов пользователя:
     - RL больше **не закрывает** позицию на микропрофите вроде `+0.01%`
     - RL больше **не режет** позицию на микролоссе вроде `-0.02%` без реальной причины
@@ -204,6 +213,7 @@ SHORT:
 - major-chop guard `/app/backend_test.py` — **22/22 PASS**
 - generic market quality verification `/app/test_reports/iteration_11.json` — **227/227 PASS**
 - detailed reject reasons + looser filters `/app/backend_test.py` — **22/22 PASS**
+- FVG/OB zone integration `/app/backend_test.py` — **22/22 PASS** (base suite remains green)
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -225,6 +235,7 @@ SHORT:
 - Проверить в live-логах, что сделки больше не закрываются на `+0.01% / -0.02%` и TP/SL реально покрывают комиссию и движение цены
 - Проверить, что generic market quality filter блокирует любые `chop`-входы без breakout по всем символам, а не только по отдельным тикерам
 - Проверить по live `SCAN SUMMARY`, что вместо общего `entry_filters` теперь видны конкретные bottleneck-причины и число кандидатов стало выше
+- Проверить на live SOL/альтах, что входы и SL/TP теперь реально опираются на `15m FVG / OB / support-resistance`, а не на ближайший «слепой» уровень
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation

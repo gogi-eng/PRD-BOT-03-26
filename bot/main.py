@@ -25,6 +25,7 @@ from analysis.liquidation_clusters import LiquidationCluster, LiquidationCluster
 from analysis.market_analyzer import MarketAnalyzer
 from analysis.market_regime_ai import MarketRegimeAI
 from analysis.orderflow_analyzer import OrderflowAnalyzer
+from analysis.structure_zones import StructureZoneAnalyzer
 from analysis.transformer_model import TransformerPriceModel
 from core.config import BotConfig
 from core.live_controls import LiveControls
@@ -103,6 +104,7 @@ class TradingBot:
         )
         self.feature_engineer = FeatureEngineer(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.transformer_model = TransformerPriceModel(sequence_length=self.cfg.get("bot", "feature_window", default=128))
+        self.structure_zone_analyzer = StructureZoneAnalyzer()
         self.ai_analyzer = AITradeAnalyzer()
         self.ai_analyzer.min_confidence = self.cfg.get("ai", "min_confidence", default=60)
         self.ai_analyzer.fail_open = self.cfg.get("ai", "fail_open", default=True)
@@ -529,10 +531,12 @@ class TradingBot:
         if liq.target_level <= 0:
             return reject("no_heatmap_target")
 
+        zone_context = self.structure_zone_analyzer.analyze(htf_klines, current_price)
+
         regime = self.regime_ai.classify(market)
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
-        signal = self.entry_engine.generate_signal(symbol, klines, current_price, market, regime, transformer, orderflow, liq, atr_val)
+        signal = self.entry_engine.generate_signal(symbol, klines, current_price, market, regime, transformer, orderflow, liq, atr_val, zone_context=zone_context)
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
@@ -648,7 +652,7 @@ class TradingBot:
                 protective_liq_level=signal.metadata.get("protective_liq_level", 0.0),
                 model_confidence=signal.confidence,
                 origin="bot",
-                partial_tp_price=self._compute_partial_tp_price(executed_price, signal.take_profit, signal.side),
+                partial_tp_price=signal.metadata.get("tp1_level", 0.0) or self._compute_partial_tp_price(executed_price, signal.take_profit, signal.side),
                 partial_close_fraction=self.partial_tp_close_fraction,
                 total_tp_price=signal.take_profit,
             )
@@ -859,7 +863,8 @@ class TradingBot:
         liq_analysis = self._resolve_liquidation_context(symbol, current_price, klines)
         if liq_analysis.target_level <= 0:
             liq_analysis = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
-        derived_sl, derived_tp = self._derive_manual_position_levels(side, current_price, stop_loss, take_profit, atr_val, liq_analysis=liq_analysis, klines=klines)
+        zone_context = self.structure_zone_analyzer.analyze(klines, current_price)
+        derived_sl, derived_tp, partial_tp = self._derive_manual_position_levels(side, current_price, stop_loss, take_profit, atr_val, liq_analysis=liq_analysis, klines=klines, zone_context=zone_context)
         stop_loss = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else derived_sl
         take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
 
@@ -883,6 +888,8 @@ class TradingBot:
         self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=stop_loss)
         self._apply_manual_trailing_profile(adopted, atr_val)
         self._apply_profit_drawdown_profile(adopted)
+        if not external_tp_locked and partial_tp > 0:
+            adopted.partial_tp_price = partial_tp
         self.position_manager.add(adopted)
 
         if not self.controls.dry_run:
@@ -902,7 +909,7 @@ class TradingBot:
                 f"Режим: <code>manual-safe-trailing</code>"
             )
 
-    def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float, liq_analysis=None, klines: list[dict] | None = None) -> tuple[float, float]:
+    def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float, liq_analysis=None, klines: list[dict] | None = None, zone_context=None) -> tuple[float, float, float]:
         atr = atr_val if atr_val > 0 else entry_price * 0.01
         side_upper = side.upper()
         min_stop_distance = entry_price * (self.entry_engine.min_stop_distance_pct / 100)
@@ -911,32 +918,40 @@ class TradingBot:
         lows = [float(item.get("low", 0.0)) for item in (klines or [])[-30:]]
         nearest_resistance = min((level for level in highs if level > entry_price), default=0.0)
         nearest_support = max((level for level in lows if level < entry_price), default=0.0)
+        zone_support = max((level for level in (zone_context.support_levels if zone_context else []) if level < entry_price), default=0.0)
+        zone_resistance = min((level for level in (zone_context.resistance_levels if zone_context else []) if level > entry_price), default=0.0)
         derived_sl = stop_loss
         if derived_sl <= 0:
             if side_upper in ["BUY", "LONG"]:
                 cluster_support = liq_analysis.max_liq_cluster_below.level if liq_analysis and liq_analysis.max_liq_cluster_below else 0.0
-                base_support = max(level for level in [nearest_support, cluster_support] if 0 < level < entry_price) if any(0 < level < entry_price for level in [nearest_support, cluster_support]) else 0.0
+                base_candidates = [level for level in [nearest_support, zone_support, cluster_support] if 0 < level < entry_price]
+                base_support = max(base_candidates) if base_candidates else 0.0
                 derived_sl = base_support - atr * self.entry_engine.liq_stop_buffer_atr if base_support > 0 else entry_price - atr * self.exit_engine.hard_sl_atr_mult
             else:
                 cluster_resistance = liq_analysis.max_liq_cluster_above.level if liq_analysis and liq_analysis.max_liq_cluster_above else 0.0
-                above_levels = [level for level in [nearest_resistance, cluster_resistance] if level > entry_price]
+                above_levels = [level for level in [nearest_resistance, zone_resistance, cluster_resistance] if level > entry_price]
                 base_resistance = min(above_levels) if above_levels else 0.0
                 derived_sl = base_resistance + atr * self.entry_engine.liq_stop_buffer_atr if base_resistance > 0 else entry_price + atr * self.exit_engine.hard_sl_atr_mult
         derived_tp = take_profit
+        partial_tp = 0.0
         if derived_tp <= 0:
             if side_upper in ["BUY", "LONG"]:
                 cluster_target = liq_analysis.max_liq_cluster_above.level if liq_analysis and liq_analysis.max_liq_cluster_above else 0.0
-                tp_candidates = [level for level in [cluster_target, nearest_resistance, max(highs) if highs else 0.0] if level > entry_price]
+                tp_candidates = [level for level in [cluster_target, zone_resistance, nearest_resistance, max(highs) if highs else 0.0] if level > entry_price]
                 if tp_candidates:
-                    derived_tp = min(tp_candidates) - atr * self.entry_engine.level_tp_buffer_atr
+                    tp_candidates = sorted(set(tp_candidates))
+                    partial_tp = tp_candidates[0] - atr * self.entry_engine.level_tp_buffer_atr
+                    derived_tp = (tp_candidates[1] - atr * self.entry_engine.level_tp_buffer_atr) if len(tp_candidates) > 1 else partial_tp + max(min_target_distance, atr * 2)
                 else:
                     risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
                     derived_tp = entry_price + risk * self.entry_engine.min_rr_ratio
             else:
                 cluster_target = liq_analysis.max_liq_cluster_below.level if liq_analysis and liq_analysis.max_liq_cluster_below else 0.0
-                tp_candidates = [level for level in [cluster_target, nearest_support, min(lows) if lows else 0.0] if 0 < level < entry_price]
+                tp_candidates = [level for level in [cluster_target, zone_support, nearest_support, min(lows) if lows else 0.0] if 0 < level < entry_price]
                 if tp_candidates:
-                    derived_tp = max(tp_candidates) + atr * self.entry_engine.level_tp_buffer_atr
+                    tp_candidates = sorted(set(tp_candidates), reverse=True)
+                    partial_tp = tp_candidates[0] + atr * self.entry_engine.level_tp_buffer_atr
+                    derived_tp = (tp_candidates[1] + atr * self.entry_engine.level_tp_buffer_atr) if len(tp_candidates) > 1 else partial_tp - max(min_target_distance, atr * 2)
                 else:
                     risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
                     derived_tp = entry_price - risk * self.entry_engine.min_rr_ratio
@@ -945,7 +960,9 @@ class TradingBot:
             derived_sl = entry_price - min_stop_distance if side_upper in ["BUY", "LONG"] else entry_price + min_stop_distance
         if abs(derived_tp - entry_price) < min_target_distance:
             derived_tp = entry_price + min_target_distance if side_upper in ["BUY", "LONG"] else entry_price - min_target_distance
-        return derived_sl, derived_tp
+        if partial_tp > 0 and abs(partial_tp - entry_price) < min_target_distance * 0.5:
+            partial_tp = 0.0
+        return derived_sl, derived_tp, partial_tp
 
     def _apply_manual_trailing_profile(self, pos: Position, atr_val: float):
         atr = atr_val if atr_val > 0 else pos.entry_price * 0.01
