@@ -642,15 +642,17 @@ class BotTester:
         assert allowed
         return True
 
-    def test_basket_profit_guard_closes_on_drawdown_with_negative_position(self):
+    def test_basket_profit_guard_closes_falling_symbol_then_basket_on_drawdown(self):
         from engine.position_manager import Position
+        import main as bot_main
         from main import TradingBot
 
         bot = TradingBot()
         bot.tg = None
         bot._save_trade = lambda *args, **kwargs: None
         bot.position_manager.add(Position(symbol="BTCUSDT", side="BUY", entry_price=62000.0, qty=0.01, stop_loss=61700.0, take_profit=62600.0, unrealized_pnl=18.0))
-        bot.position_manager.add(Position(symbol="ETHUSDT", side="SELL", entry_price=3000.0, qty=1.0, stop_loss=3060.0, take_profit=2880.0, unrealized_pnl=-2.0))
+        bot.position_manager.add(Position(symbol="ETHUSDT", side="SELL", entry_price=3000.0, qty=1.0, stop_loss=3060.0, take_profit=2880.0, unrealized_pnl=3.0))
+        bot.position_manager.add(Position(symbol="SOLUSDT", side="BUY", entry_price=150.0, qty=1.0, stop_loss=145.0, take_profit=165.0, unrealized_pnl=2.0))
 
         calls = []
 
@@ -665,12 +667,33 @@ class BotTester:
         bot.client.get_price = fake_get_price
 
         async def scenario():
-            bot.basket_profit_state.peak_profit_usdt = 20.0
-            await bot._check_basket_profit_guard(15.0)
+            now = 1_000_000.0
+            original_time = bot_main.time.time
+            bot_main.time.time = lambda: now
+            try:
+                bot.basket_profit_state.total_history = [(now - 600, 30.0)]
+                bot.basket_profit_state.symbol_pnl_history = {
+                    "BTCUSDT": [(now - 600, 18.0)],
+                    "ETHUSDT": [(now - 600, 8.0)],
+                    "SOLUSDT": [(now - 600, 4.0)],
+                }
+                await bot._check_basket_profit_guard(23.0)
+                assert any(symbol == "ETHUSDT" and reason == "basket_symbol_fall" for symbol, reason in calls)
+
+                # Rebuild two remaining positions and trigger basket-wide close on total drawdown
+                bot.position_manager.add(Position(symbol="ETHUSDT", side="SELL", entry_price=3000.0, qty=1.0, stop_loss=3060.0, take_profit=2880.0, unrealized_pnl=1.0))
+                bot.basket_profit_state.total_history = [(now - 600, 30.0)]
+                bot.basket_profit_state.symbol_pnl_history = {
+                    "BTCUSDT": [(now - 600, 18.0), (now, 10.0)],
+                    "ETHUSDT": [(now - 600, 8.0), (now, 2.0)],
+                    "SOLUSDT": [(now - 600, 4.0), (now, 1.0)],
+                }
+                await bot._check_basket_profit_guard(18.0)
+            finally:
+                bot_main.time.time = original_time
 
         asyncio.run(scenario())
-        assert len(calls) == 2
-        assert bot.position_manager.count() == 0
+        assert any(reason == "basket_total_drawdown" for _, reason in calls)
         return True
 
     def test_trading_bot_initialization(self):
@@ -706,7 +729,7 @@ class BotTester:
             ("Low ATR breakout allowed", self.test_low_atr_breakout_allowed_but_pullback_blocked),
             ("Chop without breakout blocked", self.test_chop_without_breakout_blocked_by_market_quality_filter),
             ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
-            ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),
+            ("Basket profit guard updated logic", self.test_basket_profit_guard_closes_falling_symbol_then_basket_on_drawdown),
             ("TradingBot initialization", self.test_trading_bot_initialization),
         ]
         for name, func in tests:

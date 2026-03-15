@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +52,14 @@ class BasketProfitState:
     peak_profit_usdt: float = 0.0
     armed: bool = False
     last_reason: str = ""
+    total_history: dict = None
+    symbol_pnl_history: dict = None
+
+    def __post_init__(self):
+        if self.total_history is None:
+            self.total_history = []
+        if self.symbol_pnl_history is None:
+            self.symbol_pnl_history = {}
 
 
 class TradingBot:
@@ -177,10 +186,12 @@ class TradingBot:
         self.portfolio_tp_enabled = self.cfg.get("portfolio_tp", "enabled", default=True)
         self.portfolio_tp_target_pct = self.cfg.get("portfolio_tp", "target_profit_pct", default=2.0)
         self.basket_profit_guard_enabled = self.cfg.get("basket_profit_guard", "enabled", default=True)
-        self.basket_profit_min_positions = self.cfg.get("basket_profit_guard", "min_positions", default=2)
-        self.basket_profit_require_negative = self.cfg.get("basket_profit_guard", "require_negative_position", default=True)
-        self.basket_profit_drawdown_pct = self.cfg.get("basket_profit_guard", "drawdown_pct_from_peak", default=12.0)
-        self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=0.5)
+        self.basket_profit_min_positions = self.cfg.get("basket_profit_guard", "min_positions", default=3)
+        self.basket_profit_window_sec = self.cfg.get("basket_profit_guard", "monitor_window_sec", default=900)
+        self.basket_profit_symbol_drop_pct = self.cfg.get("basket_profit_guard", "symbol_pnl_drop_pct", default=40.0)
+        self.basket_profit_total_drawdown_pct = self.cfg.get("basket_profit_guard", "total_drawdown_pct_after_symbol_drop", default=15.0)
+        self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
+        self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
         self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
         self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
         self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
@@ -1116,46 +1127,84 @@ class TradingBot:
             self._reset_basket_profit_state()
             return
 
-        any_negative = any(pos.unrealized_pnl < 0 for pos in positions.values())
-        if total_unrealized > self.basket_profit_state.peak_profit_usdt:
-            self.basket_profit_state.peak_profit_usdt = total_unrealized
+        now = time.time()
+        self._update_basket_histories(positions, total_unrealized, now)
+        peak = max((value for _, value in self.basket_profit_state.total_history), default=total_unrealized)
+        self.basket_profit_state.peak_profit_usdt = max(self.basket_profit_state.peak_profit_usdt, peak)
 
         if total_unrealized < self.basket_profit_min_total_usdt:
             return
-        if self.basket_profit_require_negative and not any_negative:
+
+        falling_symbol, symbol_drop_pct = self._find_falling_symbol(now)
+        if not falling_symbol:
             return
 
-        self.basket_profit_state.armed = True
-        self.basket_profit_state.last_reason = "negative_position_in_basket"
-        peak = self.basket_profit_state.peak_profit_usdt
-        if peak <= 0:
+        pos = self.position_manager.get(falling_symbol)
+        if pos:
+            current_price = await self.client.get_price(falling_symbol)
+            close_result = await self.execution_engine.execute_close(falling_symbol, pos.side, reason="basket_symbol_fall", position_idx=pos.position_idx)
+            if close_result.get("success"):
+                pnl = self._calc_pnl(pos, current_price, pos.qty)
+                await self._finalize_full_close(falling_symbol, pos, current_price, pnl, "basket_symbol_fall")
+                if self.tg:
+                    await self.tg.send_message(
+                        f"<b>BASKET GUARD</b>\n\n"
+                        f"Символ: <code>{falling_symbol}</code>\n"
+                        f"Падение PnL за 15м: <code>{symbol_drop_pct:.1f}%</code>\n"
+                        f"Закрыт только падающий символ."
+                    )
+                self.basket_profit_state.symbol_pnl_history.pop(falling_symbol, None)
+
+        remaining_positions = self.position_manager.all_positions()
+        if len(remaining_positions) < 2:
+            self._reset_basket_profit_state()
             return
-        drawdown_pct = ((peak - total_unrealized) / peak) * 100 if peak > 0 else 0.0
-        if drawdown_pct + 1e-9 < self.basket_profit_drawdown_pct:
+
+        total_drawdown_pct = ((peak - total_unrealized) / peak) * 100 if peak > 0 else 0.0
+        if total_drawdown_pct + 1e-9 < self.basket_profit_total_drawdown_pct:
             return
 
         logger.info(
-            f"BASKET PROFIT GUARD HIT: total=${total_unrealized:.2f}, peak=${peak:.2f}, drawdown={drawdown_pct:.1f}%"
+            f"BASKET PROFIT GUARD HIT: total=${total_unrealized:.2f}, peak=${peak:.2f}, drawdown={total_drawdown_pct:.1f}%"
         )
-        if self.tg:
-            await self.tg.send_message(
-                f"<b>BASKET PROFIT GUARD</b>\n\n"
-                f"Открыто позиций: <code>{len(positions)}</code>\n"
-                f"Пик суммарной прибыли: <code>${peak:.2f}</code>\n"
-                f"Текущая прибыль: <code>${total_unrealized:.2f}</code>\n"
-                f"Откат от пика: <code>{drawdown_pct:.1f}%</code>\n"
-                f"Причина: одна из позиций ушла в минус"
-            )
         for symbol in list(self.position_manager.symbols()):
             pos = self.position_manager.get(symbol)
             if not pos:
                 continue
             current_price = await self.client.get_price(symbol)
-            close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="basket_profit_guard", position_idx=pos.position_idx)
+            close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="basket_total_drawdown", position_idx=pos.position_idx)
             if close_result.get("success"):
                 pnl = self._calc_pnl(pos, current_price, pos.qty)
-                await self._finalize_full_close(symbol, pos, current_price, pnl, "basket_profit_guard")
+                await self._finalize_full_close(symbol, pos, current_price, pnl, "basket_total_drawdown")
         self._reset_basket_profit_state()
+
+    def _update_basket_histories(self, positions: dict, total_unrealized: float, now: float):
+        self.basket_profit_state.total_history.append((now, total_unrealized))
+        self.basket_profit_state.total_history = [item for item in self.basket_profit_state.total_history if now - item[0] <= self.basket_profit_window_sec]
+        active_symbols = set(positions.keys())
+        for symbol in list(self.basket_profit_state.symbol_pnl_history.keys()):
+            if symbol not in active_symbols:
+                self.basket_profit_state.symbol_pnl_history.pop(symbol, None)
+        for symbol, pos in positions.items():
+            history = self.basket_profit_state.symbol_pnl_history.setdefault(symbol, [])
+            history.append((now, pos.unrealized_pnl))
+            self.basket_profit_state.symbol_pnl_history[symbol] = [item for item in history if now - item[0] <= self.basket_profit_window_sec]
+
+    def _find_falling_symbol(self, now: float) -> tuple[str | None, float]:
+        worst_symbol = None
+        worst_drop = 0.0
+        for symbol, history in self.basket_profit_state.symbol_pnl_history.items():
+            if len(history) < 2:
+                continue
+            peak = max(value for _, value in history)
+            current = history[-1][1]
+            if peak < self.basket_profit_min_symbol_peak:
+                continue
+            drop_pct = ((peak - current) / peak) * 100 if peak > 0 else 0.0
+            if drop_pct >= self.basket_profit_symbol_drop_pct and drop_pct > worst_drop:
+                worst_symbol = symbol
+                worst_drop = drop_pct
+        return worst_symbol, worst_drop
 
     def _save_trade(self, symbol: str, side: str, qty: float, entry: float, exit_price: float, pnl: float, reason: str):
         trade = {
