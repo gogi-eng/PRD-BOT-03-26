@@ -49,7 +49,10 @@ class EntryEngine:
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
         self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
         self.min_liq_depth = cfg.get("entry", "min_liq_depth", default=0.0)
-        # Allowed regimes (from market_analyzer — kept for backward compat)
+        # SMC quality thresholds
+        self.min_smc_score = cfg.get("entry", "min_smc_score", default=0.55)
+        self.min_volatility_pct = cfg.get("entry", "min_volatility_pct", default=0.8)
+        # Allowed regimes
         self.allowed_regimes = set(cfg.get("entry", "allowed_regimes", default=["trend", "breakout", "chop"]))
 
     def generate_signal(
@@ -76,6 +79,12 @@ class EntryEngine:
             signal.metadata["reject_reason"] = f"funding_rate_too_high ({funding_rate:.4f})"
             return signal
 
+        # Volatility filter: ATR/price < min_volatility_pct → skip
+        volatility_pct = (atr_value / current_price * 100) if current_price > 0 else 0
+        if self.min_volatility_pct > 0 and volatility_pct < self.min_volatility_pct:
+            signal.metadata["reject_reason"] = f"low_volatility ({volatility_pct:.2f}% < {self.min_volatility_pct}%)"
+            return signal
+
         # --- Core: Market Structure signals ---
         has_structure = structure is not None
         struct_long = has_structure and structure.signal_ready_long
@@ -100,7 +109,7 @@ class EntryEngine:
         short_score = 0.0
         short_reasons = []
 
-        # Structure signal (sweep + BOS)
+        # Structure signal (sweep + BOS) — primary signal
         if struct_long:
             long_score += 0.35
             long_reasons.append("sweep_down→BOS_up")
@@ -113,6 +122,25 @@ class EntryEngine:
             if bos and bos.volume_confirmed:
                 short_score += 0.10
                 short_reasons.append("BOS_volume_confirmed")
+
+        # Continuation model — BOS + small pullback (no sweep required)
+        # This catches: BOS → pullback < 0.4 ATR → entry
+        if not struct_long and bos and bos.direction == "up" and struct_trend == "up":
+            pullback = (structure.previous_high - current_price) if has_structure else 0
+            if 0 < pullback < atr_value * 0.4:
+                long_score += 0.28
+                long_reasons.append(f"continuation_BOS_up (pullback={pullback:.4f})")
+                if bos.volume_confirmed:
+                    long_score += 0.08
+                    long_reasons.append("continuation_vol_confirmed")
+        if not struct_short and bos and bos.direction == "down" and struct_trend == "down":
+            pullback = (current_price - structure.previous_low) if has_structure else 0
+            if 0 < pullback < atr_value * 0.4:
+                short_score += 0.28
+                short_reasons.append(f"continuation_BOS_down (pullback={pullback:.4f})")
+                if bos.volume_confirmed:
+                    short_score += 0.08
+                    short_reasons.append("continuation_vol_confirmed")
 
         # Zone retest (OB/FVG)
         long_score += zone_long_score
@@ -158,10 +186,8 @@ class EntryEngine:
         long_total = long_score + long_boost
         short_total = short_score + short_boost
 
-        # --- Entry threshold ---
-        # Full signal: sweep + BOS + retest + momentum = high confidence (0.55+)
-        # Partial: zone retest + trend = medium (0.40+)
-        min_score = 0.40
+        # --- Entry threshold: min_smc_score (default 0.55) ---
+        min_score = self.min_smc_score
         can_long = long_total >= min_score and struct_trend != "down"
         can_short = short_total >= min_score and struct_trend != "up"
 

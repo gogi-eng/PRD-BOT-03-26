@@ -218,13 +218,15 @@ class TradingBot:
         self.pyramid_enabled = self.cfg.get("pyramid", "enabled", default=True)
         self.pyramid_max_adds = self.cfg.get("pyramid", "max_adds", default=2)
         self.pyramid_max_total_risk_pct = self.cfg.get("pyramid", "max_total_risk_pct", default=2.0)
-        self.pyramid_min_profit_before_add_r = self.cfg.get("pyramid", "min_profit_before_add_r", default=0.5)
+        self.pyramid_add1_min_r = self.cfg.get("pyramid", "add1_min_r", default=0.5)
+        self.pyramid_add2_min_r = self.cfg.get("pyramid", "add2_min_r", default=1.2)
 
     async def _notify_tg(self, message: str):
         if self.tg:
             await self.tg.send_alert(message)
 
     async def get_trade_symbols(self) -> list:
+        """Scan up to max_symbols (50), rank by momentum/volume, return top momentum_top_n."""
         try:
             tickers = await self.client.get_tickers()
         except Exception as exc:
@@ -243,22 +245,33 @@ class TradingBot:
             turnover = float(ticker.get("turnover24h", 0) or 0)
             if turnover < self.min_volume:
                 continue
-            ranked.append((symbol, turnover))
-        ranked.sort(key=lambda item: item[1], reverse=True)
+            price_change_pct = abs(float(ticker.get("price24hPcnt", 0) or 0)) * 100
+            # Momentum score = volume * price_change (captures pumps like RIVER, ORDI, WIF)
+            momentum_score = turnover * (1 + price_change_pct / 10)
+            ranked.append((symbol, turnover, momentum_score))
+
+        # Sort by momentum score to catch strongest movers
+        ranked.sort(key=lambda item: item[2], reverse=True)
         symbols = [item[0] for item in ranked[: self.max_symbols]]
+
+        # Whitelist symbols always included at front
         if self.whitelist_enabled:
             ordered = [symbol for symbol in self.whitelist if symbol not in self.blacklist]
             for symbol in reversed(ordered):
                 if symbol in symbols:
                     symbols.remove(symbol)
                 symbols.insert(0, symbol)
+
         unique = []
         seen = set()
         for symbol in symbols:
             if symbol not in seen:
                 unique.append(symbol)
                 seen.add(symbol)
-        return unique[: self.trade_symbols]
+
+        result = unique[: self.trade_symbols]
+        logger.info(f"Symbol scanner: {len(ranked)} eligible → top {len(result)} by momentum")
+        return result
 
     async def run(self):
         logger.info("=" * 72)
@@ -603,15 +616,27 @@ class TradingBot:
 
         if self.ai_analyzer.enabled and self.controls.ai_enabled:
             ai_result = await self.ai_analyzer.analyze(symbol, self._build_ai_payload(current_price, market, signal))
-            if not ai_result.get("should_trade", False):
+            ai_confidence = ai_result.get("confidence", 0)
+            ai_should_trade = ai_result.get("should_trade", False)
+            ai_min_confidence = self.cfg.get("ai", "min_confidence", default=45)
+
+            # AI is now a REAL filter, not advisory
+            if not ai_should_trade and ai_confidence >= ai_min_confidence:
                 ai_reason = str(ai_result.get("reason", "")).lower()
-                explicit_fake_breakout = any(token in ai_reason for token in ["fake breakout", "fake", "bull trap", "bear trap", "late breakout", "conflict"]) and ai_result.get("confidence", 0) >= 70
-                smc_override = signal.confidence >= 0.65 and signal.metadata.get("zone_confluence")
-                if explicit_fake_breakout and not smc_override:
-                    logger.info(f"[AI] {symbol} rejected: {ai_result.get('reason', '')}")
+                explicit_trap = any(token in ai_reason for token in [
+                    "fake breakout", "fake", "bull trap", "bear trap", "conflict", "overextended"
+                ])
+                smc_override = signal.confidence >= 0.70 and signal.metadata.get("zone_confluence")
+                if explicit_trap and not smc_override:
+                    logger.info(f"[AI] {symbol} REJECTED (confidence={ai_confidence}): {ai_result.get('reason', '')}")
                     return reject("ai_rejected")
-                logger.info(f"[AI] {symbol} advisory-only: veto ignored (SMC confidence={signal.confidence:.2f})")
-            signal.confidence = round((signal.confidence + ai_result.get("confidence", 0) / 100) / 2, 4)
+
+            if not ai_should_trade and ai_confidence < ai_min_confidence:
+                logger.info(f"[AI] {symbol} REJECTED: low AI confidence ({ai_confidence} < {ai_min_confidence})")
+                return reject(f"ai_low_confidence ({ai_confidence})")
+
+            # Blend AI confidence into signal
+            signal.confidence = round((signal.confidence + ai_confidence / 100) / 2, 4)
             signal.capital_score = round(signal.confidence * signal.rr_ratio, 4)
 
         logger.info(
@@ -739,12 +764,12 @@ class TradingBot:
         return (pos.entry_price - price) / pos.entry_price * 100
 
     async def _maybe_pyramid_add(self, pos: Position, current_price: float, atr_val: float, structure):
-        """Pyramid strategy: add to winning positions on pullback/continuation.
+        """Pyramid strategy: add to winning positions.
 
         Rules:
-        - Position must be in profit >= min_profit_before_add_r (in R terms)
+        - add1: R >= add1_min_r (0.5R) — pullback entry
+        - add2: R >= add2_min_r (1.2R) — continuation entry
         - Total risk across all adds <= max_total_risk_pct
-        - entry1=breakout (original), entry2=pullback, entry3=continuation
         """
         risk = abs(pos.entry_price - pos.stop_loss)
         if risk <= 0:
@@ -756,7 +781,16 @@ class TradingBot:
             profit = pos.entry_price - current_price
 
         r_multiple = profit / risk
-        if r_multiple < self.pyramid_min_profit_before_add_r:
+
+        # Determine which add level we're at
+        if pos.add_count == 0:
+            min_r = self.pyramid_add1_min_r
+        elif pos.add_count == 1:
+            min_r = self.pyramid_add2_min_r
+        else:
+            return
+
+        if r_multiple < min_r:
             return
 
         # Check total risk budget
@@ -766,7 +800,7 @@ class TradingBot:
         if remaining_risk_pct <= 0.1:
             return
 
-        # Pyramid condition: price pulled back to a zone or continuation BOS
+        # Pyramid condition: pullback or continuation
         is_pullback = False
         is_continuation = False
 
@@ -776,7 +810,6 @@ class TradingBot:
             elif not pos.is_long and structure.last_bos.direction == "down":
                 is_continuation = True
 
-        # Pullback: price near entry zone or swing level
         if pos.is_long and structure and structure.swing_lows:
             last_sl = structure.swing_lows[-1].price
             if current_price <= last_sl * 1.005 and current_price > last_sl:
@@ -806,7 +839,8 @@ class TradingBot:
         if add_qty * current_price < self.min_position_usdt:
             return
 
-        reason = f"pyramid_{'pullback' if is_pullback else 'continuation'}_add{pos.add_count + 1}"
+        add_type = "pullback" if is_pullback else "continuation"
+        reason = f"pyramid_{add_type}_add{pos.add_count + 1}"
         add_result = await self.execution_engine.execute_add(
             pos.symbol, pos.side, add_qty, self.controls.leverage, reason=reason
         )
@@ -817,11 +851,10 @@ class TradingBot:
             logger.info(f"PYRAMID {pos.symbol}: {reason} qty={executed_qty:.6f} price=${avg_price:.4f} R={r_multiple:.1f}")
             if self.tg:
                 await self.tg.send_message(
-                    f"<b>PYRAMID ADD</b>\n"
+                    f"<b>PYRAMID ADD {pos.add_count}</b>\n"
                     f"Монета: <code>{pos.symbol}</code>\n"
-                    f"Тип: {'pullback' if is_pullback else 'continuation'}\n"
-                    f"Добавлено: <code>{executed_qty:.6f}</code> @ ${avg_price:.4f}\n"
-                    f"Профит: <code>{r_multiple:.1f}R</code>"
+                    f"Тип: {add_type} (R={r_multiple:.1f})\n"
+                    f"Добавлено: <code>{executed_qty:.6f}</code> @ ${avg_price:.4f}"
                 )
 
 

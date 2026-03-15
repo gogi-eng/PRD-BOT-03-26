@@ -15,8 +15,8 @@ bot:
 trading:
   leverage: 15
   margin_total_pct: 8.0
-  risk_per_trade_pct: 0.5
-  max_positions: 5
+  risk_per_trade_pct: 0.4
+  max_positions: 6
   min_position_usdt: 5.0
   trailing_stop_pct: 1.2
   tp_pct: 1.8
@@ -36,6 +36,8 @@ entry:
   max_spread_pct: 0.08
   max_funding_rate: 0.05
   min_liq_depth: 0.0
+  min_smc_score: 0.55
+  min_volatility_pct: 0.8
 
 market_structure:
   swing_lookback: 2
@@ -49,7 +51,8 @@ pyramid:
   add_on_pullback: true
   add_on_continuation: true
   max_total_risk_pct: 2.0
-  min_profit_before_add_r: 0.5
+  add1_min_r: 0.5
+  add2_min_r: 1.2
 
 heatmap:
   cluster_step: 20
@@ -70,9 +73,9 @@ exit:
   sl_buffer_atr_mult: 0.2
 
 risk:
-  max_daily_loss_pct: 5.0
+  max_daily_loss_pct: 4.0
   max_daily_loss_usdt: 50
-  max_trades_per_day: 20
+  max_trades_per_day: 25
   max_consecutive_losses: 4
   cooldown_after_loss_sec: 300
   cooldown_after_stop_hours: 2
@@ -82,19 +85,20 @@ risk:
 
 market:
   min_24h_volume_usdt: 15000000
-  max_symbols: 15
-  trade_symbols: 8
-  whitelist_enabled: true
+  max_symbols: 50
+  trade_symbols: 40
+  whitelist_enabled: false
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ARBUSDT", "OPUSDT"]
   blacklist_substrings:
     - "1000"
     - "LUNA"
     - "UST"
     - "BUSD"
+  momentum_top_n: 8
 
 ai:
   enabled: true
-  min_confidence: 52
+  min_confidence: 45
   fail_open: true
 
 rl:

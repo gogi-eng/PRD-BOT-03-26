@@ -209,20 +209,20 @@ class TestConfigCautiousDefaults:
         assert 0.15 <= min_atr <= 0.5, f"Unexpected min_atr_pct: {min_atr}"
 
     def test_market_trade_symbols_count(self):
-        """trade_symbols should allow reasonable diversification."""
+        """trade_symbols should scan 40+ symbols for momentum."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         symbols = cfg.get("market", "trade_symbols", default=5)
-        assert 3 <= symbols <= 10, f"Unexpected trade_symbols: {symbols}"
+        assert 20 <= symbols <= 60, f"Unexpected trade_symbols: {symbols}"
 
     def test_ai_min_confidence_reasonable(self):
-        """AI min_confidence should not reject most signals."""
+        """AI min_confidence is a real filter now (45)."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         confidence = cfg.get("ai", "min_confidence", default=60)
-        assert 50 <= confidence <= 75, f"Unexpected min_confidence: {confidence}"
+        assert 40 <= confidence <= 60, f"Unexpected min_confidence: {confidence}"
 
 
 # ============================================================================

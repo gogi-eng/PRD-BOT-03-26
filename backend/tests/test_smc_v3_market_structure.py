@@ -1184,21 +1184,21 @@ class TestConfigVerificationV3:
         print(f"TEST PASSED: leverage = {leverage}")
     
     def test_trading_max_positions_5(self, config):
-        """Test max_positions=5"""
+        """Test max_positions=6"""
         max_pos = config.get("trading", "max_positions", default=0)
-        assert max_pos == 5, f"max_positions should be 5, got {max_pos}"
+        assert max_pos == 6, f"max_positions should be 6, got {max_pos}"
         print(f"TEST PASSED: max_positions = {max_pos}")
     
     def test_risk_max_daily_loss_5pct(self, config):
-        """Test max_daily_loss_pct=5%"""
+        """Test max_daily_loss_pct=4%"""
         max_loss = config.get("risk", "max_daily_loss_pct", default=0)
-        assert max_loss == 5.0, f"max_daily_loss_pct should be 5.0, got {max_loss}"
+        assert max_loss == 4.0, f"max_daily_loss_pct should be 4.0, got {max_loss}"
         print(f"TEST PASSED: max_daily_loss_pct = {max_loss}%")
     
     def test_trading_risk_per_trade_05pct(self, config):
-        """Test risk_per_trade_pct=0.5%"""
+        """Test risk_per_trade_pct=0.4%"""
         risk_pct = config.get("trading", "risk_per_trade_pct", default=0)
-        assert risk_pct == 0.5, f"risk_per_trade_pct should be 0.5, got {risk_pct}"
+        assert risk_pct == 0.4, f"risk_per_trade_pct should be 0.4, got {risk_pct}"
         print(f"TEST PASSED: risk_per_trade_pct = {risk_pct}%")
     
     def test_pyramid_enabled_true(self, config):
@@ -1254,25 +1254,25 @@ class TestPyramidStrategy:
     """Tests for Pyramid strategy logic"""
     
     def test_pyramid_min_profit_before_add_r(self):
-        """Test pyramid add only when position profit >= min_profit_before_add_r in R terms"""
+        """Test pyramid add1 at R>=0.5, add2 at R>=1.2"""
         config = BotConfig.load('/app/bot/config.yaml')
-        min_profit_r = config.get("pyramid", "min_profit_before_add_r", default=0)
+        add1_r = config.get("pyramid", "add1_min_r", default=0)
+        add2_r = config.get("pyramid", "add2_min_r", default=0)
         
-        assert min_profit_r == 0.5, f"min_profit_before_add_r should be 0.5, got {min_profit_r}"
+        assert add1_r == 0.5, f"add1_min_r should be 0.5, got {add1_r}"
+        assert add2_r == 1.2, f"add2_min_r should be 1.2, got {add2_r}"
         
-        # Simulate: entry=100, SL=95, so 1R=5
-        # min_profit_before_add_r=0.5 means 0.5R = 2.5 profit needed
         entry = 100.0
         sl = 95.0
-        risk = abs(entry - sl)  # 5
-        min_profit = risk * min_profit_r  # 2.5
+        risk = abs(entry - sl)
         
-        # Price needs to be at 102.5 for pyramid add
-        required_price = entry + min_profit
+        add1_price = entry + risk * add1_r
+        add2_price = entry + risk * add2_r
         
-        print(f"For entry={entry}, SL={sl}, risk={risk}, min_profit_before_add_r={min_profit_r}")
-        print(f"Min profit required = {min_profit}, price needs to be >= {required_price}")
-        print("TEST PASSED: Pyramid requires 0.5R profit before add")
+        print(f"For entry={entry}, SL={sl}, risk={risk}")
+        print(f"Add1 at R>={add1_r}: price >= {add1_price}")
+        print(f"Add2 at R>={add2_r}: price >= {add2_price}")
+        print("TEST PASSED: Pyramid add1=0.5R, add2=1.2R")
     
     def test_pyramid_max_total_risk_budget(self):
         """Test pyramid respects max_total_risk_pct budget"""
@@ -1280,15 +1280,13 @@ class TestPyramidStrategy:
         max_total_risk = config.get("pyramid", "max_total_risk_pct", default=0)
         risk_per_trade = config.get("trading", "risk_per_trade_pct", default=0)
         
-        # max_total_risk_pct = 2.0%, risk_per_trade = 0.5%
-        # So can add up to 2.0 / 0.5 = 4 entries total (but max_adds=2)
         max_entries = max_total_risk / risk_per_trade if risk_per_trade > 0 else 0
         
         print(f"max_total_risk_pct={max_total_risk}%, risk_per_trade={risk_per_trade}%")
         print(f"Max entries by risk budget: {max_entries}")
         
         assert max_total_risk == 2.0, f"max_total_risk_pct should be 2.0, got {max_total_risk}"
-        assert risk_per_trade == 0.5, f"risk_per_trade_pct should be 0.5, got {risk_per_trade}"
+        assert risk_per_trade == 0.4, f"risk_per_trade_pct should be 0.4, got {risk_per_trade}"
         print("TEST PASSED: Pyramid respects max_total_risk_pct budget (2.0%)")
 
 
