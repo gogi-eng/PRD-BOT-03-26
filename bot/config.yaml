@@ -36,6 +36,7 @@ entry:
   breakout_lookback: 20
   pullback_lookback: 8
   level_tp_buffer_atr: 0.20
+  zone_proximity_pct: 0.4
 
 heatmap:
   cluster_step: 20
@@ -47,11 +48,12 @@ atr:
 
 exit:
   hard_sl_atr_mult: 1.8
-  early_exit_bars: 8
+  early_exit_bars: 12
   early_exit_min_profit_atr: 0.35
   trailing_activation_atr: 0.8
   trailing_distance_atr: 1.2
   tp_cap_atr_mult: 8.0
+  min_profit_before_trail_pct: 0.5
 
 risk:
   max_daily_loss_pct: 2.5
@@ -82,7 +84,7 @@ ai:
   fail_open: true
 
 rl:
-  enabled: true
+  enabled: false
   add_threshold: 0.78
   reduce_threshold: 0.7
   close_threshold: 0.8
@@ -112,6 +114,7 @@ basket_profit_guard:
   total_drawdown_pct_after_symbol_drop: 15.0
   min_symbol_peak_profit_usdt: 0.5
   min_total_profit_usdt: 1.0
+  drawdown_confirm_sec: 900
 
 profit_drawdown_guard:
   enabled: true

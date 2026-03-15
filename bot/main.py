@@ -54,6 +54,7 @@ class BasketProfitState:
     last_reason: str = ""
     total_history: dict = None
     symbol_pnl_history: dict = None
+    drawdown_detected_at: float = 0.0  # timestamp when drawdown first detected
 
     def __post_init__(self):
         if self.total_history is None:
@@ -132,11 +133,12 @@ class TradingBot:
         )
         self.exit_engine = ExitEngine(
             hard_sl_atr_mult=self.cfg.get("exit", "hard_sl_atr_mult", default=1.8),
-            early_exit_bars=self.cfg.get("exit", "early_exit_bars", default=8),
+            early_exit_bars=self.cfg.get("exit", "early_exit_bars", default=12),
             early_exit_min_profit_atr=self.cfg.get("exit", "early_exit_min_profit_atr", default=0.35),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
             tp_cap_atr_mult=self.cfg.get("exit", "tp_cap_atr_mult", default=8.0),
+            min_profit_before_trail_pct=self.cfg.get("exit", "min_profit_before_trail_pct", default=0.5),
         )
 
         self.tg = None
@@ -192,6 +194,7 @@ class TradingBot:
         self.basket_profit_total_drawdown_pct = self.cfg.get("basket_profit_guard", "total_drawdown_pct_after_symbol_drop", default=15.0)
         self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
+        self.basket_drawdown_confirm_sec = self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
         self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
         self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
         self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
@@ -247,7 +250,7 @@ class TradingBot:
     async def run(self):
         logger.info("=" * 72)
         logger.info("TRADING BOT v9.0 — AI FUND ARCHITECTURE")
-        logger.info("DATA → FEATURES → TRANSFORMER → ENTRY → RL → EXECUTION")
+        logger.info("DATA → SMC ZONES → ENTRY → EXECUTION")
         logger.info("=" * 72)
 
         ok, err = self.security.validate_bybit_keys()
@@ -271,7 +274,7 @@ class TradingBot:
                 f"<b>Бот v9.0 запущен</b>\n"
                 f"Баланс: <code>${balance:.2f}</code>\n"
                 f"Режим: {'ТЕСТ' if self.controls.dry_run else 'LIVE'}\n"
-                f"Стратегия: Transformer + Heatmap + Orderflow"
+                f"Стратегия: SMC (FVG + Order Blocks) + AI Filter"
             )
 
         self._running = True
@@ -528,10 +531,8 @@ class TradingBot:
             return reject("market_blocked")
 
         atr_val = self.atr.get_atr(symbol, klines)
-        atr_pct = self.atr.get_atr_pct(symbol, klines)
 
         current_price = float(klines[-1]["close"])
-        has_live_liq = bool(self.client.get_liquidation_events(symbol))
         orderbook = await self.client.get_orderbook(symbol, limit=25)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
@@ -539,8 +540,6 @@ class TradingBot:
         if liq.target_level <= 0:
             liq = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
         self.controls.set_heatmap(symbol, liq)
-        if liq.target_level <= 0:
-            return reject("no_heatmap_target")
 
         zone_context = self.structure_zone_analyzer.analyze(htf_klines, current_price)
 
@@ -551,21 +550,6 @@ class TradingBot:
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
-
-        quality_ok, quality_reason = self._passes_market_quality_filter(
-            current_price,
-            klines,
-            htf_klines,
-            market,
-            signal,
-            orderflow,
-            has_live_liq,
-        )
-        if not quality_ok:
-            return reject(quality_reason)
-
-        if atr_pct < self.min_atr_pct and not signal.metadata.get("structure_breakout"):
-            return reject("atr_too_low")
 
         liquidity = sum(float(item.get("volume", 0.0)) for item in klines[-30:]) * current_price
         signal.metadata.update({
@@ -582,22 +566,18 @@ class TradingBot:
             if not ai_result.get("should_trade", False):
                 ai_reason = str(ai_result.get("reason", "")).lower()
                 explicit_fake_breakout = any(token in ai_reason for token in ["fake breakout", "fake", "bull trap", "bear trap", "late breakout", "conflict"]) and ai_result.get("confidence", 0) >= 70
-                structural_override = (
-                    signal.confidence >= 0.72
-                    and market.trend == market.htf_trend
-                    and (signal.metadata.get("structure_breakout") or signal.metadata.get("structure_pullback"))
-                )
-                if explicit_fake_breakout and not structural_override:
+                smc_override = signal.confidence >= 0.65 and signal.metadata.get("zone_confluence")
+                if explicit_fake_breakout and not smc_override:
                     logger.info(f"[AI] {symbol} rejected: {ai_result.get('reason', '')}")
                     return reject("ai_rejected")
-                logger.info(f"[AI] {symbol} advisory-only: veto ignored unless fake breakout is explicit")
+                logger.info(f"[AI] {symbol} advisory-only: veto ignored (SMC confidence={signal.confidence:.2f})")
             signal.confidence = round((signal.confidence + ai_result.get("confidence", 0) / 100) / 2, 4)
             signal.capital_score = round(signal.confidence * signal.rr_ratio, 4)
 
         logger.info(
             f"SIGNAL {symbol}: {signal.side} conf={signal.confidence:.0%} "
-            f"p_up={signal.metadata.get('transformer_prob_up', 0):.2f} p_down={signal.metadata.get('transformer_prob_down', 0):.2f} "
-            f"liq={signal.metadata.get('target_level', 0):.4f} dist={signal.metadata.get('liq_distance_pct', 0):.3f}%"
+            f"smc={signal.metadata.get('smc_score', 0):.2f} boost={signal.metadata.get('boost_score', 0):.2f} "
+            f"zone={signal.metadata.get('entry_zone', 'none')} RR={signal.rr_ratio:.1f}"
         )
         return signal
 
@@ -791,40 +771,6 @@ class TradingBot:
         cluster = LiquidationCluster(round(target_level, 8), 1.0, 1, round(distance_pct, 4), "longs")
         logger.info("[HEATMAP] directional fallback: bearish target created")
         return LiquidationAnalysis([], [cluster], None, cluster, cluster.level, cluster.size, "down", -1, cluster.distance_pct)
-
-    def _passes_market_quality_filter(self, current_price: float, klines: list[dict], htf_klines: list[dict], market, signal: EntrySignal, orderflow, has_live_liq: bool) -> tuple[bool, str]:
-        structure_breakout = bool(signal.metadata.get("structure_breakout"))
-        structure_pullback = bool(signal.metadata.get("structure_pullback"))
-        side = signal.side.upper()
-
-        if market.regime.value == "chop":
-            if not structure_breakout:
-                return False, "chop_without_breakout"
-            if orderflow.volume_spike < 1.03 and market.volume_expansion < 1.05:
-                return False, "weak_breakout_quality"
-
-        if len(htf_klines) >= 12:
-            htf_high = max(float(item["high"]) for item in htf_klines[-13:-1])
-            htf_low = min(float(item["low"]) for item in htf_klines[-13:-1])
-            if structure_breakout:
-                if side == "BUY" and current_price < htf_high * 0.998:
-                    return False, "breakout_not_confirmed_on_15m"
-                if side == "SELL" and current_price > htf_low * 1.002:
-                    return False, "breakout_not_confirmed_on_15m"
-
-        if structure_pullback:
-            if side == "BUY" and market.htf_trend.value <= 0:
-                return False, "htf_not_bullish"
-            if side == "SELL" and market.htf_trend.value >= 0:
-                return False, "htf_not_bearish"
-
-        if market.adx < 18 and orderflow.volume_spike < 1.02:
-            return False, "weak_market_quality"
-
-        if not has_live_liq and not structure_breakout and market.volume_expansion < 1.08:
-            return False, "no_live_heatmap_no_breakout"
-
-        return True, ""
 
     async def _sync_exchange_position(self, exchange_position: dict):
         symbol = exchange_position.get("symbol", "")
@@ -1133,12 +1079,35 @@ class TradingBot:
         self.basket_profit_state.peak_profit_usdt = max(self.basket_profit_state.peak_profit_usdt, peak)
 
         if total_unrealized < self.basket_profit_min_total_usdt:
+            self.basket_profit_state.drawdown_detected_at = 0.0
             return
 
         falling_symbol, symbol_drop_pct = self._find_falling_symbol(now)
         if not falling_symbol:
+            self.basket_profit_state.drawdown_detected_at = 0.0
             return
 
+        # --- 15-minute confirmation timer ---
+        if self.basket_profit_state.drawdown_detected_at <= 0:
+            self.basket_profit_state.drawdown_detected_at = now
+            logger.info(f"BASKET GUARD: drawdown detected on {falling_symbol} ({symbol_drop_pct:.1f}%), starting {self.basket_drawdown_confirm_sec}s confirmation timer")
+            if self.tg:
+                await self.tg.send_message(
+                    f"<b>BASKET GUARD: ТАЙМЕР ЗАПУЩЕН</b>\n\n"
+                    f"Символ: <code>{falling_symbol}</code>\n"
+                    f"Падение PnL: <code>{symbol_drop_pct:.1f}%</code>\n"
+                    f"Ждём {int(self.basket_drawdown_confirm_sec / 60)} мин. для подтверждения."
+                )
+            return
+
+        elapsed = now - self.basket_profit_state.drawdown_detected_at
+        if elapsed < self.basket_drawdown_confirm_sec:
+            remaining = self.basket_drawdown_confirm_sec - elapsed
+            logger.info(f"BASKET GUARD: waiting for confirmation, {remaining:.0f}s remaining")
+            return
+
+        # Timer expired and drawdown persists — close falling symbol
+        logger.info(f"BASKET GUARD: {self.basket_drawdown_confirm_sec}s confirmed, closing {falling_symbol}")
         pos = self.position_manager.get(falling_symbol)
         if pos:
             current_price = await self.client.get_price(falling_symbol)
@@ -1148,12 +1117,14 @@ class TradingBot:
                 await self._finalize_full_close(falling_symbol, pos, current_price, pnl, "basket_symbol_fall")
                 if self.tg:
                     await self.tg.send_message(
-                        f"<b>BASKET GUARD</b>\n\n"
+                        f"<b>BASKET GUARD: ПОДТВЕРЖДЕНО</b>\n\n"
                         f"Символ: <code>{falling_symbol}</code>\n"
-                        f"Падение PnL за 15м: <code>{symbol_drop_pct:.1f}%</code>\n"
-                        f"Закрыт только падающий символ."
+                        f"Падение PnL за {int(self.basket_drawdown_confirm_sec / 60)}м: <code>{symbol_drop_pct:.1f}%</code>\n"
+                        f"Закрыт падающий символ."
                     )
                 self.basket_profit_state.symbol_pnl_history.pop(falling_symbol, None)
+
+        self.basket_profit_state.drawdown_detected_at = 0.0
 
         remaining_positions = self.position_manager.all_positions()
         if len(remaining_positions) < 2:

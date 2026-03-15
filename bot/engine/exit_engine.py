@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-EXIT ENGINE — управление выходами из позиций.
+EXIT ENGINE v2 — structural SL/TP with commission-aware trailing.
 
-ATR-based:
-1. HARD SL — защита от ошибок входа
-2. EARLY EXIT — закрытие "мёртвых" сделок
-3. TRAILING EXIT — основной механизм фиксации прибыли
-4. TP CAP — safety cap
+1. HARD SL — set from structure (OB/FVG/swing), not arbitrary ATR
+2. EARLY EXIT — close dead trades after N bars
+3. TRAILING EXIT — activates only after min profit covers commissions
+4. TP CAP — structural target
 """
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 from enum import Enum
-from datetime import datetime, timezone
 
 
 class ExitReason(Enum):
@@ -25,19 +23,17 @@ class ExitReason(Enum):
 
 
 class ExitEngine:
-    """
-    ATR-based exit engine.
-    Все уровни фиксируются при входе и НЕ пересчитываются.
-    """
+    """Structural exit engine with commission-aware trailing."""
 
     def __init__(
         self,
-        hard_sl_atr_mult: float = 2.0,
-        early_exit_bars: int = 10,
-        early_exit_min_profit_atr: float = 0.5,
-        trailing_activation_atr: float = 1.0,
-        trailing_distance_atr: float = 1.5,
-        tp_cap_atr_mult: float = 10.0,
+        hard_sl_atr_mult: float = 1.8,
+        early_exit_bars: int = 12,
+        early_exit_min_profit_atr: float = 0.35,
+        trailing_activation_atr: float = 0.8,
+        trailing_distance_atr: float = 1.2,
+        tp_cap_atr_mult: float = 8.0,
+        min_profit_before_trail_pct: float = 0.5,
     ):
         self.hard_sl_atr_mult = hard_sl_atr_mult
         self.early_exit_bars = early_exit_bars
@@ -45,40 +41,41 @@ class ExitEngine:
         self.trailing_activation_atr = trailing_activation_atr
         self.trailing_distance_atr = trailing_distance_atr
         self.tp_cap_atr_mult = tp_cap_atr_mult
+        self.min_profit_before_trail_pct = min_profit_before_trail_pct
 
     def initialize_position(self, position, atr_value: float, protective_liq_level: float = 0.0):
-        """
-        Рассчитать exit levels при входе.
-        Модифицирует position in-place.
-        """
+        """Set exit levels when entering. SL and TP should already come from entry engine's structure analysis."""
         entry = position.entry_price
         is_long = position.is_long
 
         if atr_value <= 0:
             atr_value = entry * 0.01
 
-        # Hard SL (если не задан из entry engine)
+        # Fallback SL only if entry engine didn't set one
         if position.stop_loss <= 0:
             if is_long:
                 position.stop_loss = entry - atr_value * self.hard_sl_atr_mult
             else:
                 position.stop_loss = entry + atr_value * self.hard_sl_atr_mult
 
-        # TP cap
+        # Fallback TP only if entry engine didn't set one
         if position.take_profit <= 0:
             if is_long:
                 position.take_profit = entry + atr_value * self.tp_cap_atr_mult
             else:
                 position.take_profit = entry - atr_value * self.tp_cap_atr_mult
 
-        # Trailing setup
+        # Trailing: only activates after price moves enough to cover commissions + min profit
+        min_move = entry * (self.min_profit_before_trail_pct / 100)
+        atr_activation = atr_value * self.trailing_activation_atr
+        activation_distance = max(min_move, atr_activation)
+
         position.trailing_distance = atr_value * self.trailing_distance_atr
         if is_long:
-            position.trailing_activation_price = entry + atr_value * self.trailing_activation_atr
+            position.trailing_activation_price = entry + activation_distance
         else:
-            position.trailing_activation_price = entry - atr_value * self.trailing_activation_atr
+            position.trailing_activation_price = entry - activation_distance
 
-        # Immediate activation if mult <= 0
         if self.trailing_activation_atr <= 0:
             position.trailing_active = True
             position.trailing_stop = position.stop_loss
@@ -87,28 +84,21 @@ class ExitEngine:
         if hasattr(position, "protective_liq_level") and protective_liq_level > 0:
             position.protective_liq_level = protective_liq_level
 
-        print(f"   [EXIT] {position.symbol}: SL=${position.stop_loss:.4f} "
-              f"TP=${position.take_profit:.4f} trail_dist={position.trailing_distance:.4f}")
-
-    def check_exit(self, position, current_price: float, atr_value: float = 0, protective_level: float = 0.0, allow_early_exit: bool = True) -> Tuple[bool, Optional[ExitReason], str]:
-        """
-        Проверить условия выхода.
-
-        Returns:
-            (should_exit, reason, details)
-        """
+    def check_exit(self, position, current_price: float, atr_value: float = 0,
+                   protective_level: float = 0.0, allow_early_exit: bool = True) -> Tuple[bool, Optional[ExitReason], str]:
+        """Check exit conditions."""
         entry = position.entry_price
         is_long = position.is_long
 
         if atr_value <= 0:
             atr_value = entry * 0.01
 
-        # PnL
         if is_long:
             profit = current_price - entry
         else:
             profit = entry - current_price
 
+        # Protective (liquidation) stop
         if protective_level > 0:
             if is_long and current_price <= protective_level:
                 return True, ExitReason.LIQUIDATION_STOP, f"Price ${current_price:.4f} <= liq stop ${protective_level:.4f}"
@@ -121,7 +111,7 @@ class ExitEngine:
         if not is_long and current_price >= position.stop_loss:
             return True, ExitReason.HARD_SL, f"Price ${current_price:.4f} >= SL ${position.stop_loss:.4f}"
 
-        # 2. EARLY EXIT
+        # 2. EARLY EXIT — only for bot-opened positions that go nowhere
         if allow_early_exit and position.bars_since_entry >= self.early_exit_bars:
             min_profit = atr_value * self.early_exit_min_profit_atr
             if profit < min_profit:
@@ -146,12 +136,7 @@ class ExitEngine:
         return False, None, ""
 
     def update_trailing(self, position, current_price: float) -> bool:
-        """
-        Обновить trailing stop. Вызывается каждый цикл.
-
-        Returns:
-            True если trailing был обновлён
-        """
+        """Update trailing stop. Called every cycle."""
         is_long = position.is_long
         updated = False
 
@@ -169,10 +154,8 @@ class ExitEngine:
         if not position.trailing_active:
             if is_long and current_price >= position.trailing_activation_price:
                 position.trailing_active = True
-                print(f"   [EXIT] {position.symbol} trailing ACTIVATED at ${current_price:.4f}")
             elif not is_long and current_price <= position.trailing_activation_price:
                 position.trailing_active = True
-                print(f"   [EXIT] {position.symbol} trailing ACTIVATED at ${current_price:.4f}")
 
         # Move trailing stop
         if position.trailing_active and position.trailing_distance > 0:
