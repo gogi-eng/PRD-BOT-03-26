@@ -537,9 +537,17 @@ class TradingBot:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
 
-        if symbol in {"BTCUSDT", "ETHUSDT", "XRPUSDT"} and not has_live_liq:
-            if market.regime.value == "chop" or market.adx < 20 or not signal.metadata.get("structure_breakout"):
-                return reject("major_chop_no_live_heatmap")
+        quality_ok, quality_reason = self._passes_market_quality_filter(
+            current_price,
+            klines,
+            htf_klines,
+            market,
+            signal,
+            orderflow,
+            has_live_liq,
+        )
+        if not quality_ok:
+            return reject(quality_reason)
 
         if atr_pct < self.min_atr_pct and not signal.metadata.get("structure_breakout"):
             return reject("atr_too_low")
@@ -768,6 +776,40 @@ class TradingBot:
         cluster = LiquidationCluster(round(target_level, 8), 1.0, 1, round(distance_pct, 4), "longs")
         logger.info("[HEATMAP] directional fallback: bearish target created")
         return LiquidationAnalysis([], [cluster], None, cluster, cluster.level, cluster.size, "down", -1, cluster.distance_pct)
+
+    def _passes_market_quality_filter(self, current_price: float, klines: list[dict], htf_klines: list[dict], market, signal: EntrySignal, orderflow, has_live_liq: bool) -> tuple[bool, str]:
+        structure_breakout = bool(signal.metadata.get("structure_breakout"))
+        structure_pullback = bool(signal.metadata.get("structure_pullback"))
+        side = signal.side.upper()
+
+        if market.regime.value == "chop":
+            if not structure_breakout:
+                return False, "chop_without_breakout"
+            if orderflow.volume_spike < 1.03 and market.volume_expansion < 1.05:
+                return False, "weak_breakout_quality"
+
+        if len(htf_klines) >= 12:
+            htf_high = max(float(item["high"]) for item in htf_klines[-13:-1])
+            htf_low = min(float(item["low"]) for item in htf_klines[-13:-1])
+            if structure_breakout:
+                if side == "BUY" and current_price < htf_high * 0.998:
+                    return False, "breakout_not_confirmed_on_15m"
+                if side == "SELL" and current_price > htf_low * 1.002:
+                    return False, "breakout_not_confirmed_on_15m"
+
+        if structure_pullback:
+            if side == "BUY" and market.htf_trend.value <= 0:
+                return False, "htf_not_bullish"
+            if side == "SELL" and market.htf_trend.value >= 0:
+                return False, "htf_not_bearish"
+
+        if market.adx < 18 and orderflow.volume_spike < 1.02:
+            return False, "weak_market_quality"
+
+        if not has_live_liq and not structure_breakout and market.volume_expansion < 1.08:
+            return False, "no_live_heatmap_no_breakout"
+
+        return True, ""
 
     async def _sync_exchange_position(self, exchange_position: dict):
         symbol = exchange_position.get("symbol", "")

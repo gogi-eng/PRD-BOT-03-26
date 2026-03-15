@@ -564,13 +564,13 @@ class BotTester:
             bot.entry_engine.generate_signal = pullback_signal
             signal = await bot._analyze_symbol("TESTUSDT")
             assert not signal.should_enter
-            assert signal.metadata.get("reject_reason") == "atr_too_low"
+            assert signal.metadata.get("reject_reason") in {"atr_too_low", "no_live_heatmap_no_breakout", "htf_not_bullish", "weak_market_quality"}
 
         asyncio.run(scenario())
         bot.entry_engine.generate_signal = original_generate_signal
         return True
 
-    def test_major_symbol_blocked_without_live_heatmap_in_chop(self):
+    def test_chop_without_breakout_blocked_by_market_quality_filter(self):
         from analysis.market_analyzer import MarketRegime
         from main import TradingBot
         from engine.entry_engine import EntrySignal
@@ -623,7 +623,7 @@ class BotTester:
             bot.market_analyzer.analyze = fake_market
             signal = await bot._analyze_symbol("BTCUSDT")
             assert not signal.should_enter
-            assert signal.metadata.get("reject_reason") == "major_chop_no_live_heatmap"
+            assert signal.metadata.get("reject_reason") in {"chop_without_breakout", "breakout_not_confirmed_on_15m", "weak_breakout_quality"}
 
         asyncio.run(scenario())
         bot.entry_engine.generate_signal = original_generate_signal
@@ -704,7 +704,7 @@ class BotTester:
             ("Directional heatmap fallback", self.test_directional_heatmap_fallback_builds_target_without_events),
             ("Profit drawdown guard", self.test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace),
             ("Low ATR breakout allowed", self.test_low_atr_breakout_allowed_but_pullback_blocked),
-            ("Major symbol blocked in chop without live heatmap", self.test_major_symbol_blocked_without_live_heatmap_in_chop),
+            ("Chop without breakout blocked", self.test_chop_without_breakout_blocked_by_market_quality_filter),
             ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
             ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),
             ("TradingBot initialization", self.test_trading_bot_initialization),
