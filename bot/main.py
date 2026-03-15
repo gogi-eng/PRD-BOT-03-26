@@ -518,6 +518,7 @@ class TradingBot:
         atr_pct = self.atr.get_atr_pct(symbol, klines)
 
         current_price = float(klines[-1]["close"])
+        has_live_liq = bool(self.client.get_liquidation_events(symbol))
         orderbook = await self.client.get_orderbook(symbol, limit=25)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
@@ -535,6 +536,10 @@ class TradingBot:
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
+
+        if symbol in {"BTCUSDT", "ETHUSDT", "XRPUSDT"} and not has_live_liq:
+            if market.regime.value == "chop" or market.adx < 20 or not signal.metadata.get("structure_breakout"):
+                return reject("major_chop_no_live_heatmap")
 
         if atr_pct < self.min_atr_pct and not signal.metadata.get("structure_breakout"):
             return reject("atr_too_low")

@@ -157,6 +157,8 @@ class EntryEngine:
 
     def _long_ready(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
         breakout_or_pullback = structure["breakout_long"] or structure["pullback_long"] or structure["continuation_long"]
+        if market.regime.value == "chop" and not structure["breakout_long"]:
+            return False
         liq_ok = (liq.signal >= 0 and liq.max_liq_cluster_above is not None and liq_near) or liq.signal > 0 or structure["breakout_long"]
         transformer_ok = (
             transformer.prob_up >= self.transformer_threshold
@@ -173,6 +175,8 @@ class EntryEngine:
 
     def _short_ready(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
         breakout_or_pullback = structure["breakout_short"] or structure["pullback_short"] or structure["continuation_short"]
+        if market.regime.value == "chop" and not structure["breakout_short"]:
+            return False
         liq_ok = (liq.signal <= 0 and liq.max_liq_cluster_below is not None and liq_near) or liq.signal < 0 or structure["breakout_short"]
         transformer_ok = (
             transformer.prob_down >= self.transformer_threshold

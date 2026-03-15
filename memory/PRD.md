@@ -108,6 +108,14 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
     - ATR-проверка перенесена **после** построения сигнала
     - теперь low ATR больше не убивает **breakout**-входы преждевременно
     - но для `pullback`-входов ATR-контроль сохранён, как попросил пользователь (`Mode C`)
+  - по скриншотам и live-логам BTC/ETH/XRP найден ещё один критический источник плохих входов:
+    - majors могли шортиться в `1m chop/range` на synthetic heatmap fallback
+    - теперь для `BTCUSDT / ETHUSDT / XRPUSDT` без live liquidation context включён дополнительный блок:
+      - если рынок в `chop`
+      - или ADX слабый
+      - или нет настоящего breakout structure
+      - вход запрещается (`major_chop_no_live_heatmap`)
+    - внутри `EntryEngine` режим `chop` теперь допускается **только для breakout**, а не для continuation/pullback
   - TP/SL для подхваченных позиций теперь рассчитываются по структуре:
     - SL = под/над уровнями ликвидности или swing level + ATR buffer
     - TP = следующий liquidity cluster / resistance / support + ATR buffer
@@ -180,6 +188,7 @@ SHORT:
 - strategy v2 validation `/app/test_reports/iteration_8.json` — **193/193 PASS**
 - low-ATR breakout exception `/app/test_reports/iteration_9.json` — **194/194 PASS**
 - micro-exit prevention `/app/test_reports/iteration_10.json` — **186/186 PASS**
+- major-chop guard `/app/backend_test.py` — **22/22 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -199,6 +208,7 @@ SHORT:
 - Проверить на реальном рынке, что `SCAN SUMMARY` показывает кандидатов/отказы, а новая Strategy v2 действительно начала открывать сделки без RSI-перефильтрации
 - Проверить на реальных логах, что число отказов `atr_too_low` резко упало и появились хотя бы breakout-кандидаты / реальные входы
 - Проверить в live-логах, что сделки больше не закрываются на `+0.01% / -0.02%` и TP/SL реально покрывают комиссию и движение цены
+- Проверить, что по major pairs (`BTC/ETH/XRP`) без live liquidation bot больше не входит в 1m chop на synthetic fallback
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation

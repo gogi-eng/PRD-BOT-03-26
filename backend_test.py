@@ -570,6 +570,66 @@ class BotTester:
         bot.entry_engine.generate_signal = original_generate_signal
         return True
 
+    def test_major_symbol_blocked_without_live_heatmap_in_chop(self):
+        from analysis.market_analyzer import MarketRegime
+        from main import TradingBot
+        from engine.entry_engine import EntrySignal
+
+        bot = TradingBot()
+        bot.tg = None
+
+        async def fake_get_klines(symbol, interval, limit):
+            klines = []
+            price = 71000.0
+            for i in range(100):
+                price += 10 if i % 2 == 0 else -9
+                klines.append({
+                    "open": price - 6,
+                    "high": price + 12,
+                    "low": price - 12,
+                    "close": price,
+                    "volume": 1000 + i * 5,
+                })
+            return klines[-limit:]
+
+        async def fake_get_orderbook(symbol, limit=25):
+            return {"bids": [["71100", "100"]], "asks": [["71101", "90"]], "ts": 0}
+
+        async def fake_get_recent_trades(symbol, limit=120):
+            return [{"price": 71100, "size": 10, "side": "Sell", "timestamp": i} for i in range(limit)]
+
+        bot.client.get_klines = fake_get_klines
+        bot.client.get_orderbook = fake_get_orderbook
+        bot.client.get_recent_trades = fake_get_recent_trades
+        bot.client.get_liquidation_events = lambda symbol: []
+        bot.atr.get_atr_pct = lambda symbol, klines: 0.30
+
+        original_generate_signal = bot.entry_engine.generate_signal
+        original_analyze = bot.market_analyzer.analyze
+
+        def fake_signal(*args, **kwargs):
+            signal = EntrySignal(should_enter=True, side="SELL", confidence=0.9, entry_price=71100, stop_loss=71350, take_profit=70000, rr_ratio=2.0)
+            signal.metadata = {"structure_breakout": False, "structure_pullback": True}
+            return signal
+
+        def fake_market(*args, **kwargs):
+            result = original_analyze(*args, **kwargs)
+            result.regime = MarketRegime.CHOP
+            result.adx = 14
+            return result
+
+        async def scenario():
+            bot.entry_engine.generate_signal = fake_signal
+            bot.market_analyzer.analyze = fake_market
+            signal = await bot._analyze_symbol("BTCUSDT")
+            assert not signal.should_enter
+            assert signal.metadata.get("reject_reason") == "major_chop_no_live_heatmap"
+
+        asyncio.run(scenario())
+        bot.entry_engine.generate_signal = original_generate_signal
+        bot.market_analyzer.analyze = original_analyze
+        return True
+
     def test_risk_guard_reset_clears_emergency(self):
         from engine.risk_manager import GuardStatus, RiskGuard
 
@@ -644,6 +704,7 @@ class BotTester:
             ("Directional heatmap fallback", self.test_directional_heatmap_fallback_builds_target_without_events),
             ("Profit drawdown guard", self.test_profit_drawdown_guard_activates_at_three_percent_and_closes_on_retrace),
             ("Low ATR breakout allowed", self.test_low_atr_breakout_allowed_but_pullback_blocked),
+            ("Major symbol blocked in chop without live heatmap", self.test_major_symbol_blocked_without_live_heatmap_in_chop),
             ("Risk guard reset clears emergency", self.test_risk_guard_reset_clears_emergency),
             ("Basket profit guard closes basket", self.test_basket_profit_guard_closes_on_drawdown_with_negative_position),
             ("TradingBot initialization", self.test_trading_bot_initialization),
