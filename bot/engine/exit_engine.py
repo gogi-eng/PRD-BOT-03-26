@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-EXIT ENGINE v2 — structural SL/TP with commission-aware trailing.
+EXIT ENGINE v3 — structural SL/TP with R-based trailing.
 
-1. HARD SL — set from structure (OB/FVG/swing), not arbitrary ATR
-2. EARLY EXIT — close dead trades after N bars
-3. TRAILING EXIT — activates only after min profit covers commissions
-4. TP CAP — structural target
+SL: sweep_low - ATR*0.2 (set by entry engine from structure)
+TP: TP1 = previous_high, TP2 = liquidity_cluster, TP3 = trailing
+
+Trailing logic:
+  1R profit → SL moves to breakeven
+  2R profit → SL moves to last swing low (for longs) / swing high (for shorts)
+  After that: classic distance-based trailing
 """
 from __future__ import annotations
 from typing import Optional, Tuple
@@ -23,7 +26,7 @@ class ExitReason(Enum):
 
 
 class ExitEngine:
-    """Structural exit engine with commission-aware trailing."""
+    """Structural exit engine with R-based trailing progression."""
 
     def __init__(
         self,
@@ -34,6 +37,7 @@ class ExitEngine:
         trailing_distance_atr: float = 1.2,
         tp_cap_atr_mult: float = 8.0,
         min_profit_before_trail_pct: float = 0.5,
+        sl_buffer_atr_mult: float = 0.2,
     ):
         self.hard_sl_atr_mult = hard_sl_atr_mult
         self.early_exit_bars = early_exit_bars
@@ -42,9 +46,10 @@ class ExitEngine:
         self.trailing_distance_atr = trailing_distance_atr
         self.tp_cap_atr_mult = tp_cap_atr_mult
         self.min_profit_before_trail_pct = min_profit_before_trail_pct
+        self.sl_buffer_atr_mult = sl_buffer_atr_mult
 
     def initialize_position(self, position, atr_value: float, protective_liq_level: float = 0.0):
-        """Set exit levels when entering. SL and TP should already come from entry engine's structure analysis."""
+        """Set exit levels when entering. SL/TP should already come from entry engine."""
         entry = position.entry_price
         is_long = position.is_long
 
@@ -65,16 +70,18 @@ class ExitEngine:
             else:
                 position.take_profit = entry - atr_value * self.tp_cap_atr_mult
 
-        # Trailing: only activates after price moves enough to cover commissions + min profit
-        min_move = entry * (self.min_profit_before_trail_pct / 100)
-        atr_activation = atr_value * self.trailing_activation_atr
-        activation_distance = max(min_move, atr_activation)
-
+        # Store initial risk (1R) for R-based trailing
+        risk = abs(entry - position.stop_loss)
         position.trailing_distance = atr_value * self.trailing_distance_atr
+
+        # Trailing activates at 1R profit (breakeven level)
+        # min_profit_before_trail_pct ensures commissions are covered
+        min_move = entry * (self.min_profit_before_trail_pct / 100)
+        one_r = max(risk, min_move)
         if is_long:
-            position.trailing_activation_price = entry + activation_distance
+            position.trailing_activation_price = entry + one_r
         else:
-            position.trailing_activation_price = entry - activation_distance
+            position.trailing_activation_price = entry - one_r
 
         if self.trailing_activation_atr <= 0:
             position.trailing_active = True
@@ -101,43 +108,50 @@ class ExitEngine:
         # Protective (liquidation) stop
         if protective_level > 0:
             if is_long and current_price <= protective_level:
-                return True, ExitReason.LIQUIDATION_STOP, f"Price ${current_price:.4f} <= liq stop ${protective_level:.4f}"
+                return True, ExitReason.LIQUIDATION_STOP, f"Price {current_price:.4f} <= liq stop {protective_level:.4f}"
             if not is_long and current_price >= protective_level:
-                return True, ExitReason.LIQUIDATION_STOP, f"Price ${current_price:.4f} >= liq stop ${protective_level:.4f}"
+                return True, ExitReason.LIQUIDATION_STOP, f"Price {current_price:.4f} >= liq stop {protective_level:.4f}"
 
         # 1. HARD SL
         if is_long and current_price <= position.stop_loss:
-            return True, ExitReason.HARD_SL, f"Price ${current_price:.4f} <= SL ${position.stop_loss:.4f}"
+            return True, ExitReason.HARD_SL, f"SL hit at {position.stop_loss:.4f}"
         if not is_long and current_price >= position.stop_loss:
-            return True, ExitReason.HARD_SL, f"Price ${current_price:.4f} >= SL ${position.stop_loss:.4f}"
+            return True, ExitReason.HARD_SL, f"SL hit at {position.stop_loss:.4f}"
 
-        # 2. EARLY EXIT — only for bot-opened positions that go nowhere
+        # 2. EARLY EXIT — dead trades after N bars
         if allow_early_exit and position.bars_since_entry >= self.early_exit_bars:
             min_profit = atr_value * self.early_exit_min_profit_atr
             if profit < min_profit:
                 return True, ExitReason.EARLY_EXIT, (
                     f"No movement after {position.bars_since_entry} bars. "
-                    f"Profit ${profit:.4f} < required ${min_profit:.4f}"
+                    f"Profit {profit:.4f} < required {min_profit:.4f}"
                 )
 
         # 3. TP CAP
         if is_long and current_price >= position.take_profit:
-            return True, ExitReason.TP_CAP, f"TP hit: ${current_price:.4f} >= ${position.take_profit:.4f}"
+            return True, ExitReason.TP_CAP, f"TP hit at {position.take_profit:.4f}"
         if not is_long and current_price <= position.take_profit:
-            return True, ExitReason.TP_CAP, f"TP hit: ${current_price:.4f} <= ${position.take_profit:.4f}"
+            return True, ExitReason.TP_CAP, f"TP hit at {position.take_profit:.4f}"
 
         # 4. TRAILING EXIT
         if position.trailing_active and position.trailing_stop > 0:
             if is_long and current_price <= position.trailing_stop:
-                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at ${position.trailing_stop:.4f}"
+                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at {position.trailing_stop:.4f}"
             if not is_long and current_price >= position.trailing_stop:
-                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at ${position.trailing_stop:.4f}"
+                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at {position.trailing_stop:.4f}"
 
         return False, None, ""
 
-    def update_trailing(self, position, current_price: float) -> bool:
-        """Update trailing stop. Called every cycle."""
+    def update_trailing(self, position, current_price: float, last_swing_low: float = 0.0, last_swing_high: float = 0.0) -> bool:
+        """
+        R-based trailing:
+          1R → SL to breakeven
+          2R → SL to last swing low (long) / swing high (short)
+          After: distance-based trailing
+        """
+        entry = position.entry_price
         is_long = position.is_long
+        risk = abs(entry - position.stop_loss) if position.stop_loss > 0 else entry * 0.01
         updated = False
 
         # Update best price
@@ -150,26 +164,57 @@ class ExitEngine:
                 position.best_price = current_price
                 updated = True
 
-        # Check activation
+        # Check activation (1R profit)
         if not position.trailing_active:
             if is_long and current_price >= position.trailing_activation_price:
                 position.trailing_active = True
+                # 1R: move SL to breakeven
+                position.trailing_stop = max(entry, position.stop_loss)
+                updated = True
             elif not is_long and current_price <= position.trailing_activation_price:
                 position.trailing_active = True
+                position.trailing_stop = min(entry, position.stop_loss) if position.stop_loss > 0 else entry
+                updated = True
 
-        # Move trailing stop
-        if position.trailing_active and position.trailing_distance > 0:
-            if is_long:
-                new_stop = position.best_price - position.trailing_distance
-                floor = max(position.trailing_stop, position.stop_loss)
-                if new_stop > floor:
-                    position.trailing_stop = new_stop
-                    updated = True
+        if not position.trailing_active:
+            return updated
+
+        # R-based progression
+        if is_long:
+            profit = position.best_price - entry
+            r_multiple = profit / risk if risk > 0 else 0
+
+            # Distance-based trailing
+            distance_stop = max(entry, position.best_price - position.trailing_distance)
+
+            if r_multiple >= 2.0 and last_swing_low > 0 and last_swing_low > entry:
+                # 2R: max of (swing low, distance trail)
+                new_stop = max(last_swing_low, distance_stop)
+            elif r_multiple >= 1.0:
+                # 1R: breakeven minimum, then distance-based
+                new_stop = distance_stop
             else:
-                new_stop = position.best_price + position.trailing_distance
-                ceiling = position.trailing_stop if position.trailing_stop > 0 else position.stop_loss
-                if ceiling <= 0 or new_stop < min(ceiling, position.stop_loss if position.stop_loss > 0 else ceiling):
-                    position.trailing_stop = new_stop
-                    updated = True
+                new_stop = position.stop_loss
+
+            if new_stop > position.trailing_stop:
+                position.trailing_stop = new_stop
+                updated = True
+
+        else:
+            profit = entry - position.best_price
+            r_multiple = profit / risk if risk > 0 else 0
+
+            distance_stop = min(entry, position.best_price + position.trailing_distance)
+
+            if r_multiple >= 2.0 and last_swing_high > 0 and last_swing_high < entry:
+                new_stop = min(last_swing_high, distance_stop)
+            elif r_multiple >= 1.0:
+                new_stop = distance_stop
+            else:
+                new_stop = position.stop_loss
+
+            if position.trailing_stop <= 0 or new_stop < position.trailing_stop:
+                position.trailing_stop = new_stop
+                updated = True
 
         return updated

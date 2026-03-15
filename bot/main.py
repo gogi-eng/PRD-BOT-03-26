@@ -25,6 +25,7 @@ from analysis.feature_engineering import FeatureEngineer
 from analysis.liquidation_clusters import LiquidationCluster, LiquidationClusterDetector, LiquidationAnalysis
 from analysis.market_analyzer import MarketAnalyzer
 from analysis.market_regime_ai import MarketRegimeAI
+from analysis.market_structure import MarketStructureEngine
 from analysis.orderflow_analyzer import OrderflowAnalyzer
 from analysis.structure_zones import StructureZoneAnalyzer
 from analysis.transformer_model import TransformerPriceModel
@@ -115,6 +116,12 @@ class TradingBot:
         self.feature_engineer = FeatureEngineer(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.transformer_model = TransformerPriceModel(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.structure_zone_analyzer = StructureZoneAnalyzer()
+        self.market_structure_engine = MarketStructureEngine(
+            swing_lookback=self.cfg.get("market_structure", "swing_lookback", default=2),
+            volume_spike_mult=self.cfg.get("market_structure", "volume_spike_mult", default=2.0),
+            bos_volume_mult=self.cfg.get("market_structure", "bos_volume_mult", default=1.5),
+            spread_expansion_mult=self.cfg.get("market_structure", "spread_expansion_mult", default=1.5),
+        )
         self.ai_analyzer = AITradeAnalyzer()
         self.ai_analyzer.min_confidence = self.cfg.get("ai", "min_confidence", default=60)
         self.ai_analyzer.fail_open = self.cfg.get("ai", "fail_open", default=True)
@@ -139,6 +146,7 @@ class TradingBot:
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
             tp_cap_atr_mult=self.cfg.get("exit", "tp_cap_atr_mult", default=8.0),
             min_profit_before_trail_pct=self.cfg.get("exit", "min_profit_before_trail_pct", default=0.5),
+            sl_buffer_atr_mult=self.cfg.get("exit", "sl_buffer_atr_mult", default=0.2),
         )
 
         self.tg = None
@@ -206,6 +214,11 @@ class TradingBot:
         self.manual_notify_on_partial_tp = self.cfg.get("manual_management", "notify_on_partial_tp", default=True)
         self.manual_notify_on_sl_move = self.cfg.get("manual_management", "notify_on_sl_move", default=True)
         self.basket_profit_state = BasketProfitState()
+        # Pyramid strategy
+        self.pyramid_enabled = self.cfg.get("pyramid", "enabled", default=True)
+        self.pyramid_max_adds = self.cfg.get("pyramid", "max_adds", default=2)
+        self.pyramid_max_total_risk_pct = self.cfg.get("pyramid", "max_total_risk_pct", default=2.0)
+        self.pyramid_min_profit_before_add_r = self.cfg.get("pyramid", "min_profit_before_add_r", default=0.5)
 
     async def _notify_tg(self, message: str):
         if self.tg:
@@ -250,7 +263,7 @@ class TradingBot:
     async def run(self):
         logger.info("=" * 72)
         logger.info("TRADING BOT v9.0 — AI FUND ARCHITECTURE")
-        logger.info("DATA → SMC ZONES → ENTRY → EXECUTION")
+        logger.info("DATA → STRUCTURE → SWEEP/BOS → ENTRY → EXECUTION")
         logger.info("=" * 72)
 
         ok, err = self.security.validate_bybit_keys()
@@ -274,7 +287,7 @@ class TradingBot:
                 f"<b>Бот v9.0 запущен</b>\n"
                 f"Баланс: <code>${balance:.2f}</code>\n"
                 f"Режим: {'ТЕСТ' if self.controls.dry_run else 'LIVE'}\n"
-                f"Стратегия: SMC (FVG + Order Blocks) + AI Filter"
+                f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
             )
 
         self._running = True
@@ -450,7 +463,16 @@ class TradingBot:
                     await self._finalize_full_close(symbol, pos, current_price, pnl, "profit_drawdown_guard")
                     continue
 
-            self.exit_engine.update_trailing(pos, current_price)
+            # Get swing levels for R-based trailing
+            structure = self.market_structure_engine.analyze(klines, atr_val)
+            last_swing_low = structure.swing_lows[-1].price if structure.swing_lows else 0.0
+            last_swing_high = structure.swing_highs[-1].price if structure.swing_highs else 0.0
+            self.exit_engine.update_trailing(pos, current_price, last_swing_low, last_swing_high)
+
+            # --- Pyramid: add to winning positions ---
+            if self.pyramid_enabled and pos.origin == "bot" and pos.add_count < self.pyramid_max_adds:
+                await self._maybe_pyramid_add(pos, current_price, atr_val, structure)
+
             should_exit, reason, details = self.exit_engine.check_exit(
                 pos,
                 current_price,
@@ -531,8 +553,11 @@ class TradingBot:
             return reject("market_blocked")
 
         atr_val = self.atr.get_atr(symbol, klines)
-
         current_price = float(klines[-1]["close"])
+
+        # Market Structure: swings, BOS, sweeps, momentum
+        structure = self.market_structure_engine.analyze(klines, atr_val)
+
         orderbook = await self.client.get_orderbook(symbol, limit=25)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
@@ -546,7 +571,22 @@ class TradingBot:
         regime = self.regime_ai.classify(market)
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
-        signal = self.entry_engine.generate_signal(symbol, klines, current_price, market, regime, transformer, orderflow, liq, atr_val, zone_context=zone_context)
+
+        # Get funding rate for pre-trade check
+        funding_rate = 0.0
+        try:
+            tickers = await self.client.get_tickers()
+            for t in tickers:
+                if t.get("symbol") == symbol:
+                    funding_rate = float(t.get("fundingRate", 0) or 0)
+                    break
+        except Exception:
+            pass
+
+        signal = self.entry_engine.generate_signal(
+            symbol, klines, current_price, market, regime, transformer, orderflow, liq,
+            atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
+        )
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
@@ -577,7 +617,9 @@ class TradingBot:
         logger.info(
             f"SIGNAL {symbol}: {signal.side} conf={signal.confidence:.0%} "
             f"smc={signal.metadata.get('smc_score', 0):.2f} boost={signal.metadata.get('boost_score', 0):.2f} "
-            f"zone={signal.metadata.get('entry_zone', 'none')} RR={signal.rr_ratio:.1f}"
+            f"zone={signal.metadata.get('entry_zone', 'none')} "
+            f"bos={signal.metadata.get('bos_direction', 'none')} sweep={signal.metadata.get('sweep_direction', 'none')} "
+            f"RR={signal.rr_ratio:.1f}"
         )
         return signal
 
@@ -695,6 +737,93 @@ class TradingBot:
         if pos.is_long:
             return (price - pos.entry_price) / pos.entry_price * 100
         return (pos.entry_price - price) / pos.entry_price * 100
+
+    async def _maybe_pyramid_add(self, pos: Position, current_price: float, atr_val: float, structure):
+        """Pyramid strategy: add to winning positions on pullback/continuation.
+
+        Rules:
+        - Position must be in profit >= min_profit_before_add_r (in R terms)
+        - Total risk across all adds <= max_total_risk_pct
+        - entry1=breakout (original), entry2=pullback, entry3=continuation
+        """
+        risk = abs(pos.entry_price - pos.stop_loss)
+        if risk <= 0:
+            return
+
+        if pos.is_long:
+            profit = current_price - pos.entry_price
+        else:
+            profit = pos.entry_price - current_price
+
+        r_multiple = profit / risk
+        if r_multiple < self.pyramid_min_profit_before_add_r:
+            return
+
+        # Check total risk budget
+        balance = self.controls.get_balance()
+        current_risk_pct = (risk * pos.qty / balance * 100) if balance > 0 else 100
+        remaining_risk_pct = self.pyramid_max_total_risk_pct - current_risk_pct
+        if remaining_risk_pct <= 0.1:
+            return
+
+        # Pyramid condition: price pulled back to a zone or continuation BOS
+        is_pullback = False
+        is_continuation = False
+
+        if structure and structure.last_bos:
+            if pos.is_long and structure.last_bos.direction == "up":
+                is_continuation = True
+            elif not pos.is_long and structure.last_bos.direction == "down":
+                is_continuation = True
+
+        # Pullback: price near entry zone or swing level
+        if pos.is_long and structure and structure.swing_lows:
+            last_sl = structure.swing_lows[-1].price
+            if current_price <= last_sl * 1.005 and current_price > last_sl:
+                is_pullback = True
+        elif not pos.is_long and structure and structure.swing_highs:
+            last_sh = structure.swing_highs[-1].price
+            if current_price >= last_sh * 0.995 and current_price < last_sh:
+                is_pullback = True
+
+        if not is_pullback and not is_continuation:
+            return
+
+        allowed, _ = self.risk_guard.can_trade(pos.symbol)
+        if not allowed:
+            return
+
+        add_risk_pct = min(remaining_risk_pct, self.controls.risk_per_trade_pct * 0.5)
+        add_qty = self.risk_guard.calculate_position_size(
+            balance=balance,
+            risk_pct=add_risk_pct,
+            entry=current_price,
+            stop_loss=pos.stop_loss,
+            leverage=self.controls.leverage,
+            capital_weight=0.5,
+            margin_cap_pct=self.controls.margin_total_pct,
+        )
+        if add_qty * current_price < self.min_position_usdt:
+            return
+
+        reason = f"pyramid_{'pullback' if is_pullback else 'continuation'}_add{pos.add_count + 1}"
+        add_result = await self.execution_engine.execute_add(
+            pos.symbol, pos.side, add_qty, self.controls.leverage, reason=reason
+        )
+        if add_result.get("success"):
+            executed_qty = add_result.get("executed_qty", 0.0)
+            avg_price = add_result.get("avg_price", current_price) or current_price
+            self.position_manager.increase(pos.symbol, executed_qty, avg_price)
+            logger.info(f"PYRAMID {pos.symbol}: {reason} qty={executed_qty:.6f} price=${avg_price:.4f} R={r_multiple:.1f}")
+            if self.tg:
+                await self.tg.send_message(
+                    f"<b>PYRAMID ADD</b>\n"
+                    f"Монета: <code>{pos.symbol}</code>\n"
+                    f"Тип: {'pullback' if is_pullback else 'continuation'}\n"
+                    f"Добавлено: <code>{executed_qty:.6f}</code> @ ${avg_price:.4f}\n"
+                    f"Профит: <code>{r_multiple:.1f}R</code>"
+                )
+
 
     def _compute_partial_tp_price(self, entry: float, total_tp: float, side: str) -> float:
         if entry <= 0 or total_tp <= 0:
@@ -883,12 +1012,12 @@ class TradingBot:
                 cluster_support = liq_analysis.max_liq_cluster_below.level if liq_analysis and liq_analysis.max_liq_cluster_below else 0.0
                 base_candidates = [level for level in [nearest_support, zone_support, cluster_support] if 0 < level < entry_price]
                 base_support = max(base_candidates) if base_candidates else 0.0
-                derived_sl = base_support - atr * self.entry_engine.liq_stop_buffer_atr if base_support > 0 else entry_price - atr * self.exit_engine.hard_sl_atr_mult
+                derived_sl = base_support - atr * self.exit_engine.sl_buffer_atr_mult if base_support > 0 else entry_price - atr * self.exit_engine.hard_sl_atr_mult
             else:
                 cluster_resistance = liq_analysis.max_liq_cluster_above.level if liq_analysis and liq_analysis.max_liq_cluster_above else 0.0
                 above_levels = [level for level in [nearest_resistance, zone_resistance, cluster_resistance] if level > entry_price]
                 base_resistance = min(above_levels) if above_levels else 0.0
-                derived_sl = base_resistance + atr * self.entry_engine.liq_stop_buffer_atr if base_resistance > 0 else entry_price + atr * self.exit_engine.hard_sl_atr_mult
+                derived_sl = base_resistance + atr * self.exit_engine.sl_buffer_atr_mult if base_resistance > 0 else entry_price + atr * self.exit_engine.hard_sl_atr_mult
         derived_tp = take_profit
         partial_tp = 0.0
         if derived_tp <= 0:
@@ -897,8 +1026,8 @@ class TradingBot:
                 tp_candidates = [level for level in [cluster_target, zone_resistance, nearest_resistance, max(highs) if highs else 0.0] if level > entry_price]
                 if tp_candidates:
                     tp_candidates = sorted(set(tp_candidates))
-                    partial_tp = tp_candidates[0] - atr * self.entry_engine.level_tp_buffer_atr
-                    derived_tp = (tp_candidates[1] - atr * self.entry_engine.level_tp_buffer_atr) if len(tp_candidates) > 1 else partial_tp + max(min_target_distance, atr * 2)
+                    partial_tp = tp_candidates[0] - atr * self.exit_engine.sl_buffer_atr_mult
+                    derived_tp = (tp_candidates[1] - atr * self.exit_engine.sl_buffer_atr_mult) if len(tp_candidates) > 1 else partial_tp + max(min_target_distance, atr * 2)
                 else:
                     risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
                     derived_tp = entry_price + risk * self.entry_engine.min_rr_ratio
@@ -907,8 +1036,8 @@ class TradingBot:
                 tp_candidates = [level for level in [cluster_target, zone_support, nearest_support, min(lows) if lows else 0.0] if 0 < level < entry_price]
                 if tp_candidates:
                     tp_candidates = sorted(set(tp_candidates), reverse=True)
-                    partial_tp = tp_candidates[0] + atr * self.entry_engine.level_tp_buffer_atr
-                    derived_tp = (tp_candidates[1] + atr * self.entry_engine.level_tp_buffer_atr) if len(tp_candidates) > 1 else partial_tp - max(min_target_distance, atr * 2)
+                    partial_tp = tp_candidates[0] + atr * self.exit_engine.sl_buffer_atr_mult
+                    derived_tp = (tp_candidates[1] + atr * self.exit_engine.sl_buffer_atr_mult) if len(tp_candidates) > 1 else partial_tp - max(min_target_distance, atr * 2)
                 else:
                     risk = abs(entry_price - derived_sl) if derived_sl > 0 else atr * self.exit_engine.hard_sl_atr_mult
                     derived_tp = entry_price - risk * self.entry_engine.min_rr_ratio
