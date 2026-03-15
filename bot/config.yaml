@@ -37,7 +37,7 @@ entry:
   max_funding_rate: 0.05
   min_liq_depth: 0.0
   min_smc_score: 0.55
-  min_volatility_pct: 0.8
+  min_volatility_pct: 0.04
 
 market_structure:
   swing_lookback: 2
