@@ -50,7 +50,7 @@ RISK: [LOW/MEDIUM/HIGH]"""
     def __init__(self):
         self.api_key = os.getenv("EMERGENT_LLM_KEY", "")
         self.enabled = EMERGENT_AVAILABLE and bool(self.api_key)
-        self.min_confidence = 62
+        self.min_confidence = 52
         self.fail_open = True
         self._cache: Dict[str, Dict] = {}
         self._cache_ttl = 120

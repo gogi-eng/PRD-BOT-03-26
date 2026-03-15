@@ -104,6 +104,19 @@ DATA LAYER → FEATURE ENGINEERING → MARKET REGIME AI → TRANSFORMER MODEL
       - `pullback continuation`
       - `momentum continuation`
     - `SCAN SUMMARY` в конце скана показывает причины отказов по символам
+    - после следующего живого лога по выбору пользователя `B` добавлена **детализация reject_reason**:
+      - `no_structure`
+      - `chop_without_breakout`
+      - `breakout_not_confirmed_on_15m`
+      - `weak_orderflow`
+      - `transformer_not_confirmed`
+      - `heatmap_not_confirmed`
+    - пороги входа ослаблены ещё на один шаг, чтобы уменьшить `entry_filters`, но без снятия market quality filter:
+      - `transformer_threshold=0.54`
+      - `min_orderflow_imbalance=1.03`
+      - `max_liq_distance_pct=1.30`
+      - `min_rr_ratio=1.3`
+      - `ai.min_confidence=52`
   - по live-логам пользователя найден дополнительный choke point: `atr_too_low=7`
     - ATR-проверка перенесена **после** построения сигнала
     - теперь low ATR больше не убивает **breakout**-входы преждевременно
@@ -190,6 +203,7 @@ SHORT:
 - micro-exit prevention `/app/test_reports/iteration_10.json` — **186/186 PASS**
 - major-chop guard `/app/backend_test.py` — **22/22 PASS**
 - generic market quality verification `/app/test_reports/iteration_11.json` — **227/227 PASS**
+- detailed reject reasons + looser filters `/app/backend_test.py` — **22/22 PASS**
 
 ## Running Notes for User
 - Бот запускается отдельно от preview-среды
@@ -210,6 +224,7 @@ SHORT:
 - Проверить на реальных логах, что число отказов `atr_too_low` резко упало и появились хотя бы breakout-кандидаты / реальные входы
 - Проверить в live-логах, что сделки больше не закрываются на `+0.01% / -0.02%` и TP/SL реально покрывают комиссию и движение цены
 - Проверить, что generic market quality filter блокирует любые `chop`-входы без breakout по всем символам, а не только по отдельным тикерам
+- Проверить по live `SCAN SUMMARY`, что вместо общего `entry_filters` теперь видны конкретные bottleneck-причины и число кандидатов стало выше
 
 ### P1
 - Усилить transformer/market regime модели реальными обученными весами вместо rule-based approximation

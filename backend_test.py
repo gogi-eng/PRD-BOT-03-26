@@ -92,8 +92,8 @@ class BotTester:
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
         assert cfg.get("bot", "candle_interval") == "1"
-        assert cfg.get("entry", "transformer_threshold") == 0.56
-        assert cfg.get("entry", "min_rr_ratio") == 1.4
+        assert cfg.get("entry", "transformer_threshold") == 0.54
+        assert cfg.get("entry", "min_rr_ratio") == 1.3
         assert cfg.get("entry", "min_target_profit_pct") == 1.2
         assert cfg.get("risk", "max_daily_loss_pct") == 2.5
         assert cfg.get("heatmap", "cluster_step") == 20
@@ -226,7 +226,7 @@ class BotTester:
 
         assert signal.should_enter
         assert signal.side == "SELL"
-        assert signal.rr_ratio >= 1.4
+        assert signal.rr_ratio >= 1.3
         assert signal.metadata["liq_distance_pct"] <= 0.55
         assert abs(signal.take_profit - current_price) / current_price * 100 >= 1.19
 
@@ -678,7 +678,7 @@ class BotTester:
 
         bot = TradingBot()
         assert bot.controls.get_strategy_mode_display() == "Transformer + Heatmap + Orderflow"
-        assert bot.entry_engine.transformer_threshold == 0.56
+        assert bot.entry_engine.transformer_threshold == 0.54
         assert bot.allocator is not None
         assert bot.rl_agent is not None
         assert bot.feature_engineer.sequence_length == 128

@@ -45,22 +45,27 @@ class EntryEngine:
         liq_near = 0 < liq_analysis.distance_to_target_pct <= self.max_liq_distance_pct
         structure = self._detect_structure(klines, current_price, market_analysis)
 
-        long_ready = self._long_ready(regime_ok, liq_near, structure, market_analysis, transformer_prediction, orderflow_snapshot, liq_analysis)
-        short_ready = self._short_ready(regime_ok, liq_near, structure, market_analysis, transformer_prediction, orderflow_snapshot, liq_analysis)
+        long_checks = self._long_checks(regime_ok, liq_near, structure, market_analysis, transformer_prediction, orderflow_snapshot, liq_analysis)
+        short_checks = self._short_checks(regime_ok, liq_near, structure, market_analysis, transformer_prediction, orderflow_snapshot, liq_analysis)
+
+        long_ready = all(long_checks.values())
+        short_ready = all(short_checks.values())
 
         if not long_ready and not short_ready:
+            reject_reason = self._resolve_reject_reason(structure, long_checks, short_checks)
             signal.filters_passed = {
                 "regime": regime_ok,
                 "heatmap_distance": liq_near,
-                "transformer_long": transformer_prediction.prob_up >= self.transformer_threshold,
-                "transformer_short": transformer_prediction.prob_down >= self.transformer_threshold,
-                "orderflow_long": orderflow_snapshot.bullish_ratio >= self.min_orderflow_imbalance,
-                "orderflow_short": orderflow_snapshot.bearish_ratio >= self.min_orderflow_imbalance,
+                "transformer_long": long_checks["transformer_ok"],
+                "transformer_short": short_checks["transformer_ok"],
+                "orderflow_long": long_checks["orderflow_ok"],
+                "orderflow_short": short_checks["orderflow_ok"],
                 "breakout_long": structure["breakout_long"],
                 "breakout_short": structure["breakout_short"],
                 "pullback_long": structure["pullback_long"],
                 "pullback_short": structure["pullback_short"],
             }
+            signal.metadata["reject_reason"] = reject_reason
             return signal
 
         is_long = long_ready and (transformer_prediction.prob_up >= transformer_prediction.prob_down or not short_ready)
@@ -155,10 +160,9 @@ class EntryEngine:
         }
         return signal
 
-    def _long_ready(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
+    def _long_checks(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
         breakout_or_pullback = structure["breakout_long"] or structure["pullback_long"] or structure["continuation_long"]
-        if market.regime.value == "chop" and not structure["breakout_long"]:
-            return False
+        chop_ok = not (market.regime.value == "chop" and not structure["breakout_long"])
         liq_ok = (liq.signal >= 0 and liq.max_liq_cluster_above is not None and liq_near) or liq.signal > 0 or structure["breakout_long"]
         transformer_ok = (
             transformer.prob_up >= self.transformer_threshold
@@ -171,12 +175,20 @@ class EntryEngine:
         )
         volume_ok = orderflow.volume_spike >= 1.03 or market.volume_expansion >= 1.05 or structure["pullback_long"]
         trend_ok = market.trend.value > 0 and market.htf_trend.value >= 0
-        return regime_ok and breakout_or_pullback and liq_ok and transformer_ok and orderflow_ok and trend_ok and volume_ok
+        return {
+            "regime_ok": regime_ok,
+            "structure_ok": breakout_or_pullback,
+            "chop_ok": chop_ok,
+            "liq_ok": liq_ok,
+            "transformer_ok": transformer_ok,
+            "orderflow_ok": orderflow_ok,
+            "trend_ok": trend_ok,
+            "volume_ok": volume_ok,
+        }
 
-    def _short_ready(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
+    def _short_checks(self, regime_ok, liq_near, structure, market, transformer, orderflow, liq):
         breakout_or_pullback = structure["breakout_short"] or structure["pullback_short"] or structure["continuation_short"]
-        if market.regime.value == "chop" and not structure["breakout_short"]:
-            return False
+        chop_ok = not (market.regime.value == "chop" and not structure["breakout_short"])
         liq_ok = (liq.signal <= 0 and liq.max_liq_cluster_below is not None and liq_near) or liq.signal < 0 or structure["breakout_short"]
         transformer_ok = (
             transformer.prob_down >= self.transformer_threshold
@@ -189,7 +201,32 @@ class EntryEngine:
         )
         volume_ok = orderflow.volume_spike >= 1.03 or market.volume_expansion >= 1.05 or structure["pullback_short"]
         trend_ok = market.trend.value < 0 and market.htf_trend.value <= 0
-        return regime_ok and breakout_or_pullback and liq_ok and transformer_ok and orderflow_ok and trend_ok and volume_ok
+        return {
+            "regime_ok": regime_ok,
+            "structure_ok": breakout_or_pullback,
+            "chop_ok": chop_ok,
+            "liq_ok": liq_ok,
+            "transformer_ok": transformer_ok,
+            "orderflow_ok": orderflow_ok,
+            "trend_ok": trend_ok,
+            "volume_ok": volume_ok,
+        }
+
+    def _resolve_reject_reason(self, structure, long_checks, short_checks) -> str:
+        if not any([structure["breakout_long"], structure["breakout_short"], structure["pullback_long"], structure["pullback_short"], structure["continuation_long"], structure["continuation_short"]]):
+            return "no_structure"
+        for reason, key in [
+            ("chop_without_breakout", "chop_ok"),
+            ("regime_blocked", "regime_ok"),
+            ("trend_misaligned", "trend_ok"),
+            ("weak_volume", "volume_ok"),
+            ("weak_orderflow", "orderflow_ok"),
+            ("heatmap_not_confirmed", "liq_ok"),
+            ("transformer_not_confirmed", "transformer_ok"),
+        ]:
+            if not long_checks.get(key, True) and not short_checks.get(key, True):
+                return reason
+        return "entry_filters"
 
     def _detect_structure(self, klines: List[Dict], current_price: float, market) -> Dict[str, bool | str]:
         if len(klines) < self.breakout_lookback + 2:
