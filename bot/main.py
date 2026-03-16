@@ -230,17 +230,12 @@ class TradingBot:
             await self.tg.send_alert(message)
 
     async def get_trade_symbols(self) -> list:
-        """Return trading symbols. If whitelist_enabled, ONLY whitelist coins are traded."""
-        if self.whitelist_enabled and self.whitelist:
-            result = [s for s in self.whitelist if s not in self.blacklist]
-            logger.info(f"Symbol scanner: whitelist-only mode → {result}")
-            return result
-
+        """Scan top symbols by momentum. Whitelist symbols always at front (priority)."""
         try:
             tickers = await self.client.get_tickers()
         except Exception as exc:
             logger.error(f"Failed to get tickers: {exc}")
-            return []
+            return self.whitelist[:25] if self.whitelist else []
 
         ranked = []
         for ticker in tickers:
@@ -259,8 +254,26 @@ class TradingBot:
             ranked.append((symbol, turnover, momentum_score))
 
         ranked.sort(key=lambda item: item[2], reverse=True)
-        result = [item[0] for item in ranked[: self.trade_symbols]]
-        logger.info(f"Symbol scanner: {len(ranked)} eligible → top {len(result)} by momentum")
+        symbols = [item[0] for item in ranked[: self.max_symbols]]
+
+        # Whitelist symbols always at front (priority, not exclusive)
+        if self.whitelist_enabled:
+            ordered = [s for s in self.whitelist if s not in self.blacklist]
+            for s in reversed(ordered):
+                if s in symbols:
+                    symbols.remove(s)
+                symbols.insert(0, s)
+
+        unique = []
+        seen = set()
+        for s in symbols:
+            if s not in seen:
+                unique.append(s)
+                seen.add(s)
+
+        result = unique[:25]
+        wl_in = [s for s in self.whitelist if s in result]
+        logger.info(f"Symbol scanner: {len(ranked)} eligible → top {len(result)} (whitelist: {wl_in})")
         return result
 
     async def run(self):
@@ -950,11 +963,110 @@ class TradingBot:
         liq = self.liq_detector.analyze(current_price, self.client.get_liquidation_events(symbol))
         if liq.target_level > 0:
             return liq
-        synthetic_events = self._build_synthetic_liquidation_events(klines, current_price)
-        fallback = self.liq_detector.analyze(current_price, synthetic_events)
-        if fallback.target_level > 0:
-            logger.info(f"[HEATMAP] {symbol}: using synthetic price-action fallback")
-        return fallback
+        # Quasi-liquidation model: estimate where leveraged positions get liquidated
+        # based on ATR, typical leverage levels, and price structure
+        quasi_liq = self._build_quasi_liquidation_model(klines, current_price)
+        if quasi_liq.target_level > 0:
+            logger.info(f"[HEATMAP] {symbol}: quasi-liquidation model (ATR+leverage zones)")
+            return quasi_liq
+        return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
+
+    def _build_quasi_liquidation_model(self, klines: list[dict], current_price: float) -> LiquidationAnalysis:
+        """Build quasi-liquidation heatmap from ATR + leverage zones.
+
+        Logic (Coinglass-inspired):
+        1. High leverage (50x-125x) traders get liquidated at 0.8-2% from entry
+        2. Medium leverage (10x-25x) at 4-10% from entry
+        3. Recent swing highs/lows act as entry clusters
+        4. ATR defines the "heat zone" width
+        """
+        if len(klines) < 20 or current_price <= 0:
+            return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
+
+        closes = [float(k["close"]) for k in klines[-50:]]
+        highs = [float(k["high"]) for k in klines[-50:]]
+        lows = [float(k["low"]) for k in klines[-50:]]
+        volumes = [float(k.get("volume", 0)) for k in klines[-50:]]
+
+        # ATR approximation
+        ranges = [h - l for h, l in zip(highs, lows)]
+        atr = sum(ranges[-14:]) / min(14, len(ranges)) if ranges else current_price * 0.01
+
+        # Leverage liquidation zones (% from current price)
+        # 50x-125x leverage → liquidated at 0.8-2.0% move
+        # 10x-25x leverage → liquidated at 4-10% move
+        high_lev_dist = current_price * 0.012  # ~1.2% (50x zone)
+        med_lev_dist = current_price * 0.05    # ~5% (20x zone)
+
+        # Find recent swing highs/lows as entry clusters
+        recent_swing_highs = sorted(highs[-20:], reverse=True)[:3]
+        recent_swing_lows = sorted(lows[-20:])[:3]
+
+        # Volume-weighted average of recent activity (where positions were opened)
+        vol_total = sum(volumes[-20:]) or 1.0
+        vwap = sum(c * v for c, v in zip(closes[-20:], volumes[-20:])) / vol_total
+
+        above_clusters = []  # Shorts' stop-losses above price (liquidity magnets for longs)
+        below_clusters = []  # Longs' stop-losses below price (liquidity magnets for shorts)
+
+        # High-leverage liquidation zone above (shorts getting squeezed)
+        liq_above_50x = current_price + high_lev_dist
+        above_clusters.append(LiquidationCluster(
+            round(liq_above_50x, 8), round(atr * 2, 4), 1,
+            round(high_lev_dist / current_price * 100, 4), "shorts_50x"
+        ))
+
+        # Swing high clusters (where shorts entered → their stops are above)
+        for sh in recent_swing_highs:
+            if sh > current_price:
+                dist = sh - current_price
+                dist_pct = dist / current_price * 100
+                above_clusters.append(LiquidationCluster(
+                    round(sh + atr * 0.3, 8), round(atr, 4), 1,
+                    round(dist_pct, 4), "shorts_swing"
+                ))
+
+        # High-leverage liquidation zone below (longs getting liquidated)
+        liq_below_50x = current_price - high_lev_dist
+        below_clusters.append(LiquidationCluster(
+            round(liq_below_50x, 8), round(atr * 2, 4), 1,
+            round(high_lev_dist / current_price * 100, 4), "longs_50x"
+        ))
+
+        # Swing low clusters (where longs entered → their stops are below)
+        for sl in recent_swing_lows:
+            if sl < current_price:
+                dist = current_price - sl
+                dist_pct = dist / current_price * 100
+                below_clusters.append(LiquidationCluster(
+                    round(sl - atr * 0.3, 8), round(atr, 4), 1,
+                    round(dist_pct, 4), "longs_swing"
+                ))
+
+        # Determine magnet direction: larger cluster = more liquidity = magnet
+        above_total = sum(c.size for c in above_clusters)
+        below_total = sum(c.size for c in below_clusters)
+
+        if above_total > below_total * 1.3:
+            # More liquidity above → price likely sweeps up
+            target = max(above_clusters, key=lambda c: c.size)
+            return LiquidationAnalysis(
+                above_clusters, below_clusters, target, None,
+                target.level, target.size, "up", 1, target.distance_pct
+            )
+        elif below_total > above_total * 1.3:
+            # More liquidity below → price likely sweeps down
+            target = max(below_clusters, key=lambda c: c.size)
+            return LiquidationAnalysis(
+                above_clusters, below_clusters, None, target,
+                target.level, target.size, "down", -1, target.distance_pct
+            )
+        else:
+            # Balanced
+            return LiquidationAnalysis(
+                above_clusters, below_clusters, None, None,
+                0.0, 0.0, "neutral", 0, 0.0
+            )
 
     def _build_synthetic_liquidation_events(self, klines: list[dict], current_price: float) -> list[dict]:
         events = []

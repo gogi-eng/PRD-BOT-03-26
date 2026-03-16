@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import exp
+import math
 from typing import List
 
 from analysis.market_analyzer import MarketRegime
@@ -56,6 +57,19 @@ class TransformerPriceModel:
             flat_logit += 0.2
 
         prob_up, prob_down, prob_flat = self._softmax([up_logit, down_logit, flat_logit])
+
+        # Sigmoid calibration: prevent extreme probabilities (100% / 0%)
+        # Clamp to [0.05, 0.85] range — no model should output 100% certainty
+        prob_up = self._calibrate(prob_up)
+        prob_down = self._calibrate(prob_down)
+        prob_flat = self._calibrate(prob_flat)
+        # Re-normalize to sum = 1.0
+        total = prob_up + prob_down + prob_flat
+        if total > 0:
+            prob_up /= total
+            prob_down /= total
+            prob_flat /= total
+
         confidence = max(prob_up, prob_down, prob_flat)
         expected_move = "up" if prob_up >= max(prob_down, prob_flat) else "down" if prob_down >= max(prob_up, prob_flat) else "flat"
         return TransformerPrediction(
@@ -74,3 +88,25 @@ class TransformerPriceModel:
         exps = [exp(value - peak) for value in values]
         total = sum(exps) or 1.0
         return [value / total for value in exps]
+
+    @staticmethod
+    def _calibrate(prob: float, floor: float = 0.05, ceiling: float = 0.85) -> float:
+        """Sigmoid calibration: compress extreme probabilities into realistic range.
+
+        Prevents 100%/0% outputs. Maps [0,1] → [floor, ceiling].
+        Uses sigmoid squashing for smooth transition.
+        """
+        # Apply sigmoid compression: prob → floor + (ceiling - floor) * sigmoid(logit)
+        # where logit is derived from prob
+        if prob <= 0.0:
+            return floor
+        if prob >= 1.0:
+            return ceiling
+        # Convert prob to logit, squash, convert back
+        eps = 1e-7
+        clamped = max(eps, min(1 - eps, prob))
+        logit = math.log(clamped / (1 - clamped))
+        # Reduce logit magnitude by 0.6x to flatten extremes
+        dampened = logit * 0.6
+        squashed = 1.0 / (1.0 + math.exp(-dampened))
+        return floor + (ceiling - floor) * squashed

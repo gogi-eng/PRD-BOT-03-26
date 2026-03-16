@@ -344,13 +344,13 @@ class TestNoRegressions:
         assert trading_bot.portfolio_tp_enabled is False
 
     def test_synthetic_heatmap_still_used_first(self, trading_bot):
-        """Synthetic heatmap should still be tried before directional fallback."""
+        """Quasi-liquidation model should be tried when no live events."""
         import inspect
         source = inspect.getsource(trading_bot._resolve_liquidation_context)
-        
-        # Verify synthetic fallback is still in place
-        assert "_build_synthetic_liquidation_events" in source
-        assert "synthetic price-action fallback" in source
+
+        # Verify quasi-liquidation model is in place
+        assert "_build_quasi_liquidation_model" in source
+        assert "quasi-liquidation model" in source
 
     def test_live_liquidation_events_preferred(self, trading_bot):
         """Live liquidation events should still be preferred over fallbacks."""

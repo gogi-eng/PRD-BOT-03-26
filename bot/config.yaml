@@ -37,6 +37,7 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
+  entry_threshold: 0.70
   min_liq_depth: 0.0
   min_smc_score: 0.70
   min_volatility_pct: 0.04
@@ -90,7 +91,7 @@ risk:
 market:
   min_24h_volume_usdt: 15000000
   max_symbols: 50
-  trade_symbols: 40
+  trade_symbols: 25
   whitelist_enabled: true
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
   blacklist_substrings:
