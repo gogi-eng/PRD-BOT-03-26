@@ -176,6 +176,7 @@ class TradingBot:
         self.cycle_sleep = self.cfg.get("bot", "cycle_sleep_sec", default=45)
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
+        self.signal_only = self.cfg.get("bot", "signal_only", default=False)
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -299,7 +300,7 @@ class TradingBot:
             await self.tg.send_message(
                 f"<b>Бот v9.0 запущен</b>\n"
                 f"Баланс: <code>${balance:.2f}</code>\n"
-                f"Режим: {'ТЕСТ' if self.controls.dry_run else 'LIVE'}\n"
+                f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
                 f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
             )
 
@@ -322,25 +323,26 @@ class TradingBot:
                 subscribed = self._unique_symbols(exchange_symbols + self.position_manager.symbols() + symbols)[: self.max_stream_symbols]
                 await self.client.set_liquidation_symbols(subscribed)
 
-                total_unrealized = await self._manage_positions(exchange_positions)
+                if not self.signal_only:
+                    total_unrealized = await self._manage_positions(exchange_positions)
 
-                if self.basket_profit_guard_enabled and self.position_manager.count() >= self.basket_profit_min_positions:
-                    await self._check_basket_profit_guard(total_unrealized)
+                    if self.basket_profit_guard_enabled and self.position_manager.count() >= self.basket_profit_min_positions:
+                        await self._check_basket_profit_guard(total_unrealized)
 
-                if self.portfolio_tp_enabled and self.position_manager.count() >= 2:
-                    await self._check_portfolio_take_profit(total_unrealized)
+                    if self.portfolio_tp_enabled and self.position_manager.count() >= 2:
+                        await self._check_portfolio_take_profit(total_unrealized)
 
-                if self.position_manager.count() > 0:
-                    closed_symbols = await self.profit_lock.check(self.position_manager.all_positions()) or []
-                    for symbol in closed_symbols:
-                        pos = self.position_manager.get(symbol)
-                        if pos:
-                            current_price = await self.client.get_price(symbol)
-                            await self._finalize_full_close(symbol, pos, current_price, 0.0, "profit_lock")
+                    if self.position_manager.count() > 0:
+                        closed_symbols = await self.profit_lock.check(self.position_manager.all_positions()) or []
+                        for symbol in closed_symbols:
+                            pos = self.position_manager.get(symbol)
+                            if pos:
+                                current_price = await self.client.get_price(symbol)
+                                await self._finalize_full_close(symbol, pos, current_price, 0.0, "profit_lock")
 
                 if self.controls.enabled and not self.controls.emergency:
                     can_trade, reason = self.risk_guard.can_trade()
-                    if can_trade and self.position_manager.count() < self.controls.max_positions:
+                    if can_trade and (self.signal_only or self.position_manager.count() < self.controls.max_positions):
                         await self._scan_entries(symbols)
                     elif not can_trade:
                         logger.info(f"Trading blocked: {reason}")
@@ -547,6 +549,41 @@ class TradingBot:
         self.controls.set_candidates(ranked)
         summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
+
+        if self.signal_only:
+            # Signal-only mode: send to Telegram, no execution
+            for item in ranked:
+                signal = item["signal"]
+                symbol = item["symbol"]
+                side = signal.side
+                direction = "LONG" if side == "BUY" else "SHORT"
+                sl = signal.stop_loss
+                tp = signal.take_profit
+                tp1 = signal.metadata.get("tp1_level", tp)
+                entry = signal.entry_price
+                rr = signal.rr_ratio
+                zone = signal.metadata.get("entry_zone", "none")
+                bos = signal.metadata.get("bos_direction", "none")
+                sweep = signal.metadata.get("sweep_direction", "none")
+                conf = signal.confidence
+
+                msg = (
+                    f"<b>SIGNAL {direction}</b>\n\n"
+                    f"Монета: <code>{symbol}</code>\n"
+                    f"Вход: <code>${entry:.4f}</code>\n"
+                    f"SL: <code>${sl:.4f}</code>\n"
+                    f"TP1: <code>${tp1:.4f}</code>\n"
+                    f"TP2: <code>${tp:.4f}</code>\n"
+                    f"RR: <code>{rr:.1f}</code>\n"
+                    f"Confidence: <code>{conf:.0%}</code>\n"
+                    f"Zone: <code>{zone}</code>\n"
+                    f"BOS: <code>{bos}</code> | Sweep: <code>{sweep}</code>"
+                )
+                logger.info(f"SIGNAL-ONLY {symbol}: {direction} entry=${entry:.4f} SL=${sl:.4f} TP=${tp:.4f} RR={rr:.1f}")
+                if self.tg:
+                    await self.tg.send_message(msg)
+            return
+
         available_slots = max(0, self.controls.max_positions - self.position_manager.count())
         for item in ranked[:available_slots]:
             await self._execute_entry(item["symbol"], item["signal"], item.get("capital_weight", 1.0))

@@ -11,6 +11,7 @@ bot:
   klines_limit: 180
   feature_window: 128
   liquidation_stream_symbols: 12
+  signal_only: true
 
 trading:
   leverage: 15
