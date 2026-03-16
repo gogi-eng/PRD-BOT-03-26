@@ -1,55 +1,74 @@
-# Trading Bot v9.0 — PRD
+# Trading Bot — PRD
 
-## Current Strategy: SMC v3.1 (Enhanced)
+## Original Problem Statement
+Автоматический торговый бот для криптовалют на базе Bybit API. Стратегия Smart Money Concepts (SMC) с AI-фильтрацией.
 
-### Полный сигнал (два типа):
+## Current Strategy: SMC v5 — Strict 5-Point ТЗ
+
+### Entry Pipeline (STRICT — no other logic allowed):
 ```
-# Тип 1: Sweep → BOS → Retest
-if trend != RANGE and liquidity_sweep and BOS and volume_spike and retest_OB:
-    open_trade()
-
-# Тип 2: Continuation
-if BOS and trend_up and pullback < 0.4 ATR:
-    buy()
+GATE 1: 4H TREND  →  only LONG if 4H bullish, only SHORT if 4H bearish
+    ↓
+GATE 2: LIQUIDITY SWEEP  →  mandatory: price must sweep liquidity first
+    ↓
+GATE 3: FVG / ORDER BLOCK  →  price must retest a zone after the sweep
+    ↓
+GATE 4: RISK/REWARD >= 2.0  →  trade only if RR meets minimum
+    ↓
+ENTRY
 ```
 
-### Все реализованные фичи:
-1. Market Structure Engine — swing HH/HL/LH/LL тренд
-2. BOS — с volume confirmation (>1.5x avg)
-3. Liquidity Sweep Detection
-4. Entry: Sweep → BOS → Retest OB/FVG (primary)
-5. Entry: BOS → Pullback < 0.4 ATR → Continuation (secondary)
-6. Order Block + FVG zones
-7. SL = sweep_low - ATR*0.2, TP = previous_high / liquidity
-8. Trailing: 1R→breakeven, 2R→swing low, 3R+→distance
-9. Momentum Filter: volume>2x AND range>1.5x ATR
-10. Pyramid: add1 at R>0.5, add2 at R>1.2, risk_total ≤ 2%
-11. Risk: 0.4% per trade, 6 positions, 4% daily loss, 15x leverage
-12. Execution checks: spread<0.08%, funding_rate<0.05
-13. AI filter РЕАЛЬНЫЙ: reject if ai_confidence < 45
-14. Volatility filter: ATR/price < 0.8% → skip
-15. Scanning: 40 символов по momentum, не 8
-16. Min SMC score: 0.55 (отсекает фальш-сигналы)
+### 5-Point ТЗ Implementation Status:
+1. **4H Trend Filter** — DONE. EMA20 vs EMA50 + last 3 candles direction.
+2. **Entry: Sweep → FVG/OB** — DONE. No other entry types allowed.
+3. **early_exit_bars = 0** — DONE. Disabled.
+4. **Whitelist: BTC, ETH, SOL, LINK, BNB** — DONE. No other coins.
+5. **RR >= 2.0** — DONE. Config set to 2.5.
 
-## Config Key Values
+### Key Config Values:
 - risk_per_trade_pct: 0.4%
 - max_positions: 6
 - max_daily_loss_pct: 4%
 - leverage: 15x
-- trade_symbols: 40
-- whitelist_enabled: false (scan all by momentum)
-- ai.min_confidence: 45
-- entry.min_smc_score: 0.55
-- entry.min_volatility_pct: 0.8
-- pyramid.add1_min_r: 0.5
-- pyramid.add2_min_r: 1.2
+- min_rr_ratio: 2.5
+- early_exit_bars: 0
+- whitelist_enabled: true
+- whitelist_symbols: BTCUSDT, ETHUSDT, SOLUSDT, LINKUSDT, BNBUSDT
+- ai.min_confidence: 55
+- signal_only: true
+
+### New Modules Added:
+- **LiquidityHeatmap** (`analysis/liquidity_heatmap.py`) — Real orderbook-based heatmap, replaces synthetic fallback. Detects bid/ask walls and calculates liquidity magnet direction.
 
 ## Testing
-- iteration_12: 41/41 pass (SMC v1)
-- iteration_13: 38/38 pass (SMC v3)
-- Full suite: 205/205 pass (v3.1 with all new features)
+- iteration_14: 47/47 pass (SMC v5 — all 5 points + edge cases)
+- All previous test suites maintained
+
+## Architecture
+```
+/app/bot/
+├── main.py                  # Orchestrator
+├── config.yaml              # Configuration
+├── analysis/
+│   ├── market_structure.py  # Swing, BOS, sweep detection
+│   ├── structure_zones.py   # FVG + Order Block zones
+│   ├── liquidity_heatmap.py # NEW: Real orderbook heatmap
+│   ├── orderflow_analyzer.py
+│   ├── transformer_model.py
+│   └── ...
+├── engine/
+│   ├── entry_engine.py      # v5: Strict 4-gate pipeline
+│   ├── exit_engine.py
+│   ├── position_manager.py
+│   └── ...
+├── exchange/
+│   └── bybit_client.py
+└── tg/
+    └── controller.py
+```
 
 ## Backlog
-- P1: Heatmap — заменить synthetic на реальные (OI, orderbook depth)
-- P2: Backtesting harness
+- P1: Investigate heatmap_analyzer synthetic fallback (partially solved with LiquidityHeatmap)
+- P2: Backtesting module
 - P2: Web dashboard
+- P2: User's advanced quant components (Transformer PyTorch model, RL Position Manager)
