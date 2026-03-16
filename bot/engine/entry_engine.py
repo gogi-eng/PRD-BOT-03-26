@@ -186,10 +186,26 @@ class EntryEngine:
         long_total = long_score + long_boost
         short_total = short_score + short_boost
 
-        # --- Entry threshold: min_smc_score (default 0.55) ---
+        # --- Entry threshold: min_smc_score (default 0.65) ---
+        # STRICT: only trade WITH the trend, never reversals
         min_score = self.min_smc_score
-        can_long = long_total >= min_score and struct_trend != "down"
-        can_short = short_total >= min_score and struct_trend != "up"
+        htf_val = market_analysis.htf_trend.value  # 1=bullish, -1=bearish, 0=neutral
+        ltf_val = market_analysis.trend.value
+
+        # LONG only if HTF bullish AND structure trend not down
+        can_long = (
+            long_total >= min_score
+            and struct_trend != "down"
+            and htf_val >= 0            # HTF not bearish
+            and ltf_val >= 0            # LTF not bearish
+        )
+        # SHORT only if HTF bearish AND structure trend not up
+        can_short = (
+            short_total >= min_score
+            and struct_trend != "up"
+            and htf_val <= 0            # HTF not bullish
+            and ltf_val <= 0            # LTF not bullish
+        )
 
         if not can_long and not can_short:
             signal.metadata["reject_reason"] = self._resolve_reject(
@@ -204,6 +220,14 @@ class EntryEngine:
             return signal
 
         is_long = can_long and (long_total >= short_total or not can_short)
+
+        # STRICT: must have BOS confirmation (no entry on zone retest alone)
+        if is_long and not (struct_long or (bos and bos.direction == "up")):
+            signal.metadata["reject_reason"] = "no_bos_confirmation_long"
+            return signal
+        if not is_long and not (struct_short or (bos and bos.direction == "down")):
+            signal.metadata["reject_reason"] = "no_bos_confirmation_short"
+            return signal
 
         # --- SL from structure (sweep_low/high - ATR buffer) ---
         if is_long:

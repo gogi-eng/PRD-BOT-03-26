@@ -27,8 +27,8 @@ trading:
 entry:
   transformer_threshold: 0.54
   max_liq_distance_pct: 1.30
-  min_orderflow_imbalance: 1.03
-  min_rr_ratio: 2.0
+  min_orderflow_imbalance: 1.10
+  min_rr_ratio: 2.5
   min_target_profit_pct: 1.2
   min_stop_distance_pct: 0.5
   sl_buffer_atr_mult: 0.5
@@ -37,7 +37,7 @@ entry:
   max_spread_pct: 0.08
   max_funding_rate: 0.05
   min_liq_depth: 0.0
-  min_smc_score: 0.65
+  min_smc_score: 0.70
   min_volatility_pct: 0.04
 
 market_structure:
