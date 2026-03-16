@@ -68,6 +68,7 @@ class FeatureEngineer:
                     liq_bias,
                     dist_to_target,
                     liq_density / 1_000_000,
+                    orderflow.normalized_imbalance,  # (Buy-Sell)/(Buy+Sell)
                 ]
             )
 

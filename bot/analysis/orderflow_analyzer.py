@@ -21,6 +21,7 @@ class OrderflowSnapshot:
     volume_spike: float = 1.0
     spread_pct: float = 0.0
     dominant_side: str = "neutral"
+    normalized_imbalance: float = 0.0  # (Buy-Sell)/(Buy+Sell), range [-1, +1]
 
 
 class OrderflowAnalyzer:
@@ -53,6 +54,11 @@ class OrderflowAnalyzer:
         bearish_trade_ratio = sell_volume / buy_volume if buy_volume > 0 else (2.0 if sell_volume > 0 else 1.0)
         trade_delta = buy_volume - sell_volume
 
+        # Normalized imbalance: (Buy - Sell) / (Buy + Sell)
+        # Range: -1 (all sells) to +1 (all buys)
+        total_trade_volume = buy_volume + sell_volume
+        normalized_imbalance = (buy_volume - sell_volume) / total_trade_volume if total_trade_volume > 0 else 0.0
+
         recent = sizes[:10] if sizes else []
         baseline = sizes[10:50] if len(sizes) > 10 else sizes
         recent_avg = sum(recent) / len(recent) if recent else 0.0
@@ -64,14 +70,15 @@ class OrderflowAnalyzer:
         mid = (best_bid + best_ask) / 2 if best_bid > 0 and best_ask > 0 else 0.0
         spread_pct = ((best_ask - best_bid) / mid * 100) if mid > 0 else 0.0
 
+        # Combined imbalance: orderbook + trade flow
         orderbook_edge = orderbook_ratio - 1.0
         trade_edge = trade_ratio - 1.0
         imbalance_score = orderbook_edge * 0.55 + trade_edge * 0.45
 
         dominant_side = "neutral"
-        if imbalance_score >= 0.18:
+        if normalized_imbalance >= 0.15:
             dominant_side = "bullish"
-        elif imbalance_score <= -0.18:
+        elif normalized_imbalance <= -0.15:
             dominant_side = "bearish"
 
         return OrderflowSnapshot(
@@ -88,4 +95,5 @@ class OrderflowAnalyzer:
             volume_spike=round(volume_spike, 4),
             spread_pct=round(spread_pct, 5),
             dominant_side=dominant_side,
+            normalized_imbalance=round(normalized_imbalance, 4),
         )

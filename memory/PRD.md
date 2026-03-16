@@ -18,12 +18,12 @@ GATE 4: RISK/REWARD >= 2.0  →  trade only if RR meets minimum
 ENTRY
 ```
 
-### 5-Point ТЗ Implementation Status:
-1. **4H Trend Filter** — DONE. EMA20 vs EMA50 + last 3 candles direction.
-2. **Entry: Sweep → FVG/OB** — DONE. No other entry types allowed.
-3. **early_exit_bars = 0** — DONE. Disabled.
-4. **Whitelist: BTC, ETH, SOL, LINK, BNB** — DONE. No other coins.
-5. **RR >= 2.0** — DONE. Config set to 2.5.
+### 5-Point ТЗ Implementation: ALL DONE
+1. **4H Trend Filter** — EMA20 vs EMA50 + last 3 candles direction
+2. **Entry: Sweep → FVG/OB** — No other entry types allowed
+3. **early_exit_bars = 0** — Disabled
+4. **Whitelist: BTC, ETH, SOL, LINK, BNB** — No other coins
+5. **RR >= 2.0** — Config set to 2.5
 
 ### Key Config Values:
 - risk_per_trade_pct: 0.4%
@@ -37,23 +37,35 @@ ENTRY
 - ai.min_confidence: 55
 - signal_only: true
 
-### New Modules Added:
-- **LiquidityHeatmap** (`analysis/liquidity_heatmap.py`) — Real orderbook-based heatmap, replaces synthetic fallback. Detects bid/ask walls and calculates liquidity magnet direction.
+## Quant Modules (Feb 2026)
 
-## Testing
-- iteration_14: 47/47 pass (SMC v5 — all 5 points + edge cases)
-- All previous test suites maintained
+### New/Enhanced:
+- **LiquidityHeatmap** (`analysis/liquidity_heatmap.py`) — Real orderbook-based heatmap (Coinglass-style)
+- **RegimeDetector** (`analysis/market_regime_ai.py`) — Cleaner regime detection: ADX + volatility + compression + HTF alignment
+- **OrderflowImbalance** — Normalized `(Buy-Sell)/(Buy+Sell)` added to OrderflowAnalyzer
+- **FeatureBuilder** — Enhanced with 15 features (added normalized_imbalance)
+- **Backtester** (`bot/backtester.py`) — Walk-forward backtesting on historical Bybit data
+
+### Backtester Usage:
+```bash
+python -m bot.backtester --symbol BTCUSDT --days 14
+python -m bot.backtester --all-whitelist --days 30
+python -m bot.backtester --all-whitelist --days 7 --interval 5
+```
 
 ## Architecture
 ```
 /app/bot/
 ├── main.py                  # Orchestrator
 ├── config.yaml              # Configuration
+├── backtester.py            # NEW: Walk-forward backtesting
 ├── analysis/
 │   ├── market_structure.py  # Swing, BOS, sweep detection
 │   ├── structure_zones.py   # FVG + Order Block zones
-│   ├── liquidity_heatmap.py # NEW: Real orderbook heatmap
-│   ├── orderflow_analyzer.py
+│   ├── liquidity_heatmap.py # Real orderbook heatmap
+│   ├── market_regime_ai.py  # ENHANCED: Regime detector
+│   ├── orderflow_analyzer.py # ENHANCED: +normalized_imbalance
+│   ├── feature_engineering.py # ENHANCED: 15 features
 │   ├── transformer_model.py
 │   └── ...
 ├── engine/
@@ -67,8 +79,13 @@ ENTRY
     └── controller.py
 ```
 
+## Testing
+- iteration_14: 47/47 pass (SMC v5 — all 5 points + edge cases)
+- quant_modules: 23/23 pass (regime, orderflow, features, backtester)
+- Full suite: 275/275 pass
+
 ## Backlog
-- P1: Investigate heatmap_analyzer synthetic fallback (partially solved with LiquidityHeatmap)
-- P2: Backtesting module
+- P1: Run backtester on all whitelist symbols, analyze results
+- P2: PyTorch Transformer + RL Agent (needs training data from backtester)
 - P2: Web dashboard
-- P2: User's advanced quant components (Transformer PyTorch model, RL Position Manager)
+- P2: Telegram /stats command for live performance tracking
