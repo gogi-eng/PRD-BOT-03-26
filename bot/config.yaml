@@ -7,6 +7,7 @@ bybit:
 bot:
   candle_interval: "1"
   htf_interval: "15"
+  htf_4h_interval: "240"
   cycle_sleep_sec: 60
   klines_limit: 180
   feature_window: 128
@@ -39,6 +40,8 @@ entry:
   min_liq_depth: 0.0
   min_smc_score: 0.70
   min_volatility_pct: 0.04
+  require_sweep: true
+  require_4h_trend: true
 
 market_structure:
   swing_lookback: 2
@@ -65,7 +68,7 @@ atr:
 
 exit:
   hard_sl_atr_mult: 2.5
-  early_exit_bars: 90
+  early_exit_bars: 0
   early_exit_min_profit_atr: 0.1
   trailing_activation_atr: 1.5
   trailing_distance_atr: 2.0
@@ -88,8 +91,8 @@ market:
   min_24h_volume_usdt: 15000000
   max_symbols: 50
   trade_symbols: 40
-  whitelist_enabled: false
-  whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ARBUSDT", "OPUSDT"]
+  whitelist_enabled: true
+  whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
   blacklist_substrings:
     - "1000"
     - "LUNA"
@@ -100,7 +103,7 @@ market:
 ai:
   enabled: true
   min_confidence: 55
-  fail_open: true
+  fail_open: false
 
 rl:
   enabled: false

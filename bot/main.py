@@ -173,6 +173,7 @@ class TradingBot:
         self._stop_event = threading.Event()
         self.candle_interval = self.cfg.get("bot", "candle_interval", default="1")
         self.htf_interval = self.cfg.get("bot", "htf_interval", default="15")
+        self.htf_4h_interval = self.cfg.get("bot", "htf_4h_interval", default="240")
         self.cycle_sleep = self.cfg.get("bot", "cycle_sleep_sec", default=45)
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
@@ -602,6 +603,10 @@ class TradingBot:
         if not market.can_trade:
             return reject("market_blocked")
 
+        # 4H trend — the ultimate directional filter
+        htf_4h_klines = await self.client.get_klines(symbol, self.htf_4h_interval, 30)
+        htf_4h_trend = self._determine_4h_trend(htf_4h_klines)
+
         atr_val = self.atr.get_atr(symbol, klines)
         current_price = float(klines[-1]["close"])
 
@@ -622,7 +627,7 @@ class TradingBot:
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
-        # Get funding rate for pre-trade check
+        # Get funding rate
         funding_rate = 0.0
         try:
             tickers = await self.client.get_tickers()
@@ -636,6 +641,7 @@ class TradingBot:
         signal = self.entry_engine.generate_signal(
             symbol, klines, current_price, market, regime, transformer, orderflow, liq,
             atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
+            htf_4h_trend=htf_4h_trend,
         )
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
@@ -651,39 +657,70 @@ class TradingBot:
             "atr_pct": market.atr_pct,
         })
 
+        # AI is MANDATORY — not advisory
         if self.ai_analyzer.enabled and self.controls.ai_enabled:
             ai_result = await self.ai_analyzer.analyze(symbol, self._build_ai_payload(current_price, market, signal))
             ai_confidence = ai_result.get("confidence", 0)
             ai_should_trade = ai_result.get("should_trade", False)
-            ai_min_confidence = self.cfg.get("ai", "min_confidence", default=45)
+            ai_min_confidence = self.cfg.get("ai", "min_confidence", default=55)
 
-            # AI is now a REAL filter, not advisory
-            if not ai_should_trade and ai_confidence >= ai_min_confidence:
-                ai_reason = str(ai_result.get("reason", "")).lower()
-                explicit_trap = any(token in ai_reason for token in [
-                    "fake breakout", "fake", "bull trap", "bear trap", "conflict", "overextended"
-                ])
-                smc_override = signal.confidence >= 0.70 and signal.metadata.get("zone_confluence")
-                if explicit_trap and not smc_override:
-                    logger.info(f"[AI] {symbol} REJECTED (confidence={ai_confidence}): {ai_result.get('reason', '')}")
-                    return reject("ai_rejected")
+            if not ai_should_trade:
+                logger.info(f"[AI] {symbol} REJECTED: {ai_result.get('reason', 'no reason')} (conf={ai_confidence})")
+                return reject(f"ai_rejected ({ai_confidence})")
 
-            if not ai_should_trade and ai_confidence < ai_min_confidence:
-                logger.info(f"[AI] {symbol} REJECTED: low AI confidence ({ai_confidence} < {ai_min_confidence})")
+            if ai_confidence < ai_min_confidence:
+                logger.info(f"[AI] {symbol} REJECTED: AI confidence {ai_confidence} < {ai_min_confidence}")
                 return reject(f"ai_low_confidence ({ai_confidence})")
 
-            # Blend AI confidence into signal
             signal.confidence = round((signal.confidence + ai_confidence / 100) / 2, 4)
             signal.capital_score = round(signal.confidence * signal.rr_ratio, 4)
+        elif not self.cfg.get("ai", "fail_open", default=False):
+            # AI disabled but fail_open=false → reject
+            return reject("ai_disabled_fail_closed")
 
         logger.info(
             f"SIGNAL {symbol}: {signal.side} conf={signal.confidence:.0%} "
-            f"smc={signal.metadata.get('smc_score', 0):.2f} boost={signal.metadata.get('boost_score', 0):.2f} "
+            f"smc={signal.metadata.get('smc_score', 0):.2f} "
             f"zone={signal.metadata.get('entry_zone', 'none')} "
             f"bos={signal.metadata.get('bos_direction', 'none')} sweep={signal.metadata.get('sweep_direction', 'none')} "
+            f"4H={'BULL' if htf_4h_trend > 0 else 'BEAR' if htf_4h_trend < 0 else 'FLAT'} "
             f"RR={signal.rr_ratio:.1f}"
         )
         return signal
+
+    def _determine_4h_trend(self, klines_4h: list) -> int:
+        """Determine 4H trend: 1=bullish, -1=bearish, 0=neutral.
+
+        Uses EMA20 vs EMA50 on 4H candles + last 3 candle direction.
+        """
+        if len(klines_4h) < 20:
+            return 0
+        closes = [float(k["close"]) for k in klines_4h]
+
+        # EMA20 vs EMA50
+        ema20 = self._ema(closes, 20)
+        ema50 = self._ema(closes, min(50, len(closes)))
+
+        # Last 3 candles direction
+        recent = closes[-3:]
+        rising = recent[-1] > recent[0]
+        falling = recent[-1] < recent[0]
+
+        if ema20 > ema50 and rising:
+            return 1
+        elif ema20 < ema50 and falling:
+            return -1
+        return 0
+
+    @staticmethod
+    def _ema(data: list, period: int) -> float:
+        if len(data) < period:
+            return sum(data) / len(data) if data else 0
+        mult = 2 / (period + 1)
+        ema = sum(data[:period]) / period
+        for val in data[period:]:
+            ema = (val - ema) * mult + ema
+        return ema
 
     def _build_ai_payload(self, current_price: float, market, signal: EntrySignal) -> dict:
         return {

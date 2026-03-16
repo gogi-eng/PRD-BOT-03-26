@@ -1,80 +1,79 @@
 <analysis>**original_problem_statement:**
-Initial user request: Оставь в боте только то что предлагается в файле оценка 08.03.26. Переписывай файлы полностью в app/bot (Leave in the bot only what is proposed in the file оценка 08.03.26. Rewrite the files completely in app/bot).
+The user's primary goal is a profitable, automated cryptocurrency trading bot. The project has been a continuous effort to fix the bot's strategy, which has been consistently unprofitable. The user is technically proficient and has provided detailed feedback and requirements throughout the process.
 
-Subsequent PRODUCT REQUIREMENTS from the user:
-1.  Create a clean bot from scratch based on the recommended architecture.
-2.  Use the existing logic from  and  as a basis.
-3.  Implement 5 recommended additions: Liquidity Sweep, ATR Volatility Regime, Funding Filter, Correlation Filter, Liquidation Clusters.
-4.  The bot will be run separately; the agent's job is to write the code.
-5.  An AI analyzer (OpenAI/other LLM) is needed to filter signals.
-6.  Fix the bot after it started losing the entire deposit by making its strategy more conservative.
-7.  Integrate a PORTFOLIO PROFIT LOCK feature based on an uploaded specification.
-8.  Fix a bug where closed trade notifications in Telegram did not show the PnL result.
-9.  Fix a bug where the bot was using excessive margin and position size, leading to large losses.
-10. Fix API rate limit errors from Bybit by adding delays and retry logic.
-11. Fix a bug where the bot analyzed the same symbol multiple times in one cycle.
-12. Re-balance the bot's strategy when it became too conservative and stopped trading.
-13. Fix a bug where the bot entered a SELL trade on a clear uptrend due to incorrect trend detection logic.
-14. The final and current task is to rewrite the bot's code in strict accordance with the new technical specification provided in the file .
+**LATEST PRODUCT REQUIREMENTS (Strict Technical Specification - ТЗ):**
+The user is extremely frustrated with the bot's performance (high number of small losses, poor entry logic) and has provided a final, strict 5-point technical specification that MUST be implemented without deviation.
+
+1.  **Hard Trend Filter:** Only LONG trades are allowed when the 4-hour (4H) trend is BULLISH. Only SHORT trades are allowed when the 4H trend is BEARISH. No trading against the high-timeframe trend.
+2.  **Entry Trigger:** The only valid entry sequence is: **Liquidity Sweep → return to Fair Value Gap (FVG) / Order Block (OB)**. All other signal types must be ignored.
+3.  **Disable Early Exit:** The  parameter, which closes trades prematurely if they don't move, must be set to  (disabled). The user identified this as the primary reason for the bot's poor win rate.
+4.  **Whitelist Coins:** Trading must be restricted to a specific list of high-liquidity coins: **BTC, ETH, SOL, LINK, BNB**. All meme coins and low-liquidity pairs must be removed.
+5.  **Risk/Reward Filter:** A trade should only be opened if the calculated  ratio is **>= 2.0**.
+
+The expected outcome is a drastic reduction in trade quantity (from ~60/day to 5-10/day) and a significant increase in win rate and profit factor.
 
 **User's preferred language**: Russian
 
 **what currently exists?**
-A complete, modular Python-based cryptocurrency trading bot has been built from scratch in the  directory. It replaces a previous, larger codebase. The bot uses an asynchronous architecture (), connects to the Bybit v5 API for trading, uses the  library for user control and notifications, and integrates with Gemini 3 Flash via  for AI-based signal filtering. All configurations are managed through a  file. The bot has undergone several iterations of bug fixing and logic tuning based on user feedback.
+A modular, asynchronous Python trading bot located in . It uses the Bybit v5 API for trading,  for notifications, and  for an optional Gemini-based AI filter. The configuration is managed via . The bot's logic was recently refactored several times (up to SMC v4), but the user's latest and most critical request is a complete overhaul based on the 5-point ТЗ above, which the previous agent had just begun implementing.
 
 **Last working item**:
--   **Last item agent was working**: The user requested a full code audit, then immediately provided a new, detailed technical specification file () and asked the agent to implement it. The agent's last action was to acknowledge this new task. The work is to refactor and modify the existing bot according to this new specification.
--   **Status**: NOT STARTED
+-   **Last item agent was working**: Implementing the user's strict 5-point Technical Specification (ТЗ) to completely overhaul the trading strategy. The agent correctly identified the necessary changes and began modifying the code to introduce a 4H trend filter as the first step in the new, rigid trading pipeline.
+-   **Status**: IN PROGRESS
 -   **Agent Testing Done**: N
 -   **Which testing method agent to use?**: backend testing agent
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   Issue 1: (P0) Implement the new technical specification from .
+-   Issue 1: (P0) The bot's core trading strategy is unprofitable and does not follow a professional, context-aware structure, leading to many small losses.
 
 **Issues Detail**:
--   **Issue 1**: Implement the new technical specification from .
-    -   **Attempted fixes**: None. This is a new request that supersedes the previous general audit request.
+-   **Issue 1**: Bot is unprofitable due to flawed logic.
+    -   **Attempted fixes**: The previous agent implemented multiple strategy versions (SMC v3, v4), tuned parameters, and added filters. While technically functional, these did not solve the root problem of poor trade selection, leading the user to provide the new, strict 5-point ТЗ.
     -   **Next debug checklist**:
-        1.  Thoroughly read and parse all requirements from .
-        2.  Create a detailed implementation plan mapping each requirement to specific files and functions in the  directory.
-        3.  Modify the code file-by-file, starting with the core logic in , , and .
-        4.  Update  with any new parameters required by the specification.
-        5.  Perform linting and validation after changes.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary requirement to refine the bot's logic for better performance and to meet their exact strategy.
-    -   **Status**: NOT STARTED
-    -   **Is recurring issue?**: N
+        1.  Resume the implementation of the 5-point ТЗ that the previous agent started.
+        2.  Modify  in the  function to fetch 4H kline data and determine the .
+        3.  Rewrite  to enforce the strict pipeline: **4H Trend Filter → Liquidity Sweep → FVG/OB Retest → RR Check**. No other entry logic should be allowed.
+        4.  Update :
+            -   Set .
+            -   Set .
+            -   Update the  list to only include .
+        5.  Create a comprehensive test suite in a new file (e.g., ) that validates every point of the new ТЗ.
+        6.  Run the full test suite to ensure no regressions.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary and most critical demand. Fixing it will align the bot with a professional trading strategy, aiming for higher quality trades and profitability, and will resolve the user's core frustration.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?**: Y
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Blocked on other issue**: None
 
 **In progress Task List**:
-There are no tasks currently in progress.
+-   **Task 1**: (P0) Complete the implementation of the new 5-point trading strategy.
+    -   **Where to resume**: The agent was modifying  to fetch 4H klines inside  (Chat Message 372). This work needs to be completed, followed by rewriting the  and updating .
+    -   **What will be achieved with this?**: The bot will adhere to the user's strict, non-negotiable trading rules, focusing on high-quality, high-probability setups.
+    -   **Status**: IN PROGRESS
+    -   **Should Test frontend/backend/both after fix?**: backend
+    -   **Blocked on something**: No.
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks**:
-    -   (P0) Implement all requirements from . This involves a significant refactor of the bot's analysis, entry, and risk management logic.
-
+    -   (P0) Complete and thoroughly test the 5-point ТЗ implementation (Task 1).
 -   **Future Tasks**:
-    -   None specified beyond the current technical specification.
+    -   (P1) Investigate why the  consistently falls back to  and whether it can be fixed to use live data.
+    -   (P2) Implement a backtesting module for strategy evaluation on historical data (user previously expressed interest).
 
 **Completed work in this session**
--   **Architecture**: Built a new, clean, modular trading bot from scratch, replacing a >20,000 line legacy system with a ~3,400 line version.
--   **Core Features**:
-    -   Implemented 6 analysis modules: , , , , , .
-    -   Integrated AI signal filtering using Gemini 3 Flash via .
-    -   Implemented a full Telegram control interface ().
--   **Major Bug Fixes & Refinements**:
-    -   **Trading Strategy Tuning**: Adjusted the bot's strategy from being overly aggressive (causing losses) to overly conservative (no trades) and finally to a more balanced state.
-    -   **Risk Management**: Fixed critical position sizing flaws to prevent excessive margin usage. A hard cap on notional value and margin per trade was added in  and .
-    -   **Profit Protection**: Added a  module to secure gains.
-    -   **API Rate Limits**: Resolved Bybit API rate limit errors by adding delays between requests () and implementing a retry mechanism in .
-    -   **Bug Fix (Notifications)**: Corrected a bug where Telegram notifications for closed trades showed an empty result by moving the notification call to after PnL calculation in .
-    -   **Bug Fix (Logic)**: Fixed a bug that caused repeated analysis of the same symbol within a single cycle by adding deduplication logic in .
-    -   **Bug Fix (Trend Detection)**: Corrected flawed trend detection logic in  to prevent entering trades against the primary trend.
-    -   **Logging**: Implemented trade history logging to  in .
+-   **Major Strategy Refactors (SMC v3, v4)**: Implemented and refined a Smart Money Concepts strategy with features like a continuation model, volatility filters, and improved pyramiding.
+-   **Parameter Tuning**: Performed multiple rounds of configuration adjustments based on user-provided logs and feedback.
+-   **Signal-Only Mode**: Added a feature to disable live trading and only send detailed trade signals to Telegram for manual execution.
+-   **Test Suite Maintenance**: Consistently updated the pytest suite to reflect strategy changes, achieving 100% pass rates after each major iteration.
+-   **Trade Journal Script**: Provided a one-off Python script to analyze  and calculate performance statistics.
 
 **Earlier issues found/mentioned but not fixed**
-None. All issues raised by the user during the session were addressed. The current task is a new set of requirements, not a missed issue.
+-   **Issue 1**: The  module consistently logs that it is . This indicates it's not receiving or processing live liquidation data from the exchange, which could be a source of valuable information for the bot. This has been noted but deprioritized in favor of fixing the core entry/exit logic.
+    -   **Debug checklist**: Investigate the WebSocket connection or API endpoint used by  to understand why live data is not being processed.
+    -   **Why to solve this issue and what will be achieved with this?**: Fixing this would provide the bot with real-time liquidity data, potentially improving signal quality.
+    -   **Should Test frontend/backend/both after fix?**: backend
+    -   **Is recurring issue?**: Y
 
 **Known issue recurrence from previous fork**
 N/A
@@ -84,73 +83,66 @@ N/A
 
 **Key Technical Concepts**
 -   **Backend**: Python, asyncio
--   **Architecture**: Modular, event-driven pipeline (DATA → ANALYZER → ENTRY → RISK → EXECUTION → POSITION → EXIT)
--   **API Integration**: Bybit API v5 (for market data and trading),  (for LLM access)
--   **Configuration**: Centralized 
--   **User Interface**: Text-based via Telegram bot ()
+-   **API Integration**: Bybit v5 (for market data and trading),  (for Gemini AI filter), Telegram Bot API.
+-   **Trading Concepts**: Multi-Timeframe Analysis (MTF), Smart Money Concepts (SMC) including Break of Structure (BOS), Fair Value Gaps (FVG), Order Blocks (OB), and Liquidity Sweeps.
 
 **key DB schema**
-No database is used. Trade history is persisted to .
+No database. State is managed in memory, and trade history is logged to .
 
 **changes in tech stack**
-N/A. The project was built from scratch.
+N/A
 
 **All files of reference**
-All files are located under .
--   : The orchestrator, contains the main trading loop.
--   : The brain of the bot, contains all strategy parameters.
--   : Handles all communication with the Bybit exchange.
--   : Individual modules for different parts of the technical analysis.  is key for the final signal filter.
--   : Modules that encapsulate the core trading decisions (entry, risk, exit).
--   : Manages all user interaction via Telegram.
--   : The new technical specification that MUST be implemented.
+-   **/app/bot/main.py**: The orchestrator. Needs modification to fetch 4H klines and pass the trend to the entry engine.
+-   **/app/bot/engine/entry_engine.py**: **Crucial file.** Must be rewritten to strictly follow the new 5-point entry logic.
+-   **/app/bot/config.yaml**: **Crucial file.** Must be updated to set the coin whitelist, disable early exits, and set the minimum RR.
+-   **/app/bot/analysis/market_structure_engine.py**: Provides the core structure analysis (trend, BOS, sweep).
+-   **/app/bot/exchange/bybit_client.py**: Used to fetch kline data for different timeframes.
 
 **Areas that need refactoring**:
-The entire bot's logic in , , and  needs to be audited and potentially refactored to align with the new requirements in .
+The current task is a complete refactor of the entry logic as mandated by the user. The agent should focus solely on implementing the 5-point ТЗ.
 
 **key api endpoints**
-N/A. The application is a standalone bot, not a web service. It consumes APIs from Bybit and Telegram.
+N/A
 
 **Critical Info for New Agent**
--   **User Environment**: The user runs the bot on their own server. You must always remind them to copy the **entire**  directory and reinstall dependencies () after your changes. They have previously made the mistake of running old code, leading to confusion.
--   **Current Task is a Refactor**: The most important task is to implement the new spec from . This is not a small fix but a re-architecting of the trading logic.
--   **Conservative Approach**: The bot has a history of being too aggressive and losing money. All changes should prioritize capital preservation, as requested multiple times by the user.
--   **Codebase is New**: You are working with a clean, modular codebase that was built during this session. All legacy code was discarded.
+-   **Strictly follow the 5-point ТЗ.** The user has lost patience with incremental fixes and has provided a final, non-negotiable set of rules. Do not deviate or add your own improvements. Your task is to implement the user's vision exactly.
+-   **This is a replacement, not an addition.** The new 5-point logic supersedes all previous SMC v3/v4 strategies. You are rewriting the core , not patching it.
+-   **Communicate clearly.** The user is technical. Acknowledge their ТЗ and confirm you are implementing it point-by-point. Use their terminology (4H Trend, Sweep, FVG, etc.).
+-   **The user's last message is the source of truth.** Refer to  for the exact requirements.
 
 **documents and test reports created in this job**
 -   
 -   
 -   
--   
--   
--   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **И ни одной сделки!! Исправляй!**: User complains the bot is too conservative and not making any trades. (COMPLETED)
-2.  **root         131  0.0  0.0   4336  3092 ?        S    14:51   0:00 /bin/bash -c mkdir -p /app/.emergent && echo "<analysis>**original_problem_statement:** Initial user request: "Оставь в боте только то что предлагается в файле оценка 08.03.26. Переписывай файлы полностью в app/bot" (Leave in the bot only what is proposed in the file "оценка 08.03.26". Rewrite the files completely in app/bot).  Subsequent PRODUCT REQUIREMENTS from the user: 1.  Create a clean bot from scratch based on the recommended architecture. 2.  Use the existing logic from `exchange/bybit_client` and `tg/controller` as a basis. 3.  Implement 5 recommended additions: Liquidity Sweep, ATR Volatility Regime, Funding Filter, Correlation Filter, Liquidation Clusters. 4.  The bot will be run separately; the agent's job is to write the code. 5.  An AI analyzer (OpenAI/other LLM) is needed to filter signals. 6.  Fix the bot after it started losing the entire deposit by making its strategy more conservative. 7.  Integrate a "PORTFOLIO PROFIT LOCK" feature based on an uploaded specification. 8.  Fix a bug where closed trade notifications in Telegram did not show the PnL result. 9.  Fix a bug where the bot was using excessive margin and position size, leading to large losses. 10. Fix API rate limit errors from Bybit by adding delays and retry logic. 11. Fix a bug where the bot analyzed the same symbol multiple times in one cycle. 12. Re-balance the bot's strategy when it became too conservative and stopped trading. 13. Fix a bug where the bot entered a SELL trade on a clear uptrend due to incorrect trend detection logic. 14. The final and current task is to rewrite the bot's code in strict accordance with the new technical specification provided in the file `ТЗ 13.03.26.txt`.  **User's preferred language**: Russian  **what currently exists?** A complete, modular Python-based cryptocurrency trading bot has been built from scratch in the `/app/bot/` directory. It replaces a previous, larger codebase. The bot uses an asynchronous architecture (`asyncio`), connects to the Bybit v5 API for trading, uses the `python-telegram-bot` library for user control and notifications, and integrates with Gemini 3 Flash via `emergentintegrations` for AI-based signal filtering. All configurations are managed through a `config.yaml` file. The bot has undergone several iterations of bug fixing and logic tuning based on user feedback.  **Last working item**: -   **Last item agent was working**: The user requested a full code audit, then immediately provided a new, detailed technical specification file (`ТЗ 13.03.26.txt`) and asked the agent to implement it. The agent's last action was to acknowledge this new task. The work is to refactor and modify the existing bot according to this new specification. -   **Status**: NOT STARTED -   **Agent Testing Done**: N -   **Which testing method agent to use?**: backend testing agent -   **User Testing Done**: N  **All Pending/In progress Issue list**: -   Issue 1: (P0) Implement the new technical specification from `ТЗ 13.03.26.txt`.  **Issues Detail**: -   **Issue 1**: Implement the new technical specification from `ТЗ 13.03.26.txt`.     -   **Attempted fixes**: None. This is a new request that supersedes the previous general audit request.     -   **Next debug checklist**:         1.  Thoroughly read and parse all requirements from `/app/ТЗ 13.03.26.txt`.         2.  Create a detailed implementation plan mapping each requirement to specific files and functions in the `/app/bot/` directory.         3.  Modify the code file-by-file, starting with the core logic in `analysis/`, `engine/`, and `main.py`.         4.  Update `config.yaml` with any new parameters required by the specification.         5.  Perform linting and validation after changes.     -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary requirement to refine the bot's logic for better performance and to meet their exact strategy.     -   **Status**: NOT STARTED     -   **Is recurring issue?**: N     -   **Should Test frontend/backend/both after fix?**: backend     -   **Blocked on other issue**: None  **In progress Task List**: There are no tasks currently in progress.  **Upcoming and Future Tasks** -   **Upcoming Tasks**:     -   (P0) Implement all requirements from `ТЗ 13.03.26.txt`. This involves a significant refactor of the bot's analysis, entry, and risk management logic.  -   **Future Tasks**:     -   None specified beyond the current technical specification.  **Completed work in this session** -   **Architecture**: Built a new, clean, modular trading bot from scratch, replacing a >20,000 line legacy system with a ~3,400 line version. -   **Core Features**:     -   Implemented 6 analysis modules: `market_analyzer.py`, `liquidity_sweep.py`, `funding_filter.py`, `correlation_filter.py`, `liquidation_clusters.py`, `ai_analyzer.py`.     -   Integrated AI signal filtering using Gemini 3 Flash via `emergentintegrations`.     -   Implemented a full Telegram control interface (`tg/controller.py`). -   **Major Bug Fixes & Refinements**:     -   **Trading Strategy Tuning**: Adjusted the bot's strategy from being overly aggressive (causing losses) to overly conservative (no trades) and finally to a more balanced state.     -   **Risk Management**: Fixed critical position sizing flaws to prevent excessive margin usage. A hard cap on notional value and margin per trade was added in `engine/risk_manager.py` and `main.py`.     -   **Profit Protection**: Added a `portfolio_profit_lock.py` module to secure gains.     -   **API Rate Limits**: Resolved Bybit API rate limit errors by adding delays between requests (`main.py`) and implementing a retry mechanism in `exchange/bybit_client.py`.     -   **Bug Fix (Notifications)**: Corrected a bug where Telegram notifications for closed trades showed an empty result by moving the notification call to after PnL calculation in `main.py`.     -   **Bug Fix (Logic)**: Fixed a bug that caused repeated analysis of the same symbol within a single cycle by adding deduplication logic in `main.py`.     -   **Bug Fix (Trend Detection)**: Corrected flawed trend detection logic in `analysis/market_analyzer.py` to prevent entering trades against the primary trend.     -   **Logging**: Implemented trade history logging to `trade_history.json` in `main.py`.  **Earlier issues found/mentioned but not fixed** None. All issues raised by the user during the session were addressed. The current task is a new set of requirements, not a missed issue.  **Known issue recurrence from previous fork** N/A  **Code Architecture** ``` /app/bot/ ├── main.py                # Main application entry point and trading loop ├── config.yaml            # All bot configurations ├── .env.example           # Environment variable template ├── requirements.txt       # Python dependencies ├── portfolio_profit_lock.py # Module to protect portfolio-level profit │ ├── core/                  # Core components │   ├── config.py          # YAML config loader │   ├── security.py        # Key management (unused placeholder) │   └── live_controls.py   # On-the-fly parameter management via Telegram │ ├── exchange/              # Exchange interaction │   └── bybit_client.py    # Async Bybit v5 API client │ ├── analysis/              # Market analysis modules │   ├── market_analyzer.py # Trend, Volatility, Regime analysis │   ├── liquidity_sweep.py # Detects liquidity sweeps │   ├── funding_filter.py  # Filters based on funding rates │   ├── correlation_filter.py # Filters based on market correlation │   ├── liquidation_clusters.py # Identifies liquidation zones │   └── ai_analyzer.py     # AI signal filter using Gemini │ ├── engine/                # Trading logic engines │   ├── entry_engine.py    # Determines entry conditions │   ├── risk_manager.py    # Calculates position size, SL/TP │   ├── execution_engine.py# Places orders │   ├── position_manager.py# Tracks open positions │   └── exit_engine.py     # Manages trade exits (e.g., trailing SL) │ ├── tg/                    # Telegram integration │   └── controller.py      # Handles commands and UI │ └── utils/                 # Utility functions     └── __init__.py        # Contains ATR calculation logic ```  **Key Technical Concepts** -   **Backend**: Python, asyncio -   **Architecture**: Modular, event-driven pipeline (DATA → ANALYZER → ENTRY → RISK → EXECUTION → POSITION → EXIT) -   **API Integration**: Bybit API v5 (for market data and trading), `emergentintegrations` (for LLM access) -   **Configuration**: Centralized `config.yaml` -   **User Interface**: Text-based via Telegram bot (`python-telegram-bot`)  **key DB schema** No database is used. Trade history is persisted to `trade_history.json`.  **changes in tech stack** N/A. The project was built from scratch.  **All files of reference** All files are located under `/app/bot/`. -   `main.py`: The orchestrator, contains the main trading loop. -   `config.yaml`: The "brain" of the bot, contains all strategy parameters. -   `exchange/bybit_client.py`: Handles all communication with the Bybit exchange. -   `analysis/*.py`: Individual modules for different parts of the technical analysis. `ai_analyzer.py` is key for the final signal filter. -   `engine/*.py`: Modules that encapsulate the core trading decisions (entry, risk, exit). -   `tg/controller.py`: Manages all user interaction via Telegram. -   `ТЗ 13.03.26.txt`: The new technical specification that MUST be implemented.  **Areas that need refactoring**: The entire bot's logic in `analysis/`, `engine/`, and `main.py` needs to be audited and potentially refactored to align with the new requirements in `ТЗ 13.03.26.txt`.  **key api endpoints** N/A. The application is a standalone bot, not a web service. It consumes APIs from Bybit and Telegram.  **Critical Info for New Agent** -   **User Environment**: The user runs the bot on their own server. You must always remind them to copy the **entire** `/app/bot` directory and reinstall dependencies (`pip install -r requirements.txt`) after your changes. They have previously made the mistake of running old code, leading to confusion. -   **Current Task is a Refactor**: The most important task is to implement the new spec from `ТЗ 13.03.26.txt`. This is not a small fix but a re-architecting of the trading logic. -   **Conservative Approach**: The bot has a history of being too aggressive and losing money. All changes should prioritize capital preservation, as requested multiple times by the user. -   **Codebase is New**: You are working with a clean, modular codebase that was built during this session. All legacy code was discarded.  **documents and test reports created in this job** -   `/app/test_reports/iteration_1.json` -   `/app/Оценка 08.03.26.txt` -   `/app/f4880917-8cd1-4624-8ac8-f2b3953e5598_PROJECT_DUMP.txt` -   `/app/chat-export-1773205266421.json` -   `/app/chat-Использование Видео Боту (1).txt` -   `/app/ТЗ 13.03.26.txt`  **Last 10 User Messages and any pending HUMAN messages** 1.  **"И ни одной сделки!! Исправляй!"**: User complains the bot is too conservative and not making any trades. (COMPLETED) 2.  **`ps aux | grep main.py` output**: User shows the bot process isn't running. (COMPLETED - Agent advised on how to run it). 3.  **"Какой SELL когда тренд восходящий???"**: User reports a critical bug where the bot entered a short trade during a clear uptrend. (COMPLETED - Agent identified and fixed the trend logic). 4.  **"Проверь, протестируй, проанализируй весь код на баги, дублирование, корректность анализа, открытия сделок!!!"**: User requests a full audit of the entire codebase for correctness and bugs. (PENDING - Superseded by next message). 5.  **"Исправляй код бота в строгом соответствии с этим техзаданием: ТЗ 13.03.26.txt"**: User provides a new, detailed technical specification file and makes it the primary task. (PENDING - This is the current P0 task).  **Project Health Check:** -   **Broken**: None. The application is functional. -   **Mocked**: None.  **3rd Party Integrations** -   **Bybit**: For all trading and market data, via direct API calls. Requires user API key. -   **LiteLLM / `emergentintegrations`**: Used to access Gemini 3 Flash for AI signal analysis. Uses Emergent LLM Key. -   **python-telegram-bot**: To provide a control/monitoring interface for the user. Requires user's Telegram Bot token.  **Testing status** -   **Testing agent used after significant changes**: YES, once after the initial build. -   **Troubleshoot agent used after agent stuck in loop**: NO -   **Test files created**: `[]` -   **Known regressions**: None.  **Credentials to test flow:** The user provides their own API keys for Bybit and Telegram on their server in an `.env` file. The `emergentintegrations` key is managed by the platform. For local testing, mock data or valid testnet keys would be needed.  **What agent forgot to execute** The user requested a general code audit. However, they immediately followed up with a very specific technical specification file (`ТЗ 13.03.26.txt`) that made the general audit redundant. The agent correctly prioritized the new, more detailed task. Nothing was forgotten.</analysis>" > /app/.emergent/summary.txt
-root         278  0.0  0.0   4336  1672 ?        S    14:51   0:00 /bin/bash -c mkdir -p /app/.emergent && echo "<analysis>**original_problem_statement:** Initial user request: "Оставь в боте только то что предлагается в файле оценка 08.03.26. Переписывай файлы полностью в app/bot" (Leave in the bot only what is proposed in the file "оценка 08.03.26". Rewrite the files completely in app/bot).  Subsequent PRODUCT REQUIREMENTS from the user: 1.  Create a clean bot from scratch based on the recommended architecture. 2.  Use the existing logic from `exchange/bybit_client` and `tg/controller` as a basis. 3.  Implement 5 recommended additions: Liquidity Sweep, ATR Volatility Regime, Funding Filter, Correlation Filter, Liquidation Clusters. 4.  The bot will be run separately; the agent's job is to write the code. 5.  An AI analyzer (OpenAI/other LLM) is needed to filter signals. 6.  Fix the bot after it started losing the entire deposit by making its strategy more conservative. 7.  Integrate a "PORTFOLIO PROFIT LOCK" feature based on an uploaded specification. 8.  Fix a bug where closed trade notifications in Telegram did not show the PnL result. 9.  Fix a bug where the bot was using excessive margin and position size, leading to large losses. 10. Fix API rate limit errors from Bybit by adding delays and retry logic. 11. Fix a bug where the bot analyzed the same symbol multiple times in one cycle. 12. Re-balance the bot's strategy when it became too conservative and stopped trading. 13. Fix a bug where the bot entered a SELL trade on a clear uptrend due to incorrect trend detection logic. 14. The final and current task is to rewrite the bot's code in strict accordance with the new technical specification provided in the file `ТЗ 13.03.26.txt`.  **User's preferred language**: Russian  **what currently exists?** A complete, modular Python-based cryptocurrency trading bot has been built from scratch in the `/app/bot/` directory. It replaces a previous, larger codebase. The bot uses an asynchronous architecture (`asyncio`), connects to the Bybit v5 API for trading, uses the `python-telegram-bot` library for user control and notifications, and integrates with Gemini 3 Flash via `emergentintegrations` for AI-based signal filtering. All configurations are managed through a `config.yaml` file. The bot has undergone several iterations of bug fixing and logic tuning based on user feedback.  **Last working item**: -   **Last item agent was working**: The user requested a full code audit, then immediately provided a new, detailed technical specification file (`ТЗ 13.03.26.txt`) and asked the agent to implement it. The agent's last action was to acknowledge this new task. The work is to refactor and modify the existing bot according to this new specification. -   **Status**: NOT STARTED -   **Agent Testing Done**: N -   **Which testing method agent to use?**: backend testing agent -   **User Testing Done**: N  **All Pending/In progress Issue list**: -   Issue 1: (P0) Implement the new technical specification from `ТЗ 13.03.26.txt`.  **Issues Detail**: -   **Issue 1**: Implement the new technical specification from `ТЗ 13.03.26.txt`.     -   **Attempted fixes**: None. This is a new request that supersedes the previous general audit request.     -   **Next debug checklist**:         1.  Thoroughly read and parse all requirements from `/app/ТЗ 13.03.26.txt`.         2.  Create a detailed implementation plan mapping each requirement to specific files and functions in the `/app/bot/` directory.         3.  Modify the code file-by-file, starting with the core logic in `analysis/`, `engine/`, and `main.py`.         4.  Update `config.yaml` with any new parameters required by the specification.         5.  Perform linting and validation after changes.     -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary requirement to refine the bot's logic for better performance and to meet their exact strategy.     -   **Status**: NOT STARTED     -   **Is recurring issue?**: N     -   **Should Test frontend/backend/both after fix?**: backend     -   **Blocked on other issue**: None  **In progress Task List**: There are no tasks currently in progress.  **Upcoming and Future Tasks** -   **Upcoming Tasks**:     -   (P0) Implement all requirements from `ТЗ 13.03.26.txt`. This involves a significant refactor of the bot's analysis, entry, and risk management logic.  -   **Future Tasks**:     -   None specified beyond the current technical specification.  **Completed work in this session** -   **Architecture**: Built a new, clean, modular trading bot from scratch, replacing a >20,000 line legacy system with a ~3,400 line version. -   **Core Features**:     -   Implemented 6 analysis modules: `market_analyzer.py`, `liquidity_sweep.py`, `funding_filter.py`, `correlation_filter.py`, `liquidation_clusters.py`, `ai_analyzer.py`.     -   Integrated AI signal filtering using Gemini 3 Flash via `emergentintegrations`.     -   Implemented a full Telegram control interface (`tg/controller.py`). -   **Major Bug Fixes & Refinements**:     -   **Trading Strategy Tuning**: Adjusted the bot's strategy from being overly aggressive (causing losses) to overly conservative (no trades) and finally to a more balanced state.     -   **Risk Management**: Fixed critical position sizing flaws to prevent excessive margin usage. A hard cap on notional value and margin per trade was added in `engine/risk_manager.py` and `main.py`.     -   **Profit Protection**: Added a `portfolio_profit_lock.py` module to secure gains.     -   **API Rate Limits**: Resolved Bybit API rate limit errors by adding delays between requests (`main.py`) and implementing a retry mechanism in `exchange/bybit_client.py`.     -   **Bug Fix (Notifications)**: Corrected a bug where Telegram notifications for closed trades showed an empty result by moving the notification call to after PnL calculation in `main.py`.     -   **Bug Fix (Logic)**: Fixed a bug that caused repeated analysis of the same symbol within a single cycle by adding deduplication logic in `main.py`.     -   **Bug Fix (Trend Detection)**: Corrected flawed trend detection logic in `analysis/market_analyzer.py` to prevent entering trades against the primary trend.     -   **Logging**: Implemented trade history logging to `trade_history.json` in `main.py`.  **Earlier issues found/mentioned but not fixed** None. All issues raised by the user during the session were addressed. The current task is a new set of requirements, not a missed issue.  **Known issue recurrence from previous fork** N/A  **Code Architecture** ``` /app/bot/ ├── main.py                # Main application entry point and trading loop ├── config.yaml            # All bot configurations ├── .env.example           # Environment variable template ├── requirements.txt       # Python dependencies ├── portfolio_profit_lock.py # Module to protect portfolio-level profit │ ├── core/                  # Core components │   ├── config.py          # YAML config loader │   ├── security.py        # Key management (unused placeholder) │   └── live_controls.py   # On-the-fly parameter management via Telegram │ ├── exchange/              # Exchange interaction │   └── bybit_client.py    # Async Bybit v5 API client │ ├── analysis/              # Market analysis modules │   ├── market_analyzer.py # Trend, Volatility, Regime analysis │   ├── liquidity_sweep.py # Detects liquidity sweeps │   ├── funding_filter.py  # Filters based on funding rates │   ├── correlation_filter.py # Filters based on market correlation │   ├── liquidation_clusters.py # Identifies liquidation zones │   └── ai_analyzer.py     # AI signal filter using Gemini │ ├── engine/                # Trading logic engines │   ├── entry_engine.py    # Determines entry conditions │   ├── risk_manager.py    # Calculates position size, SL/TP │   ├── execution_engine.py# Places orders │   ├── position_manager.py# Tracks open positions │   └── exit_engine.py     # Manages trade exits (e.g., trailing SL) │ ├── tg/                    # Telegram integration │   └── controller.py      # Handles commands and UI │ └── utils/                 # Utility functions     └── __init__.py        # Contains ATR calculation logic ```  **Key Technical Concepts** -   **Backend**: Python, asyncio -   **Architecture**: Modular, event-driven pipeline (DATA → ANALYZER → ENTRY → RISK → EXECUTION → POSITION → EXIT) -   **API Integration**: Bybit API v5 (for market data and trading), `emergentintegrations` (for LLM access) -   **Configuration**: Centralized `config.yaml` -   **User Interface**: Text-based via Telegram bot (`python-telegram-bot`)  **key DB schema** No database is used. Trade history is persisted to `trade_history.json`.  **changes in tech stack** N/A. The project was built from scratch.  **All files of reference** All files are located under `/app/bot/`. -   `main.py`: The orchestrator, contains the main trading loop. -   `config.yaml`: The "brain" of the bot, contains all strategy parameters. -   `exchange/bybit_client.py`: Handles all communication with the Bybit exchange. -   `analysis/*.py`: Individual modules for different parts of the technical analysis. `ai_analyzer.py` is key for the final signal filter. -   `engine/*.py`: Modules that encapsulate the core trading decisions (entry, risk, exit). -   `tg/controller.py`: Manages all user interaction via Telegram. -   `ТЗ 13.03.26.txt`: The new technical specification that MUST be implemented.  **Areas that need refactoring**: The entire bot's logic in `analysis/`, `engine/`, and `main.py` needs to be audited and potentially refactored to align with the new requirements in `ТЗ 13.03.26.txt`.  **key api endpoints** N/A. The application is a standalone bot, not a web service. It consumes APIs from Bybit and Telegram.  **Critical Info for New Agent** -   **User Environment**: The user runs the bot on their own server. You must always remind them to copy the **entire** `/app/bot` directory and reinstall dependencies (`pip install -r requirements.txt`) after your changes. They have previously made the mistake of running old code, leading to confusion. -   **Current Task is a Refactor**: The most important task is to implement the new spec from `ТЗ 13.03.26.txt`. This is not a small fix but a re-architecting of the trading logic. -   **Conservative Approach**: The bot has a history of being too aggressive and losing money. All changes should prioritize capital preservation, as requested multiple times by the user. -   **Codebase is New**: You are working with a clean, modular codebase that was built during this session. All legacy code was discarded.  **documents and test reports created in this job** -   `/app/test_reports/iteration_1.json` -   `/app/Оценка 08.03.26.txt` -   `/app/f4880917-8cd1-4624-8ac8-f2b3953e5598_PROJECT_DUMP.txt` -   `/app/chat-export-1773205266421.json` -   `/app/chat-Использование Видео Боту (1).txt` -   `/app/ТЗ 13.03.26.txt`  **Last 10 User Messages and any pending HUMAN messages** 1.  **"И ни одной сделки!! Исправляй!"**: User complains the bot is too conservative and not making any trades. (COMPLETED) 2.  **`ps aux | grep main.py` output**: User shows the bot process isn't running. (COMPLETED - Agent advised on how to run it). 3.  **"Какой SELL когда тренд восходящий???"**: User reports a critical bug where the bot entered a short trade during a clear uptrend. (COMPLETED - Agent identified and fixed the trend logic). 4.  **"Проверь, протестируй, проанализируй весь код на баги, дублирование, корректность анализа, открытия сделок!!!"**: User requests a full audit of the entire codebase for correctness and bugs. (PENDING - Superseded by next message). 5.  **"Исправляй код бота в строгом соответствии с этим техзаданием: ТЗ 13.03.26.txt"**: User provides a new, detailed technical specification file and makes it the primary task. (PENDING - This is the current P0 task).  **Project Health Check:** -   **Broken**: None. The application is functional. -   **Mocked**: None.  **3rd Party Integrations** -   **Bybit**: For all trading and market data, via direct API calls. Requires user API key. -   **LiteLLM / `emergentintegrations`**: Used to access Gemini 3 Flash for AI signal analysis. Uses Emergent LLM Key. -   **python-telegram-bot**: To provide a control/monitoring interface for the user. Requires user's Telegram Bot token.  **Testing status** -   **Testing agent used after significant changes**: YES, once after the initial build. -   **Troubleshoot agent used after agent stuck in loop**: NO -   **Test files created**: `[]` -   **Known regressions**: None.  **Credentials to test flow:** The user provides their own API keys for Bybit and Telegram on their server in an `.env` file. The `emergentintegrations` key is managed by the platform. For local testing, mock data or valid testnet keys would be needed.  **What agent forgot to execute** The user requested a general code audit. However, they immediately followed up with a very specific technical specification file (`ТЗ 13.03.26.txt`) that made the general audit redundant. The agent correctly prioritized the new, more detailed task. Nothing was forgotten.</analysis>" > /app/.emergent/summary.txt
-root         280  0.0  0.0   3632  1812 ?        S    14:51   0:00 grep main.py output**: User shows the bot process isn't running. (COMPLETED - Agent advised on how to run it).
-3.  **Какой SELL когда тренд восходящий???**: User reports a critical bug where the bot entered a short trade during a clear uptrend. (COMPLETED - Agent identified and fixed the trend logic).
-4.  **Проверь, протестируй, проанализируй весь код на баги, дублирование, корректность анализа, открытия сделок!!!**: User requests a full audit of the entire codebase for correctness and bugs. (PENDING - Superseded by next message).
-5.  **Исправляй код бота в строгом соответствии с этим техзаданием: ТЗ 13.03.26.txt**: User provides a new, detailed technical specification file and makes it the primary task. (PENDING - This is the current P0 task).
+-   (Resolved) User reports being stopped out too quickly; agent proposes and implements wider stops and softer cooldowns.
+-   (Resolved) User asks for a script to analyze ; agent provides and debugs it.
+-   (Pending) User analyzes the output (8 wins / 53 losses) and identifies  as the main problem.
+-   (Resolved) Agent increases  timer as a temporary fix.
+-   (Resolved) User requests to switch to  mode to stop losses; agent implements it.
+-   (Resolved) User requests stricter analysis; agent tightens config parameters twice.
+-   (Resolved) User asks for a simple explanation of the strategy.
+-   (Pending - **CRITICAL**) User provides the final, strict 5-point Technical Specification (ТЗ) and asks the agent to implement it without question. This is the current, active task.
 
 **Project Health Check:**
--   **Broken**: None. The application is functional.
+-   **Broken**: The core trading strategy is considered fundamentally broken by the user, which is why the complete overhaul was ordered.
 -   **Mocked**: None.
 
 **3rd Party Integrations**
--   **Bybit**: For all trading and market data, via direct API calls. Requires user API key.
--   **LiteLLM / **: Used to access Gemini 3 Flash for AI signal analysis. Uses Emergent LLM Key.
--   **python-telegram-bot**: To provide a control/monitoring interface for the user. Requires user's Telegram Bot token.
+-   **Bybit**: For trading and market data (requires user API key).
+-   ****: For Gemini 3 Flash AI analysis (uses Emergent LLM Key).
+-   ****: For user notifications and control (requires user bot token).
 
 **Testing status**
--   **Testing agent used after significant changes**: YES, once after the initial build.
+-   **Testing agent used after significant changes**: YES (in previous iterations)
 -   **Troubleshoot agent used after agent stuck in loop**: NO
--   **Test files created**: 
--   **Known regressions**: None.
+-   **Test files created**:  and others. The test suite is extensive but will need updates for the new logic.
+-   **Known regressions**: N/A
 
 **Credentials to test flow:**
-The user provides their own API keys for Bybit and Telegram on their server in an  file. The  key is managed by the platform. For local testing, mock data or valid testnet keys would be needed.
+The user provides their own API keys for Bybit and Telegram. No credentials are needed for the agent's development environment.
 
 **What agent forgot to execute**
-The user requested a general code audit. However, they immediately followed up with a very specific technical specification file () that made the general audit redundant. The agent correctly prioritized the new, more detailed task. Nothing was forgotten.</analysis>
+The previous agent was in the middle of executing the user's final and most critical request (the 5-point ТЗ). It did not forget, but the work is incomplete. The next agent's top priority is to finish this implementation.</analysis>
