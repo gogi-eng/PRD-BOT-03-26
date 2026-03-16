@@ -23,6 +23,7 @@ if str(BOT_DIR) not in sys.path:
 from analysis.ai_analyzer import AITradeAnalyzer
 from analysis.feature_engineering import FeatureEngineer
 from analysis.liquidation_clusters import LiquidationCluster, LiquidationClusterDetector, LiquidationAnalysis
+from analysis.liquidity_heatmap import LiquidityHeatmap
 from analysis.market_analyzer import MarketAnalyzer
 from analysis.market_regime_ai import MarketRegimeAI
 from analysis.market_structure import MarketStructureEngine
@@ -116,6 +117,7 @@ class TradingBot:
         self.feature_engineer = FeatureEngineer(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.transformer_model = TransformerPriceModel(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.structure_zone_analyzer = StructureZoneAnalyzer()
+        self.liquidity_heatmap = LiquidityHeatmap(depth_levels=200)
         self.market_structure_engine = MarketStructureEngine(
             swing_lookback=self.cfg.get("market_structure", "swing_lookback", default=2),
             volume_spike_mult=self.cfg.get("market_structure", "volume_spike_mult", default=2.0),
@@ -228,12 +230,17 @@ class TradingBot:
             await self.tg.send_alert(message)
 
     async def get_trade_symbols(self) -> list:
-        """Scan up to max_symbols (50), rank by momentum/volume, return top momentum_top_n."""
+        """Return trading symbols. If whitelist_enabled, ONLY whitelist coins are traded."""
+        if self.whitelist_enabled and self.whitelist:
+            result = [s for s in self.whitelist if s not in self.blacklist]
+            logger.info(f"Symbol scanner: whitelist-only mode → {result}")
+            return result
+
         try:
             tickers = await self.client.get_tickers()
         except Exception as exc:
             logger.error(f"Failed to get tickers: {exc}")
-            return self.whitelist[: self.trade_symbols] if self.whitelist else []
+            return []
 
         ranked = []
         for ticker in tickers:
@@ -248,30 +255,11 @@ class TradingBot:
             if turnover < self.min_volume:
                 continue
             price_change_pct = abs(float(ticker.get("price24hPcnt", 0) or 0)) * 100
-            # Momentum score = volume * price_change (captures pumps like RIVER, ORDI, WIF)
             momentum_score = turnover * (1 + price_change_pct / 10)
             ranked.append((symbol, turnover, momentum_score))
 
-        # Sort by momentum score to catch strongest movers
         ranked.sort(key=lambda item: item[2], reverse=True)
-        symbols = [item[0] for item in ranked[: self.max_symbols]]
-
-        # Whitelist symbols always included at front
-        if self.whitelist_enabled:
-            ordered = [symbol for symbol in self.whitelist if symbol not in self.blacklist]
-            for symbol in reversed(ordered):
-                if symbol in symbols:
-                    symbols.remove(symbol)
-                symbols.insert(0, symbol)
-
-        unique = []
-        seen = set()
-        for symbol in symbols:
-            if symbol not in seen:
-                unique.append(symbol)
-                seen.add(symbol)
-
-        result = unique[: self.trade_symbols]
+        result = [item[0] for item in ranked[: self.trade_symbols]]
         logger.info(f"Symbol scanner: {len(ranked)} eligible → top {len(result)} by momentum")
         return result
 
@@ -616,7 +604,16 @@ class TradingBot:
         orderbook = await self.client.get_orderbook(symbol, limit=25)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
+
+        # Real orderbook-based heatmap (replaces synthetic fallback)
+        heatmap_orderbook = await self.client.get_orderbook(symbol, limit=200)
+        heatmap = self.liquidity_heatmap.build_heatmap(heatmap_orderbook)
+        magnet_dir, magnet_target = self.liquidity_heatmap.get_liquidity_magnet(current_price, heatmap)
+
         liq = self._resolve_liquidation_context(symbol, current_price, klines)
+        if liq.target_level <= 0:
+            # Use real heatmap data before falling back to synthetic
+            liq = self._heatmap_to_liq_analysis(current_price, heatmap, magnet_dir, magnet_target)
         if liq.target_level <= 0:
             liq = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
         self.controls.set_heatmap(symbol, liq)
@@ -1007,6 +1004,26 @@ class TradingBot:
         cluster = LiquidationCluster(round(target_level, 8), 1.0, 1, round(distance_pct, 4), "longs")
         logger.info("[HEATMAP] directional fallback: bearish target created")
         return LiquidationAnalysis([], [cluster], None, cluster, cluster.level, cluster.size, "down", -1, cluster.distance_pct)
+
+    def _heatmap_to_liq_analysis(self, current_price: float, heatmap, magnet_dir: str, magnet_target: float) -> LiquidationAnalysis:
+        """Convert real orderbook heatmap into LiquidationAnalysis format."""
+        if magnet_dir == "neutral" or magnet_target <= 0:
+            return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
+
+        distance_pct = abs(magnet_target - current_price) / current_price * 100 if current_price > 0 else 0.0
+        density = heatmap.strongest_ask.volume if magnet_dir == "up" and heatmap.strongest_ask else (
+            heatmap.strongest_bid.volume if magnet_dir == "down" and heatmap.strongest_bid else 1.0
+        )
+
+        if magnet_dir == "up":
+            cluster = LiquidationCluster(round(magnet_target, 8), round(density, 4), 1, round(distance_pct, 4), "shorts")
+            logger.info(f"[HEATMAP] real orderbook: bullish magnet @ {magnet_target:.2f} (vol={density:.2f})")
+            return LiquidationAnalysis([cluster], [], cluster, None, cluster.level, cluster.size, "up", 1, cluster.distance_pct)
+        else:
+            cluster = LiquidationCluster(round(magnet_target, 8), round(density, 4), 1, round(distance_pct, 4), "longs")
+            logger.info(f"[HEATMAP] real orderbook: bearish magnet @ {magnet_target:.2f} (vol={density:.2f})")
+            return LiquidationAnalysis([], [cluster], None, cluster, cluster.level, cluster.size, "down", -1, cluster.distance_pct)
+
 
     async def _sync_exchange_position(self, exchange_position: dict):
         symbol = exchange_position.get("symbol", "")

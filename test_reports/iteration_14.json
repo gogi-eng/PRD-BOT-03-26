@@ -1,0 +1,93 @@
+{
+  "summary": "Comprehensive testing of the 5-point ТЗ (Technical Specification) for trading bot Entry Engine v5. All 47 tests passed covering: Point 1 (4H Trend Filter), Point 2 (Sweep → FVG/OB retest), Point 3 (early_exit_bars=0), Point 4 (Whitelist-only BTCUSDT, ETHUSDT, SOLUSDT, LINKUSDT, BNBUSDT), Point 5 (RR>=2.0), LiquidityHeatmap module, and Entry Engine 4-gate-only verification.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Point 1 - 4H bullish allows LONG",
+    "Point 1 - 4H bearish allows SHORT",
+    "Point 1 - 4H neutral rejects (no trade)",
+    "Point 1 - 4H bullish rejects short sweep (direction mismatch)",
+    "Point 1 - 4H bearish rejects long sweep (direction mismatch)",
+    "Point 2 - No sweep rejects",
+    "Point 2 - Sweep without zone rejects",
+    "Point 2 - Sweep + zone allows entry",
+    "Point 2 - No zone data rejects",
+    "Point 3 - Config early_exit_bars == 0",
+    "Point 4 - Config whitelist_enabled == true",
+    "Point 4 - get_trade_symbols returns only whitelist",
+    "Point 4 - No meme coins in whitelist",
+    "Point 5 - Config min_rr_ratio >= 2.0",
+    "Point 5 - Signal RR meets minimum",
+    "Point 5 - Low RR rejects",
+    "Full Pipeline - Perfect long setup passes all gates",
+    "Full Pipeline - Perfect short setup passes all gates",
+    "Full Pipeline - Market blocked rejects",
+    "Full Pipeline - High spread rejects",
+    "Full Pipeline - Signal has correct metadata (htf_4h_trend, has_sweep, entry_zone)",
+    "LiquidityHeatmap - Detects bid walls",
+    "LiquidityHeatmap - Detects ask walls",
+    "LiquidityHeatmap - Imbalance calculation",
+    "LiquidityHeatmap - Liquidity magnet direction",
+    "Entry Engine 4 Gates - No 15M trend check",
+    "Entry Engine 4 Gates - No volume confirmation gate",
+    "Entry Engine 4 Gates - No SMC score minimum gate",
+    "Entry Engine 4 Gates - Signal contains 4 gates only in reasons",
+    "Whitelist Enforcement - Ignores blacklist not in whitelist",
+    "Whitelist Enforcement - Respects blacklist overlap",
+    "Whitelist Enforcement - Whitelist mode ignores volume ranking",
+    "LiquidityHeatmap Edge Cases - Empty orderbook",
+    "LiquidityHeatmap Edge Cases - Single level orderbook",
+    "LiquidityHeatmap Edge Cases - Malformed orderbook entries",
+    "LiquidityHeatmap Edge Cases - Liquidity magnet neutral when balanced",
+    "LiquidityHeatmap Edge Cases - Liquidity magnet down when bid dominant",
+    "Zone Context Edge Cases - Price in OB zone",
+    "Zone Context Edge Cases - Price near zone within tolerance",
+    "Zone Context Edge Cases - Multiple zones selects correct bias",
+    "Structure Edge Cases - Structure none rejects",
+    "Structure Edge Cases - Zero ATR fallback",
+    "Structure Edge Cases - High funding rate rejects",
+    "Config Edge Cases - min_rr_ratio >= 2.0",
+    "Config Edge Cases - early_exit_bars == 0",
+    "Config Edge Cases - Whitelist has exactly 5 coins",
+    "Config Edge Cases - Whitelist contains only major coins"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_smc_v5_strategy.py",
+    "/app/backend/tests/test_smc_v5_edge_cases.py",
+    "/app/test_reports/pytest/pytest_results_iteration14.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "entry_engine.py: Correctly implements ONLY 4 gates (4H trend, sweep, zone retest, RR check)",
+    "entry_engine.py: No 15M trend check, no volume confirmation gate, no SMC score minimum gate",
+    "entry_engine.py: 4H trend filter (htf_4h_trend=1 for LONG, htf_4h_trend=-1 for SHORT, htf_4h_trend=0 rejects)",
+    "entry_engine.py: Liquidity sweep must align with 4H trend direction",
+    "entry_engine.py: FVG/OB zone retest is mandatory after sweep",
+    "entry_engine.py: RR check gate ensures minimum risk/reward ratio",
+    "main.py: get_trade_symbols returns ONLY whitelist coins when whitelist_enabled=true (lines 232-237)",
+    "main.py: _determine_4h_trend uses EMA20 vs EMA50 + last 3 candle direction (lines 688-710)",
+    "config.yaml: early_exit_bars=0 (line 71)",
+    "config.yaml: min_rr_ratio=2.5 (line 32) exceeds the 2.0 minimum requirement",
+    "config.yaml: whitelist_symbols=[BTCUSDT, ETHUSDT, SOLUSDT, LINKUSDT, BNBUSDT] (line 95)",
+    "liquidity_heatmap.py: Real orderbook-based heatmap with bid/ask wall detection",
+    "liquidity_heatmap.py: get_liquidity_magnet determines directional pull based on wall volumes"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_smc_v5_edge_cases.py"
+  ],
+  "success_rate": {
+    "backend": "47/47 (100%)"
+  },
+  "seed_data_creation": "None - all tests use mock objects (MockConfig, MockMarketAnalysis, MockStructure, etc.)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "SMC v5 (5-point ТЗ) fully tested and verified. Key implementation details: (1) Entry Engine has exactly 4 gates: Gate 1 = 4H trend filter (htf_4h_trend param), Gate 2 = liquidity sweep mandatory, Gate 3 = FVG/OB zone retest, Gate 4 = RR >= min_rr_ratio. No 15M checks, no volume gates, no SMC score gates. (2) Whitelist-only mode: get_trade_symbols in main.py returns only whitelist_symbols when whitelist_enabled=true. (3) config.yaml has early_exit_bars=0, min_rr_ratio=2.5, whitelist_symbols=[BTCUSDT, ETHUSDT, SOLUSDT, LINKUSDT, BNBUSDT]. (4) LiquidityHeatmap module detects real orderbook bid/ask walls and calculates liquidity magnet direction.",
+  "rca_of_the_issue": "N/A - This is a verification test run. All 47 tests pass, confirming the 5-point ТЗ is correctly implemented."
+}
