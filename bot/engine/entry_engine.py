@@ -40,11 +40,11 @@ class EntrySignal:
 class EntryEngine:
     """Weighted scoring entry engine. Trend(0.3) + Orderflow(0.3) + AI(0.4) >= threshold."""
 
-    # Scoring weights (quant fund approach)
-    W_TREND = 0.30
-    W_ORDERFLOW = 0.30
-    W_TRANSFORMER = 0.40
-    ENTRY_THRESHOLD = 0.70
+    # Scoring weights — AI weight reduced until model is trained
+    W_TREND = 0.40
+    W_ORDERFLOW = 0.35
+    W_TRANSFORMER = 0.25
+    ENTRY_THRESHOLD = 0.55
 
     def __init__(self, cfg):
         self.min_rr_ratio = cfg.get("entry", "min_rr_ratio", default=2.0)
@@ -131,29 +131,35 @@ class EntryEngine:
         # Determine intended direction from strongest signal
         if htf_4h_trend > 0 or (htf_4h_trend == 0 and norm_imb > 0):
             # Looking for bullish orderflow
-            if norm_imb > 0.3:
+            if norm_imb > 0.25:
                 orderflow_score = 1.0
                 of_reasons.append(f"OF_strong_bull({norm_imb:+.2f})")
-            elif norm_imb > 0.1:
-                orderflow_score = 0.7
+            elif norm_imb > 0.05:
+                orderflow_score = 0.75
                 of_reasons.append(f"OF_bull({norm_imb:+.2f})")
-            elif norm_imb > -0.1:
-                orderflow_score = 0.4
+            elif norm_imb > -0.05:
+                orderflow_score = 0.50
                 of_reasons.append(f"OF_neutral({norm_imb:+.2f})")
+            elif norm_imb > -0.25:
+                orderflow_score = 0.25
+                of_reasons.append(f"OF_weak_bear({norm_imb:+.2f})")
             else:
                 orderflow_score = 0.1
                 of_reasons.append(f"OF_bearish({norm_imb:+.2f})")
         else:
             # Looking for bearish orderflow
-            if norm_imb < -0.3:
+            if norm_imb < -0.25:
                 orderflow_score = 1.0
                 of_reasons.append(f"OF_strong_bear({norm_imb:+.2f})")
-            elif norm_imb < -0.1:
-                orderflow_score = 0.7
+            elif norm_imb < -0.05:
+                orderflow_score = 0.75
                 of_reasons.append(f"OF_bear({norm_imb:+.2f})")
-            elif norm_imb < 0.1:
-                orderflow_score = 0.4
+            elif norm_imb < 0.05:
+                orderflow_score = 0.50
                 of_reasons.append(f"OF_neutral({norm_imb:+.2f})")
+            elif norm_imb < 0.25:
+                orderflow_score = 0.25
+                of_reasons.append(f"OF_weak_bull({norm_imb:+.2f})")
             else:
                 orderflow_score = 0.1
                 of_reasons.append(f"OF_bullish({norm_imb:+.2f})")

@@ -41,7 +41,7 @@ class MockConfig:
             ("entry", "zone_proximity_pct"): 0.4,
             ("entry", "max_spread_pct"): 0.08,
             ("entry", "max_funding_rate"): 0.05,
-            ("entry", "entry_threshold"): 0.70,
+            ("entry", "entry_threshold"): 0.55,
         }
         if overrides:
             self._defaults.update(overrides)
@@ -335,7 +335,7 @@ class TestConfigV6:
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["entry"]["entry_threshold"] == 0.70
+        assert cfg["entry"]["entry_threshold"] == 0.55
 
     def test_trade_symbols_25(self):
         import yaml
