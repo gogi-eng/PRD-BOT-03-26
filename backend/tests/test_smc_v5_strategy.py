@@ -259,11 +259,11 @@ class TestConfigRequirements:
             cfg = yaml.safe_load(f)
         assert cfg["entry"]["min_rr_ratio"] >= 2.0
 
-    def test_entry_threshold_055(self):
+    def test_entry_threshold_065(self):
         import yaml
         with open(os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["entry"]["entry_threshold"] == 0.55
+        assert cfg["entry"]["entry_threshold"] == 0.65
 
 
 # ═══════════════════════════════════════════════════════════════

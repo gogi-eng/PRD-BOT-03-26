@@ -181,13 +181,16 @@ class BybitClient:
                 if ret_code == 110043:
                     return data.get("result", {})
                 if ret_code == 10006 and attempt < retries - 1:
-                    await asyncio.sleep(5 + attempt * 5)
+                    # Exponential backoff: 2s, 4s, 8s, 16s...
+                    wait = 2 ** (attempt + 1)
+                    print(f"[BYBIT] Rate limited, retry in {wait}s (attempt {attempt + 1}/{retries})")
+                    await asyncio.sleep(wait)
                     continue
                 return {"_error": error_msg, "_code": ret_code}
             except aiohttp.ClientError as exc:
                 print(f"[BYBIT] Request error {attempt + 1}/{retries}: {exc}")
                 if attempt < retries - 1:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2 ** (attempt + 1))
             except Exception as exc:
                 print(f"[BYBIT] Unexpected error: {exc}")
                 return None

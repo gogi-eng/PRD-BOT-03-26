@@ -87,7 +87,12 @@ class BacktestResult:
 
 
 class Backtester:
-    """Runs the SMC v5 strategy against historical data."""
+    """Runs the SMC v6 strategy against historical data."""
+
+    # Bybit fee structure (linear perpetual)
+    MAKER_FEE = 0.0002   # 0.02%
+    TAKER_FEE = 0.00055  # 0.055%
+    SLIPPAGE_PCT = 0.0003  # 0.03% average slippage
 
     def __init__(self, config_path: str = None):
         if config_path is None:
@@ -228,17 +233,18 @@ class Backtester:
                 reason = signal.metadata.get("reject_reason", "unknown")
                 rejected[reason] = rejected.get(reason, 0) + 1
 
-        # Close remaining open trades at last price
+        # Close remaining open trades at last price (with fees)
         last_price = float(klines[-1]["close"])
         last_time = str(klines[-1]["timestamp"])
         for trade in open_trades:
             trade.exit_price = last_price
             trade.exit_time = last_time
             trade.exit_reason = "backtest_end"
+            fees_pct = (self.TAKER_FEE * 2 + self.SLIPPAGE_PCT) * 100
             if trade.side == "BUY":
-                trade.pnl_pct = (last_price - trade.entry_price) / trade.entry_price * 100
+                trade.pnl_pct = round((last_price - trade.entry_price) / trade.entry_price * 100 - fees_pct, 4)
             else:
-                trade.pnl_pct = (trade.entry_price - last_price) / trade.entry_price * 100
+                trade.pnl_pct = round((trade.entry_price - last_price) / trade.entry_price * 100 - fees_pct, 4)
             trade.result = "win" if trade.pnl_pct > 0 else "loss"
             trades.append(trade)
 
@@ -277,35 +283,56 @@ class Backtester:
 
     def _check_trade_exit(self, trade: BacktestTrade, high: float, low: float,
                           close: float, time_str: str) -> bool:
-        """Check if a trade hits SL or TP. Returns True if closed."""
+        """Check if a trade hits SL or TP. Applies slippage + commissions."""
+        # Entry commission (taker — market/limit order)
+        entry_fee = trade.entry_price * self.TAKER_FEE
+        # Slippage on entry
+        entry_slip = trade.entry_price * self.SLIPPAGE_PCT
+
         if trade.side == "BUY":
             if low <= trade.stop_loss:
-                trade.exit_price = trade.stop_loss
+                exit_price = trade.stop_loss * (1 - self.SLIPPAGE_PCT)  # slip on exit
+                exit_fee = exit_price * self.TAKER_FEE
+                raw_pnl = (exit_price - trade.entry_price) / trade.entry_price * 100
+                fees_pct = (entry_fee + exit_fee + entry_slip * 2) / trade.entry_price * 100
+                trade.exit_price = round(exit_price, 8)
                 trade.exit_time = time_str
                 trade.exit_reason = "stop_loss"
-                trade.pnl_pct = (trade.stop_loss - trade.entry_price) / trade.entry_price * 100
+                trade.pnl_pct = round(raw_pnl - fees_pct, 4)
                 trade.result = "loss"
                 return True
             if high >= trade.take_profit:
-                trade.exit_price = trade.take_profit
+                exit_price = trade.take_profit * (1 - self.SLIPPAGE_PCT)
+                exit_fee = exit_price * self.MAKER_FEE  # TP is usually limit order
+                raw_pnl = (exit_price - trade.entry_price) / trade.entry_price * 100
+                fees_pct = (entry_fee + exit_fee + entry_slip) / trade.entry_price * 100
+                trade.exit_price = round(exit_price, 8)
                 trade.exit_time = time_str
                 trade.exit_reason = "take_profit"
-                trade.pnl_pct = (trade.take_profit - trade.entry_price) / trade.entry_price * 100
+                trade.pnl_pct = round(raw_pnl - fees_pct, 4)
                 trade.result = "win"
                 return True
         else:  # SELL
             if high >= trade.stop_loss:
-                trade.exit_price = trade.stop_loss
+                exit_price = trade.stop_loss * (1 + self.SLIPPAGE_PCT)
+                exit_fee = exit_price * self.TAKER_FEE
+                raw_pnl = (trade.entry_price - exit_price) / trade.entry_price * 100
+                fees_pct = (entry_fee + exit_fee + entry_slip * 2) / trade.entry_price * 100
+                trade.exit_price = round(exit_price, 8)
                 trade.exit_time = time_str
                 trade.exit_reason = "stop_loss"
-                trade.pnl_pct = (trade.entry_price - trade.stop_loss) / trade.entry_price * 100
+                trade.pnl_pct = round(raw_pnl - fees_pct, 4)
                 trade.result = "loss"
                 return True
             if low <= trade.take_profit:
-                trade.exit_price = trade.take_profit
+                exit_price = trade.take_profit * (1 + self.SLIPPAGE_PCT)
+                exit_fee = exit_price * self.MAKER_FEE
+                raw_pnl = (trade.entry_price - exit_price) / trade.entry_price * 100
+                fees_pct = (entry_fee + exit_fee + entry_slip) / trade.entry_price * 100
+                trade.exit_price = round(exit_price, 8)
                 trade.exit_time = time_str
                 trade.exit_reason = "take_profit"
-                trade.pnl_pct = (trade.entry_price - trade.take_profit) / trade.entry_price * 100
+                trade.pnl_pct = round(raw_pnl - fees_pct, 4)
                 trade.result = "win"
                 return True
         return False
@@ -537,7 +564,9 @@ class Backtester:
 
 def format_report(results: List[BacktestResult]) -> str:
     """Format backtest results as a readable report."""
-    lines = ["=" * 60, "BACKTEST REPORT — SMC v5 Strategy", "=" * 60, ""]
+    lines = ["=" * 60, "BACKTEST REPORT — SMC v6 Strategy", 
+             f"  Fees: maker={Backtester.MAKER_FEE*100:.3f}% taker={Backtester.TAKER_FEE*100:.3f}% slippage={Backtester.SLIPPAGE_PCT*100:.3f}%",
+             "=" * 60, ""]
 
     total_trades = 0
     total_wins = 0
