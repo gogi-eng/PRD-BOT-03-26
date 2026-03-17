@@ -60,6 +60,11 @@ class BacktestTrade:
     reasons: list = field(default_factory=list)
     htf_4h_trend: int = 0
     entry_zone: str = ""
+    composite_score: float = 0.0
+    trend_score: float = 0.0
+    orderflow_score: float = 0.0
+    ai_score: float = 0.0
+    normalized_imbalance: float = 0.0
 
 
 @dataclass
@@ -212,6 +217,11 @@ class Backtester:
                     reasons=signal.reasons,
                     htf_4h_trend=htf_4h_trend,
                     entry_zone=signal.metadata.get("entry_zone", ""),
+                    composite_score=signal.metadata.get("composite_score", 0.0),
+                    trend_score=signal.metadata.get("trend_score", 0.0),
+                    orderflow_score=signal.metadata.get("orderflow_score", 0.0),
+                    ai_score=signal.metadata.get("ai_score", 0.0),
+                    normalized_imbalance=signal.metadata.get("normalized_imbalance", 0.0),
                 )
                 open_trades.append(trade)
             else:
@@ -351,7 +361,7 @@ class Backtester:
     # --- Data helpers ---
 
     async def _fetch_klines(self, symbol: str, interval: str, limit: int) -> list:
-        """Fetch historical klines, paginating if needed (Bybit max 200 per call)."""
+        """Fetch historical klines with retry on rate limit."""
         all_klines = []
         remaining = limit
         end_time = None
@@ -362,7 +372,18 @@ class Backtester:
             if end_time:
                 params["end"] = end_time
 
-            result = await self.client._request("GET", "/v5/market/kline", params)
+            # Retry on rate limit
+            for attempt in range(3):
+                result = await self.client._request("GET", "/v5/market/kline", params)
+                if result and result.get("list"):
+                    break
+                if attempt < 2:
+                    wait = 2 * (attempt + 1)
+                    logger.warning(f"Rate limited, retry in {wait}s...")
+                    await asyncio.sleep(wait)
+            else:
+                break
+
             if not result or not result.get("list"):
                 break
 
@@ -379,14 +400,13 @@ class Backtester:
             all_klines = batch + all_klines
             remaining -= len(batch)
 
-            # Set end_time to the earliest timestamp for next page
             end_time = int(result["list"][-1][0]) - 1
             if len(result["list"]) < batch_size:
                 break
 
-            # Rate limit: Bybit allows ~10 req/sec
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.25)
 
+        logger.info(f"  {symbol}/{interval}: fetched {len(all_klines)} candles")
         return all_klines
 
     def _determine_4h_trend(self, klines_4h: list) -> int:
@@ -561,15 +581,22 @@ def format_report(results: List[BacktestResult]) -> str:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="SMC v5 Backtester")
+    parser = argparse.ArgumentParser(description="SMC v6 Backtester")
     parser.add_argument("--symbol", type=str, help="Single symbol (e.g. BTCUSDT)")
     parser.add_argument("--all-whitelist", action="store_true", help="Test all whitelist symbols")
     parser.add_argument("--days", type=int, default=14, help="Number of days to backtest")
     parser.add_argument("--interval", type=str, default="15", help="Candle interval (1, 5, 15, 60)")
     parser.add_argument("--output", type=str, help="Save JSON results to file")
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Override entry threshold (e.g. 0.35 for data collection)")
     args = parser.parse_args()
 
     bt = Backtester()
+
+    # Override threshold for data collection mode
+    if args.threshold is not None:
+        bt.entry_engine.entry_threshold = args.threshold
+        logger.info(f"DATA COLLECTION MODE: threshold overridden to {args.threshold}")
 
     symbols = []
     if args.all_whitelist:
@@ -580,11 +607,13 @@ async def main():
         symbols = ["BTCUSDT"]
 
     results = []
-    for symbol in symbols:
+    for idx, symbol in enumerate(symbols):
         try:
             result = await bt.run(symbol, days=args.days, interval=args.interval)
             results.append(result)
-            await asyncio.sleep(2)  # Rate limit between symbols
+            if idx < len(symbols) - 1:
+                logger.info(f"Rate limit pause between symbols...")
+                await asyncio.sleep(5)
         except Exception as e:
             logger.error(f"Error backtesting {symbol}: {e}")
 
@@ -594,7 +623,7 @@ async def main():
     report = format_report(results)
     print(report)
 
-    # Save JSON
+    # Save JSON results
     output_path = args.output or str(BOT_DIR / "backtest_results.json")
     json_data = []
     for r in results:
@@ -603,6 +632,16 @@ async def main():
     with open(output_path, "w") as f:
         json.dump(json_data, f, indent=2, default=str)
     logger.info(f"Results saved to {output_path}")
+
+    # Save training dataset (all trades with features)
+    training_path = str(BOT_DIR / "training_data.json")
+    training_records = []
+    for r in results:
+        for t in r.trades:
+            training_records.append(asdict(t))
+    with open(training_path, "w") as f:
+        json.dump(training_records, f, indent=2, default=str)
+    logger.info(f"Training data: {len(training_records)} trades saved to {training_path}")
 
 
 if __name__ == "__main__":
