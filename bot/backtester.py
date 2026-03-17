@@ -251,8 +251,8 @@ class Backtester:
 
         # Synthetic orderflow from candle bodies (no live orderbook in backtest)
         orderflow = self._synthetic_orderflow(klines)
-        features = self.feature_engineer.build(klines, orderflow, self._empty_liq(), atr_val)
-        transformer = self.transformer_model.predict(features, regime, orderflow, self._empty_liq())
+        features = self.feature_engineer.build(klines, orderflow, Backtester._empty_liq(), atr_val)
+        transformer = self.transformer_model.predict(features, regime, orderflow, Backtester._empty_liq())
 
         # Synthetic liquidation from klines
         events = self._build_synthetic_liq_events(klines, current_price)
