@@ -249,8 +249,8 @@ class Backtester:
         zone_context = self.structure_zone_analyzer.analyze(htf_klines, current_price)
         regime = self.regime_ai.classify(market)
 
-        # Synthetic orderflow (no live orderbook in backtest)
-        orderflow = OrderflowSnapshot()
+        # Synthetic orderflow from candle bodies (no live orderbook in backtest)
+        orderflow = self._synthetic_orderflow(klines)
         features = self.feature_engineer.build(klines, orderflow, self._empty_liq(), atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, self._empty_liq())
 
@@ -384,6 +384,9 @@ class Backtester:
             if len(result["list"]) < batch_size:
                 break
 
+            # Rate limit: Bybit allows ~10 req/sec
+            await asyncio.sleep(0.15)
+
         return all_klines
 
     def _determine_4h_trend(self, klines_4h: list) -> int:
@@ -427,6 +430,68 @@ class Backtester:
         return max(1, target_minutes // mins)
 
     @staticmethod
+
+    @staticmethod
+    def _synthetic_orderflow(klines: list) -> OrderflowSnapshot:
+        """Build synthetic orderflow from candlestick data.
+
+        Estimates buy/sell pressure from candle bodies:
+        - Bullish candle (close > open): body = buy volume
+        - Bearish candle (close < open): body = sell volume
+        - Wick ratio shows rejection strength
+        """
+        recent = klines[-20:] if len(klines) >= 20 else klines
+        buy_vol = 0.0
+        sell_vol = 0.0
+
+        for k in recent:
+            o, h, l, c = float(k["open"]), float(k["high"]), float(k["low"]), float(k["close"])
+            vol = float(k.get("volume", 1.0))
+            rng = h - l if h > l else 0.0001
+            body = abs(c - o)
+            body_ratio = body / rng  # 0 = doji, 1 = full body
+
+            if c > o:
+                # Bullish candle
+                buy_vol += vol * body_ratio
+                sell_vol += vol * (1 - body_ratio) * 0.5
+            elif c < o:
+                # Bearish candle
+                sell_vol += vol * body_ratio
+                buy_vol += vol * (1 - body_ratio) * 0.5
+            else:
+                # Doji
+                buy_vol += vol * 0.5
+                sell_vol += vol * 0.5
+
+        total = buy_vol + sell_vol
+        norm_imb = (buy_vol - sell_vol) / total if total > 0 else 0.0
+        trade_ratio = buy_vol / sell_vol if sell_vol > 0 else 2.0
+        bearish_ratio = sell_vol / buy_vol if buy_vol > 0 else 2.0
+
+        dominant = "neutral"
+        if norm_imb > 0.15:
+            dominant = "bullish"
+        elif norm_imb < -0.15:
+            dominant = "bearish"
+
+        return OrderflowSnapshot(
+            orderbook_ratio=1.0,
+            trade_ratio=round(trade_ratio, 4),
+            bullish_ratio=round(max(trade_ratio, 1.0), 4),
+            bearish_ratio=round(max(bearish_ratio, 1.0), 4),
+            imbalance_score=round(norm_imb, 4),
+            bid_volume=round(buy_vol, 2),
+            ask_volume=round(sell_vol, 2),
+            buy_volume=round(buy_vol, 2),
+            sell_volume=round(sell_vol, 2),
+            trade_delta=round(buy_vol - sell_vol, 2),
+            volume_spike=1.0,
+            spread_pct=0.01,
+            dominant_side=dominant,
+            normalized_imbalance=round(norm_imb, 4),
+        )
+
     def _empty_liq():
         return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
 
@@ -519,6 +584,7 @@ async def main():
         try:
             result = await bt.run(symbol, days=args.days, interval=args.interval)
             results.append(result)
+            await asyncio.sleep(2)  # Rate limit between symbols
         except Exception as e:
             logger.error(f"Error backtesting {symbol}: {e}")
 
