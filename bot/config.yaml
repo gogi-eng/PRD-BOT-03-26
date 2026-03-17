@@ -37,7 +37,7 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.55
+  entry_threshold: 0.65
   min_liq_depth: 0.0
   min_smc_score: 0.70
   min_volatility_pct: 0.04
