@@ -418,6 +418,13 @@ class EntryEngine:
         if abs(current_price - sl) < min_stop_dist:
             sl = current_price - min_stop_dist if is_long else current_price + min_stop_dist
 
+        if is_long and sl >= current_price:
+            signal.metadata["reject_reason"] = "invalid_sl_long"
+            return signal
+        if not is_long and sl <= current_price:
+            signal.metadata["reject_reason"] = "invalid_sl_short"
+            return signal
+
         risk = abs(current_price - sl)
         if risk <= 0:
             signal.metadata["reject_reason"] = "zero_risk"

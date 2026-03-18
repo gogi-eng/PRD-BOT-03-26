@@ -39,7 +39,7 @@ entry:
   max_spread_pct: 0.08
   max_funding_rate: 0.05
   entry_threshold: 0.85
-  trained_model_enabled: false
+  trained_model_enabled: true
   trained_model_min_prob: 0.55
   trained_model_blend: 0.35
   trained_model_weights_path: "transformer_weights.pt"
@@ -163,3 +163,22 @@ profit_lock:
   decline_threshold_pct: 20.0
   decline_duration_sec: 300
   cooldown_sec: 3600
+
+feedback_loop:
+  enabled: true
+  notify_labeling: true
+  max_pending_hours: 12
+  dataset_path: "training_data.json"
+  queue_path: "signal_feedback_queue.json"
+  state_path: "signal_feedback_state.json"
+  retrain_daily: true
+  retrain_hour_utc: 1
+  min_new_labels_for_retrain: 8
+  train_epochs: 220
+  train_lr: 0.002
+  train_batch_size: 32
+  train_val_ratio: 0.2
+  train_decision_threshold: 0.55
+  train_seed: 42
+  augment_wins_factor: 2
+  augment_noise_std: 0.03

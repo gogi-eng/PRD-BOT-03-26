@@ -53,7 +53,7 @@ RISK: [LOW/MEDIUM/HIGH]"""
         self.min_confidence = 52
         self.fail_open = True
         self._cache: Dict[str, Dict] = {}
-        self._cache_ttl = 120
+        self._cache_ttl = 600
 
         if self.enabled:
             print("[AI] AI analyzer initialized (Gemini 3 Flash)")

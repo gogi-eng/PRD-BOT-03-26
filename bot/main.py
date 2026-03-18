@@ -40,6 +40,7 @@ from engine.exit_engine import ExitEngine
 from engine.position_manager import Position, PositionManager
 from engine.risk_manager import RiskGuard
 from engine.rl_position_agent import RLAction, RLPositionAgent
+from engine.signal_feedback_loop import SignalFeedbackLoop
 from exchange.bybit_client import BybitClient
 from portfolio_profit_lock import PortfolioProfitLock
 from tg.controller import TelegramController
@@ -182,6 +183,18 @@ class TradingBot:
         self.signal_only = self.cfg.get("bot", "signal_only", default=False)
         self.signal_cooldown_sec = int(self.cfg.get("bot", "signal_cooldown_sec", default=3600) or 0)
         self._last_signal_ts: dict[tuple[str, str], float] = {}
+        self.signal_feedback = SignalFeedbackLoop(BOT_DIR, self.cfg)
+        self.feedback_notify_labeling = self.cfg.get("feedback_loop", "notify_labeling", default=True)
+        self.feedback_train_epochs = int(self.cfg.get("feedback_loop", "train_epochs", default=220))
+        self.feedback_train_lr = float(self.cfg.get("feedback_loop", "train_lr", default=0.002))
+        self.feedback_train_batch_size = int(self.cfg.get("feedback_loop", "train_batch_size", default=32))
+        self.feedback_train_val_ratio = float(self.cfg.get("feedback_loop", "train_val_ratio", default=0.2))
+        self.feedback_train_decision_threshold = float(
+            self.cfg.get("feedback_loop", "train_decision_threshold", default=0.55)
+        )
+        self.feedback_train_seed = int(self.cfg.get("feedback_loop", "train_seed", default=42))
+        self.feedback_augment_wins_factor = int(self.cfg.get("feedback_loop", "augment_wins_factor", default=2))
+        self.feedback_augment_noise_std = float(self.cfg.get("feedback_loop", "augment_noise_std", default=0.03))
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -295,6 +308,12 @@ class TradingBot:
             )
         else:
             logger.info("Trained model gate: OFF (checkpoint missing or disabled)")
+        if self.signal_only:
+            logger.info(
+                "Signal feedback loop: "
+                f"{'ON' if self.signal_feedback.enabled else 'OFF'} "
+                f"(pending timeout={self.signal_feedback.max_pending_hours}h)"
+            )
 
         ok, err = self.security.validate_bybit_keys()
         if not ok:
@@ -338,6 +357,9 @@ class TradingBot:
                 symbols = await self.get_trade_symbols()
                 subscribed = self._unique_symbols(exchange_symbols + self.position_manager.symbols() + symbols)[: self.max_stream_symbols]
                 await self.client.set_liquidation_symbols(subscribed)
+
+                if self.signal_only and self.signal_feedback.enabled:
+                    await self._process_signal_feedback_loop()
 
                 if not self.signal_only:
                     total_unrealized = await self._manage_positions(exchange_positions)
@@ -602,6 +624,7 @@ class TradingBot:
                 )
                 logger.info(f"SIGNAL-ONLY {symbol}: {direction} entry=${entry:.4f} SL=${sl:.4f} TP=${tp:.4f} RR={rr:.1f}")
                 self._register_signal_timestamp(symbol, side)
+                self.signal_feedback.register_signal(symbol, signal)
                 if self.tg:
                     await self.tg.send_message(msg)
             return
@@ -825,6 +848,61 @@ class TradingBot:
             self.position_manager.add(pos)
             self._register_signal_timestamp(symbol, signal.side)
             logger.info(f"ENTERED {symbol}: {signal.side} qty={pos.qty:.6f} entry=${executed_price:.4f} weight={capital_weight:.2f}")
+
+    async def _process_signal_feedback_loop(self):
+        outcomes = await self.signal_feedback.process_pending(self.client.get_price)
+        if outcomes:
+            wins = sum(1 for item in outcomes if item.record.get("result") == "win")
+            losses = len(outcomes) - wins
+            logger.info(
+                f"[FEEDBACK] resolved={len(outcomes)} win={wins} loss={losses} "
+                f"dataset={self.signal_feedback.dataset_path.name}"
+            )
+            if self.tg and self.feedback_notify_labeling:
+                await self.tg.send_message(
+                    "<b>FEEDBACK LOOP</b>\n"
+                    f"Размечено сигналов: <code>{len(outcomes)}</code>\n"
+                    f"Win: <code>{wins}</code> | Loss: <code>{losses}</code>\n"
+                    f"Датасет: <code>{self.signal_feedback.dataset_path.name}</code>"
+                )
+
+        if self.signal_feedback.should_run_daily_retrain():
+            await self._run_feedback_daily_retrain()
+
+    async def _run_feedback_daily_retrain(self):
+        logger.info("[FEEDBACK] Daily retrain started from signal-only labels")
+        success = False
+        try:
+            from train_transformer import train as train_transformer_model
+
+            output_path = str(self.entry_engine._resolve_weights_path())
+            success = await asyncio.to_thread(
+                train_transformer_model,
+                data_path=str(self.signal_feedback.dataset_path),
+                epochs=self.feedback_train_epochs,
+                lr=self.feedback_train_lr,
+                batch_size=self.feedback_train_batch_size,
+                output_path=output_path,
+                val_ratio=self.feedback_train_val_ratio,
+                decision_threshold=self.feedback_train_decision_threshold,
+                seed=self.feedback_train_seed,
+                augment_wins_factor=max(1, self.feedback_augment_wins_factor),
+                augment_noise_std=max(0.0, self.feedback_augment_noise_std),
+            )
+            if success:
+                self.entry_engine._load_trained_model()
+                logger.info("[FEEDBACK] Daily retrain completed successfully")
+                if self.tg:
+                    await self.tg.send_message(
+                        "<b>DAILY RETRAIN DONE</b>\n"
+                        f"Файл весов: <code>{self.entry_engine._resolve_weights_path().name}</code>"
+                    )
+            else:
+                logger.warning("[FEEDBACK] Daily retrain finished with failure status")
+        except Exception as exc:
+            logger.error(f"[FEEDBACK] Daily retrain error: {exc}")
+        finally:
+            self.signal_feedback.mark_retrain_attempt(success)
 
     async def _finalize_full_close(self, symbol: str, pos: Position, exit_price: float, pnl: float, reason: str, already_removed: bool = False):
         if not already_removed:
