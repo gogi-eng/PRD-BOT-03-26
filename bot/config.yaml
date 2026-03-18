@@ -39,7 +39,7 @@ entry:
   max_spread_pct: 0.08
   max_funding_rate: 0.05
   entry_threshold: 0.85
-  trained_model_enabled: true
+  trained_model_enabled: false
   trained_model_min_prob: 0.55
   trained_model_blend: 0.35
   trained_model_weights_path: "transformer_weights.pt"
