@@ -1,239 +1,354 @@
 #!/usr/bin/env python3
-"""
-TRANSFORMER TRAINING PIPELINE v2
+"""Train compact transformer on backtest trades.
 
-Fixes:
-- Focal Loss for class imbalance (not just pos_weight)
-- Smaller model (~2K params for 133 samples)
-- Data augmentation for minority class (wins)
-- Proper train/val split with stratification
+Key fixes:
+1) BCEWithLogitsLoss + pos_weight for imbalance
+2) Smaller transformer (few thousand params)
+3) Stratified split + weighted sampler + optional win augmentation
+4) Best checkpoint selected by precision on class "win"
 
 Usage:
-    python train_transformer.py --data training_data.json --epochs 300
+    python train_transformer.py --data training_data.json --epochs 220
 """
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import os
 import random
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [TRAIN] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("TRAIN")
 
 BOT_DIR = Path(__file__).parent.resolve()
 
-
-# ═══════════════════════════════════════════════════════════════
-# MODEL: Compact MLP (right-sized for small datasets)
-# ═══════════════════════════════════════════════════════════════
-
-class TradePredictor(nn.Module):
-    """Compact model for predicting trade win probability.
-
-    ~2K parameters (vs 38K before) — appropriate for 100-500 samples.
-    """
-    FEATURE_DIM = 7
-
-    def __init__(self, feature_dim=7):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(feature_dim, 16),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(16, 8),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(8, 1),
-        )
-
-    def forward(self, x):
-        return self.net(x).squeeze(-1)  # raw logits (no sigmoid)
+# (field_name, min_value, max_value, default)
+FEATURE_SPECS = [
+    ("composite_score", 0.0, 1.0, 0.5),
+    ("trend_score", 0.0, 1.0, 0.5),
+    ("orderflow_score", 0.0, 1.0, 0.5),
+    ("ai_score", 0.0, 1.0, 0.5),
+    ("normalized_imbalance", -1.0, 1.0, 0.0),
+    ("rr_ratio_norm", 0.0, 1.0, 0.15),
+    ("htf_4h_trend_norm", 0.0, 1.0, 0.5),
+]
 
 
-# ═══════════════════════════════════════════════════════════════
-# FOCAL LOSS — better for class imbalance than BCELoss
-# ═══════════════════════════════════════════════════════════════
-
-class FocalLoss(nn.Module):
-    """Focal loss: down-weights easy examples, focuses on hard ones.
-
-    With gamma=2, easy negatives (losses) contribute much less to gradient.
-    alpha weights the positive class (wins) higher.
-    """
-    def __init__(self, alpha=0.7, gamma=2.0):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-
-    def forward(self, logits, targets):
-        probs = torch.sigmoid(logits)
-        # For positive class (win): pt = probs, at = alpha
-        # For negative class (loss): pt = 1-probs, at = 1-alpha
-        pt = torch.where(targets == 1, probs, 1 - probs)
-        at = torch.where(targets == 1, self.alpha, 1 - self.alpha)
-        # Focal term: (1 - pt)^gamma
-        focal_weight = (1 - pt) ** self.gamma
-        # BCE component
-        bce = -torch.where(
-            targets == 1,
-            torch.log(probs + 1e-8),
-            torch.log(1 - probs + 1e-8),
-        )
-        loss = at * focal_weight * bce
-        return loss.mean()
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
 
 
-# ═══════════════════════════════════════════════════════════════
-# DATASET with augmentation
-# ═══════════════════════════════════════════════════════════════
+def set_seed(seed: int):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
 
 class TradeDataset(Dataset):
-
-    def __init__(self, features, labels):
-        self.features = features
-        self.labels = labels
+    def __init__(self, features: list[list[float]], labels: list[float]):
+        self.features = torch.tensor(features, dtype=torch.float32)
+        self.labels = torch.tensor(labels, dtype=torch.float32)
 
     def __len__(self):
-        return len(self.features)
+        return len(self.labels)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.features[idx], dtype=torch.float32), \
-               torch.tensor(self.labels[idx], dtype=torch.float32)
+        return self.features[idx], self.labels[idx]
 
 
-def load_and_augment(data_path: str, oversample_wins: int = 3, noise_std: float = 0.05):
-    """Load training data with oversampling + noise augmentation for wins."""
-    with open(data_path) as f:
-        raw = json.load(f)
+class TinyTransformerClassifier(nn.Module):
+    """Tiny transformer over feature tokens (one token per feature)."""
 
-    features_win = []
-    features_loss = []
+    FEATURE_DIM = len(FEATURE_SPECS)
 
-    for trade in raw:
-        result = trade.get("result", "")
-        if result not in ("win", "loss"):
+    def __init__(self, d_model: int = 16, nhead: int = 2, num_layers: int = 1, dropout: float = 0.2):
+        super().__init__()
+        self.scalar_proj = nn.Linear(1, d_model)
+        self.pos_embedding = nn.Parameter(torch.zeros(1, self.FEATURE_DIM, d_model))
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=d_model * 2,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
+        self.head = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, d_model // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model // 2, 1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [B, F]
+        tokens = x.unsqueeze(-1)  # [B, F, 1]
+        embeds = self.scalar_proj(tokens) + self.pos_embedding
+        encoded = self.encoder(embeds)
+        pooled = encoded.mean(dim=1)
+        return self.head(pooled).squeeze(-1)
+
+
+def trade_to_features(trade: dict) -> list[float]:
+    rr_ratio = float(trade.get("rr_ratio", 2.0) or 2.0)
+    rr_ratio_norm = _clamp(rr_ratio / 15.0, 0.0, 1.0)
+
+    htf_4h_trend = float(trade.get("htf_4h_trend", 0) or 0)
+    htf_4h_trend_norm = _clamp((htf_4h_trend + 1.0) / 2.0, 0.0, 1.0)
+
+    raw = {
+        "composite_score": float(trade.get("composite_score", 0.5) or 0.5),
+        "trend_score": float(trade.get("trend_score", 0.5) or 0.5),
+        "orderflow_score": float(trade.get("orderflow_score", 0.5) or 0.5),
+        "ai_score": float(trade.get("ai_score", 0.5) or 0.5),
+        "normalized_imbalance": float(trade.get("normalized_imbalance", 0.0) or 0.0),
+        "rr_ratio_norm": rr_ratio_norm,
+        "htf_4h_trend_norm": htf_4h_trend_norm,
+    }
+
+    return [_clamp(raw[name], lo, hi) for name, lo, hi, _ in FEATURE_SPECS]
+
+
+def load_dataset(data_path: str) -> tuple[list[list[float]], list[float]]:
+    with open(data_path, "r", encoding="utf-8") as f:
+        rows = json.load(f)
+
+    features: list[list[float]] = []
+    labels: list[float] = []
+    for trade in rows:
+        result = str(trade.get("result", "")).lower()
+        if result not in {"win", "loss"}:
             continue
+        features.append(trade_to_features(trade))
+        labels.append(1.0 if result == "win" else 0.0)
 
-        feat = [
-            float(trade.get("composite_score", 0.5)),
-            float(trade.get("trend_score", 0.5)),
-            float(trade.get("orderflow_score", 0.5)),
-            float(trade.get("ai_score", 0.5)),
-            float(trade.get("normalized_imbalance", 0.0)),
-            min(float(trade.get("rr_ratio", 2.0)) / 15.0, 1.0),  # normalize RR to [0,1]
-            float(trade.get("htf_4h_trend", 0)) * 0.5 + 0.5,  # map {-1,0,1} → {0, 0.5, 1}
-        ]
-
-        if result == "win":
-            features_win.append(feat)
-        else:
-            features_loss.append(feat)
-
-    logger.info(f"Raw data: {len(features_win)} wins, {len(features_loss)} losses")
-
-    # Oversample wins with noise augmentation
-    augmented_wins = list(features_win)  # originals
-    for _ in range(oversample_wins - 1):
-        for feat in features_win:
-            noisy = [v + random.gauss(0, noise_std) for v in feat]
-            # Clamp to valid ranges
-            noisy = [max(0.0, min(1.0, v)) for v in noisy]
-            augmented_wins.append(noisy)
-
-    # Build balanced-ish dataset
-    all_features = augmented_wins + features_loss
-    all_labels = [1.0] * len(augmented_wins) + [0.0] * len(features_loss)
-
-    logger.info(f"After augmentation: {len(augmented_wins)} wins, {len(features_loss)} losses")
-
-    # Shuffle
-    combined = list(zip(all_features, all_labels))
-    random.seed(42)
-    random.shuffle(combined)
-    all_features, all_labels = zip(*combined)
-
-    return list(all_features), list(all_labels)
+    return features, labels
 
 
-def stratified_split(features, labels, val_ratio=0.2):
-    """Split maintaining class ratio in train and val."""
-    wins_f, wins_l, losses_f, losses_l = [], [], [], []
-    for f, l in zip(features, labels):
-        if l > 0.5:
-            wins_f.append(f)
-            wins_l.append(l)
-        else:
-            losses_f.append(f)
-            losses_l.append(l)
+def augment_wins(features: list[list[float]], labels: list[float], factor: int, noise_std: float) -> tuple[list[list[float]], list[float]]:
+    if factor <= 1:
+        return list(features), list(labels)
 
-    n_val_wins = max(1, int(len(wins_f) * val_ratio))
-    n_val_losses = max(1, int(len(losses_f) * val_ratio))
+    win_indices = [i for i, label in enumerate(labels) if label > 0.5]
+    if not win_indices:
+        return list(features), list(labels)
 
-    val_f = wins_f[:n_val_wins] + losses_f[:n_val_losses]
-    val_l = wins_l[:n_val_wins] + losses_l[:n_val_losses]
-    train_f = wins_f[n_val_wins:] + losses_f[n_val_losses:]
-    train_l = wins_l[n_val_wins:] + losses_l[n_val_losses:]
+    out_x = list(features)
+    out_y = list(labels)
+    bounds = [(lo, hi) for _, lo, hi, _ in FEATURE_SPECS]
 
-    return train_f, train_l, val_f, val_l
+    for _ in range(factor - 1):
+        for idx in win_indices:
+            original = features[idx]
+            noisy = []
+            for value, (lo, hi) in zip(original, bounds):
+                noisy.append(_clamp(value + random.gauss(0.0, noise_std), lo, hi))
+            out_x.append(noisy)
+            out_y.append(1.0)
+
+    return out_x, out_y
 
 
-# ═══════════════════════════════════════════════════════════════
-# TRAINING
-# ═══════════════════════════════════════════════════════════════
+def stratified_split(
+    features: list[list[float]], labels: list[float], val_ratio: float, seed: int
+) -> tuple[list[list[float]], list[float], list[list[float]], list[float]]:
+    pos_idx = [i for i, value in enumerate(labels) if value > 0.5]
+    neg_idx = [i for i, value in enumerate(labels) if value <= 0.5]
 
-def train(data_path: str, epochs: int = 300, lr: float = 0.003, batch_size: int = 32,
-          output_path: str = None):
+    if len(pos_idx) < 2 or len(neg_idx) < 2:
+        raise ValueError(
+            f"Not enough class diversity for stratified split: wins={len(pos_idx)} losses={len(neg_idx)}"
+        )
 
-    if output_path is None:
-        output_path = str(BOT_DIR / "transformer_weights.pt")
+    rnd = random.Random(seed)
+    rnd.shuffle(pos_idx)
+    rnd.shuffle(neg_idx)
 
-    # Load + augment
-    features, labels = load_and_augment(data_path, oversample_wins=3, noise_std=0.05)
+    n_pos_val = max(1, int(round(len(pos_idx) * val_ratio)))
+    n_neg_val = max(1, int(round(len(neg_idx) * val_ratio)))
+    n_pos_val = min(n_pos_val, len(pos_idx) - 1)
+    n_neg_val = min(n_neg_val, len(neg_idx) - 1)
+
+    val_idx = pos_idx[:n_pos_val] + neg_idx[:n_neg_val]
+    train_idx = pos_idx[n_pos_val:] + neg_idx[n_neg_val:]
+    rnd.shuffle(train_idx)
+    rnd.shuffle(val_idx)
+
+    train_x = [features[i] for i in train_idx]
+    train_y = [labels[i] for i in train_idx]
+    val_x = [features[i] for i in val_idx]
+    val_y = [labels[i] for i in val_idx]
+    return train_x, train_y, val_x, val_y
+
+
+def build_weighted_sampler(labels: list[float]) -> WeightedRandomSampler:
+    pos_count = sum(1 for y in labels if y > 0.5)
+    neg_count = max(len(labels) - pos_count, 1)
+    pos_count = max(pos_count, 1)
+
+    sample_weights = []
+    for label in labels:
+        sample_weights.append(1.0 / (pos_count if label > 0.5 else neg_count))
+
+    return WeightedRandomSampler(
+        weights=torch.tensor(sample_weights, dtype=torch.double),
+        num_samples=len(sample_weights),
+        replacement=True,
+    )
+
+
+@dataclass
+class Metrics:
+    tp: int
+    fp: int
+    tn: int
+    fn: int
+    precision: float
+    recall: float
+    f1: float
+    accuracy: float
+
+
+def compute_metrics(logits: torch.Tensor, labels: torch.Tensor, decision_threshold: float) -> Metrics:
+    probs = torch.sigmoid(logits)
+    preds = (probs >= decision_threshold).int()
+    targets = labels.int()
+
+    tp = int(((preds == 1) & (targets == 1)).sum().item())
+    fp = int(((preds == 1) & (targets == 0)).sum().item())
+    tn = int(((preds == 0) & (targets == 0)).sum().item())
+    fn = int(((preds == 0) & (targets == 1)).sum().item())
+
+    precision = tp / max(tp + fp, 1)
+    recall = tp / max(tp + fn, 1)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+    accuracy = (tp + tn) / max(tp + fp + tn + fn, 1)
+
+    return Metrics(tp=tp, fp=fp, tn=tn, fn=fn, precision=precision, recall=recall, f1=f1, accuracy=accuracy)
+
+
+def evaluate(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    decision_threshold: float,
+) -> tuple[float, Metrics]:
+    model.eval()
+    total_loss = 0.0
+    total = 0
+    all_logits = []
+    all_labels = []
+
+    with torch.no_grad():
+        for feats, labs in loader:
+            feats = feats.to(device)
+            labs = labs.to(device)
+            logits = model(feats)
+            loss = criterion(logits, labs)
+
+            batch_size = len(labs)
+            total_loss += loss.item() * batch_size
+            total += batch_size
+
+            all_logits.append(logits.cpu())
+            all_labels.append(labs.cpu())
+
+    merged_logits = torch.cat(all_logits) if all_logits else torch.zeros(0)
+    merged_labels = torch.cat(all_labels) if all_labels else torch.zeros(0)
+    metrics = compute_metrics(merged_logits, merged_labels, decision_threshold)
+    return total_loss / max(total, 1), metrics
+
+
+def train(
+    data_path: str,
+    epochs: int,
+    lr: float,
+    batch_size: int,
+    output_path: str,
+    val_ratio: float,
+    decision_threshold: float,
+    seed: int,
+    augment_wins_factor: int,
+    augment_noise_std: float,
+) -> bool:
+    set_seed(seed)
+
+    features, labels = load_dataset(data_path)
     if len(features) < 20:
-        logger.error(f"Not enough data: {len(features)} samples")
-        return
+        logger.error(f"Not enough labeled trades: {len(features)}")
+        return False
 
-    # Stratified split
-    train_f, train_l, val_f, val_l = stratified_split(features, labels)
-    train_ds = TradeDataset(train_f, train_l)
-    val_ds = TradeDataset(val_f, val_l)
+    wins = sum(1 for y in labels if y > 0.5)
+    losses = len(labels) - wins
+    logger.info(f"Raw dataset: total={len(labels)} wins={wins} losses={losses}")
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=batch_size)
+    features, labels = augment_wins(features, labels, factor=augment_wins_factor, noise_std=augment_noise_std)
+    wins_aug = sum(1 for y in labels if y > 0.5)
+    losses_aug = len(labels) - wins_aug
+    logger.info(f"After win augmentation: total={len(labels)} wins={wins_aug} losses={losses_aug}")
 
-    n_train_wins = sum(1 for l in train_l if l > 0.5)
-    n_val_wins = sum(1 for l in val_l if l > 0.5)
-    logger.info(f"Train: {len(train_ds)} ({n_train_wins} wins) | Val: {len(val_ds)} ({n_val_wins} wins)")
+    try:
+        train_x, train_y, val_x, val_y = stratified_split(features, labels, val_ratio=val_ratio, seed=seed)
+    except ValueError as exc:
+        logger.error(str(exc))
+        return False
 
-    # Model
-    model = TradePredictor(feature_dim=TradePredictor.FEATURE_DIM)
+    train_wins = sum(1 for y in train_y if y > 0.5)
+    train_losses = len(train_y) - train_wins
+    val_wins = sum(1 for y in val_y if y > 0.5)
+    val_losses = len(val_y) - val_wins
+    logger.info(
+        f"Split | train={len(train_y)} (win={train_wins}, loss={train_losses}) "
+        f"val={len(val_y)} (win={val_wins}, loss={val_losses})"
+    )
+
+    train_ds = TradeDataset(train_x, train_y)
+    val_ds = TradeDataset(val_x, val_y)
+
+    sampler = build_weighted_sampler(train_y)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, sampler=sampler)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = TinyTransformerClassifier(d_model=16, nhead=2, num_layers=1, dropout=0.2).to(device)
+
     total_params = sum(p.numel() for p in model.parameters())
-    logger.info(f"Model: {total_params:,} parameters")
+    logger.info(f"Model params: {total_params:,} | device={device}")
 
-    # Focal loss (handles imbalance natively)
-    criterion = FocalLoss(alpha=0.7, gamma=2.0)
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-3)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    pos_weight_value = train_losses / max(train_wins, 1)
+    pos_weight_tensor = torch.tensor([pos_weight_value], dtype=torch.float32, device=device)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
 
-    best_val_f1 = 0.0
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.7, patience=12, min_lr=1e-5)
+
+    best_precision = -1.0
+    best_f1 = -1.0
     best_epoch = 0
-    patience = 50
     no_improve = 0
+    patience = 40
 
     for epoch in range(1, epochs + 1):
-        # Train
         model.train()
-        train_loss = 0.0
-        train_tp = train_fp = train_tn = train_fn = 0
-
+        epoch_loss = 0.0
+        seen = 0
         for feats, labs in train_loader:
+            feats = feats.to(device)
+            labs = labs.to(device)
+
             optimizer.zero_grad()
             logits = model(feats)
             loss = criterion(logits, labs)
@@ -241,97 +356,118 @@ def train(data_path: str, epochs: int = 300, lr: float = 0.003, batch_size: int 
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
-            train_loss += loss.item() * len(labs)
-            preds = (torch.sigmoid(logits) > 0.5).float()
-            for p, l in zip(preds, labs):
-                if p == 1 and l == 1: train_tp += 1
-                elif p == 1 and l == 0: train_fp += 1
-                elif p == 0 and l == 0: train_tn += 1
-                else: train_fn += 1
+            bs = len(labs)
+            epoch_loss += loss.item() * bs
+            seen += bs
 
-        scheduler.step()
+        train_loss = epoch_loss / max(seen, 1)
+        val_loss, val_metrics = evaluate(model, val_loader, criterion, device, decision_threshold)
+        scheduler.step(val_loss)
 
-        # Validate
-        model.eval()
-        val_tp = val_fp = val_tn = val_fn = 0
+        if epoch == 1 or epoch % 10 == 0:
+            logger.info(
+                f"Epoch {epoch:3d}/{epochs} | train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
+                f"P(win)={val_metrics.precision:.3f} R={val_metrics.recall:.3f} F1={val_metrics.f1:.3f} "
+                f"Acc={val_metrics.accuracy * 100:.1f}% "
+                f"(TP={val_metrics.tp} FP={val_metrics.fp} TN={val_metrics.tn} FN={val_metrics.fn})"
+            )
 
-        with torch.no_grad():
-            for feats, labs in val_loader:
-                logits = model(feats)
-                preds = (torch.sigmoid(logits) > 0.5).float()
-                for p, l in zip(preds, labs):
-                    if p == 1 and l == 1: val_tp += 1
-                    elif p == 1 and l == 0: val_fp += 1
-                    elif p == 0 and l == 0: val_tn += 1
-                    else: val_fn += 1
+        improved = (
+            val_metrics.precision > best_precision + 1e-8
+            or (
+                abs(val_metrics.precision - best_precision) <= 1e-8
+                and val_metrics.f1 > best_f1 + 1e-8
+            )
+        )
 
-        # F1 score (better metric than accuracy for imbalanced data)
-        val_precision = val_tp / max(val_tp + val_fp, 1)
-        val_recall = val_tp / max(val_tp + val_fn, 1)
-        val_f1 = 2 * val_precision * val_recall / max(val_precision + val_recall, 1e-8)
-        val_acc = (val_tp + val_tn) / max(val_tp + val_fp + val_tn + val_fn, 1) * 100
-
-        train_acc = (train_tp + train_tn) / max(train_tp + train_fp + train_tn + train_fn, 1) * 100
-
-        if epoch % 25 == 0 or epoch == 1:
-            logger.info(f"Epoch {epoch:3d}/{epochs} | "
-                        f"Train acc={train_acc:.1f}% | "
-                        f"Val acc={val_acc:.1f}% F1={val_f1:.3f} "
-                        f"P={val_precision:.2f} R={val_recall:.2f} "
-                        f"(TP={val_tp} FP={val_fp} TN={val_tn} FN={val_fn})")
-
-        # Save best by F1 (not accuracy!)
-        if val_f1 > best_val_f1:
-            best_val_f1 = val_f1
+        if improved:
+            best_precision = val_metrics.precision
+            best_f1 = val_metrics.f1
             best_epoch = epoch
             no_improve = 0
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'epoch': epoch,
-                'val_f1': val_f1,
-                'val_acc': val_acc,
-                'val_precision': val_precision,
-                'val_recall': val_recall,
-                'feature_dim': TradePredictor.FEATURE_DIM,
-            }, output_path)
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "epoch": epoch,
+                    "feature_dim": TinyTransformerClassifier.FEATURE_DIM,
+                    "feature_keys": [name for name, _, _, _ in FEATURE_SPECS],
+                    "val_precision": val_metrics.precision,
+                    "val_recall": val_metrics.recall,
+                    "val_f1": val_metrics.f1,
+                    "val_accuracy": val_metrics.accuracy,
+                    "val_tp": val_metrics.tp,
+                    "val_fp": val_metrics.fp,
+                    "val_tn": val_metrics.tn,
+                    "val_fn": val_metrics.fn,
+                    "decision_threshold": decision_threshold,
+                    "loss": "BCEWithLogitsLoss",
+                    "pos_weight": float(pos_weight_value),
+                    "d_model": 16,
+                    "nhead": 2,
+                    "num_layers": 1,
+                    "augment_wins_factor": augment_wins_factor,
+                },
+                output_path,
+            )
         else:
             no_improve += 1
 
         if no_improve >= patience:
-            logger.info(f"Early stopping at epoch {epoch}")
+            logger.info(f"Early stopping at epoch {epoch} (no precision improvement for {patience} epochs)")
             break
 
-    # Final report
-    logger.info(f"{'=' * 50}")
-    logger.info(f"Best model: epoch {best_epoch}")
-    logger.info(f"  Val F1:        {best_val_f1:.3f}")
+    if not os.path.exists(output_path):
+        logger.error("Training finished but no checkpoint was saved")
+        return False
 
-    if os.path.exists(output_path):
-        ckpt = torch.load(output_path, weights_only=True)
-        logger.info(f"  Val Accuracy:  {ckpt['val_acc']:.1f}%")
-        logger.info(f"  Val Precision: {ckpt['val_precision']:.2f}")
-        logger.info(f"  Val Recall:    {ckpt['val_recall']:.2f}")
-
-    logger.info(f"Weights saved to {output_path}")
-    return model
+    best_ckpt = torch.load(output_path, map_location="cpu")
+    logger.info("=" * 60)
+    logger.info(f"Best checkpoint epoch: {best_epoch}")
+    logger.info(f"Val precision (win): {best_ckpt.get('val_precision', 0.0):.3f}")
+    logger.info(f"Val recall (win):    {best_ckpt.get('val_recall', 0.0):.3f}")
+    logger.info(f"Val F1 (win):        {best_ckpt.get('val_f1', 0.0):.3f}")
+    logger.info(f"Val accuracy:        {best_ckpt.get('val_accuracy', 0.0) * 100:.1f}%")
+    logger.info(
+        f"Confusion matrix: TP={best_ckpt.get('val_tp', 0)} FP={best_ckpt.get('val_fp', 0)} "
+        f"TN={best_ckpt.get('val_tn', 0)} FN={best_ckpt.get('val_fn', 0)}"
+    )
+    logger.info(f"Saved weights: {output_path}")
+    return True
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train TradePredictor v2")
+    parser = argparse.ArgumentParser(description="Train tiny transformer for win/loss classification")
     parser.add_argument("--data", type=str, default=str(BOT_DIR / "training_data.json"))
-    parser.add_argument("--epochs", type=int, default=300)
-    parser.add_argument("--lr", type=float, default=0.003)
+    parser.add_argument("--epochs", type=int, default=220)
+    parser.add_argument("--lr", type=float, default=0.002)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--decision-threshold", type=float, default=0.5)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--augment-wins-factor", type=int, default=2)
+    parser.add_argument("--augment-noise-std", type=float, default=0.03)
     parser.add_argument("--output", type=str, default=str(BOT_DIR / "transformer_weights.pt"))
     args = parser.parse_args()
 
     if not os.path.exists(args.data):
         logger.error(f"Training data not found: {args.data}")
-        logger.info("Run: python backtester.py --all-whitelist --days 180 --threshold 0.35")
-        return
+        logger.info("Run backtester first and export training_data.json")
+        sys.exit(1)
 
-    train(args.data, epochs=args.epochs, lr=args.lr,
-          batch_size=args.batch_size, output_path=args.output)
+    ok = train(
+        data_path=args.data,
+        epochs=args.epochs,
+        lr=args.lr,
+        batch_size=args.batch_size,
+        output_path=args.output,
+        val_ratio=args.val_ratio,
+        decision_threshold=args.decision_threshold,
+        seed=args.seed,
+        augment_wins_factor=max(1, args.augment_wins_factor),
+        augment_noise_std=max(0.0, args.augment_noise_std),
+    )
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

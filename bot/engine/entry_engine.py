@@ -17,9 +17,21 @@ Hard requirements (execution safety):
 """
 from __future__ import annotations
 
+import logging
 import math
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+
+try:
+    import torch
+    import torch.nn as nn
+except Exception:  # pragma: no cover - optional dependency at runtime
+    torch = None
+    nn = None
+
+
+logger = logging.getLogger("ENTRY")
 
 
 @dataclass
@@ -35,6 +47,46 @@ class EntrySignal:
     filters_passed: dict = field(default_factory=dict)
     capital_score: float = 0.0
     metadata: dict = field(default_factory=dict)
+
+
+if nn is not None and torch is not None:
+    class _TinyTransformerClassifier(nn.Module):
+        """Inference-only tiny transformer matching train_transformer.py architecture."""
+
+        FEATURE_DIM = 7
+
+        def __init__(self, d_model: int = 16, nhead: int = 2, num_layers: int = 1, dropout: float = 0.2):
+            super().__init__()
+            self.scalar_proj = nn.Linear(1, d_model)
+            self.pos_embedding = nn.Parameter(torch.zeros(1, self.FEATURE_DIM, d_model))
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=d_model * 2,
+                dropout=dropout,
+                activation="gelu",
+                batch_first=True,
+            )
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+            self.head = nn.Sequential(
+                nn.LayerNorm(d_model),
+                nn.Linear(d_model, d_model // 2),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(d_model // 2, 1),
+            )
+
+        def forward(self, x):
+            tokens = x.unsqueeze(-1)
+            encoded = self.encoder(self.scalar_proj(tokens) + self.pos_embedding)
+            pooled = encoded.mean(dim=1)
+            return self.head(pooled).squeeze(-1)
+else:  # pragma: no cover - torch missing
+    class _TinyTransformerClassifier:  # type: ignore[override]
+        FEATURE_DIM = 7
+
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("Torch is not available")
 
 
 class EntryEngine:
@@ -55,6 +107,88 @@ class EntryEngine:
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
         self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
         self.entry_threshold = cfg.get("entry", "entry_threshold", default=self.ENTRY_THRESHOLD)
+        self.trained_model_enabled = cfg.get("entry", "trained_model_enabled", default=True)
+        self.trained_model_min_prob = cfg.get("entry", "trained_model_min_prob", default=0.55)
+        self.trained_model_blend = cfg.get("entry", "trained_model_blend", default=0.35)
+        self.trained_model_weights_path = cfg.get("entry", "trained_model_weights_path", default="transformer_weights.pt")
+        self._trained_model = None
+
+        if self.trained_model_enabled:
+            self._load_trained_model()
+
+    def _resolve_weights_path(self) -> Path:
+        weights_path = Path(self.trained_model_weights_path)
+        if weights_path.is_absolute():
+            return weights_path
+        return Path(__file__).resolve().parents[1] / weights_path
+
+    def _load_trained_model(self):
+        if torch is None or nn is None:
+            logger.warning("Trained model disabled: torch is not available")
+            return
+
+        weights_path = self._resolve_weights_path()
+        if not weights_path.exists():
+            logger.info(f"Trained model checkpoint not found: {weights_path}")
+            return
+
+        try:
+            checkpoint = torch.load(str(weights_path), map_location="cpu")
+            model = _TinyTransformerClassifier(
+                d_model=int(checkpoint.get("d_model", 16)),
+                nhead=int(checkpoint.get("nhead", 2)),
+                num_layers=int(checkpoint.get("num_layers", 1)),
+            )
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
+            model.load_state_dict(state_dict, strict=False)
+            model.eval()
+            self._trained_model = model
+            logger.info(
+                f"Loaded trained model: {weights_path.name} "
+                f"(val_precision={float(checkpoint.get('val_precision', 0.0)):.3f})"
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to load trained model from {weights_path}: {exc}")
+            self._trained_model = None
+
+    @staticmethod
+    def _normalize_rr(rr_ratio: float) -> float:
+        return min(max(rr_ratio / 15.0, 0.0), 1.0)
+
+    @staticmethod
+    def _normalize_htf_trend(htf_4h_trend: int) -> float:
+        return min(max((float(htf_4h_trend) + 1.0) / 2.0, 0.0), 1.0)
+
+    @staticmethod
+    def _clamp(value: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, value))
+
+    def _predict_trained_win_prob(
+        self,
+        composite_score: float,
+        trend_score: float,
+        orderflow_score: float,
+        ai_score: float,
+        normalized_imbalance: float,
+        rr_ratio: float,
+        htf_4h_trend: int,
+    ) -> float | None:
+        if self._trained_model is None or torch is None:
+            return None
+
+        features = [
+            self._clamp(composite_score, 0.0, 1.0),
+            self._clamp(trend_score, 0.0, 1.0),
+            self._clamp(orderflow_score, 0.0, 1.0),
+            self._clamp(ai_score, 0.0, 1.0),
+            self._clamp(normalized_imbalance, -1.0, 1.0),
+            self._normalize_rr(rr_ratio),
+            self._normalize_htf_trend(htf_4h_trend),
+        ]
+        x = torch.tensor([features], dtype=torch.float32)
+        with torch.no_grad():
+            prob = torch.sigmoid(self._trained_model(x)).item()
+        return self._clamp(float(prob), 0.0, 1.0)
 
     def generate_signal(
         self, symbol: str, klines: List[Dict], current_price: float,
@@ -314,6 +448,30 @@ class EntryEngine:
             }
             return signal
 
+        trained_win_prob = self._predict_trained_win_prob(
+            composite_score=composite,
+            trend_score=trend_score,
+            orderflow_score=orderflow_score,
+            ai_score=ai_score,
+            normalized_imbalance=norm_imb,
+            rr_ratio=rr_ratio,
+            htf_4h_trend=htf_4h_trend,
+        )
+        if trained_win_prob is not None and trained_win_prob < self.trained_model_min_prob:
+            signal.metadata = {
+                "reject_reason": (
+                    f"trained_model_low_prob ({trained_win_prob:.3f} < {self.trained_model_min_prob:.3f})"
+                ),
+                "composite_score": composite,
+                "trained_model_prob": round(trained_win_prob, 4),
+            }
+            return signal
+
+        blended_confidence = composite
+        if trained_win_prob is not None:
+            blend = self._clamp(self.trained_model_blend, 0.0, 1.0)
+            blended_confidence = composite * (1.0 - blend) + trained_win_prob * blend
+
         # =====================================================
         # ENTRY — all checks passed
         # =====================================================
@@ -324,11 +482,11 @@ class EntryEngine:
 
         signal.should_enter = True
         signal.side = side
-        signal.confidence = round(composite, 4)
+        signal.confidence = round(blended_confidence, 4)
         signal.stop_loss = round(sl, 8)
         signal.take_profit = round(take_profit, 8)
         signal.rr_ratio = round(rr_ratio, 2)
-        signal.capital_score = round(composite * rr_ratio, 4)
+        signal.capital_score = round(blended_confidence * rr_ratio, 4)
         signal.reasons = all_reasons
         signal.metadata = {
             "composite_score": composite,
@@ -355,5 +513,8 @@ class EntryEngine:
             "sweep_direction": sweep.direction if sweep else "none",
             "funding_rate": funding_rate,
             "htf_4h_trend": htf_4h_trend,
+            "trained_model_prob": round(trained_win_prob, 4) if trained_win_prob is not None else None,
+            "trained_model_applied": trained_win_prob is not None,
+            "blended_confidence": round(blended_confidence, 4),
         }
         return signal

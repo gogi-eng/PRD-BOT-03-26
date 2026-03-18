@@ -13,6 +13,7 @@ bot:
   feature_window: 128
   liquidation_stream_symbols: 12
   signal_only: true
+  signal_cooldown_sec: 3600
 
 trading:
   leverage: 15
@@ -38,6 +39,10 @@ entry:
   max_spread_pct: 0.08
   max_funding_rate: 0.05
   entry_threshold: 0.85
+  trained_model_enabled: true
+  trained_model_min_prob: 0.55
+  trained_model_blend: 0.35
+  trained_model_weights_path: "transformer_weights.pt"
   min_liq_depth: 0.0
   min_smc_score: 0.70
   min_volatility_pct: 0.04

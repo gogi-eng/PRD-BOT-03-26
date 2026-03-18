@@ -180,6 +180,8 @@ class TradingBot:
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
         self.signal_only = self.cfg.get("bot", "signal_only", default=False)
+        self.signal_cooldown_sec = int(self.cfg.get("bot", "signal_cooldown_sec", default=3600) or 0)
+        self._last_signal_ts: dict[tuple[str, str], float] = {}
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -530,6 +532,11 @@ class TradingBot:
             try:
                 signal = await self._analyze_symbol(symbol)
                 if signal.should_enter:
+                    cooldown_left = self._same_side_cooldown_remaining(symbol, signal.side)
+                    if cooldown_left > 0:
+                        logger.info(f"SAME-SIDE COOLDOWN {symbol} {signal.side}: {cooldown_left}s left")
+                        mark_reject("same_side_cooldown")
+                        continue
                     candidates.append(
                         {
                             "symbol": symbol,
@@ -582,6 +589,7 @@ class TradingBot:
                     f"BOS: <code>{bos}</code> | Sweep: <code>{sweep}</code>"
                 )
                 logger.info(f"SIGNAL-ONLY {symbol}: {direction} entry=${entry:.4f} SL=${sl:.4f} TP=${tp:.4f} RR={rr:.1f}")
+                self._register_signal_timestamp(symbol, side)
                 if self.tg:
                     await self.tg.send_message(msg)
             return
@@ -803,6 +811,7 @@ class TradingBot:
             self.exit_engine.initialize_position(pos, atr_val, protective_liq_level=pos.protective_liq_level)
             self._apply_profit_drawdown_profile(pos)
             self.position_manager.add(pos)
+            self._register_signal_timestamp(symbol, signal.side)
             logger.info(f"ENTERED {symbol}: {signal.side} qty={pos.qty:.6f} entry=${executed_price:.4f} weight={capital_weight:.2f}")
 
     async def _finalize_full_close(self, symbol: str, pos: Position, exit_price: float, pnl: float, reason: str, already_removed: bool = False):
@@ -950,6 +959,22 @@ class TradingBot:
             return entry + (total_tp - entry) * progress if total_tp > entry else 0.0
         return entry - (entry - total_tp) * progress if total_tp < entry else 0.0
 
+    def _same_side_cooldown_remaining(self, symbol: str, side: str) -> int:
+        if self.signal_cooldown_sec <= 0:
+            return 0
+        key = (symbol, side.upper())
+        last_ts = self._last_signal_ts.get(key)
+        if not last_ts:
+            return 0
+        elapsed = time.time() - last_ts
+        remaining = int(self.signal_cooldown_sec - elapsed)
+        return remaining if remaining > 0 else 0
+
+    def _register_signal_timestamp(self, symbol: str, side: str):
+        if self.signal_cooldown_sec <= 0:
+            return
+        self._last_signal_ts[(symbol, side.upper())] = time.time()
+
     def _unique_symbols(self, symbols: list[str]) -> list[str]:
         unique = []
         seen = set()
@@ -983,28 +1008,20 @@ class TradingBot:
         if len(klines) < 20 or current_price <= 0:
             return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
 
-        closes = [float(k["close"]) for k in klines[-50:]]
         highs = [float(k["high"]) for k in klines[-50:]]
         lows = [float(k["low"]) for k in klines[-50:]]
-        volumes = [float(k.get("volume", 0)) for k in klines[-50:]]
 
         # ATR approximation
-        ranges = [h - l for h, l in zip(highs, lows)]
+        ranges = [high_val - low_val for high_val, low_val in zip(highs, lows)]
         atr = sum(ranges[-14:]) / min(14, len(ranges)) if ranges else current_price * 0.01
 
         # Leverage liquidation zones (% from current price)
         # 50x-125x leverage → liquidated at 0.8-2.0% move
         # 10x-25x leverage → liquidated at 4-10% move
         high_lev_dist = current_price * 0.012  # ~1.2% (50x zone)
-        med_lev_dist = current_price * 0.05    # ~5% (20x zone)
-
         # Find recent swing highs/lows as entry clusters
         recent_swing_highs = sorted(highs[-20:], reverse=True)[:3]
         recent_swing_lows = sorted(lows[-20:])[:3]
-
-        # Volume-weighted average of recent activity (where positions were opened)
-        vol_total = sum(volumes[-20:]) or 1.0
-        vwap = sum(c * v for c, v in zip(closes[-20:], volumes[-20:])) / vol_total
 
         above_clusters = []  # Shorts' stop-losses above price (liquidity magnets for longs)
         below_clusters = []  # Longs' stop-losses below price (liquidity magnets for shorts)
