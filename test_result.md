@@ -105,6 +105,81 @@
 user_problem_statement: Crypto bot updates verification in /app/bot focusing on same-side cooldown logic, config validation, training flow, entry engine model integration, and test execution.
 
 backend:
+  - task: "Signal-only feedback loop verification"
+    implemented: true
+    working: true
+    file: "bot/engine/signal_feedback_loop.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Signal-only feedback loop in /app/bot/engine/signal_feedback_loop.py (register, SL/TP/timeout labeling, append training_data)"
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED: Signal feedback loop fully implemented and functional. register_signal method captures signal data, _resolve_outcome_reason handles SL/TP/timeout labeling, _append_training_record writes to training dataset. All 6 verification tests PASSED including functional test with mock signal processing."
+
+  - task: "Integration points verification in main.py"  
+    implemented: true
+    working: true
+    file: "bot/main.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Integration points in /app/bot/main.py (_process_signal_feedback_loop invocation, register_signal in signal-only path, daily retrain call)"
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED: All integration points working correctly. _process_signal_feedback_loop method exists and is called in signal_only mode. register_signal called in signal-only path. Daily retrain logic implemented with should_run_daily_retrain and _run_feedback_daily_retrain methods. SignalFeedbackLoop properly initialized."
+
+  - task: "AI analyzer cache TTL verification"
+    implemented: true
+    working: true
+    file: "bot/analysis/ai_analyzer.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "/app/bot/analysis/ai_analyzer.py cache TTL = 600"
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED: AI analyzer cache TTL correctly set to 600 seconds. Cache implementation working with _cache_ttl = 600 and proper cache usage in analyze method."
+
+  - task: "Entry engine invalid SL guards"
+    implemented: true
+    working: true
+    file: "bot/engine/entry_engine.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "/app/bot/engine/entry_engine.py invalid SL guards (invalid_sl_long/invalid_sl_short)"
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED: Invalid SL guards properly implemented. invalid_sl_long guard rejects when sl >= current_price for long positions. invalid_sl_short guard rejects when sl <= current_price for short positions. SL validation logic working correctly."
+
+  - task: "Config feedback_loop section verification"
+    implemented: true
+    working: true
+    file: "bot/config.yaml"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "/app/bot/config.yaml feedback_loop section + config sync for leverage/max_positions"
+      - working: true
+        agent: "testing"
+        comment: "VERIFIED: Config.yaml feedback_loop section complete with all required keys: enabled, notify_labeling, max_pending_hours, dataset_path, queue_path, state_path, retrain_daily, retrain_hour_utc, min_new_labels_for_retrain, train_epochs, train_lr, train_batch_size, train_val_ratio, train_decision_threshold, train_seed, augment_wins_factor, augment_noise_std. Leverage and max_positions properly configured in trading section."
+
   - task: "Position Sync and Adoption"
     implemented: true
     working: true
@@ -288,3 +363,5 @@ agent_communication:
     message: "BACKEND VERIFICATION COMPLETE: Manual-position mode backend adjustments verified through code-level testing. All 6 focus areas confirmed working: 1) Profit lock loop safety with None return handling, 2) Manual positions exempt from early_exit logic, 3) Manual mode config values properly set in config.yaml with softer trailing than bot positions, 4) Manual positions preserve existing exchange TP and disable partial TP when TP exists, 5) Softer trailing activation/distance for manual positions, 6) Comprehensive Telegram notifications for manual position adoption, partial TP, SL moves, and portfolio TP. Backend test suite: 14/14 passed. Manual mode verification: 6/6 passed. All backend functionality verified as working correctly."
   - agent: "testing"
     message: "CRYPTO BOT UPDATES VERIFICATION COMPLETE: All 6 review request focus areas successfully validated: 1) Same-side cooldown logic blocks repeated symbol+side signals for 3600s - WORKING, 2) Config validation entry_threshold=0.85 and signal_cooldown_sec=3600 - WORKING, 3) Train transformer flow with BCEWithLogitsLoss+pos_weight, weighted sampler, win augmentation, precision-first checkpointing - WORKING, 4) Entry engine trained model integration with checkpoint loading, trained prob gate, confidence blending - WORKING, 5) test_trained_model_integration.py: 30/30 tests PASSED, 6) test_entry_engine_v6.py: 16/16 tests PASSED. Backend verification complete - 100% success rate."
+  - agent: "testing"
+    message: "SIGNAL FEEDBACK LOOP FINAL VERIFICATION COMPLETE: All 5 review request components successfully verified: 1) Signal-only feedback loop in signal_feedback_loop.py with register, SL/TP/timeout labeling, training_data append - WORKING, 2) Integration points in main.py with _process_signal_feedback_loop invocation, register_signal in signal-only path, daily retrain - WORKING, 3) AI analyzer cache TTL = 600 - WORKING, 4) Entry engine invalid SL guards (invalid_sl_long/invalid_sl_short) - WORKING, 5) Config feedback_loop section with all required keys + leverage/max_positions sync - WORKING. Custom test suite: 6/6 tests PASSED. Related test suites: signal_feedback_loop_and_sl_validation (4/4), entry_engine_v6 (16/16), trained_model_integration (30/30) all PASSED. Backend verification complete - 100% success rate."
