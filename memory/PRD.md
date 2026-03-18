@@ -45,6 +45,25 @@
    - Добавлен документ:
      - `/app/bot/TRAINING_AND_MODEL_INTEGRATION.md`
 
+5. **Signal-only Feedback Loop (новое)**
+   - Добавлен модуль: `engine/signal_feedback_loop.py`.
+   - В signal-only режиме каждый отправленный сигнал теперь:
+     - ставится в очередь наблюдения,
+     - автоматически размечается как `win/loss` по `SL/TP` или по timeout,
+     - добавляется в `training_data.json` как `source=signal_only_feedback`.
+   - Добавлен daily retrain gate:
+     - `feedback_loop.retrain_daily`
+     - `feedback_loop.retrain_hour_utc`
+     - `feedback_loop.min_new_labels_for_retrain`.
+   - После успешного daily retrain бот автоматически перезагружает веса в `EntryEngine`.
+
+6. **Дополнительные точечные правки**
+   - `analysis/ai_analyzer.py`: кэш увеличен до `600s`.
+   - `engine/entry_engine.py`: добавлена валидация некорректных SL:
+     - `invalid_sl_long`
+     - `invalid_sl_short`.
+   - `main.py`: синхронизация `LiveControls` с config по `leverage/max_positions` подтверждена.
+
 ## Strategy Snapshot (v6 + trained gate)
 ```
 Trend Score       × 0.40
@@ -80,13 +99,15 @@ Hard filters: spread, funding, RR >= min_rr_ratio
 - Pytest:
   - `/app/backend/tests/test_trained_model_integration.py`
   - `/app/backend/tests/test_entry_engine_v6.py`
-  - **46/46 passed**.
-- Test report: `/app/test_reports/iteration_15.json` (100% backend pass).
+  - `/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py`
+  - **50/50 passed** (локальный запуск).
+- Testing-agent report: `/app/test_reports/iteration_16.json` — **85/85 backend passed**.
 
 ## Prioritized Backlog
 
 ### P0 (следующее действие пользователя)
 - На сервере пользователя запустить новое обучение на реальном `training_data.json` и получить свежий `transformer_weights.pt`.
+- Проверить первые auto-labeled сигналы в `signal_feedback_queue.json`/`training_data.json` и убедиться, что daily retrain запускается в заданный UTC-час.
 
 ### P1
 - Онлайн-калибровка `trained_model_min_prob` / `trained_model_blend` по live-статистике (precision/recall на win).
