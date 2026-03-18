@@ -1,148 +1,141 @@
 <analysis>**original_problem_statement:**
-The user's primary goal is a profitable, automated cryptocurrency trading bot. The project has been a continuous effort to fix the bot's strategy, which has been consistently unprofitable. The user is technically proficient and has provided detailed feedback and requirements throughout the process.
-
-**LATEST PRODUCT REQUIREMENTS (Strict Technical Specification - ТЗ):**
-The user is extremely frustrated with the bot's performance (high number of small losses, poor entry logic) and has provided a final, strict 5-point technical specification that MUST be implemented without deviation.
-
-1.  **Hard Trend Filter:** Only LONG trades are allowed when the 4-hour (4H) trend is BULLISH. Only SHORT trades are allowed when the 4H trend is BEARISH. No trading against the high-timeframe trend.
-2.  **Entry Trigger:** The only valid entry sequence is: **Liquidity Sweep → return to Fair Value Gap (FVG) / Order Block (OB)**. All other signal types must be ignored.
-3.  **Disable Early Exit:** The  parameter, which closes trades prematurely if they don't move, must be set to  (disabled). The user identified this as the primary reason for the bot's poor win rate.
-4.  **Whitelist Coins:** Trading must be restricted to a specific list of high-liquidity coins: **BTC, ETH, SOL, LINK, BNB**. All meme coins and low-liquidity pairs must be removed.
-5.  **Risk/Reward Filter:** A trade should only be opened if the calculated  ratio is **>= 2.0**.
-
-The expected outcome is a drastic reduction in trade quantity (from ~60/day to 5-10/day) and a significant increase in win rate and profit factor.
+The user's goal is to create a profitable, automated cryptocurrency trading bot. After several unprofitable iterations, the user has directed the development towards a sophisticated quant-fund style strategy. The bot's logic was overhauled to use a weighted scoring system based on Trend, Orderflow, and an AI Transformer model. However, the user is now facing two critical issues: a malfunctioning AI training pipeline and an overwhelming flood of signals from the live bot, making it unusable. The immediate priority is to fix the signal flood and then repair the training process to improve the bot's intelligence.
 
 **User's preferred language**: Russian
 
 **what currently exists?**
-A modular, asynchronous Python trading bot located in . It uses the Bybit v5 API for trading,  for notifications, and  for an optional Gemini-based AI filter. The configuration is managed via . The bot's logic was recently refactored several times (up to SMC v4), but the user's latest and most critical request is a complete overhaul based on the 5-point ТЗ above, which the previous agent had just begun implementing.
+A modular, asynchronous Python trading bot located in . The bot's strategy (SMC v6) is based on a weighted scoring system () that evaluates trade signals. The project includes a backtesting module () used to generate historical trade data, and a newly created (but buggy) PyTorch script () intended to train the AI model component. The bot is currently running in a  mode on the user's server, but is generating an excessive number of alerts.
 
 **Last working item**:
--   **Last item agent was working**: Implementing the user's strict 5-point Technical Specification (ТЗ) to completely overhaul the trading strategy. The agent correctly identified the necessary changes and began modifying the code to introduce a 4H trend filter as the first step in the new, rigid trading pipeline.
+-   **Last item agent was working**: Addressing two urgent user-reported issues:
+    1.  An overwhelming number of signals (~1500-2000 in 12 hours) from the live bot.
+    2.  A complete failure of the  script, which was producing a useless model that only predicted the majority class (loss).
 -   **Status**: IN PROGRESS
 -   **Agent Testing Done**: N
 -   **Which testing method agent to use?**: backend testing agent
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   Issue 1: (P0) The bot's core trading strategy is unprofitable and does not follow a professional, context-aware structure, leading to many small losses.
+-   Issue 1: (P0) Excessive Signals Flood
+-   Issue 2: (P1) Broken AI Training Pipeline
 
 **Issues Detail**:
--   **Issue 1**: Bot is unprofitable due to flawed logic.
-    -   **Attempted fixes**: The previous agent implemented multiple strategy versions (SMC v3, v4), tuned parameters, and added filters. While technically functional, these did not solve the root problem of poor trade selection, leading the user to provide the new, strict 5-point ТЗ.
+-   **Issue 1: Excessive Signals Flood**
+    -   **Description**: The live bot is sending thousands of signals, making it impossible to use. The user requested to tighten the entry criteria () and add a 1-hour cooldown per symbol to prevent repeated alerts.
     -   **Next debug checklist**:
-        1.  Resume the implementation of the 5-point ТЗ that the previous agent started.
-        2.  Modify  in the  function to fetch 4H kline data and determine the .
-        3.  Rewrite  to enforce the strict pipeline: **4H Trend Filter → Liquidity Sweep → FVG/OB Retest → RR Check**. No other entry logic should be allowed.
-        4.  Update :
-            -   Set .
-            -   Set .
-            -   Update the  list to only include .
-        5.  Create a comprehensive test suite in a new file (e.g., ) that validates every point of the new ТЗ.
-        6.  Run the full test suite to ensure no regressions.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is the user's primary and most critical demand. Fixing it will align the bot with a professional trading strategy, aiming for higher quality trades and profitability, and will resolve the user's core frustration.
-    -   **Status**: IN PROGRESS
-    -   **Is recurring issue?**: Y
+        1.  Modify  to increase  to .
+        2.  Modify  to implement a per-symbol cooldown mechanism. This can be a dictionary storing the last signal timestamp for each symbol and checking against it before sending a new signal.
+    -   **Why fix this issue and what will be achieved with the fix?**: This is the highest priority as it makes the live bot usable again and directly addresses the user's most immediate frustration.
+    -   **Status**: NOT STARTED
+    -   **Is recurring issue?**: N
+    -   **Should Test frontend/backend/both after fix?**: backend
+    -   **Blocked on other issue**: None
+
+-   **Issue 2: Broken AI Training Pipeline**
+    -   **Description**: The  script is non-functional. The user's logs show it achieves 0% precision/recall because it only predicts the majority class (loss). The previous agent identified three root causes: using the wrong loss function ( instead of ), an oversized model for the small dataset (38k parameters for ~130 trades), and no handling for the severe class imbalance.
+    -   **Attempted fixes**: The first version of the script was created but failed immediately.
+    -   **Next debug checklist**:
+        1.  Rewrite .
+        2.  Change the loss function to  and use the  parameter to handle class imbalance.
+        3.  Significantly reduce the model's complexity (e.g., fewer layers/heads in the Transformer, smaller hidden dimensions) to prevent overfitting.
+        4.  Implement data augmentation for the minority class (wins) or use a more robust sampling technique in the .
+    -   **Why fix this issue and what will be achieved with the fix?**: A working training pipeline is essential for improving the bot's AI component, which is a key part of the user's desired strategy. An intelligent Transformer will improve the accuracy of the weighted scoring model.
+    -   **Status**: NOT STARTED
+    -   **Is recurring issue?**: N
     -   **Should Test frontend/backend/both after fix?**: backend
     -   **Blocked on other issue**: None
 
 **In progress Task List**:
--   **Task 1**: (P0) Complete the implementation of the new 5-point trading strategy.
-    -   **Where to resume**: The agent was modifying  to fetch 4H klines inside  (Chat Message 372). This work needs to be completed, followed by rewriting the  and updating .
-    -   **What will be achieved with this?**: The bot will adhere to the user's strict, non-negotiable trading rules, focusing on high-quality, high-probability setups.
-    -   **Status**: IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?**: backend
-    -   **Blocked on something**: No.
+-   **Task 1**: (P0) Implement Signal Flood Fixes (as detailed in Issue 1).
+    -   **Where to resume**: Modify  and .
+    -   **Status**: NOT STARTED
+-   **Task 2**: (P1) Fix and Rerun Training Pipeline (as detailed in Issue 2).
+    -   **Where to resume**: Rewrite .
+    -   **Status**: NOT STARTED
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks**:
-    -   (P0) Complete and thoroughly test the 5-point ТЗ implementation (Task 1).
+    -   (P0) Guide the user to run the fixed  script to generate a valid  file.
+    -   (P1) Integrate the newly trained  into the live bot. This involves loading the weights in  or  and using the model for inference.
 -   **Future Tasks**:
-    -   (P1) Investigate why the  consistently falls back to  and whether it can be fixed to use live data.
-    -   (P2) Implement a backtesting module for strategy evaluation on historical data (user previously expressed interest).
+    -   (P1) Implement Reinforcement Learning (RL) for position management, as previously requested by the user. This will require a significantly larger dataset (5,000+ trades).
+    -   (P2) Investigate integrating a real-time liquidation data source (e.g., Coinglass API) to replace the  model and eliminate the  logs.
 
 **Completed work in this session**
--   **Major Strategy Refactors (SMC v3, v4)**: Implemented and refined a Smart Money Concepts strategy with features like a continuation model, volatility filters, and improved pyramiding.
--   **Parameter Tuning**: Performed multiple rounds of configuration adjustments based on user-provided logs and feedback.
--   **Signal-Only Mode**: Added a feature to disable live trading and only send detailed trade signals to Telegram for manual execution.
--   **Test Suite Maintenance**: Consistently updated the pytest suite to reflect strategy changes, achieving 100% pass rates after each major iteration.
--   **Trade Journal Script**: Provided a one-off Python script to analyze  and calculate performance statistics.
-
-**Earlier issues found/mentioned but not fixed**
--   **Issue 1**: The  module consistently logs that it is . This indicates it's not receiving or processing live liquidation data from the exchange, which could be a source of valuable information for the bot. This has been noted but deprioritized in favor of fixing the core entry/exit logic.
-    -   **Debug checklist**: Investigate the WebSocket connection or API endpoint used by  to understand why live data is not being processed.
-    -   **Why to solve this issue and what will be achieved with this?**: Fixing this would provide the bot with real-time liquidity data, potentially improving signal quality.
-    -   **Should Test frontend/backend/both after fix?**: backend
-    -   **Is recurring issue?**: Y
-
-**Known issue recurrence from previous fork**
-N/A
+-   **SMC v6 Strategy Implementation**: Replaced a rigid filter-based strategy with a sophisticated weighted scoring engine () combining Trend, Orderflow, and a placeholder AI model.
+-   **Advanced Analysis Modules**:
+    -   Created a  with a quasi-liquidation model (Open Interest + ATR).
+    -   Upgraded  with a normalized imbalance calculation.
+    -   Calibrated the Transformer model's output with a sigmoid function.
+-   **Backtesting & Data Generation**:
+    -   Built and refined a walk-forward backtester () capable of generating training data.
+    -   Added modeling for slippage, commissions, and API rate-limit handling ().
+    -   Generated an initial dataset of 408 trades () by running extensive backtests.
+-   **PyTorch Integration**: Created an initial (buggy) training script () and installed .
+-   **Extensive Unit Testing**: Developed a large test suite to validate all new components and strategy changes.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 -   **Backend**: Python, asyncio
--   **API Integration**: Bybit v5 (for market data and trading),  (for Gemini AI filter), Telegram Bot API.
--   **Trading Concepts**: Multi-Timeframe Analysis (MTF), Smart Money Concepts (SMC) including Break of Structure (BOS), Fair Value Gaps (FVG), Order Blocks (OB), and Liquidity Sweeps.
+-   **AI/ML**: PyTorch, Transformer models
+-   **API Integration**: Bybit v5,  (Gemini), Telegram Bot API
+-   **Trading Concepts**: Weighted Scoring Model, Orderflow Imbalance, Liquidity Heatmaps, Market Regimes, Backtesting, Slippage & Commissions
 
 **key DB schema**
-No database. State is managed in memory, and trade history is logged to .
-
-**changes in tech stack**
-N/A
+-   No database is used. Trade history and backtest results are stored in  files (, , ).
 
 **All files of reference**
--   **/app/bot/main.py**: The orchestrator. Needs modification to fetch 4H klines and pass the trend to the entry engine.
--   **/app/bot/engine/entry_engine.py**: **Crucial file.** Must be rewritten to strictly follow the new 5-point entry logic.
--   **/app/bot/config.yaml**: **Crucial file.** Must be updated to set the coin whitelist, disable early exits, and set the minimum RR.
--   **/app/bot/analysis/market_structure_engine.py**: Provides the core structure analysis (trend, BOS, sweep).
--   **/app/bot/exchange/bybit_client.py**: Used to fetch kline data for different timeframes.
-
-**Areas that need refactoring**:
-The current task is a complete refactor of the entry logic as mandated by the user. The agent should focus solely on implementing the 5-point ТЗ.
-
-**key api endpoints**
-N/A
+-   : To be modified for the signal cooldown logic.
+-   : To be modified to set the new .
+-   : Needs a complete rewrite to fix training bugs.
+-   : Contains the current weighted scoring logic.
+-   : Source of the training data.
+-   : Contains the logs showing the signal flood.
+-   : Contains the logs showing the failed training run.
 
 **Critical Info for New Agent**
--   **Strictly follow the 5-point ТЗ.** The user has lost patience with incremental fixes and has provided a final, non-negotiable set of rules. Do not deviate or add your own improvements. Your task is to implement the user's vision exactly.
--   **This is a replacement, not an addition.** The new 5-point logic supersedes all previous SMC v3/v4 strategies. You are rewriting the core , not patching it.
--   **Communicate clearly.** The user is technical. Acknowledge their ТЗ and confirm you are implementing it point-by-point. Use their terminology (4H Trend, Sweep, FVG, etc.).
--   **The user's last message is the source of truth.** Refer to  for the exact requirements.
+-   **Prioritize the signal flood.** This is a critical live-bot issue causing user frustration. Implement the higher threshold and 1-hour cooldown first.
+-   **The training script is broken.** It must be rewritten, not patched. Refer to the  section for the specific bugs to fix (loss function, model size, class imbalance).
+-   **The user runs the bot on their own server.** Remember that any files you create or modify (like  or ) need to be explicitly communicated to the user so they can update them on their end.
+-   After fixing the training script, your next task is to guide the user on how to run it and then integrate the resulting  file into the main bot logic.
 
 **documents and test reports created in this job**
 -   
 -   
 -   
+-   
+-   (On user machine) 
+-   (On user machine) 
 
 **Last 10 User Messages and any pending HUMAN messages**
--   (Resolved) User reports being stopped out too quickly; agent proposes and implements wider stops and softer cooldowns.
--   (Resolved) User asks for a script to analyze ; agent provides and debugs it.
--   (Pending) User analyzes the output (8 wins / 53 losses) and identifies  as the main problem.
--   (Resolved) Agent increases  timer as a temporary fix.
--   (Resolved) User requests to switch to  mode to stop losses; agent implements it.
--   (Resolved) User requests stricter analysis; agent tightens config parameters twice.
--   (Resolved) User asks for a simple explanation of the strategy.
--   (Pending - **CRITICAL**) User provides the final, strict 5-point Technical Specification (ТЗ) and asks the agent to implement it without question. This is the current, active task.
+-   (Pending) User ran the backtester, generated 153+255 trades, and saved them to .
+-   (Pending) User uploaded two documents with analysis and recommendations for the bot.
+-   (Pending) Agent proposed a plan to implement key recommendations: add slippage/fees, create a training pipeline, and add exponential backoff.
+-   (Pending) User confirmed the plan.
+-   (Pending) Agent implemented the changes and guided the user on how to install PyTorch, run the backtester to generate data, and run the new training script.
+-   (Pending) User ran the training script, which failed with 0% precision/recall.
+-   (Pending - **CRITICAL**) User reported that the live bot is sending an overwhelming flood of signals (1500-2000 in 12 hours) and asked to make the filters stricter and add a cooldown.
+-   (Pending) Agent acknowledged the two critical issues (training failure and signal flood) and proposed a two-part fix.
 
 **Project Health Check:**
--   **Broken**: The core trading strategy is considered fundamentally broken by the user, which is why the complete overhaul was ordered.
--   **Mocked**: None.
+-   **Broken**:
+    -   The live bot's signal generation logic is out of control.
+    -   The  script is non-functional and cannot produce a valid AI model.
+-   **Mocked**:
+    -   The backtester uses a  function as it lacks live order book data for historical periods.
 
 **3rd Party Integrations**
--   **Bybit**: For trading and market data (requires user API key).
--   ****: For Gemini 3 Flash AI analysis (uses Emergent LLM Key).
--   ****: For user notifications and control (requires user bot token).
+-   **Bybit**: Used for market data and trading execution.
+-   ****: Used for an optional Gemini-based AI filter.
+-   ****: Used for sending notifications and receiving commands.
+-   **PyTorch**: A new dependency for training the Transformer model.
 
 **Testing status**
--   **Testing agent used after significant changes**: YES (in previous iterations)
--   **Troubleshoot agent used after agent stuck in loop**: NO
--   **Test files created**:  and others. The test suite is extensive but will need updates for the new logic.
--   **Known regressions**: N/A
-
-**Credentials to test flow:**
-The user provides their own API keys for Bybit and Telegram. No credentials are needed for the agent's development environment.
+-   **Testing agent used after significant changes**: YES
+-   **Test files created**: 
+-   **Known regressions**: The newly created training pipeline is non-functional.
 
 **What agent forgot to execute**
-The previous agent was in the middle of executing the user's final and most critical request (the 5-point ТЗ). It did not forget, but the work is incomplete. The next agent's top priority is to finish this implementation.</analysis>
+The previous agent correctly diagnosed the critical issues (signal flood, broken training) and formulated a plan but the session ended before any code could be implemented. The next agent must execute this plan.</analysis>
