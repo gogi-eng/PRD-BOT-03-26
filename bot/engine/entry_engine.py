@@ -448,9 +448,9 @@ class EntryEngine:
         # =====================================================
         # HARD CHECK: RISK/REWARD >= min_rr_ratio
         # =====================================================
-        if rr_ratio < self.min_rr_ratio:
+        if rr_ratio + 1e-6 < self.min_rr_ratio:
             signal.metadata = {
-                "reject_reason": f"rr_too_low ({rr_ratio:.2f} < {self.min_rr_ratio})",
+                "reject_reason": f"rr_too_low ({rr_ratio:.4f} < {self.min_rr_ratio})",
                 "composite_score": composite,
             }
             return signal
