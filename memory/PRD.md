@@ -64,6 +64,17 @@
      - `invalid_sl_short`.
    - `main.py`: синхронизация `LiveControls` с config по `leverage/max_positions` подтверждена.
 
+7. **Quality-Gate перед Telegram сигналом (новое)**
+   - Добавлен фильтр перед отправкой сигнала в signal-only режиме:
+     - `min_confidence`
+     - `min_expected_edge` (формула edge)
+     - anti-flat проверки: `regime/adx/atr/imbalance/htf-trend`.
+   - Формула expected edge:
+     - `base_prob * (rr + 1) - 1`,
+     - где `base_prob = trained_model_prob` (если есть), иначе `confidence`.
+   - В Telegram сообщение добавлено поле: `Expected Edge`.
+   - Все пороги управляются из `config.yaml -> quality_gate`.
+
 ## Strategy Snapshot (v6 + trained gate)
 ```
 Trend Score       × 0.40
@@ -102,6 +113,8 @@ Hard filters: spread, funding, RR >= min_rr_ratio
   - `/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py`
   - **50/50 passed** (локальный запуск).
 - Testing-agent report: `/app/test_reports/iteration_16.json` — **85/85 backend passed**.
+- Testing-agent report: `/app/test_reports/iteration_17.json` — quality-gate **50/50 backend passed**.
+- Локально: `pytest` (core + feedback + quality gate) — **88/88 passed**.
 
 ## Prioritized Backlog
 
@@ -111,7 +124,7 @@ Hard filters: spread, funding, RR >= min_rr_ratio
 
 ### P1
 - Онлайн-калибровка `trained_model_min_prob` / `trained_model_blend` по live-статистике (precision/recall на win).
-- Добавить журнал качества сигналов до/после trained gate (daily summary).
+- Добавить журнал качества сигналов до/после trained gate (daily summary) + quality-gate reject breakdown.
 
 ### P2
 - RL position manager (после накопления достаточного датасета).
