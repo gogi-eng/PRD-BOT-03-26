@@ -283,6 +283,18 @@ class TradingBot:
         logger.info("TRADING BOT v9.0 — AI FUND ARCHITECTURE")
         logger.info("DATA → STRUCTURE → SWEEP/BOS → ENTRY → EXECUTION")
         logger.info("=" * 72)
+        logger.info(
+            f"Entry threshold={self.entry_engine.entry_threshold:.2f} | "
+            f"same-side cooldown={self.signal_cooldown_sec}s"
+        )
+        if getattr(self.entry_engine, "_trained_model", None) is not None:
+            logger.info(
+                "Trained model gate: ON "
+                f"(min_prob={self.entry_engine.trained_model_min_prob:.2f}, "
+                f"blend={self.entry_engine.trained_model_blend:.2f})"
+            )
+        else:
+            logger.info("Trained model gate: OFF (checkpoint missing or disabled)")
 
         ok, err = self.security.validate_bybit_keys()
         if not ok:
