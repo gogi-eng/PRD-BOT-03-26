@@ -185,10 +185,10 @@ feedback_loop:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.68
-  min_expected_edge: 0.75
-  anti_flat_min_adx: 16.0
-  anti_flat_min_atr_pct: 0.20
-  anti_flat_min_abs_imbalance: 0.08
+  min_confidence: 0.64
+  min_expected_edge: 0.62
+  anti_flat_min_adx: 14.5
+  anti_flat_min_atr_pct: 0.16
+  anti_flat_min_abs_imbalance: 0.06
   anti_flat_allow_chop: false
   anti_flat_require_htf_trend: false
