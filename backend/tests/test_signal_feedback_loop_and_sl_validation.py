@@ -16,6 +16,8 @@ from analysis.orderflow_analyzer import OrderflowSnapshot
 from analysis.transformer_model import TransformerPrediction
 from engine.entry_engine import EntryEngine
 from engine.signal_feedback_loop import SignalFeedbackLoop
+from engine.entry_engine import EntrySignal
+from main import TradingBot
 
 
 class MockConfig:
@@ -208,3 +210,77 @@ def test_feedback_loop_daily_retrain_gate(tmp_path: Path):
 
     loop.mark_retrain_attempt(True)
     assert loop.should_run_daily_retrain(now) is False
+
+
+def _build_quality_gate_bot() -> TradingBot:
+    bot = TradingBot.__new__(TradingBot)
+    bot.quality_gate_enabled = True
+    bot.quality_gate_min_confidence = 0.68
+    bot.quality_gate_min_expected_edge = 0.75
+    bot.quality_gate_min_adx = 16.0
+    bot.quality_gate_min_atr_pct = 0.20
+    bot.quality_gate_min_abs_imbalance = 0.08
+    bot.quality_gate_allow_chop = False
+    bot.quality_gate_require_htf_trend = False
+    return bot
+
+
+def test_quality_gate_rejects_low_expected_edge():
+    bot = _build_quality_gate_bot()
+    signal = EntrySignal(
+        should_enter=True,
+        side="BUY",
+        confidence=0.70,
+        rr_ratio=1.2,
+        metadata={
+            "regime": "trend",
+            "adx": 25,
+            "atr_pct": 0.5,
+            "htf_trend": "up",
+            "normalized_imbalance": 0.3,
+        },
+    )
+    ok, reason, _ = bot._passes_signal_quality_gate("BTCUSDT", signal)
+    assert ok is False
+    assert reason == "low_expected_edge"
+
+
+def test_quality_gate_rejects_chop_regime():
+    bot = _build_quality_gate_bot()
+    signal = EntrySignal(
+        should_enter=True,
+        side="BUY",
+        confidence=0.90,
+        rr_ratio=3.0,
+        metadata={
+            "regime": "chop",
+            "adx": 30,
+            "atr_pct": 0.6,
+            "htf_trend": "up",
+            "normalized_imbalance": 0.4,
+        },
+    )
+    ok, reason, _ = bot._passes_signal_quality_gate("ETHUSDT", signal)
+    assert ok is False
+    assert reason == "chop_regime"
+
+
+def test_quality_gate_passes_strong_signal():
+    bot = _build_quality_gate_bot()
+    signal = EntrySignal(
+        should_enter=True,
+        side="BUY",
+        confidence=0.90,
+        rr_ratio=3.0,
+        metadata={
+            "regime": "trend",
+            "adx": 30,
+            "atr_pct": 0.6,
+            "htf_trend": "up",
+            "normalized_imbalance": 0.4,
+        },
+    )
+    ok, reason, meta = bot._passes_signal_quality_gate("SOLUSDT", signal)
+    assert ok is True
+    assert reason == "ok"
+    assert meta.get("quality_expected_edge", 0) > 0.75

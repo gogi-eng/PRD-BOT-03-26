@@ -182,3 +182,13 @@ feedback_loop:
   train_seed: 42
   augment_wins_factor: 2
   augment_noise_std: 0.03
+
+quality_gate:
+  enabled: true
+  min_confidence: 0.68
+  min_expected_edge: 0.75
+  anti_flat_min_adx: 16.0
+  anti_flat_min_atr_pct: 0.20
+  anti_flat_min_abs_imbalance: 0.08
+  anti_flat_allow_chop: false
+  anti_flat_require_htf_trend: false

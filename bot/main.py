@@ -195,6 +195,18 @@ class TradingBot:
         self.feedback_train_seed = int(self.cfg.get("feedback_loop", "train_seed", default=42))
         self.feedback_augment_wins_factor = int(self.cfg.get("feedback_loop", "augment_wins_factor", default=2))
         self.feedback_augment_noise_std = float(self.cfg.get("feedback_loop", "augment_noise_std", default=0.03))
+        self.quality_gate_enabled = self.cfg.get("quality_gate", "enabled", default=True)
+        self.quality_gate_min_confidence = float(self.cfg.get("quality_gate", "min_confidence", default=0.68))
+        self.quality_gate_min_expected_edge = float(
+            self.cfg.get("quality_gate", "min_expected_edge", default=0.75)
+        )
+        self.quality_gate_min_adx = float(self.cfg.get("quality_gate", "anti_flat_min_adx", default=16.0))
+        self.quality_gate_min_atr_pct = float(self.cfg.get("quality_gate", "anti_flat_min_atr_pct", default=0.20))
+        self.quality_gate_min_abs_imbalance = float(
+            self.cfg.get("quality_gate", "anti_flat_min_abs_imbalance", default=0.08)
+        )
+        self.quality_gate_allow_chop = self.cfg.get("quality_gate", "anti_flat_allow_chop", default=False)
+        self.quality_gate_require_htf_trend = self.cfg.get("quality_gate", "anti_flat_require_htf_trend", default=False)
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -313,6 +325,12 @@ class TradingBot:
                 "Signal feedback loop: "
                 f"{'ON' if self.signal_feedback.enabled else 'OFF'} "
                 f"(pending timeout={self.signal_feedback.max_pending_hours}h)"
+            )
+            logger.info(
+                "Signal quality gate: "
+                f"{'ON' if self.quality_gate_enabled else 'OFF'} "
+                f"(min_conf={self.quality_gate_min_confidence:.2f}, "
+                f"min_edge={self.quality_gate_min_expected_edge:.2f})"
             )
 
         ok, err = self.security.validate_bybit_keys()
@@ -571,6 +589,15 @@ class TradingBot:
                         logger.info(f"SAME-SIDE COOLDOWN {symbol} {signal.side}: {cooldown_left}s left")
                         mark_reject("same_side_cooldown")
                         continue
+
+                    if self.signal_only and self.quality_gate_enabled:
+                        gate_ok, gate_reason, gate_meta = self._passes_signal_quality_gate(symbol, signal)
+                        if not gate_ok:
+                            logger.info(f"QUALITY GATE REJECT {symbol}: {gate_reason}")
+                            mark_reject(f"quality_gate_{gate_reason}")
+                            continue
+                        signal.metadata.update(gate_meta)
+
                     candidates.append(
                         {
                             "symbol": symbol,
@@ -609,6 +636,7 @@ class TradingBot:
                 bos = signal.metadata.get("bos_direction", "none")
                 sweep = signal.metadata.get("sweep_direction", "none")
                 conf = signal.confidence
+                expected_edge = float(signal.metadata.get("quality_expected_edge", 0.0) or 0.0)
 
                 msg = (
                     f"<b>SIGNAL {direction}</b>\n\n"
@@ -619,6 +647,7 @@ class TradingBot:
                     f"TP2: <code>${tp:.4f}</code>\n"
                     f"RR: <code>{rr:.1f}</code>\n"
                     f"Confidence: <code>{conf:.0%}</code>\n"
+                    f"Expected Edge: <code>{expected_edge:.2f}R</code>\n"
                     f"Zone: <code>{zone}</code>\n"
                     f"BOS: <code>{bos}</code> | Sweep: <code>{sweep}</code>"
                 )
@@ -1064,6 +1093,39 @@ class TradingBot:
         if self.signal_cooldown_sec <= 0:
             return
         self._last_signal_ts[(symbol, side.upper())] = time.time()
+
+    def _passes_signal_quality_gate(self, symbol: str, signal: EntrySignal) -> tuple[bool, str, dict]:
+        confidence = float(signal.confidence or 0.0)
+        rr_ratio = float(signal.rr_ratio or 0.0)
+        model_prob = signal.metadata.get("trained_model_prob")
+        base_prob = float(model_prob) if model_prob is not None else confidence
+        expected_edge = base_prob * (rr_ratio + 1.0) - 1.0
+
+        if confidence < self.quality_gate_min_confidence:
+            return False, "low_confidence", {"quality_expected_edge": round(expected_edge, 4)}
+
+        if expected_edge < self.quality_gate_min_expected_edge:
+            return False, "low_expected_edge", {"quality_expected_edge": round(expected_edge, 4)}
+
+        if self.quality_gate_enabled:
+            regime = str(signal.metadata.get("regime", "unknown")).lower()
+            adx = float(signal.metadata.get("adx", 0.0) or 0.0)
+            atr_pct = float(signal.metadata.get("atr_pct", 0.0) or 0.0)
+            htf_trend = str(signal.metadata.get("htf_trend", "neutral")).lower()
+            abs_imbalance = abs(float(signal.metadata.get("normalized_imbalance", 0.0) or 0.0))
+
+            if not self.quality_gate_allow_chop and regime == "chop":
+                return False, "chop_regime", {"quality_expected_edge": round(expected_edge, 4)}
+            if adx < self.quality_gate_min_adx:
+                return False, "low_adx", {"quality_expected_edge": round(expected_edge, 4)}
+            if atr_pct < self.quality_gate_min_atr_pct:
+                return False, "low_atr", {"quality_expected_edge": round(expected_edge, 4)}
+            if abs_imbalance < self.quality_gate_min_abs_imbalance:
+                return False, "flat_orderflow", {"quality_expected_edge": round(expected_edge, 4)}
+            if self.quality_gate_require_htf_trend and htf_trend in {"neutral", "flat", "range", "sideways"}:
+                return False, "flat_htf_trend", {"quality_expected_edge": round(expected_edge, 4)}
+
+        return True, "ok", {"quality_expected_edge": round(expected_edge, 4), "quality_gate_symbol": symbol}
 
     def _unique_symbols(self, symbols: list[str]) -> list[str]:
         unique = []
