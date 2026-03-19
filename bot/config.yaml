@@ -38,9 +38,9 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.78
-  trained_model_enabled: true
-  trained_model_min_prob: 0.55
+  entry_threshold: 0.62
+  trained_model_enabled: false
+  trained_model_min_prob: 0.45
   trained_model_blend: 0.35
   trained_model_weights_path: "transformer_weights.pt"
   min_liq_depth: 0.0

@@ -335,8 +335,8 @@ class TestConfigV6:
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        # Tuned from ultra-strict 0.85 to 0.78 to restore controlled signal flow
-        assert cfg["entry"]["entry_threshold"] == 0.78
+        # Tuned from ultra-strict 0.85 to 0.62 to restore controlled signal flow
+        assert cfg["entry"]["entry_threshold"] == 0.62
 
     def test_trade_symbols_25(self):
         import yaml
