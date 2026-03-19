@@ -87,6 +87,18 @@
      - `anti_flat_min_abs_imbalance = 0.10`.
    - Символы не блэклистились (по выбору пользователя) — используется фильтрация, а не бан.
 
+9. **AI bias hotfix (2026-03-19, user-requested)**
+   - Зафиксирован кейс «почти все пары = SELL ~85%».
+   - Добавлены 2 защиты в `analysis/ai_analyzer.py`:
+     1) **Direction match guard**: AI-решение должно совпадать с `proposed_signal`, иначе reject (`direction_mismatch`).
+     2) **Uniformity bias guard**: если в окне последних сигналов AI даёт одну сторону и почти одинаковую уверенность, сигнал отклоняется (`uniform_confidence_bias`).
+   - Параметры вынесены в `config.yaml -> ai`:
+     - `require_direction_match: true`
+     - `uniformity_guard_enabled: true`
+     - `uniformity_window: 8`
+     - `uniformity_conf_spread_max: 3`
+   - Wiring добавлен в `main.py`.
+
 ## Strategy Snapshot (v6 + trained gate)
 ```
 Trend Score       × 0.40
@@ -128,6 +140,7 @@ Hard filters: spread, funding, RR >= min_rr_ratio
 - Testing-agent report: `/app/test_reports/iteration_17.json` — quality-gate **50/50 backend passed**.
 - Локально: `pytest` (core + feedback + quality gate) — **88/88 passed**.
 - Testing-agent report: `/app/test_reports/iteration_19.json` — LYNUSDT hotfix **162/162 backend passed**.
+- Testing-agent report: `/app/test_reports/iteration_20.json` — AI anti-bias hotfix **114/114 targeted backend passed**.
 
 ## Prioritized Backlog
 
