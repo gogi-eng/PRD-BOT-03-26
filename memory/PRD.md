@@ -75,6 +75,18 @@
    - В Telegram сообщение добавлено поле: `Expected Edge`.
    - Все пороги управляются из `config.yaml -> quality_gate`.
 
+8. **LYNUSDT hotfix (2026-03-19, user-requested)**
+   - Внедрена мягкая контртренд-логика (без полного запрета):
+     - контртренд вход допускается только при
+       - `confidence >= 0.82`
+       - `|normalized_imbalance| >= 0.20`.
+   - Для `entry_zone = no_zone` введён повышенный порог:
+     - `confidence >= 0.84`, иначе reject.
+   - Quality-gate ужесточён точечно:
+     - `min_expected_edge = 0.68`
+     - `anti_flat_min_abs_imbalance = 0.10`.
+   - Символы не блэклистились (по выбору пользователя) — используется фильтрация, а не бан.
+
 ## Strategy Snapshot (v6 + trained gate)
 ```
 Trend Score       × 0.40
@@ -115,6 +127,7 @@ Hard filters: spread, funding, RR >= min_rr_ratio
 - Testing-agent report: `/app/test_reports/iteration_16.json` — **85/85 backend passed**.
 - Testing-agent report: `/app/test_reports/iteration_17.json` — quality-gate **50/50 backend passed**.
 - Локально: `pytest` (core + feedback + quality gate) — **88/88 passed**.
+- Testing-agent report: `/app/test_reports/iteration_19.json` — LYNUSDT hotfix **162/162 backend passed**.
 
 ## Prioritized Backlog
 
