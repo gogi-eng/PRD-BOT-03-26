@@ -91,7 +91,7 @@ def make_liq():
 
 
 def test_invalid_sl_long_rejected():
-    engine = EntryEngine(MockConfig())
+    engine = EntryEngine(MockConfig({("entry", "min_stop_atr_mult"): 0.0}))
     structure = MockStructure(
         trend=type("T", (), {"value": "up"})(),
         last_sweep=type("SW", (), {"direction": "down"})(),
@@ -119,7 +119,7 @@ def test_invalid_sl_long_rejected():
 
 
 def test_invalid_sl_short_rejected():
-    engine = EntryEngine(MockConfig())
+    engine = EntryEngine(MockConfig({("entry", "min_stop_atr_mult"): 0.0}))
     structure = MockStructure(
         trend=type("T", (), {"value": "down"})(),
         last_sweep=type("SW", (), {"direction": "up"})(),

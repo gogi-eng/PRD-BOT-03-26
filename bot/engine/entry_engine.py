@@ -102,7 +102,10 @@ class EntryEngine:
         self.min_rr_ratio = cfg.get("entry", "min_rr_ratio", default=2.0)
         self.min_target_profit_pct = cfg.get("entry", "min_target_profit_pct", default=1.2)
         self.min_stop_distance_pct = cfg.get("entry", "min_stop_distance_pct", default=0.5)
+        self.min_stop_atr_mult = cfg.get("entry", "min_stop_atr_mult", default=0.9)
         self.sl_buffer_atr_mult = cfg.get("entry", "sl_buffer_atr_mult", default=0.5)
+        self.max_entry_extension_atr = cfg.get("entry", "max_entry_extension_atr", default=0.75)
+        self.entry_range_atr_mult = cfg.get("entry", "entry_range_atr_mult", default=0.22)
         self.zone_proximity_pct = cfg.get("entry", "zone_proximity_pct", default=0.4)
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
         self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
@@ -377,6 +380,20 @@ class EntryEngine:
                 active_zone = zone_context.price_in_bearish_zone(current_price) or \
                               zone_context.price_near_bearish_zone(current_price, self.zone_proximity_pct)
 
+        # Anti-chase: skip entries that are too far from zone (often late and stop-prone)
+        if active_zone is not None and self.max_entry_extension_atr > 0 and atr_value > 0:
+            if is_long:
+                extension = max(0.0, current_price - float(active_zone.high))
+            else:
+                extension = max(0.0, float(active_zone.low) - current_price)
+            if extension > atr_value * self.max_entry_extension_atr:
+                signal.metadata = {
+                    "reject_reason": "entry_too_extended_from_zone",
+                    "extension_atr": round(extension / atr_value, 3),
+                    "composite_score": composite,
+                }
+                return signal
+
         # =====================================================
         # COMPUTE SL / TP
         # =====================================================
@@ -413,8 +430,11 @@ class EntryEngine:
             if liq_analysis.target_level > 0 and liq_analysis.target_level < current_price and liq_analysis.signal < 0:
                 tp2 = min(tp2, liq_analysis.target_level)
 
-        # Enforce minimum stop distance
-        min_stop_dist = current_price * (self.min_stop_distance_pct / 100)
+        # Enforce minimum stop distance (price% floor + ATR floor)
+        min_stop_dist = max(
+            current_price * (self.min_stop_distance_pct / 100),
+            atr_value * self.min_stop_atr_mult,
+        )
         if abs(current_price - sl) < min_stop_dist:
             sl = current_price - min_stop_dist if is_long else current_price + min_stop_dist
 
@@ -487,6 +507,15 @@ class EntryEngine:
         all_reasons.append(f"score={composite:.2f}")
         struct_trend = structure.trend.value if has_structure else "range"
 
+        # Entry range hint for manual execution (signal-only)
+        range_mult = max(float(self.entry_range_atr_mult), 0.0)
+        if is_long:
+            entry_range_low = max(current_price - atr_value * range_mult, 0.0)
+            entry_range_high = current_price
+        else:
+            entry_range_low = current_price
+            entry_range_high = current_price + atr_value * range_mult
+
         signal.should_enter = True
         signal.side = side
         signal.confidence = round(blended_confidence, 4)
@@ -497,6 +526,7 @@ class EntryEngine:
         signal.reasons = all_reasons
         signal.metadata = {
             "composite_score": composite,
+            "smc_score": composite,
             "trend_score": round(trend_score, 3),
             "orderflow_score": round(orderflow_score, 3),
             "ai_score": round(ai_score, 3),
@@ -523,5 +553,7 @@ class EntryEngine:
             "trained_model_prob": round(trained_win_prob, 4) if trained_win_prob is not None else None,
             "trained_model_applied": trained_win_prob is not None,
             "blended_confidence": round(blended_confidence, 4),
+            "entry_range_low": round(entry_range_low, 8),
+            "entry_range_high": round(entry_range_high, 8),
         }
         return signal

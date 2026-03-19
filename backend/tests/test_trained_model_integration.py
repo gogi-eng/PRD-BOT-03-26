@@ -610,20 +610,21 @@ class TestTrainedModelConfig:
     """Validates config.yaml has correct trained model settings."""
 
     def test_trained_model_enabled_config(self):
-        """trained_model_enabled should be in config."""
+        """trained_model_enabled should be present and currently disabled for signal recovery."""
         import yaml
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["entry"]["trained_model_enabled"] is True
+        assert "trained_model_enabled" in cfg["entry"]
+        assert cfg["entry"]["trained_model_enabled"] is False
 
     def test_trained_model_min_prob_config(self):
-        """trained_model_min_prob should be 0.55."""
+        """trained_model_min_prob should be tuned lower in relaxed mode."""
         import yaml
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["entry"]["trained_model_min_prob"] == 0.55
+        assert cfg["entry"]["trained_model_min_prob"] == 0.45
 
     def test_trained_model_blend_config(self):
         """trained_model_blend should be 0.35."""

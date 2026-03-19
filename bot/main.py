@@ -637,11 +637,14 @@ class TradingBot:
                 sweep = signal.metadata.get("sweep_direction", "none")
                 conf = signal.confidence
                 expected_edge = float(signal.metadata.get("quality_expected_edge", 0.0) or 0.0)
+                entry_range_low = float(signal.metadata.get("entry_range_low", entry) or entry)
+                entry_range_high = float(signal.metadata.get("entry_range_high", entry) or entry)
 
                 msg = (
                     f"<b>SIGNAL {direction}</b>\n\n"
                     f"Монета: <code>{symbol}</code>\n"
                     f"Вход: <code>${entry:.4f}</code>\n"
+                    f"Рекомендуемый вход: <code>${entry_range_low:.4f} - ${entry_range_high:.4f}</code>\n"
                     f"SL: <code>${sl:.4f}</code>\n"
                     f"TP1: <code>${tp1:.4f}</code>\n"
                     f"TP2: <code>${tp:.4f}</code>\n"
