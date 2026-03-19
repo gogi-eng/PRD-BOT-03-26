@@ -8,6 +8,7 @@ import os
 import asyncio
 from typing import Dict, Optional
 from datetime import datetime, timezone
+from collections import deque
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -52,6 +53,11 @@ RISK: [LOW/MEDIUM/HIGH]"""
         self.enabled = EMERGENT_AVAILABLE and bool(self.api_key)
         self.min_confidence = 52
         self.fail_open = True
+        self.require_direction_match = True
+        self.uniformity_guard_enabled = True
+        self.uniformity_window = 8
+        self.uniformity_conf_spread_max = 3
+        self._recent_ai = deque(maxlen=50)
         self._cache: Dict[str, Dict] = {}
         self._cache_ttl = 600
 
@@ -132,6 +138,34 @@ RISK: [LOW/MEDIUM/HIGH]"""
                     result["risk"] = r
         return result
 
+    @staticmethod
+    def _direction_mismatch(proposed_signal: str, ai_decision: str) -> bool:
+        proposed = str(proposed_signal or "").upper()
+        decision = str(ai_decision or "").upper()
+        if proposed not in ["BUY", "SELL"] or decision not in ["BUY", "SELL"]:
+            return False
+        return proposed != decision
+
+    def _record_ai_output(self, decision: str, confidence: int):
+        d = str(decision or "").upper()
+        if d not in ["BUY", "SELL"]:
+            return
+        self._recent_ai.append((d, int(confidence)))
+
+    def _uniform_bias_detected(self) -> bool:
+        if not self.uniformity_guard_enabled:
+            return False
+        if self.uniformity_window <= 1:
+            return False
+        if len(self._recent_ai) < self.uniformity_window:
+            return False
+        sample = list(self._recent_ai)[-self.uniformity_window :]
+        directions = [d for d, _ in sample]
+        confs = [c for _, c in sample]
+        if len(set(directions)) != 1:
+            return False
+        return (max(confs) - min(confs)) <= int(self.uniformity_conf_spread_max)
+
     async def analyze(self, symbol: str, analysis_data: Dict) -> Dict:
         """
         Анализирует данные и возвращает AI-рекомендацию.
@@ -175,6 +209,25 @@ RISK: [LOW/MEDIUM/HIGH]"""
             print(f"[AI] Analyzing {symbol}...")
             response = await chat.send_message(UserMessage(text=prompt))
             result = self._parse_response(response)
+
+            proposed = analysis_data.get("proposed_signal", "NEUTRAL")
+            if self.require_direction_match and self._direction_mismatch(proposed, result.get("decision", "WAIT")):
+                result["should_trade"] = False
+                result["risk"] = "HIGH"
+                result["reason"] = f"direction_mismatch ai={result.get('decision')} proposed={proposed}"
+                self._cache[cache_key] = {"time": now, "result": result}
+                print(f"[AI] {symbol}: {result['decision']} ({result['confidence']}%) - SKIP (direction mismatch)")
+                return result
+
+            self._record_ai_output(result.get("decision", "WAIT"), result.get("confidence", 0))
+            if self._uniform_bias_detected():
+                result["should_trade"] = False
+                result["risk"] = "HIGH"
+                result["reason"] = "uniform_confidence_bias"
+                self._cache[cache_key] = {"time": now, "result": result}
+                print(f"[AI] {symbol}: {result['decision']} ({result['confidence']}%) - SKIP (uniform bias)")
+                return result
+
             result["should_trade"] = (
                 result["decision"] in ["BUY", "SELL"] and
                 result["confidence"] >= self.min_confidence

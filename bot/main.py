@@ -128,6 +128,12 @@ class TradingBot:
         self.ai_analyzer = AITradeAnalyzer()
         self.ai_analyzer.min_confidence = self.cfg.get("ai", "min_confidence", default=60)
         self.ai_analyzer.fail_open = self.cfg.get("ai", "fail_open", default=True)
+        self.ai_analyzer.require_direction_match = self.cfg.get("ai", "require_direction_match", default=True)
+        self.ai_analyzer.uniformity_guard_enabled = self.cfg.get("ai", "uniformity_guard_enabled", default=True)
+        self.ai_analyzer.uniformity_window = int(self.cfg.get("ai", "uniformity_window", default=8))
+        self.ai_analyzer.uniformity_conf_spread_max = int(
+            self.cfg.get("ai", "uniformity_conf_spread_max", default=3)
+        )
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)

@@ -113,6 +113,10 @@ ai:
   enabled: true
   min_confidence: 55
   fail_open: false
+  require_direction_match: true
+  uniformity_guard_enabled: true
+  uniformity_window: 8
+  uniformity_conf_spread_max: 3
 
 rl:
   enabled: false
