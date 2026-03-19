@@ -207,6 +207,15 @@ class TradingBot:
         )
         self.quality_gate_allow_chop = self.cfg.get("quality_gate", "anti_flat_allow_chop", default=False)
         self.quality_gate_require_htf_trend = self.cfg.get("quality_gate", "anti_flat_require_htf_trend", default=False)
+        self.quality_gate_countertrend_min_confidence = float(
+            self.cfg.get("quality_gate", "countertrend_min_confidence", default=0.82)
+        )
+        self.quality_gate_countertrend_min_abs_imbalance = float(
+            self.cfg.get("quality_gate", "countertrend_min_abs_imbalance", default=0.20)
+        )
+        self.quality_gate_no_zone_min_confidence = float(
+            self.cfg.get("quality_gate", "no_zone_min_confidence", default=0.84)
+        )
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -1103,9 +1112,24 @@ class TradingBot:
         model_prob = signal.metadata.get("trained_model_prob")
         base_prob = float(model_prob) if model_prob is not None else confidence
         expected_edge = base_prob * (rr_ratio + 1.0) - 1.0
+        abs_imbalance = abs(float(signal.metadata.get("normalized_imbalance", 0.0) or 0.0))
+        htf_4h_trend = int(signal.metadata.get("htf_4h_trend", 0) or 0)
+        side = str(signal.side or "").upper()
+        entry_zone = str(signal.metadata.get("entry_zone", "no_zone")).lower()
 
         if confidence < self.quality_gate_min_confidence:
             return False, "low_confidence", {"quality_expected_edge": round(expected_edge, 4)}
+
+        if htf_4h_trend != 0 and side in {"BUY", "SELL"}:
+            is_countertrend = (side == "BUY" and htf_4h_trend < 0) or (side == "SELL" and htf_4h_trend > 0)
+            if is_countertrend:
+                if confidence < self.quality_gate_countertrend_min_confidence:
+                    return False, "countertrend_low_confidence", {"quality_expected_edge": round(expected_edge, 4)}
+                if abs_imbalance < self.quality_gate_countertrend_min_abs_imbalance:
+                    return False, "countertrend_weak_imbalance", {"quality_expected_edge": round(expected_edge, 4)}
+
+        if entry_zone == "no_zone" and confidence < self.quality_gate_no_zone_min_confidence:
+            return False, "no_zone_low_confidence", {"quality_expected_edge": round(expected_edge, 4)}
 
         if expected_edge < self.quality_gate_min_expected_edge:
             return False, "low_expected_edge", {"quality_expected_edge": round(expected_edge, 4)}
@@ -1115,7 +1139,6 @@ class TradingBot:
             adx = float(signal.metadata.get("adx", 0.0) or 0.0)
             atr_pct = float(signal.metadata.get("atr_pct", 0.0) or 0.0)
             htf_trend = str(signal.metadata.get("htf_trend", "neutral")).lower()
-            abs_imbalance = abs(float(signal.metadata.get("normalized_imbalance", 0.0) or 0.0))
 
             if not self.quality_gate_allow_chop and regime == "chop":
                 return False, "chop_regime", {"quality_expected_edge": round(expected_edge, 4)}

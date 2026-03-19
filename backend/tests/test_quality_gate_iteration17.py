@@ -38,6 +38,9 @@ def _build_quality_gate_bot(overrides: dict = None) -> TradingBot:
     bot.quality_gate_min_abs_imbalance = 0.08
     bot.quality_gate_allow_chop = False
     bot.quality_gate_require_htf_trend = False
+    bot.quality_gate_countertrend_min_confidence = 0.82
+    bot.quality_gate_countertrend_min_abs_imbalance = 0.20
+    bot.quality_gate_no_zone_min_confidence = 0.84
     
     if overrides:
         for key, value in overrides.items():
@@ -48,10 +51,13 @@ def _build_quality_gate_bot(overrides: dict = None) -> TradingBot:
 def _make_signal(
     confidence: float = 0.90,
     rr_ratio: float = 3.0,
+    side: str = "BUY",
     regime: str = "trend",
     adx: float = 30.0,
     atr_pct: float = 0.6,
     htf_trend: str = "up",
+    htf_4h_trend: int = 1,
+    entry_zone: str = "fvg_bullish",
     normalized_imbalance: float = 0.4,
     trained_model_prob: float = None,
 ) -> EntrySignal:
@@ -61,6 +67,8 @@ def _make_signal(
         "adx": adx,
         "atr_pct": atr_pct,
         "htf_trend": htf_trend,
+        "htf_4h_trend": htf_4h_trend,
+        "entry_zone": entry_zone,
         "normalized_imbalance": normalized_imbalance,
     }
     if trained_model_prob is not None:
@@ -68,7 +76,7 @@ def _make_signal(
     
     return EntrySignal(
         should_enter=True,
-        side="BUY",
+        side=side,
         confidence=confidence,
         rr_ratio=rr_ratio,
         metadata=metadata,

@@ -222,6 +222,9 @@ def _build_quality_gate_bot() -> TradingBot:
     bot.quality_gate_min_abs_imbalance = 0.08
     bot.quality_gate_allow_chop = False
     bot.quality_gate_require_htf_trend = False
+    bot.quality_gate_countertrend_min_confidence = 0.82
+    bot.quality_gate_countertrend_min_abs_imbalance = 0.20
+    bot.quality_gate_no_zone_min_confidence = 0.84
     return bot
 
 
@@ -236,6 +239,8 @@ def test_quality_gate_rejects_low_expected_edge():
             "regime": "trend",
             "adx": 25,
             "atr_pct": 0.5,
+            "entry_zone": "fvg_bullish",
+            "htf_4h_trend": 1,
             "htf_trend": "up",
             "normalized_imbalance": 0.3,
         },
@@ -284,3 +289,47 @@ def test_quality_gate_passes_strong_signal():
     assert ok is True
     assert reason == "ok"
     assert meta.get("quality_expected_edge", 0) > 0.75
+
+
+def test_quality_gate_rejects_countertrend_without_strong_confirmation():
+    bot = _build_quality_gate_bot()
+    signal = EntrySignal(
+        should_enter=True,
+        side="SELL",
+        confidence=0.79,
+        rr_ratio=3.0,
+        metadata={
+            "regime": "trend",
+            "adx": 25,
+            "atr_pct": 0.5,
+            "htf_trend": "up",
+            "htf_4h_trend": 1,
+            "entry_zone": "ob_bearish",
+            "normalized_imbalance": -0.35,
+        },
+    )
+    ok, reason, _ = bot._passes_signal_quality_gate("LYNUSDT", signal)
+    assert ok is False
+    assert reason == "countertrend_low_confidence"
+
+
+def test_quality_gate_rejects_no_zone_low_confidence():
+    bot = _build_quality_gate_bot()
+    signal = EntrySignal(
+        should_enter=True,
+        side="BUY",
+        confidence=0.81,
+        rr_ratio=3.0,
+        metadata={
+            "regime": "trend",
+            "adx": 30,
+            "atr_pct": 0.7,
+            "htf_trend": "up",
+            "htf_4h_trend": 1,
+            "entry_zone": "no_zone",
+            "normalized_imbalance": 0.45,
+        },
+    )
+    ok, reason, _ = bot._passes_signal_quality_gate("LYNUSDT", signal)
+    assert ok is False
+    assert reason == "no_zone_low_confidence"
