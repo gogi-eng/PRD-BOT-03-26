@@ -1,0 +1,15 @@
+[
+  {
+    "symbol": "BTCUSDT",
+    "result": "win"
+  },
+  {
+    "symbol": "AAAUSDT",
+    "source": "signal_only_feedback",
+    "result": "win",
+    "exit_reason": "take_profit",
+    "pnl_pct": 1.2,
+    "entry_time": "2026-03-19T00:00:00+00:00",
+    "exit_time": "2026-03-19T00:20:00+00:00"
+  }
+]

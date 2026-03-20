@@ -19,7 +19,7 @@ trading:
   leverage: 15
   margin_total_pct: 8.0
   risk_per_trade_pct: 0.4
-  max_positions: 6
+  max_positions: 5
   min_position_usdt: 5.0
   trailing_stop_pct: 1.2
   tp_pct: 1.8
@@ -88,11 +88,11 @@ exit:
 risk:
   max_daily_loss_pct: 4.0
   max_daily_loss_usdt: 50
-  max_trades_per_day: 25
-  max_consecutive_losses: 6
-  cooldown_after_loss_sec: 120
+  max_trades_per_day: 14
+  max_consecutive_losses: 5
+  cooldown_after_loss_sec: 600
   cooldown_after_stop_hours: 0.5
-  max_trades_per_symbol_24h: 3
+  max_trades_per_symbol_24h: 2
   reduce_after_losses: 3
   reduction_factor: 0.5
 
@@ -175,12 +175,17 @@ feedback_loop:
   enabled: true
   notify_labeling: true
   max_pending_hours: 12
-  dataset_path: "training_data.json"
+  dataset_path: "signal_only_feedback_data.json"
+  base_dataset_path: "training_data.json"
   queue_path: "signal_feedback_queue.json"
   state_path: "signal_feedback_state.json"
   retrain_daily: true
   retrain_hour_utc: 1
   min_new_labels_for_retrain: 8
+  use_merged_dataset_for_retrain: true
+  apply_to_risk_guard: true
+  min_feedback_label_abs_pnl_pct: 0.4
+  min_feedback_label_hold_minutes: 8
   train_epochs: 220
   train_lr: 0.002
   train_batch_size: 32
@@ -202,3 +207,26 @@ quality_gate:
   countertrend_min_confidence: 0.82
   countertrend_min_abs_imbalance: 0.20
   no_zone_min_confidence: 0.84
+
+symbol_quality:
+  enabled: true
+  dataset_path: "signal_only_feedback_data.json"
+  feedback_only: true
+  whitelist_bypass: true
+  min_trades: 4
+  min_winrate: 0.35
+  min_avg_pnl_pct: -0.8
+  max_recent_losses: 3
+  lookback_per_symbol: 30
+  cache_ttl_sec: 180
+
+correlation:
+  enabled: true
+  threshold: 0.75
+  max_correlated: 1
+  lookback: 50
+
+mtf_zone_confirmation:
+  enabled: true
+  require_any_zone: false
+  min_confidence_if_single_tf: 0.78

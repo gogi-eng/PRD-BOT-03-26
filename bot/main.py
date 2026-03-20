@@ -21,6 +21,7 @@ if str(BOT_DIR) not in sys.path:
     sys.path.insert(0, str(BOT_DIR))
 
 from analysis.ai_analyzer import AITradeAnalyzer
+from analysis.correlation_filter import CorrelationFilter
 from analysis.feature_engineering import FeatureEngineer
 from analysis.liquidation_clusters import LiquidationCluster, LiquidationClusterDetector, LiquidationAnalysis
 from analysis.liquidity_heatmap import LiquidityHeatmap
@@ -41,6 +42,7 @@ from engine.position_manager import Position, PositionManager
 from engine.risk_manager import RiskGuard
 from engine.rl_position_agent import RLAction, RLPositionAgent
 from engine.signal_feedback_loop import SignalFeedbackLoop
+from engine.symbol_quality_filter import SymbolQualityFilter
 from exchange.bybit_client import BybitClient
 from portfolio_profit_lock import PortfolioProfitLock
 from tg.controller import TelegramController
@@ -222,6 +224,33 @@ class TradingBot:
         self.quality_gate_no_zone_min_confidence = float(
             self.cfg.get("quality_gate", "no_zone_min_confidence", default=0.84)
         )
+        self.correlation_filter_enabled = self.cfg.get("correlation", "enabled", default=True)
+        self.correlation_filter = CorrelationFilter(
+            threshold=float(self.cfg.get("correlation", "threshold", default=0.75)),
+            max_correlated=int(self.cfg.get("correlation", "max_correlated", default=1)),
+            lookback=int(self.cfg.get("correlation", "lookback", default=50)),
+        )
+        self.mtf_zone_enabled = self.cfg.get("mtf_zone_confirmation", "enabled", default=True)
+        self.mtf_zone_require_any_zone = self.cfg.get("mtf_zone_confirmation", "require_any_zone", default=False)
+        self.mtf_zone_min_confidence_if_single_tf = float(
+            self.cfg.get("mtf_zone_confirmation", "min_confidence_if_single_tf", default=0.78)
+        )
+        self.symbol_quality_filter = SymbolQualityFilter(BOT_DIR, self.cfg)
+        self.feedback_use_merged_dataset_for_retrain = self.cfg.get(
+            "feedback_loop", "use_merged_dataset_for_retrain", default=True
+        )
+        self.feedback_apply_to_risk_guard = self.cfg.get(
+            "feedback_loop", "apply_to_risk_guard", default=True
+        )
+        self.feedback_base_dataset_path = BOT_DIR / self.cfg.get(
+            "feedback_loop", "base_dataset_path", default="training_data.json"
+        )
+        self.feedback_min_label_abs_pnl_pct = float(
+            self.cfg.get("feedback_loop", "min_feedback_label_abs_pnl_pct", default=0.4)
+        )
+        self.feedback_min_label_hold_minutes = float(
+            self.cfg.get("feedback_loop", "min_feedback_label_hold_minutes", default=8.0)
+        )
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -347,6 +376,17 @@ class TradingBot:
                 f"(min_conf={self.quality_gate_min_confidence:.2f}, "
                 f"min_edge={self.quality_gate_min_expected_edge:.2f})"
             )
+        logger.info(
+            f"Correlation filter: {'ON' if self.correlation_filter_enabled else 'OFF'} "
+            f"(thr={self.correlation_filter.threshold:.2f})"
+        )
+        logger.info(
+            f"MTF zone confirmation: {'ON' if self.mtf_zone_enabled else 'OFF'} "
+            f"(single_tf_min_conf={self.mtf_zone_min_confidence_if_single_tf:.2f})"
+        )
+        logger.info(
+            f"Symbol quality filter: {'ON' if self.symbol_quality_filter.enabled else 'OFF'}"
+        )
 
         ok, err = self.security.validate_bybit_keys()
         if not ok:
@@ -592,6 +632,15 @@ class TradingBot:
             if self.position_manager.has(symbol):
                 mark_reject("already_in_position")
                 continue
+
+            quality_allowed, quality_reason, quality_stats = self.symbol_quality_filter.allow(
+                symbol,
+                is_whitelisted=symbol in self.whitelist,
+            )
+            if not quality_allowed:
+                mark_reject(f"symbol_quality_{quality_reason}")
+                continue
+
             allowed, _ = self.risk_guard.can_trade(symbol)
             if not allowed:
                 mark_reject("risk_blocked")
@@ -612,6 +661,21 @@ class TradingBot:
                             mark_reject(f"quality_gate_{gate_reason}")
                             continue
                         signal.metadata.update(gate_meta)
+
+                    same_side_peers = self._same_side_peer_symbols(signal.side, candidates)
+                    corr_ok, corr_reason = await self._passes_correlation_filter(symbol, same_side_peers)
+                    if not corr_ok:
+                        logger.info(f"CORRELATION REJECT {symbol}: {corr_reason}")
+                        mark_reject("correlation_blocked")
+                        continue
+
+                    signal.metadata.update(
+                        {
+                            "symbol_quality_trades": quality_stats.get("trades", 0),
+                            "symbol_quality_winrate": quality_stats.get("winrate", 0.0),
+                            "symbol_quality_avg_pnl": quality_stats.get("avg_pnl", 0.0),
+                        }
+                    )
 
                     candidates.append(
                         {
@@ -722,6 +786,7 @@ class TradingBot:
         self.controls.set_heatmap(symbol, liq)
 
         zone_context = self.structure_zone_analyzer.analyze(htf_klines, current_price)
+        zone_context_4h = self.structure_zone_analyzer.analyze(htf_4h_klines, current_price)
 
         regime = self.regime_ai.classify(market)
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
@@ -746,6 +811,25 @@ class TradingBot:
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
+
+        if self.mtf_zone_enabled:
+            zone_15m_ok = signal.metadata.get("entry_zone", "no_zone") != "no_zone"
+            zone_4h_ok = self._zone_matches_side(zone_context_4h, current_price, signal.side)
+            confirmations = int(zone_15m_ok) + int(zone_4h_ok)
+
+            signal.metadata.update(
+                {
+                    "zone_confirm_15m": zone_15m_ok,
+                    "zone_confirm_4h": zone_4h_ok,
+                    "zone_confirm_count": confirmations,
+                }
+            )
+
+            if self.mtf_zone_require_any_zone and confirmations == 0:
+                return reject("mtf_zone_missing")
+
+            if confirmations == 1 and signal.confidence < self.mtf_zone_min_confidence_if_single_tf:
+                return reject("mtf_single_tf_low_confidence")
 
         liquidity = sum(float(item.get("volume", 0.0)) for item in klines[-30:]) * current_price
         signal.metadata.update({
@@ -901,6 +985,11 @@ class TradingBot:
         if outcomes:
             wins = sum(1 for item in outcomes if item.record.get("result") == "win")
             losses = len(outcomes) - wins
+            if self.feedback_apply_to_risk_guard:
+                for item in outcomes:
+                    symbol = str(item.record.get("symbol", ""))
+                    pnl_proxy = 1.0 if item.record.get("result") == "win" else -1.0
+                    self.risk_guard.record_trade(pnl_proxy, symbol=symbol)
             logger.info(
                 f"[FEEDBACK] resolved={len(outcomes)} win={wins} loss={losses} "
                 f"dataset={self.signal_feedback.dataset_path.name}"
@@ -923,9 +1012,10 @@ class TradingBot:
             from train_transformer import train as train_transformer_model
 
             output_path = str(self.entry_engine._resolve_weights_path())
+            data_path = self._build_retrain_dataset()
             success = await asyncio.to_thread(
                 train_transformer_model,
-                data_path=str(self.signal_feedback.dataset_path),
+                data_path=str(data_path),
                 epochs=self.feedback_train_epochs,
                 lr=self.feedback_train_lr,
                 batch_size=self.feedback_train_batch_size,
@@ -1158,6 +1248,114 @@ class TradingBot:
                 return False, "flat_htf_trend", {"quality_expected_edge": round(expected_edge, 4)}
 
         return True, "ok", {"quality_expected_edge": round(expected_edge, 4), "quality_gate_symbol": symbol}
+
+    @staticmethod
+    def _zone_matches_side(zone_context, current_price: float, side: str) -> bool:
+        if zone_context is None:
+            return False
+        side_up = str(side).upper()
+        if side_up in {"BUY", "LONG"}:
+            return (
+                zone_context.price_in_bullish_zone(current_price) is not None
+                or zone_context.price_near_bullish_zone(current_price, 0.4) is not None
+            )
+        return (
+            zone_context.price_in_bearish_zone(current_price) is not None
+            or zone_context.price_near_bearish_zone(current_price, 0.4) is not None
+        )
+
+    async def _update_correlation_cache(self, symbol: str):
+        lookback = max(int(self.correlation_filter.lookback), 20)
+        klines = await self.client.get_klines(symbol, self.candle_interval, lookback + 5)
+        closes = [float(item.get("close", 0.0) or 0.0) for item in klines if float(item.get("close", 0.0) or 0.0) > 0]
+        if len(closes) >= 10:
+            self.correlation_filter.update_prices(symbol, closes)
+
+    async def _passes_correlation_filter(self, symbol: str, same_side_symbols: list[str]) -> tuple[bool, str]:
+        if not self.correlation_filter_enabled or not same_side_symbols:
+            return True, ""
+        try:
+            await self._update_correlation_cache(symbol)
+            for peer in same_side_symbols:
+                await self._update_correlation_cache(peer)
+            should_filter, reason = self.correlation_filter.should_filter(symbol, same_side_symbols)
+            return (not should_filter), reason
+        except Exception as exc:
+            logger.warning(f"Correlation filter error for {symbol}: {exc}")
+            return True, ""
+
+    def _same_side_peer_symbols(self, side: str, candidates: list[dict]) -> list[str]:
+        side_up = str(side).upper()
+        peers = []
+        for symbol in self.position_manager.symbols():
+            pos = self.position_manager.get(symbol)
+            if pos and str(pos.side).upper() == side_up:
+                peers.append(symbol)
+        for item in candidates:
+            sig = item.get("signal")
+            if sig and str(sig.side).upper() == side_up:
+                peers.append(item.get("symbol", ""))
+        return [s for s in self._unique_symbols(peers) if s]
+
+    @staticmethod
+    def _parse_iso_dt(value: str):
+        try:
+            dt = datetime.fromisoformat(str(value))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            return None
+
+    def _is_quality_feedback_record(self, record: dict) -> bool:
+        if record.get("source") != "signal_only_feedback":
+            return False
+        if record.get("exit_reason") not in {"stop_loss", "take_profit"}:
+            return False
+        abs_pnl = abs(float(record.get("pnl_pct", 0.0) or 0.0))
+        if abs_pnl < self.feedback_min_label_abs_pnl_pct:
+            return False
+        entry_dt = self._parse_iso_dt(record.get("entry_time"))
+        exit_dt = self._parse_iso_dt(record.get("exit_time"))
+        if not entry_dt or not exit_dt:
+            return False
+        hold_minutes = (exit_dt - entry_dt).total_seconds() / 60.0
+        return hold_minutes >= self.feedback_min_label_hold_minutes
+
+    def _build_retrain_dataset(self) -> Path:
+        if not self.feedback_use_merged_dataset_for_retrain:
+            return self.signal_feedback.dataset_path
+
+        base_rows = []
+        feedback_rows = []
+        if self.feedback_base_dataset_path.exists():
+            try:
+                with open(self.feedback_base_dataset_path, "r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                    if isinstance(loaded, list):
+                        base_rows = [row for row in loaded if row.get("result") in {"win", "loss"}]
+            except Exception as exc:
+                logger.warning(f"Failed to read base dataset for retrain: {exc}")
+
+        if self.signal_feedback.dataset_path.exists():
+            try:
+                with open(self.signal_feedback.dataset_path, "r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                    if isinstance(loaded, list):
+                        feedback_rows = [row for row in loaded if self._is_quality_feedback_record(row)]
+            except Exception as exc:
+                logger.warning(f"Failed to read feedback dataset for retrain: {exc}")
+
+        merged = base_rows + feedback_rows
+        output_path = BOT_DIR / "training_data_merged.json"
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(merged, handle, ensure_ascii=False, indent=2)
+
+        logger.info(
+            f"[FEEDBACK] Retrain dataset prepared: base={len(base_rows)} "
+            f"quality_feedback={len(feedback_rows)} total={len(merged)}"
+        )
+        return output_path
 
     def _unique_symbols(self, symbols: list[str]) -> list[str]:
         unique = []
