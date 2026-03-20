@@ -378,11 +378,11 @@ class TestRiskManagementConfig:
         value = cfg.get("trading", "max_positions", default=3)
         assert value == 5  # Config value
 
-    def test_feedback_apply_to_risk_guard_enabled(self):
-        """Verify feedback outcomes feed into risk guard"""
+    def test_feedback_apply_to_risk_guard_disabled(self):
+        """Verify feedback outcomes DO NOT throttle signal-only via risk guard"""
         cfg = BotConfig.load("/app/bot/config.yaml")
         value = cfg.get("feedback_loop", "apply_to_risk_guard", default=False)
-        assert value is True
+        assert value is False
 
 
 # =============================================================================
@@ -463,9 +463,9 @@ class TestIteration21Integration:
         assert hasattr(bot, 'feedback_use_merged_dataset_for_retrain')
         assert bot.feedback_use_merged_dataset_for_retrain is True
         
-        # Feedback apply to risk guard
+        # Feedback apply to risk guard (disabled for signal-only mode)
         assert hasattr(bot, 'feedback_apply_to_risk_guard')
-        assert bot.feedback_apply_to_risk_guard is True
+        assert bot.feedback_apply_to_risk_guard is False
 
     def test_symbol_quality_metadata_in_signal(self):
         """Verify symbol quality stats are added to signal metadata"""

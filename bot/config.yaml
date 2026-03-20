@@ -183,7 +183,7 @@ feedback_loop:
   retrain_hour_utc: 1
   min_new_labels_for_retrain: 8
   use_merged_dataset_for_retrain: true
-  apply_to_risk_guard: true
+  apply_to_risk_guard: false
   min_feedback_label_abs_pnl_pct: 0.4
   min_feedback_label_hold_minutes: 8
   train_epochs: 220

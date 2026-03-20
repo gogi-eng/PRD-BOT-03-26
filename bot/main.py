@@ -240,7 +240,7 @@ class TradingBot:
             "feedback_loop", "use_merged_dataset_for_retrain", default=True
         )
         self.feedback_apply_to_risk_guard = self.cfg.get(
-            "feedback_loop", "apply_to_risk_guard", default=True
+            "feedback_loop", "apply_to_risk_guard", default=False
         )
         self.feedback_base_dataset_path = BOT_DIR / self.cfg.get(
             "feedback_loop", "base_dataset_path", default="training_data.json"
@@ -985,7 +985,7 @@ class TradingBot:
         if outcomes:
             wins = sum(1 for item in outcomes if item.record.get("result") == "win")
             losses = len(outcomes) - wins
-            if self.feedback_apply_to_risk_guard:
+            if self.feedback_apply_to_risk_guard and (not self.signal_only):
                 for item in outcomes:
                     symbol = str(item.record.get("symbol", ""))
                     pnl_proxy = 1.0 if item.record.get("result") == "win" else -1.0

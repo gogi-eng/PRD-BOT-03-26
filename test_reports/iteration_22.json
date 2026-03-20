@@ -1,0 +1,58 @@
+{
+  "summary": "Bug fix verification for signal-only mode cooldown issue. Bot was fully blocked every cycle with 'Trading blocked: Cooldown: ...' in signal-only mode after feedback-loop updates. Root cause: feedback losses feeding RiskGuard cooldown via record_trade() in signal-only mode. Fix confirmed: (1) config.yaml: apply_to_risk_guard=false, (2) main.py: double guard 'feedback_apply_to_risk_guard and (not self.signal_only)' prevents record_trade calls in signal-only mode.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 22 Bug Fix Tests (13 total) ---",
+    "TestConfigFix::test_apply_to_risk_guard_is_false_in_config",
+    "TestConfigFix::test_signal_only_is_true_in_config",
+    "TestMainPyCodeFix::test_process_signal_feedback_loop_has_signal_only_guard",
+    "TestMainPyCodeFix::test_record_trade_call_is_inside_double_guard",
+    "TestTradingBotInitialization::test_bot_initializes_with_correct_flags",
+    "TestSignalOnlyModeDoesNotThrottle::test_feedback_outcomes_do_not_call_record_trade_in_signal_only_mode",
+    "TestSignalOnlyModeDoesNotThrottle::test_even_with_apply_to_risk_guard_true_signal_only_blocks",
+    "TestSignalOnlyModeDoesNotThrottle::test_record_trade_called_only_when_not_signal_only",
+    "TestRegressionIteration21Features::test_feedback_apply_to_risk_guard_config_option_exists",
+    "TestRegressionIteration21Features::test_signal_feedback_loop_enabled",
+    "TestRegressionIteration21Features::test_mtf_zone_confirmation_still_enabled",
+    "TestRegressionIteration21Features::test_symbol_quality_filter_still_enabled",
+    "TestRegressionIteration21Features::test_correlation_filter_still_enabled",
+    "--- Iteration 21 Regression Tests (29 total) ---",
+    "All 29 tests from test_iteration21_full_feature_verification.py PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration22_signal_only_cooldown_fix.py",
+    "/app/backend/tests/test_iteration21_full_feature_verification.py",
+    "/app/test_reports/pytest/pytest_results_iteration22.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml line 186: apply_to_risk_guard: false - CORRECT, prevents synthetic feedback losses from triggering RiskGuard",
+    "main.py line 988: 'if self.feedback_apply_to_risk_guard and (not self.signal_only):' - CORRECT double guard ensures record_trade never called in signal-only mode",
+    "main.py line 992: risk_guard.record_trade() is only called when BOTH conditions true (apply_to_risk_guard=True AND signal_only=False)",
+    "Fix is comprehensive: even if someone sets apply_to_risk_guard=True in config, signal_only=True will still block record_trade calls"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration22_signal_only_cooldown_fix.py (created - 13 tests)"
+  ],
+  "success_rate": {
+    "backend": "42/42 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bug fix verified: Signal-only mode cooldown issue resolved. Root cause was feedback losses calling risk_guard.record_trade() in _process_signal_feedback_loop(). Fix: (1) config.yaml: apply_to_risk_guard=false (default), (2) main.py line 988: double guard 'feedback_apply_to_risk_guard and (not self.signal_only)' ensures record_trade is NEVER called in signal-only mode, even if apply_to_risk_guard is True. All iteration 21 features still working.",
+  "rca_of_the_issue": {
+    "issue": "Bot fully blocked every cycle with 'Trading blocked: Cooldown: ...' in signal-only mode",
+    "root_cause": "_process_signal_feedback_loop() was calling risk_guard.record_trade(pnl_proxy) for every synthetic feedback outcome (win/loss labeling). In signal-only mode, synthetic 'loss' outcomes triggered RiskGuard cooldown periods, blocking trading.",
+    "fix_applied": "1. config.yaml: Set feedback_loop.apply_to_risk_guard=false (line 186). 2. main.py: Added double guard at line 988: 'if self.feedback_apply_to_risk_guard and (not self.signal_only):' - ensures record_trade never called in signal-only mode regardless of config.",
+    "verification": "13 targeted tests verify: config value is false, code has double guard, signal-only mode blocks record_trade calls in all scenarios"
+  }
+}
