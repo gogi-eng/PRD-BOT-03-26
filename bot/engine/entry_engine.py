@@ -103,6 +103,7 @@ class EntryEngine:
         self.min_target_profit_pct = cfg.get("entry", "min_target_profit_pct", default=1.2)
         self.min_stop_distance_pct = cfg.get("entry", "min_stop_distance_pct", default=0.5)
         self.min_stop_atr_mult = cfg.get("entry", "min_stop_atr_mult", default=0.9)
+        self.require_structural_tp = cfg.get("entry", "require_structural_tp", default=False)
         self.sl_buffer_atr_mult = cfg.get("entry", "sl_buffer_atr_mult", default=0.5)
         self.max_entry_extension_atr = cfg.get("entry", "max_entry_extension_atr", default=0.75)
         self.entry_range_atr_mult = cfg.get("entry", "entry_range_atr_mult", default=0.22)
@@ -398,6 +399,7 @@ class EntryEngine:
         # COMPUTE SL / TP
         # =====================================================
         bos = structure.last_bos if has_structure else None
+        tp_confirmed_by_structure = False
 
         if is_long:
             if has_structure and structure.sweep_low > 0:
@@ -406,9 +408,19 @@ class EntryEngine:
                 sl = zone_context.structural_sl_long(current_price, atr_value)
             else:
                 sl = current_price - atr_value * 2.5
-            tp1 = structure.previous_high if has_structure and structure.previous_high > current_price else current_price + atr_value * 3.0
+            if has_structure and structure.previous_high > current_price:
+                tp1 = structure.previous_high
+                tp_confirmed_by_structure = True
+            else:
+                tp1 = current_price + atr_value * 3.0
             if zone_context:
+                has_struct_targets = bool(
+                    [z.low for z in zone_context.all_bearish_zones if not z.mitigated and z.low > current_price]
+                    or [r for r in zone_context.resistance_levels if r > current_price]
+                )
                 _, struct_tp2 = zone_context.structural_tp_long(current_price, atr_value)
+                if has_struct_targets:
+                    tp_confirmed_by_structure = True
                 tp2 = max(struct_tp2, tp1)
             else:
                 tp2 = tp1 + atr_value * 2.0
@@ -421,14 +433,31 @@ class EntryEngine:
                 sl = zone_context.structural_sl_short(current_price, atr_value)
             else:
                 sl = current_price + atr_value * 2.5
-            tp1 = structure.previous_low if has_structure and structure.previous_low < current_price else current_price - atr_value * 3.0
+            if has_structure and structure.previous_low < current_price:
+                tp1 = structure.previous_low
+                tp_confirmed_by_structure = True
+            else:
+                tp1 = current_price - atr_value * 3.0
             if zone_context:
+                has_struct_targets = bool(
+                    [z.high for z in zone_context.all_bullish_zones if not z.mitigated and z.high < current_price]
+                    or [s for s in zone_context.support_levels if s < current_price]
+                )
                 _, struct_tp2 = zone_context.structural_tp_short(current_price, atr_value)
+                if has_struct_targets:
+                    tp_confirmed_by_structure = True
                 tp2 = min(struct_tp2, tp1)
             else:
                 tp2 = tp1 - atr_value * 2.0
             if liq_analysis.target_level > 0 and liq_analysis.target_level < current_price and liq_analysis.signal < 0:
                 tp2 = min(tp2, liq_analysis.target_level)
+
+        if self.require_structural_tp and not tp_confirmed_by_structure:
+            signal.metadata = {
+                "reject_reason": "tp_not_structural",
+                "composite_score": composite,
+            }
+            return signal
 
         # Enforce minimum stop distance (price% floor + ATR floor)
         min_stop_dist = max(
@@ -543,6 +572,7 @@ class EntryEngine:
             "liq_magnet": liq_analysis.magnet_direction,
             "tp1_level": tp1,
             "tp2_level": tp2,
+            "tp_confirmed_by_structure": tp_confirmed_by_structure,
             "entry_zone": f"{active_zone.kind}_{active_zone.bias}" if active_zone else "no_zone",
             "struct_trend": struct_trend,
             "has_bos": bos is not None,

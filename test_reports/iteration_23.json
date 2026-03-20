@@ -1,0 +1,69 @@
+{
+  "summary": "Feature verification for stricter TP policy: require_structural_tp=true. Entry engine now rejects signals when TP is not confirmed by structural levels (no ATR fallback-only TP). All 42 tests passed including 17 new feature tests and 25 regression tests.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 23 Feature Tests (17 total) ---",
+    "TestConfigHasStructuralTPRequirement::test_require_structural_tp_is_true_in_config",
+    "TestBuyPathStructuralTPDetection::test_buy_accepted_with_structural_previous_high",
+    "TestBuyPathStructuralTPDetection::test_buy_accepted_with_zone_resistance_levels",
+    "TestBuyPathStructuralTPDetection::test_buy_rejected_without_structural_targets",
+    "TestBuyPathStructuralTPDetection::test_buy_allowed_when_feature_disabled",
+    "TestSellPathStructuralTPDetection::test_sell_accepted_with_structural_previous_low",
+    "TestSellPathStructuralTPDetection::test_sell_accepted_with_zone_support_levels",
+    "TestSellPathStructuralTPDetection::test_sell_rejected_without_structural_targets",
+    "TestSellPathStructuralTPDetection::test_sell_allowed_when_feature_disabled",
+    "TestMetadataContainsTPConfirmedByStructure::test_accepted_buy_has_tp_confirmed_by_structure_true",
+    "TestMetadataContainsTPConfirmedByStructure::test_accepted_sell_has_tp_confirmed_by_structure_true",
+    "TestMetadataContainsTPConfirmedByStructure::test_rejected_signal_has_composite_score_in_metadata",
+    "TestZoneContextStructuralTargets::test_buy_accepted_with_bearish_zone_above_price",
+    "TestZoneContextStructuralTargets::test_sell_accepted_with_bullish_zone_below_price",
+    "TestNoRegressions::test_spread_rejection_still_works",
+    "TestNoRegressions::test_score_below_threshold_still_works",
+    "TestNoRegressions::test_rr_check_still_enforced_after_structural_tp",
+    "--- Entry Engine V6 Regression Tests (16 total) ---",
+    "All 16 tests from test_entry_engine_v6.py PASSED",
+    "--- Signal Feedback Loop & SL Validation Tests (9 total) ---",
+    "All 9 tests from test_signal_feedback_loop_and_sl_validation.py PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration23_structural_tp_requirement.py",
+    "/app/backend/tests/test_entry_engine_v6.py",
+    "/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py",
+    "/app/test_reports/pytest/pytest_results_iteration23.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml line 35: require_structural_tp: true - CORRECTLY ENABLED",
+    "entry_engine.py line 106: self.require_structural_tp loaded from config with default=False",
+    "entry_engine.py lines 402-454: tp_confirmed_by_structure detection logic correctly handles both BUY and SELL paths",
+    "BUY path: structure.previous_high > price OR zone_context.resistance_levels OR bearish_zones.low > price",
+    "SELL path: structure.previous_low < price OR zone_context.support_levels OR bullish_zones.high < price",
+    "entry_engine.py lines 455-460: Rejection with reject_reason=tp_not_structural when require_structural_tp=true and no structural targets found",
+    "entry_engine.py line 575: metadata includes tp_confirmed_by_structure for accepted signals"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration23_structural_tp_requirement.py (created - 17 tests)"
+  ],
+  "success_rate": {
+    "backend": "42/42 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Stricter TP policy verified: require_structural_tp=true in config. Entry engine rejects signals with reject_reason=tp_not_structural when no structural targets exist. Structural targets include: structure.previous_high/low, zone_context.resistance/support_levels, and bearish/bullish zones above/below price. All regression tests pass.",
+  "feature_verification": {
+    "require_structural_tp_in_config": true,
+    "rejection_reason_tp_not_structural": "Verified - signals without structural targets are rejected",
+    "allows_signal_with_structural_tp": "Verified - signals with structure.previous_high/low, resistance/support levels, or zones pass",
+    "metadata_tp_confirmed_by_structure": "Verified - accepted signals include tp_confirmed_by_structure=true in metadata",
+    "no_regressions": "Verified - all 25 existing entry engine and quality gate tests pass"
+  }
+}
