@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Callable
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -27,11 +27,13 @@ class TelegramController:
 
     def __init__(self, token: str, controls: "LiveControls", *,
                  allowed_chat_id: Optional[int] = None,
-                 stop_event: Optional[threading.Event] = None):
+                 stop_event: Optional[threading.Event] = None,
+                 mode_switcher: Optional[Callable[[bool], tuple[bool, str]]] = None):
         self.token = token
         self.controls = controls
         self.allowed_chat_id = allowed_chat_id
         self.stop_event = stop_event
+        self.mode_switcher = mode_switcher
         self._last_menu_id: dict[int, int] = {}
         self._profit_lock = None
 
@@ -92,6 +94,7 @@ class TelegramController:
         c = self.controls
         ai_btn = f"AI {'ON' if c.ai_enabled else 'OFF'}"
         rl_btn = f"RL {'ON' if c.rl_enabled else 'OFF'}"
+        mode_btn = "SIGNAL-ONLY" if getattr(c, "signal_only", True) else "LIVE"
 
         rows = [
             [
@@ -123,6 +126,9 @@ class TelegramController:
                 InlineKeyboardButton("Сброс Guard", callback_data="RESET_GUARD"),
             ],
             [
+                InlineKeyboardButton(f"Режим исполнения: {mode_btn}", callback_data="SWITCH_MODE_PROMPT"),
+            ],
+            [
                 InlineKeyboardButton("АВАРИЙНАЯ ОСТАНОВКА", callback_data="EMERGENCY"),
             ],
             [
@@ -141,6 +147,7 @@ class TelegramController:
             status = "ПАУЗА"
 
         mode = "ТЕСТ" if c.dry_run else "LIVE"
+        execution_mode = "SIGNAL-ONLY" if getattr(c, "signal_only", True) else "LIVE"
 
         lines = [
             "<b>ТОРГОВЫЙ БОТ v8.0</b>",
@@ -148,6 +155,7 @@ class TelegramController:
             "",
             f"Статус: <b>{status}</b>",
             f"Режим: {mode}",
+            f"Исполнение: <b>{execution_mode}</b>",
             "Стратегия: Transformer + Heatmap + Orderflow",
             f"AI: <code>{'ON' if c.ai_enabled else 'OFF'}</code> | RL: <code>{'ON' if c.rl_enabled else 'OFF'}</code>",
             "",
@@ -305,6 +313,38 @@ class TelegramController:
                 await query.message.reply_text("<b>Guard сброшен!</b>\nСерия убытков обнулена.", parse_mode=ParseMode.HTML)
             else:
                 await query.message.reply_text("Guard не подключён", parse_mode=ParseMode.HTML)
+        elif action == "SWITCH_MODE_PROMPT":
+            current_signal_only = bool(getattr(c, "signal_only", True))
+            target_signal_only = not current_signal_only
+            target_label = "SIGNAL-ONLY" if target_signal_only else "LIVE"
+            kb = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("Подтвердить", callback_data=("SWITCH_MODE_CONFIRM_SIGNAL" if target_signal_only else "SWITCH_MODE_CONFIRM_LIVE")),
+                    InlineKeyboardButton("Отмена", callback_data="SWITCH_MODE_CANCEL"),
+                ]
+            ])
+            await query.message.reply_text(
+                "<b>ПОДТВЕРЖДЕНИЕ СМЕНЫ РЕЖИМА</b>\n\n"
+                f"Текущий режим: <code>{'SIGNAL-ONLY' if current_signal_only else 'LIVE'}</code>\n"
+                f"Новый режим: <code>{target_label}</code>\n\n"
+                "Подтвердить переключение?",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+            return
+        elif action in {"SWITCH_MODE_CONFIRM_SIGNAL", "SWITCH_MODE_CONFIRM_LIVE"}:
+            target_signal_only = action == "SWITCH_MODE_CONFIRM_SIGNAL"
+            if not self.mode_switcher:
+                await query.message.reply_text("Переключение режима недоступно", parse_mode=ParseMode.HTML)
+                return
+            ok, msg = self.mode_switcher(target_signal_only)
+            await query.message.reply_text(
+                f"<b>{'ГОТОВО' if ok else 'ОШИБКА'}</b>\n{msg}",
+                parse_mode=ParseMode.HTML,
+            )
+        elif action == "SWITCH_MODE_CANCEL":
+            await query.message.reply_text("Переключение режима отменено", parse_mode=ParseMode.HTML)
+            return
         elif action == "EMERGENCY":
             c.enabled = False
             c.emergency = True

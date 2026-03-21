@@ -18,6 +18,7 @@ class LiveControls:
 
     enabled: bool = True
     dry_run: bool = False
+    signal_only: bool = True
     emergency: bool = False
 
     leverage: int = 10

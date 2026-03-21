@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import yaml
 
 from dotenv import load_dotenv
 
@@ -79,6 +80,7 @@ class TradingBot:
         self.controls = LiveControls(
             enabled=True,
             dry_run=False,
+            signal_only=self.cfg.get("bot", "signal_only", default=False),
             leverage=self.cfg.get("trading", "leverage", default=5),
             margin_total_pct=self.cfg.get("trading", "margin_total_pct", default=8.0),
             risk_per_trade_pct=self.cfg.get("trading", "risk_per_trade_pct", default=0.5),
@@ -164,7 +166,12 @@ class TradingBot:
         tg_token = self.security.get_key("TELEGRAM_TOKEN")
         tg_chat_id = self.security.get_key("TELEGRAM_CHAT_ID")
         if tg_token:
-            self.tg = TelegramController(token=tg_token, controls=self.controls, allowed_chat_id=int(tg_chat_id) if tg_chat_id else None)
+            self.tg = TelegramController(
+                token=tg_token,
+                controls=self.controls,
+                allowed_chat_id=int(tg_chat_id) if tg_chat_id else None,
+                mode_switcher=self._switch_signal_mode,
+            )
             self.risk_guard.set_notify_callback(self._notify_tg)
 
         self.execution_engine = ExecutionEngine(self.client, self.controls, self.tg)
@@ -189,6 +196,7 @@ class TradingBot:
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
         self.signal_only = self.cfg.get("bot", "signal_only", default=False)
+        self.controls.signal_only = self.signal_only
         self.signal_cooldown_sec = int(self.cfg.get("bot", "signal_cooldown_sec", default=3600) or 0)
         self._last_signal_ts: dict[tuple[str, str], float] = {}
         self.signal_feedback = SignalFeedbackLoop(BOT_DIR, self.cfg)
@@ -940,6 +948,30 @@ class TradingBot:
         if side_up == "SELL" and htf_4h_trend > 0:
             return False, "strict_htf_bull_only"
         return True, ""
+
+    def _switch_signal_mode(self, signal_only: bool) -> tuple[bool, str]:
+        target = bool(signal_only)
+        if self.signal_only == target:
+            return True, f"Режим уже {'SIGNAL-ONLY' if target else 'LIVE'}"
+
+        self.signal_only = target
+        self.controls.signal_only = target
+
+        try:
+            config_path = BOT_DIR / "config.yaml"
+            with open(config_path, "r", encoding="utf-8") as handle:
+                cfg = yaml.safe_load(handle) or {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            cfg.setdefault("bot", {})["signal_only"] = target
+            with open(config_path, "w", encoding="utf-8") as handle:
+                yaml.safe_dump(cfg, handle, sort_keys=False, allow_unicode=True)
+            mode_label = "SIGNAL-ONLY" if target else "LIVE"
+            logger.info(f"[MODE SWITCH] Execution mode changed to {mode_label}")
+            return True, f"Режим переключён: {mode_label}"
+        except Exception as exc:
+            logger.error(f"[MODE SWITCH] Failed to persist mode: {exc}")
+            return False, f"Ошибка сохранения режима: {exc}"
 
     def _resolve_regime_preset(self, regime_value: str) -> tuple[str, bool, float]:
         regime = str(regime_value or "range").lower()
