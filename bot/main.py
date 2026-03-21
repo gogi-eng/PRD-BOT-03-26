@@ -305,6 +305,10 @@ class TradingBot:
         self.max_rl_adds = 1
         self.adopt_all_positions = self.cfg.get("position_sync", "adopt_all_positions", default=True)
         self.preserve_existing_sl_tp = self.cfg.get("position_sync", "preserve_existing_sl_tp", default=True)
+        self.exchange_closed_confirm_cycles = int(
+            self.cfg.get("position_sync", "exchange_closed_confirm_cycles", default=3)
+        )
+        self._missing_exchange_cycles: dict[str, int] = {}
         self.partial_tp_enabled = self.cfg.get("partial_tp", "enabled", default=True)
         self.partial_tp_trigger_progress = self.cfg.get("partial_tp", "trigger_progress", default=0.5)
         self.partial_tp_close_fraction = self.cfg.get("partial_tp", "close_fraction", default=0.5)
@@ -535,6 +539,8 @@ class TradingBot:
             exchange_symbols = {item["symbol"] for item in exchange_positions}
             for symbol in self.position_manager.symbols():
                 if symbol not in exchange_symbols and not self.controls.dry_run:
+                    if not self._should_finalize_exchange_closed(symbol):
+                        continue
                     pos = self.position_manager.remove(symbol)
                     if pos:
                         current_price = await self.client.get_price(symbol)
@@ -543,6 +549,8 @@ class TradingBot:
                         if closed:
                             pnl = float(closed[0].get("closedPnl", 0) or 0)
                         await self._finalize_full_close(symbol, pos, current_price, pnl, "exchange_closed", already_removed=True)
+                else:
+                    self._missing_exchange_cycles.pop(symbol, None)
 
         if self.adopt_all_positions:
             for exchange_position in exchange_positions:
@@ -1223,11 +1231,12 @@ class TradingBot:
             self.signal_feedback.mark_retrain_attempt(success)
 
     async def _finalize_full_close(self, symbol: str, pos: Position, exit_price: float, pnl: float, reason: str, already_removed: bool = False):
+        self._missing_exchange_cycles.pop(symbol, None)
         if not already_removed:
             self.position_manager.remove(symbol)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
         self.controls.add_trade(pnl, symbol, pos.side, reason)
-        self._save_trade(symbol, pos.side, pos.qty, pos.entry_price, exit_price, pnl, reason)
+        self._save_trade(symbol, pos.side, pos.qty, pos.entry_price, exit_price, pnl, reason, origin=pos.origin)
         logger.info(f"CLOSED {symbol}: pnl=${pnl:.2f} reason={reason}")
         if self.tg:
             pnl_pct = self._calc_pnl_pct(pos, exit_price)
@@ -1248,7 +1257,7 @@ class TradingBot:
         pnl = self._calc_pnl(pos, exit_price, qty)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
         self.controls.add_trade(pnl, symbol, pos.side, reason)
-        self._save_trade(symbol, pos.side, qty, pos.entry_price, exit_price, pnl, reason)
+        self._save_trade(symbol, pos.side, qty, pos.entry_price, exit_price, pnl, reason, origin=pos.origin)
         self.position_manager.reduce(symbol, qty)
         logger.info(f"REDUCED {symbol}: qty={qty:.6f} pnl=${pnl:.2f} reason={reason}")
 
@@ -1721,6 +1730,7 @@ class TradingBot:
         symbol = exchange_position.get("symbol", "")
         if not symbol:
             return
+        self._missing_exchange_cycles.pop(symbol, None)
         size = float(exchange_position.get("size", 0) or 0)
         if size <= 0:
             return
@@ -2122,7 +2132,17 @@ class TradingBot:
                 worst_drop = drop_pct
         return worst_symbol, worst_drop
 
-    def _save_trade(self, symbol: str, side: str, qty: float, entry: float, exit_price: float, pnl: float, reason: str):
+    def _save_trade(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        entry: float,
+        exit_price: float,
+        pnl: float,
+        reason: str,
+        origin: str = "bot",
+    ):
         trade = {
             "time": datetime.now(timezone.utc).isoformat(),
             "symbol": symbol,
@@ -2134,6 +2154,7 @@ class TradingBot:
             "pnl_pct": round((pnl / (entry * qty)) * 100, 2) if entry * qty > 0 else 0,
             "strategy": "ai_fund_entry_engine",
             "reason": reason,
+            "origin": origin,
         }
         history_path = BOT_DIR / "trade_history.json"
         try:
@@ -2147,6 +2168,17 @@ class TradingBot:
                 json.dump(history, handle, indent=2, ensure_ascii=False)
         except Exception as exc:
             logger.error(f"Error saving trade: {exc}")
+
+    def _should_finalize_exchange_closed(self, symbol: str) -> bool:
+        required = max(1, int(self.exchange_closed_confirm_cycles))
+        seen = int(self._missing_exchange_cycles.get(symbol, 0)) + 1
+        self._missing_exchange_cycles[symbol] = seen
+        if seen < required:
+            logger.info(
+                f"[POSITION_SYNC] {symbol} missing on exchange ({seen}/{required}) — waiting confirm"
+            )
+            return False
+        return True
 
     def stop(self):
         self._running = False
