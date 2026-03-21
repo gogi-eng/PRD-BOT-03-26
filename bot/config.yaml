@@ -33,9 +33,9 @@ entry:
   min_rr_ratio: 2.5
   min_target_profit_pct: 1.2
   require_structural_tp: true
-  min_stop_distance_pct: 0.5
-  min_stop_atr_mult: 0.9
-  sl_buffer_atr_mult: 0.5
+  min_stop_distance_pct: 0.8
+  min_stop_atr_mult: 1.4
+  sl_buffer_atr_mult: 0.8
   max_entry_extension_atr: 0.75
   entry_range_atr_mult: 0.22
   allowed_regimes: ["trend", "breakout", "chop"]
