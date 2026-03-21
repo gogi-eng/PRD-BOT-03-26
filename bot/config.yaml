@@ -42,7 +42,7 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.62
+  entry_threshold: 0.60
   trained_model_enabled: true
   trained_model_min_prob: 0.0
   trained_model_blend: 0.10
@@ -210,7 +210,7 @@ quality_gate:
   anti_flat_require_htf_trend: false
   countertrend_min_confidence: 0.82
   countertrend_min_abs_imbalance: 0.20
-  no_zone_min_confidence: 0.84
+  no_zone_min_confidence: 0.80
 
 symbol_quality:
   enabled: true
@@ -242,5 +242,5 @@ adaptive_regime_presets:
   benchmark_symbol: "BTCUSDT"
   trend_strict_htf_mode: true
   trend_volatility_floor_atr_pct: 0.8
-  range_strict_htf_mode: true
-  range_volatility_floor_atr_pct: 1.0
+  range_strict_htf_mode: false
+  range_volatility_floor_atr_pct: 0.65
