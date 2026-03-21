@@ -256,6 +256,30 @@ class TradingBot:
         self.volatility_floor_atr_pct = float(
             self.cfg.get("entry", "volatility_floor_atr_pct", default=0.8)
         )
+        self.adaptive_regime_presets_enabled = self.cfg.get("adaptive_regime_presets", "enabled", default=True)
+        self.adaptive_regime_presets_interval_sec = int(
+            self.cfg.get("adaptive_regime_presets", "switch_interval_sec", default=900)
+        )
+        self.adaptive_regime_presets_notify = self.cfg.get(
+            "adaptive_regime_presets", "notify_on_switch", default=True
+        )
+        self.adaptive_regime_presets_benchmark_symbol = self.cfg.get(
+            "adaptive_regime_presets", "benchmark_symbol", default="BTCUSDT"
+        )
+        self.adaptive_trend_strict_htf_mode = self.cfg.get(
+            "adaptive_regime_presets", "trend_strict_htf_mode", default=True
+        )
+        self.adaptive_trend_volatility_floor_atr_pct = float(
+            self.cfg.get("adaptive_regime_presets", "trend_volatility_floor_atr_pct", default=0.8)
+        )
+        self.adaptive_range_strict_htf_mode = self.cfg.get(
+            "adaptive_regime_presets", "range_strict_htf_mode", default=True
+        )
+        self.adaptive_range_volatility_floor_atr_pct = float(
+            self.cfg.get("adaptive_regime_presets", "range_volatility_floor_atr_pct", default=1.0)
+        )
+        self._last_regime_profile_check_ts = 0.0
+        self._active_regime_profile = "manual"
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -395,6 +419,10 @@ class TradingBot:
             f"(ATR%>={self.volatility_floor_atr_pct:.2f})"
         )
         logger.info(
+            f"Adaptive presets: {'ON' if self.adaptive_regime_presets_enabled else 'OFF'} "
+            f"(interval={self.adaptive_regime_presets_interval_sec}s, benchmark={self.adaptive_regime_presets_benchmark_symbol})"
+        )
+        logger.info(
             f"Symbol quality filter: {'ON' if self.symbol_quality_filter.enabled else 'OFF'}"
         )
 
@@ -440,6 +468,8 @@ class TradingBot:
                 symbols = await self.get_trade_symbols()
                 subscribed = self._unique_symbols(exchange_symbols + self.position_manager.symbols() + symbols)[: self.max_stream_symbols]
                 await self.client.set_liquidation_symbols(subscribed)
+
+                await self._maybe_apply_regime_preset()
 
                 if self.signal_only and self.signal_feedback.enabled:
                     await self._process_signal_feedback_loop()
@@ -910,6 +940,69 @@ class TradingBot:
         if side_up == "SELL" and htf_4h_trend > 0:
             return False, "strict_htf_bull_only"
         return True, ""
+
+    def _resolve_regime_preset(self, regime_value: str) -> tuple[str, bool, float]:
+        regime = str(regime_value or "range").lower()
+        # Treat breakout/volatile closer to trend profile
+        if regime in {"trend", "breakout", "volatile"}:
+            return (
+                "trend",
+                bool(self.adaptive_trend_strict_htf_mode),
+                float(self.adaptive_trend_volatility_floor_atr_pct),
+            )
+        return (
+            "range",
+            bool(self.adaptive_range_strict_htf_mode),
+            float(self.adaptive_range_volatility_floor_atr_pct),
+        )
+
+    async def _detect_profile_regime(self) -> str:
+        symbol = self.adaptive_regime_presets_benchmark_symbol
+        klines = await self.client.get_klines(symbol, self.candle_interval, max(80, self.feature_window))
+        htf_klines = await self.client.get_klines(symbol, self.htf_interval, max(80, self.feature_window))
+        market = self.market_analyzer.analyze(klines, htf_klines)
+        prediction = self.regime_ai.classify(market)
+        return prediction.regime.value
+
+    async def _maybe_apply_regime_preset(self):
+        if not self.adaptive_regime_presets_enabled:
+            return
+        now_ts = time.time()
+        if now_ts - self._last_regime_profile_check_ts < max(30, self.adaptive_regime_presets_interval_sec):
+            return
+        self._last_regime_profile_check_ts = now_ts
+
+        try:
+            regime_value = await self._detect_profile_regime()
+            profile_name, target_strict_htf, target_vol_floor = self._resolve_regime_preset(regime_value)
+
+            changed = (
+                self._active_regime_profile != profile_name
+                or self.strict_htf_mode != target_strict_htf
+                or abs(self.volatility_floor_atr_pct - target_vol_floor) > 1e-9
+            )
+
+            self.strict_htf_mode = target_strict_htf
+            self.volatility_floor_atr_pct = target_vol_floor
+
+            if changed:
+                self._active_regime_profile = profile_name
+                msg = (
+                    f"[ADAPTIVE PRESET] profile={profile_name} regime={regime_value} "
+                    f"strict_htf={'ON' if self.strict_htf_mode else 'OFF'} "
+                    f"vol_floor={self.volatility_floor_atr_pct:.2f}%"
+                )
+                logger.info(msg)
+                if self.tg and self.adaptive_regime_presets_notify:
+                    await self.tg.send_message(
+                        "<b>ADAPTIVE PRESET SWITCH</b>\n"
+                        f"Профиль: <code>{profile_name}</code>\n"
+                        f"Режим рынка: <code>{regime_value}</code>\n"
+                        f"Strict HTF: <code>{'ON' if self.strict_htf_mode else 'OFF'}</code>\n"
+                        f"Vol floor ATR%: <code>{self.volatility_floor_atr_pct:.2f}</code>"
+                    )
+        except Exception as exc:
+            logger.warning(f"Adaptive preset switch skipped: {exc}")
 
     def _determine_4h_trend(self, klines_4h: list) -> int:
         """Determine 4H trend: 1=bullish, -1=bearish, 0=neutral.

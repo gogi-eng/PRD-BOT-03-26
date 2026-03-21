@@ -234,3 +234,13 @@ mtf_zone_confirmation:
   enabled: true
   require_any_zone: false
   min_confidence_if_single_tf: 0.78
+
+adaptive_regime_presets:
+  enabled: true
+  switch_interval_sec: 900
+  notify_on_switch: true
+  benchmark_symbol: "BTCUSDT"
+  trend_strict_htf_mode: true
+  trend_volatility_floor_atr_pct: 0.8
+  range_strict_htf_mode: true
+  range_volatility_floor_atr_pct: 1.0
