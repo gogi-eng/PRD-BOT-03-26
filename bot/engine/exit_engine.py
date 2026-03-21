@@ -119,7 +119,8 @@ class ExitEngine:
             return True, ExitReason.HARD_SL, f"SL hit at {position.stop_loss:.4f}"
 
         # 2. EARLY EXIT — dead trades after N bars
-        if allow_early_exit and position.bars_since_entry >= self.early_exit_bars:
+        # early_exit_bars <= 0 means feature disabled
+        if allow_early_exit and self.early_exit_bars > 0 and position.bars_since_entry >= self.early_exit_bars:
             min_profit = atr_value * self.early_exit_min_profit_atr
             if profit < min_profit:
                 return True, ExitReason.EARLY_EXIT, (
