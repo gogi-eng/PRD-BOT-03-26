@@ -36,10 +36,15 @@ class SignalFeedbackLoop:
             self.state_path,
             default={
                 "new_labels_since_retrain": 0,
+                "quality_labels_since_retrain": 0,
                 "last_retrain_attempt_date": "",
                 "last_retrain_success_date": "",
             },
         )
+        # Backward-compatible state migration
+        if "quality_labels_since_retrain" not in self._state:
+            self._state["quality_labels_since_retrain"] = int(self._state.get("new_labels_since_retrain", 0))
+            self._save_json(self.state_path, self._state)
 
     def _resolve_path(self, value: str) -> Path:
         path = Path(value)
@@ -136,6 +141,12 @@ class SignalFeedbackLoop:
             self._save_json(self.state_path, self._state)
         return outcomes
 
+    def add_quality_labels(self, count: int):
+        if count <= 0:
+            return
+        self._state["quality_labels_since_retrain"] = int(self._state.get("quality_labels_since_retrain", 0)) + int(count)
+        self._save_json(self.state_path, self._state)
+
     def _resolve_outcome_reason(self, signal: dict[str, Any], current_price: float, now: datetime) -> str | None:
         side = str(signal.get("side", "")).upper()
         sl = self._safe_float(signal.get("stop_loss"), 0.0)
@@ -218,7 +229,15 @@ class SignalFeedbackLoop:
         if now.hour < self.retrain_hour_utc:
             return False
 
-        if int(self._state.get("new_labels_since_retrain", 0)) < self.min_new_labels_for_retrain:
+        quality_labels = int(
+            self._state.get(
+                "quality_labels_since_retrain",
+                self._state.get("new_labels_since_retrain", 0),
+            )
+        )
+        if quality_labels <= 0:
+            quality_labels = int(self._state.get("new_labels_since_retrain", 0))
+        if quality_labels < self.min_new_labels_for_retrain:
             return False
 
         today = now.date().isoformat()
@@ -232,4 +251,5 @@ class SignalFeedbackLoop:
         if success:
             self._state["last_retrain_success_date"] = today
             self._state["new_labels_since_retrain"] = 0
+            self._state["quality_labels_since_retrain"] = 0
         self._save_json(self.state_path, self._state)

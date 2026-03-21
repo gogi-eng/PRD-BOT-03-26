@@ -212,6 +212,28 @@ def test_feedback_loop_daily_retrain_gate(tmp_path: Path):
     assert loop.should_run_daily_retrain(now) is False
 
 
+def test_feedback_loop_quality_counter_controls_retrain_gate(tmp_path: Path):
+    cfg = MockConfig(
+        {
+            ("feedback_loop", "dataset_path"): str(tmp_path / "training_data.json"),
+            ("feedback_loop", "queue_path"): str(tmp_path / "signal_feedback_queue.json"),
+            ("feedback_loop", "state_path"): str(tmp_path / "signal_feedback_state.json"),
+            ("feedback_loop", "min_new_labels_for_retrain"): 2,
+            ("feedback_loop", "retrain_hour_utc"): 0,
+        }
+    )
+    loop = SignalFeedbackLoop(tmp_path, cfg)
+
+    now = datetime.now(timezone.utc).replace(hour=2, minute=0, second=0, microsecond=0)
+    assert loop.should_run_daily_retrain(now) is False
+
+    loop.add_quality_labels(1)
+    assert loop.should_run_daily_retrain(now) is False
+
+    loop.add_quality_labels(1)
+    assert loop.should_run_daily_retrain(now) is True
+
+
 def _build_quality_gate_bot() -> TradingBot:
     bot = TradingBot.__new__(TradingBot)
     bot.quality_gate_enabled = True

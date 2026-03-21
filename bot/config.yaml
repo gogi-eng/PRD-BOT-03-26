@@ -182,7 +182,7 @@ feedback_loop:
   state_path: "signal_feedback_state.json"
   retrain_daily: true
   retrain_hour_utc: 1
-  min_new_labels_for_retrain: 8
+  min_new_labels_for_retrain: 150
   use_merged_dataset_for_retrain: true
   apply_to_risk_guard: false
   min_feedback_label_abs_pnl_pct: 0.4

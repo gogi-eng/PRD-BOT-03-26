@@ -524,12 +524,12 @@ class TestMainConfigReading:
         assert cfg["trading"]["leverage"] == 15
 
     def test_config_max_positions_value(self):
-        """Current max_positions value should be 6 as per config."""
+        """Current max_positions value should be 5 as per config."""
         import yaml
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["trading"]["max_positions"] == 6
+        assert cfg["trading"]["max_positions"] == 5
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -570,7 +570,7 @@ class TestEntryEngineInvalidSLRejection:
 
     def test_invalid_sl_long_rejection(self):
         """Long entry with SL >= entry_price should be rejected as invalid_sl_long."""
-        engine = EntryEngine(MockConfig())
+        engine = EntryEngine(MockConfig({("entry", "min_stop_atr_mult"): 0.0}))
         
         # Structure that would produce SL above entry price for long
         structure = MockStructure(
@@ -601,7 +601,7 @@ class TestEntryEngineInvalidSLRejection:
 
     def test_invalid_sl_short_rejection(self):
         """Short entry with SL <= entry_price should be rejected as invalid_sl_short."""
-        engine = EntryEngine(MockConfig())
+        engine = EntryEngine(MockConfig({("entry", "min_stop_atr_mult"): 0.0}))
         
         # Structure that would produce SL below entry price for short
         structure = MockStructure(
@@ -727,12 +727,12 @@ class TestFeedbackLoopConfig:
         assert cfg["feedback_loop"]["retrain_daily"] is True
 
     def test_min_new_labels_for_retrain_in_config(self):
-        """feedback_loop.min_new_labels_for_retrain should be 8 in config."""
+        """feedback_loop.min_new_labels_for_retrain should be 150 in config."""
         import yaml
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["feedback_loop"]["min_new_labels_for_retrain"] == 8
+        assert cfg["feedback_loop"]["min_new_labels_for_retrain"] == 150
 
     def test_retrain_hour_utc_in_config(self):
         """feedback_loop.retrain_hour_utc should be 1 in config."""
@@ -743,12 +743,12 @@ class TestFeedbackLoopConfig:
         assert cfg["feedback_loop"]["retrain_hour_utc"] == 1
 
     def test_dataset_path_in_config(self):
-        """feedback_loop.dataset_path should be training_data.json in config."""
+        """feedback_loop.dataset_path should be signal_only_feedback_data.json in config."""
         import yaml
         config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'bot', 'config.yaml')
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
-        assert cfg["feedback_loop"]["dataset_path"] == "training_data.json"
+        assert cfg["feedback_loop"]["dataset_path"] == "signal_only_feedback_data.json"
 
 
 if __name__ == "__main__":

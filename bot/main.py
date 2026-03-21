@@ -985,6 +985,8 @@ class TradingBot:
         if outcomes:
             wins = sum(1 for item in outcomes if item.record.get("result") == "win")
             losses = len(outcomes) - wins
+            quality_labels = sum(1 for item in outcomes if self._is_quality_feedback_record(item.record))
+            self.signal_feedback.add_quality_labels(quality_labels)
             if self.feedback_apply_to_risk_guard and (not self.signal_only):
                 for item in outcomes:
                     symbol = str(item.record.get("symbol", ""))
@@ -992,13 +994,14 @@ class TradingBot:
                     self.risk_guard.record_trade(pnl_proxy, symbol=symbol)
             logger.info(
                 f"[FEEDBACK] resolved={len(outcomes)} win={wins} loss={losses} "
-                f"dataset={self.signal_feedback.dataset_path.name}"
+                f"quality_labels={quality_labels} dataset={self.signal_feedback.dataset_path.name}"
             )
             if self.tg and self.feedback_notify_labeling:
                 await self.tg.send_message(
                     "<b>FEEDBACK LOOP</b>\n"
                     f"Размечено сигналов: <code>{len(outcomes)}</code>\n"
                     f"Win: <code>{wins}</code> | Loss: <code>{losses}</code>\n"
+                    f"Качественных меток: <code>{quality_labels}</code>\n"
                     f"Датасет: <code>{self.signal_feedback.dataset_path.name}</code>"
                 )
 
@@ -1036,8 +1039,18 @@ class TradingBot:
                     )
             else:
                 logger.warning("[FEEDBACK] Daily retrain finished with failure status")
+                if self.tg:
+                    await self.tg.send_message(
+                        "<b>DAILY RETRAIN FAILED</b>\n"
+                        "Обучение завершилось без валидного улучшения/чекпоинта."
+                    )
         except Exception as exc:
             logger.error(f"[FEEDBACK] Daily retrain error: {exc}")
+            if self.tg:
+                await self.tg.send_message(
+                    "<b>DAILY RETRAIN ERROR</b>\n"
+                    f"Ошибка: <code>{exc}</code>"
+                )
         finally:
             self.signal_feedback.mark_retrain_attempt(success)
 
