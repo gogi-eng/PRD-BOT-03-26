@@ -71,4 +71,4 @@ def test_config_has_strict_htf_and_volatility_floor():
 
     assert cfg["entry"]["strict_htf_mode"] is True
     assert cfg["entry"]["volatility_floor_enabled"] is True
-    assert cfg["entry"]["volatility_floor_atr_pct"] == 0.8
+    assert cfg["entry"]["volatility_floor_atr_pct"] == 0.2

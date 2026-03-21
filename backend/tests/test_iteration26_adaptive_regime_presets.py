@@ -15,9 +15,9 @@ from main import TradingBot
 def _build_bot() -> TradingBot:
     bot = TradingBot.__new__(TradingBot)
     bot.adaptive_trend_strict_htf_mode = True
-    bot.adaptive_trend_volatility_floor_atr_pct = 0.8
+    bot.adaptive_trend_volatility_floor_atr_pct = 0.2
     bot.adaptive_range_strict_htf_mode = True
-    bot.adaptive_range_volatility_floor_atr_pct = 1.0
+    bot.adaptive_range_volatility_floor_atr_pct = 0.02
     return bot
 
 
@@ -26,7 +26,7 @@ def test_resolve_regime_preset_trend():
     profile, strict_htf, vol_floor = bot._resolve_regime_preset("trend")
     assert profile == "trend"
     assert strict_htf is True
-    assert vol_floor == 0.8
+    assert vol_floor == 0.2
 
 
 def test_resolve_regime_preset_breakout_maps_to_trend():
@@ -34,7 +34,7 @@ def test_resolve_regime_preset_breakout_maps_to_trend():
     profile, strict_htf, vol_floor = bot._resolve_regime_preset("breakout")
     assert profile == "trend"
     assert strict_htf is True
-    assert vol_floor == 0.8
+    assert vol_floor == 0.2
 
 
 def test_resolve_regime_preset_range():
@@ -42,7 +42,7 @@ def test_resolve_regime_preset_range():
     profile, strict_htf, vol_floor = bot._resolve_regime_preset("chop")
     assert profile == "range"
     assert strict_htf is True
-    assert vol_floor == 1.0
+    assert vol_floor == 0.02
 
 
 def test_run_calls_maybe_apply_regime_preset():
@@ -58,5 +58,5 @@ def test_config_has_adaptive_regime_presets_section():
     assert cfg["adaptive_regime_presets"]["enabled"] is True
     assert cfg["adaptive_regime_presets"]["switch_interval_sec"] == 900
     assert cfg["adaptive_regime_presets"]["benchmark_symbol"] == "BTCUSDT"
-    assert cfg["adaptive_regime_presets"]["trend_volatility_floor_atr_pct"] == 0.8
-    assert cfg["adaptive_regime_presets"]["range_volatility_floor_atr_pct"] == 1.0
+    assert cfg["adaptive_regime_presets"]["trend_volatility_floor_atr_pct"] == 0.2
+    assert cfg["adaptive_regime_presets"]["range_volatility_floor_atr_pct"] == 0.02

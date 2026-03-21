@@ -42,7 +42,7 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.60
+  entry_threshold: 0.56
   trained_model_enabled: true
   trained_model_min_prob: 0.0
   trained_model_blend: 0.10
@@ -54,7 +54,7 @@ entry:
   require_4h_trend: true
   strict_htf_mode: true
   volatility_floor_enabled: true
-  volatility_floor_atr_pct: 0.8
+  volatility_floor_atr_pct: 0.20
 
 market_structure:
   swing_lookback: 2
@@ -218,9 +218,9 @@ symbol_quality:
   feedback_only: true
   whitelist_bypass: true
   min_trades: 4
-  min_winrate: 0.35
-  min_avg_pnl_pct: -0.8
-  max_recent_losses: 3
+  min_winrate: 0.25
+  min_avg_pnl_pct: -1.5
+  max_recent_losses: 10
   lookback_per_symbol: 30
   cache_ttl_sec: 180
 
@@ -241,6 +241,6 @@ adaptive_regime_presets:
   notify_on_switch: true
   benchmark_symbol: "BTCUSDT"
   trend_strict_htf_mode: true
-  trend_volatility_floor_atr_pct: 0.8
+  trend_volatility_floor_atr_pct: 0.20
   range_strict_htf_mode: false
-  range_volatility_floor_atr_pct: 0.65
+  range_volatility_floor_atr_pct: 0.02
