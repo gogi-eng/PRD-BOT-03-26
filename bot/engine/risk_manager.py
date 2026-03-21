@@ -133,11 +133,11 @@ class RiskGuard:
                 stats.losses += 1
                 abs_loss = abs(float(pnl))
                 count_for_consecutive = (
-                    abs_loss >= self.min_loss_usdt_for_consecutive
+                    abs_loss > self.min_loss_usdt_for_consecutive
                     and reason_key not in self.ignore_consecutive_loss_reasons
                 )
                 apply_cooldown = (
-                    abs_loss >= self.min_loss_usdt_for_cooldown
+                    abs_loss > self.min_loss_usdt_for_cooldown
                     and reason_key not in self.ignore_loss_cooldown_reasons
                 )
 
