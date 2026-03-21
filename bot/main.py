@@ -109,6 +109,10 @@ class TradingBot:
             cooldown_after_stop_hours=self.cfg.get("risk", "cooldown_after_stop_hours", default=6),
             reduce_after_losses=self.cfg.get("risk", "reduce_after_losses", default=1),
             reduction_factor=self.cfg.get("risk", "reduction_factor", default=0.5),
+            min_loss_usdt_for_cooldown=self.cfg.get("risk", "min_loss_usdt_for_cooldown", default=0.25),
+            min_loss_usdt_for_consecutive=self.cfg.get("risk", "min_loss_usdt_for_consecutive", default=0.5),
+            ignore_loss_cooldown_reasons=self.cfg.get("risk", "ignore_loss_cooldown_reasons", default=["early_exit"]),
+            ignore_consecutive_loss_reasons=self.cfg.get("risk", "ignore_consecutive_loss_reasons", default=["early_exit"]),
         )
         self.controls.set_guard(self.risk_guard)
 
@@ -1155,7 +1159,7 @@ class TradingBot:
                 for item in outcomes:
                     symbol = str(item.record.get("symbol", ""))
                     pnl_proxy = 1.0 if item.record.get("result") == "win" else -1.0
-                    self.risk_guard.record_trade(pnl_proxy, symbol=symbol)
+                    self.risk_guard.record_trade(pnl_proxy, symbol=symbol, reason="signal_feedback")
             logger.info(
                 f"[FEEDBACK] resolved={len(outcomes)} win={wins} loss={losses} "
                 f"quality_labels={quality_labels} dataset={self.signal_feedback.dataset_path.name}"
@@ -1221,7 +1225,7 @@ class TradingBot:
     async def _finalize_full_close(self, symbol: str, pos: Position, exit_price: float, pnl: float, reason: str, already_removed: bool = False):
         if not already_removed:
             self.position_manager.remove(symbol)
-        self.risk_guard.record_trade(pnl, symbol)
+        self.risk_guard.record_trade(pnl, symbol, reason=reason)
         self.controls.add_trade(pnl, symbol, pos.side, reason)
         self._save_trade(symbol, pos.side, pos.qty, pos.entry_price, exit_price, pnl, reason)
         logger.info(f"CLOSED {symbol}: pnl=${pnl:.2f} reason={reason}")
@@ -1242,7 +1246,7 @@ class TradingBot:
 
     async def _finalize_partial_close(self, symbol: str, pos: Position, exit_price: float, qty: float, reason: str):
         pnl = self._calc_pnl(pos, exit_price, qty)
-        self.risk_guard.record_trade(pnl, symbol)
+        self.risk_guard.record_trade(pnl, symbol, reason=reason)
         self.controls.add_trade(pnl, symbol, pos.side, reason)
         self._save_trade(symbol, pos.side, qty, pos.entry_price, exit_price, pnl, reason)
         self.position_manager.reduce(symbol, qty)

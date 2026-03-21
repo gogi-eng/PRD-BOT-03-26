@@ -99,6 +99,10 @@ risk:
   max_trades_per_symbol_24h: 2
   reduce_after_losses: 3
   reduction_factor: 0.5
+  min_loss_usdt_for_cooldown: 0.25
+  min_loss_usdt_for_consecutive: 0.5
+  ignore_loss_cooldown_reasons: ["early_exit"]
+  ignore_consecutive_loss_reasons: ["early_exit"]
 
 market:
   min_24h_volume_usdt: 15000000

@@ -59,6 +59,10 @@ class RiskGuard:
         initial_balance: float = 0.0,
         reduce_after_losses: int = 2,
         reduction_factor: float = 0.5,
+        min_loss_usdt_for_cooldown: float = 0.0,
+        min_loss_usdt_for_consecutive: float = 0.0,
+        ignore_loss_cooldown_reasons: Optional[List[str]] = None,
+        ignore_consecutive_loss_reasons: Optional[List[str]] = None,
     ):
         self.max_consecutive_losses = max_consecutive_losses
         self.max_daily_loss_pct = max_daily_loss_pct
@@ -71,6 +75,14 @@ class RiskGuard:
         self.initial_balance = initial_balance
         self.reduce_after_losses = reduce_after_losses
         self.reduction_factor = reduction_factor
+        self.min_loss_usdt_for_cooldown = max(float(min_loss_usdt_for_cooldown), 0.0)
+        self.min_loss_usdt_for_consecutive = max(float(min_loss_usdt_for_consecutive), 0.0)
+        self.ignore_loss_cooldown_reasons = {
+            str(value).strip().lower() for value in (ignore_loss_cooldown_reasons or []) if str(value).strip()
+        }
+        self.ignore_consecutive_loss_reasons = {
+            str(value).strip().lower() for value in (ignore_consecutive_loss_reasons or []) if str(value).strip()
+        }
 
         self.status: GuardStatus = GuardStatus.ACTIVE
         self.stop_reason: str = ""
@@ -102,13 +114,14 @@ class RiskGuard:
 
     # === Trade recording ===
 
-    def record_trade(self, pnl: float, symbol: str = None):
+    def record_trade(self, pnl: float, symbol: str = None, reason: str = ""):
         """Записать результат сделки."""
         with self._lock:
             self._ensure_today()
             stats = self.day_stats
             stats.trades += 1
             stats.net_pnl_usdt += pnl
+            reason_key = str(reason or "").strip().lower()
 
             if self.initial_balance > 0:
                 stats.net_pnl_pct = (stats.net_pnl_usdt / self.initial_balance) * 100
@@ -118,13 +131,26 @@ class RiskGuard:
                 self._consecutive_losses = 0
             else:
                 stats.losses += 1
-                self._consecutive_losses += 1
-                stats.consecutive_losses = self._consecutive_losses
-                stats.max_consecutive_losses = max(stats.max_consecutive_losses, self._consecutive_losses)
-                now = datetime.now(timezone.utc)
-                self.last_loss_time = now
-                if symbol:
-                    self._symbol_last_loss[symbol] = now
+                abs_loss = abs(float(pnl))
+                count_for_consecutive = (
+                    abs_loss >= self.min_loss_usdt_for_consecutive
+                    and reason_key not in self.ignore_consecutive_loss_reasons
+                )
+                apply_cooldown = (
+                    abs_loss >= self.min_loss_usdt_for_cooldown
+                    and reason_key not in self.ignore_loss_cooldown_reasons
+                )
+
+                if count_for_consecutive:
+                    self._consecutive_losses += 1
+                    stats.consecutive_losses = self._consecutive_losses
+                    stats.max_consecutive_losses = max(stats.max_consecutive_losses, self._consecutive_losses)
+
+                if apply_cooldown:
+                    now = datetime.now(timezone.utc)
+                    self.last_loss_time = now
+                    if symbol:
+                        self._symbol_last_loss[symbol] = now
 
             if symbol and self.max_trades_per_symbol_24h > 0:
                 self._symbol_trade_times.setdefault(symbol, []).append(datetime.now(timezone.utc))
