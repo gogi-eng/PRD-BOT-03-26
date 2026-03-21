@@ -251,6 +251,11 @@ class TradingBot:
         self.feedback_min_label_hold_minutes = float(
             self.cfg.get("feedback_loop", "min_feedback_label_hold_minutes", default=8.0)
         )
+        self.strict_htf_mode = self.cfg.get("entry", "strict_htf_mode", default=True)
+        self.volatility_floor_enabled = self.cfg.get("entry", "volatility_floor_enabled", default=True)
+        self.volatility_floor_atr_pct = float(
+            self.cfg.get("entry", "volatility_floor_atr_pct", default=0.8)
+        )
         self.min_volume = self.cfg.get("market", "min_24h_volume_usdt", default=15_000_000)
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
@@ -383,6 +388,11 @@ class TradingBot:
         logger.info(
             f"MTF zone confirmation: {'ON' if self.mtf_zone_enabled else 'OFF'} "
             f"(single_tf_min_conf={self.mtf_zone_min_confidence_if_single_tf:.2f})"
+        )
+        logger.info(
+            f"Strict HTF mode: {'ON' if self.strict_htf_mode else 'OFF'} | "
+            f"Volatility floor: {'ON' if self.volatility_floor_enabled else 'OFF'} "
+            f"(ATR%>={self.volatility_floor_atr_pct:.2f})"
         )
         logger.info(
             f"Symbol quality filter: {'ON' if self.symbol_quality_filter.enabled else 'OFF'}"
@@ -758,6 +768,11 @@ class TradingBot:
         if not market.can_trade:
             return reject("market_blocked")
 
+        if self.volatility_floor_enabled:
+            vol_ok, vol_reason = self._passes_volatility_floor(float(market.atr_pct or 0.0))
+            if not vol_ok:
+                return reject(vol_reason)
+
         # 4H trend — the ultimate directional filter
         htf_4h_klines = await self.client.get_klines(symbol, self.htf_4h_interval, 30)
         htf_4h_trend = self._determine_4h_trend(htf_4h_klines)
@@ -811,6 +826,11 @@ class TradingBot:
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
+
+        if self.strict_htf_mode:
+            htf_ok, htf_reason = self._passes_strict_htf_mode(signal.side, htf_4h_trend)
+            if not htf_ok:
+                return reject(htf_reason)
 
         if self.mtf_zone_enabled:
             zone_15m_ok = signal.metadata.get("entry_zone", "no_zone") != "no_zone"
@@ -871,6 +891,25 @@ class TradingBot:
             f"RR={signal.rr_ratio:.1f}"
         )
         return signal
+
+    def _passes_volatility_floor(self, atr_pct: float) -> tuple[bool, str]:
+        if not self.volatility_floor_enabled:
+            return True, ""
+        if atr_pct >= self.volatility_floor_atr_pct:
+            return True, ""
+        return False, f"volatility_floor ({atr_pct:.3f}% < {self.volatility_floor_atr_pct:.3f}%)"
+
+    def _passes_strict_htf_mode(self, side: str, htf_4h_trend: int) -> tuple[bool, str]:
+        if not self.strict_htf_mode:
+            return True, ""
+        side_up = str(side or "").upper()
+        if htf_4h_trend == 0 or side_up not in {"BUY", "SELL"}:
+            return True, ""
+        if side_up == "BUY" and htf_4h_trend < 0:
+            return False, "strict_htf_bear_only"
+        if side_up == "SELL" and htf_4h_trend > 0:
+            return False, "strict_htf_bull_only"
+        return True, ""
 
     def _determine_4h_trend(self, klines_4h: list) -> int:
         """Determine 4H trend: 1=bullish, -1=bearish, 0=neutral.

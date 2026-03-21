@@ -111,7 +111,7 @@ class EntryEngine:
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
         self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
         self.entry_threshold = cfg.get("entry", "entry_threshold", default=self.ENTRY_THRESHOLD)
-        self.trained_model_enabled = cfg.get("entry", "trained_model_enabled", default=True)
+        self.trained_model_enabled = cfg.get("entry", "trained_model_enabled", default=False)
         self.trained_model_min_prob = cfg.get("entry", "trained_model_min_prob", default=0.55)
         self.trained_model_blend = cfg.get("entry", "trained_model_blend", default=0.35)
         self.trained_model_weights_path = cfg.get("entry", "trained_model_weights_path", default="transformer_weights.pt")

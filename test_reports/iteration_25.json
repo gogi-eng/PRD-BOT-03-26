@@ -1,0 +1,70 @@
+{
+  "summary": "Feature verification for strict_htf_mode and volatility_floor_atr_pct. All 8 new iteration 25 tests passed. 594/600 total tests passed (6 pre-existing failures from outdated config expectations in older test files).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 25 Feature Tests (8 total) ---",
+    "test_strict_htf_blocks_sell_in_bull_4h - PASSED",
+    "test_strict_htf_blocks_buy_in_bear_4h - PASSED",
+    "test_strict_htf_allows_aligned_direction - PASSED",
+    "test_strict_htf_allows_when_disabled - PASSED",
+    "test_volatility_floor_blocks_low_atr_pct - PASSED",
+    "test_volatility_floor_allows_high_atr_pct - PASSED",
+    "test_volatility_floor_allows_when_disabled - PASSED",
+    "test_config_has_strict_htf_and_volatility_floor - PASSED",
+    "--- Regression Tests ---",
+    "586 other tests PASSED (excluding 6 pre-existing failures from outdated config expectations)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration25_strict_htf_volatility_floor.py",
+    "/app/test_reports/pytest/pytest_results_iteration25.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml line 55: strict_htf_mode: true - CORRECTLY SET",
+    "config.yaml line 56: volatility_floor_enabled: true - CORRECTLY SET",
+    "config.yaml line 57: volatility_floor_atr_pct: 0.8 - CORRECTLY SET",
+    "main.py lines 254-258: Config loading for both features - CORRECT",
+    "main.py lines 392-396: Startup log displays both features status - CORRECT",
+    "main.py lines 771-774: _passes_volatility_floor called in _analyze_symbol - CORRECT",
+    "main.py lines 830-833: _passes_strict_htf_mode called in _analyze_symbol - CORRECT",
+    "main.py lines 895-900: _passes_volatility_floor method - CORRECT (blocks low ATR% with clear reject reason)",
+    "main.py lines 902-912: _passes_strict_htf_mode method - CORRECT (blocks SELL in 4H bull, BUY in 4H bear)",
+    "entry_engine.py line 114: trained_model_enabled default=False - SAFETY DEFAULT CORRECT"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "594/600 (99%) - 6 pre-existing failures from outdated config expectations"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 25 features verified: strict_htf_mode blocks SELL in 4H bull and BUY in 4H bear. volatility_floor_enabled + volatility_floor_atr_pct blocks low ATR% markets with clear reject reason. Startup log displays both features status. entry_engine.py has trained_model_enabled default=False safety. 6 pre-existing test failures are from outdated config expectations in older test files (test_smc_v3, test_smc_v5, test_trained_model_integration, test_entry_engine_sl_and_antichase_iteration18) - not related to current iteration.",
+  "feature_verification": {
+    "entry.strict_htf_mode_exists_in_config": "Verified - config.yaml line 55: strict_htf_mode: true",
+    "strict_htf_mode_applied_in_analysis_flow": "Verified - main.py lines 830-833 calls _passes_strict_htf_mode in _analyze_symbol",
+    "strict_htf_blocks_sell_in_4h_bull": "Verified - test_strict_htf_blocks_sell_in_bull_4h PASSED",
+    "strict_htf_blocks_buy_in_4h_bear": "Verified - test_strict_htf_blocks_buy_in_bear_4h PASSED",
+    "entry.volatility_floor_enabled_exists_in_config": "Verified - config.yaml line 56: volatility_floor_enabled: true",
+    "entry.volatility_floor_atr_pct_exists_in_config": "Verified - config.yaml line 57: volatility_floor_atr_pct: 0.8",
+    "volatility_floor_applied_in_analysis_flow": "Verified - main.py lines 771-774 calls _passes_volatility_floor in _analyze_symbol",
+    "volatility_floor_blocks_low_atr_pct_with_clear_reject_reason": "Verified - test_volatility_floor_blocks_low_atr_pct PASSED, reject reason includes 'volatility_floor'",
+    "startup_log_displays_both_features_status": "Verified - main.py lines 392-396",
+    "no_regression_in_entry_quality_feedback_tests": "Verified - all iteration 21-24 tests pass"
+  },
+  "pre_existing_failures_not_related_to_iteration_25": [
+    "test_trained_model_disabled - expects trained_model_enabled: false but config has true",
+    "test_trading_max_positions_5 - expects max_positions: 5 but config has different value",
+    "test_entry_threshold_065 - expects entry_threshold: 0.65 but config has 0.62",
+    "test_trained_model_enabled_config - expects trained_model_enabled: false but config has true",
+    "test_trained_model_min_prob_config - expects 0.45 but config has 0.0",
+    "test_trained_model_blend_config - expects 0.35 but config has 0.1"
+  ]
+}

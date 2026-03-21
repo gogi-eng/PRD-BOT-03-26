@@ -52,6 +52,9 @@ entry:
   min_volatility_pct: 0.04
   require_sweep: true
   require_4h_trend: true
+  strict_htf_mode: true
+  volatility_floor_enabled: true
+  volatility_floor_atr_pct: 0.8
 
 market_structure:
   swing_lookback: 2
