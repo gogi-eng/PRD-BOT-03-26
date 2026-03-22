@@ -315,6 +315,10 @@ class TradingBot:
             self.cfg.get("position_sync", "exchange_closed_force_cycles", default=8)
         )
         self._missing_exchange_cycles: dict[str, int] = {}
+        self.exchange_closed_reentry_cooldown_sec = int(
+            self.cfg.get("position_sync", "exchange_closed_reentry_cooldown_sec", default=900)
+        )
+        self._exchange_closed_reentry_until: dict[str, float] = {}
         self.partial_tp_enabled = self.cfg.get("partial_tp", "enabled", default=True)
         self.partial_tp_trigger_progress = self.cfg.get("partial_tp", "trigger_progress", default=0.5)
         self.partial_tp_close_fraction = self.cfg.get("partial_tp", "close_fraction", default=0.5)
@@ -707,6 +711,11 @@ class TradingBot:
         for symbol in symbols:
             if self.position_manager.has(symbol):
                 mark_reject("already_in_position")
+                continue
+
+            exchange_closed_wait = self._exchange_closed_reentry_remaining(symbol)
+            if exchange_closed_wait > 0:
+                mark_reject("exchange_closed_reentry_cooldown")
                 continue
 
             quality_allowed, quality_reason, quality_stats = self.symbol_quality_filter.allow(
@@ -1248,6 +1257,8 @@ class TradingBot:
 
     async def _finalize_full_close(self, symbol: str, pos: Position, exit_price: float, pnl: float, reason: str, already_removed: bool = False):
         self._missing_exchange_cycles.pop(symbol, None)
+        if reason == "exchange_closed":
+            self._set_exchange_closed_reentry_block(symbol)
         if not already_removed:
             self.position_manager.remove(symbol)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
@@ -1747,6 +1758,7 @@ class TradingBot:
         if not symbol:
             return
         self._missing_exchange_cycles.pop(symbol, None)
+        self._exchange_closed_reentry_until.pop(symbol, None)
         size = float(exchange_position.get("size", 0) or 0)
         if size <= 0:
             return
@@ -2202,6 +2214,22 @@ class TradingBot:
         if closed_records_count > 0:
             return True
         return missing_cycles >= max(1, int(self.exchange_closed_force_cycles))
+
+    def _set_exchange_closed_reentry_block(self, symbol: str):
+        cooldown = max(0, int(self.exchange_closed_reentry_cooldown_sec))
+        if cooldown <= 0:
+            return
+        self._exchange_closed_reentry_until[symbol] = time.time() + cooldown
+
+    def _exchange_closed_reentry_remaining(self, symbol: str) -> int:
+        until = self._exchange_closed_reentry_until.get(symbol)
+        if not until:
+            return 0
+        remaining = int((until - time.time()) + 0.999)
+        if remaining <= 0:
+            self._exchange_closed_reentry_until.pop(symbol, None)
+            return 0
+        return remaining
 
     def stop(self):
         self._running = False

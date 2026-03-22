@@ -1,0 +1,87 @@
+{
+  "summary": "Iteration 34: Verified exchange_closed reentry cooldown (15-min symbol block after exchange_closed). All 28 tests passed (24 new + 4 original). Features confirmed: (1) config.yaml has position_sync.exchange_closed_reentry_cooldown_sec=900, (2) _set_exchange_closed_reentry_block called in _finalize_full_close when reason='exchange_closed', (3) _scan_entries rejects symbols under cooldown via _exchange_closed_reentry_remaining check, (4) Cooldown expires correctly after configured time, (5) No regression in exchange_closed debounce/origin logic.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 34 Exchange Closed Reentry Cooldown Tests (24 total) ---",
+    "TestConfigExchangeClosedReentryCooldown::test_config_has_exchange_closed_reentry_cooldown_sec_900 - PASSED",
+    "TestConfigExchangeClosedReentryCooldown::test_bot_loads_exchange_closed_reentry_cooldown_sec - PASSED",
+    "TestReentryBlockOnExchangeClosedFinalization::test_set_exchange_closed_reentry_block_sets_cooldown - PASSED",
+    "TestReentryBlockOnExchangeClosedFinalization::test_set_exchange_closed_reentry_block_zero_cooldown_does_nothing - PASSED",
+    "TestReentryBlockOnExchangeClosedFinalization::test_set_exchange_closed_reentry_block_negative_cooldown_does_nothing - PASSED",
+    "TestReentryBlockOnExchangeClosedFinalization::test_set_exchange_closed_reentry_block_overwrites_existing - PASSED",
+    "TestScanLoopRejectsSymbolsUnderCooldown::test_exchange_closed_reentry_remaining_returns_positive_when_under_cooldown - PASSED",
+    "TestScanLoopRejectsSymbolsUnderCooldown::test_exchange_closed_reentry_remaining_returns_zero_when_no_cooldown - PASSED",
+    "TestScanLoopRejectsSymbolsUnderCooldown::test_exchange_closed_reentry_remaining_returns_zero_when_expired - PASSED",
+    "TestScanLoopRejectsSymbolsUnderCooldown::test_scan_loop_rejects_symbol_under_cooldown - PASSED",
+    "TestCooldownExpiration::test_cooldown_expires_after_configured_time - PASSED",
+    "TestCooldownExpiration::test_cooldown_cleanup_on_expiration_check - PASSED",
+    "TestCooldownExpiration::test_cooldown_cleanup_on_position_sync - PASSED",
+    "TestFinalizeFullCloseIntegration::test_finalize_full_close_sets_reentry_block_for_exchange_closed - PASSED",
+    "TestFinalizeFullCloseIntegration::test_finalize_full_close_does_not_set_reentry_block_for_other_reasons - PASSED",
+    "TestRegressionExchangeClosedDebounce::test_should_finalize_exchange_closed_requires_multiple_cycles - PASSED",
+    "TestRegressionExchangeClosedDebounce::test_can_finalize_exchange_closed_requires_evidence_or_force_cycles - PASSED",
+    "TestRegressionOriginPersistence::test_position_has_origin_attribute - PASSED",
+    "TestRegressionEarlyExitCooldownIgnore::test_early_exit_in_ignore_cooldown_reasons_config - PASSED",
+    "TestRegressionEarlyExitCooldownIgnore::test_exchange_closed_in_ignore_cooldown_reasons_config - PASSED",
+    "TestEdgeCases::test_multiple_symbols_independent_cooldowns - PASSED",
+    "TestEdgeCases::test_reentry_remaining_rounds_up - PASSED",
+    "TestEdgeCases::test_cooldown_value_900_equals_15_minutes - PASSED",
+    "TestFullFlowIntegration::test_full_flow_exchange_closed_to_reentry_block - PASSED",
+    "--- Original Tests (4 total) ---",
+    "test_exchange_closed_reentry_cooldown_applies_and_expires - PASSED",
+    "test_save_trade_persists_origin - PASSED",
+    "test_exchange_closed_needs_multiple_missing_cycles - PASSED",
+    "test_exchange_closed_finalize_requires_closed_pnl_or_force_cycles - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration34_exchange_closed_reentry_cooldown_full.py",
+    "/app/backend/tests/test_iteration34_exchange_closed_reentry_cooldown.py",
+    "/app/backend/tests/test_iteration31_origin_and_exchange_debounce.py",
+    "/app/test_reports/pytest/pytest_results_iteration34.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml line 144: exchange_closed_reentry_cooldown_sec=900 (15 minutes) - CORRECT",
+    "main.py line 318-321: Bot loads exchange_closed_reentry_cooldown_sec and initializes _exchange_closed_reentry_until dict - CORRECT",
+    "main.py line 716-719: _scan_entries checks _exchange_closed_reentry_remaining and rejects symbols under cooldown - CORRECT",
+    "main.py line 1260-1261: _finalize_full_close calls _set_exchange_closed_reentry_block when reason='exchange_closed' - CORRECT",
+    "main.py line 1761: _sync_exchange_position clears reentry cooldown when position reappears - CORRECT",
+    "main.py line 2218-2222: _set_exchange_closed_reentry_block sets cooldown timestamp (time.time() + cooldown_sec) - CORRECT",
+    "main.py line 2224-2232: _exchange_closed_reentry_remaining returns remaining seconds, cleans up expired entries - CORRECT",
+    "No regression with iteration 31/33 fixes - VERIFIED"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration34_exchange_closed_reentry_cooldown_full.py"
+  ],
+  "success_rate": {
+    "backend": "28/28 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 34 verified exchange_closed reentry cooldown (anti-whipsaw): (1) After exchange_closed finalization, symbol is blocked for 15 minutes (900 sec), (2) _scan_entries rejects symbols under cooldown with 'exchange_closed_reentry_cooldown' reason, (3) Cooldown is cleared when position reappears on exchange (via _sync_exchange_position), (4) Cooldown expires automatically after configured time. This prevents immediate re-entry on same symbol after exchange_closed which could cause whipsaw losses.",
+  "feature_verification": {
+    "config_exchange_closed_reentry_cooldown_sec_900": "Verified - config.yaml line 144",
+    "bot_loads_config_value": "Verified - main.py line 318-321",
+    "set_reentry_block_on_exchange_closed": "Verified - main.py line 1260-1261",
+    "scan_loop_rejects_under_cooldown": "Verified - main.py line 716-719",
+    "cooldown_expiration": "Verified - _exchange_closed_reentry_remaining cleans up expired entries",
+    "cooldown_cleared_on_position_sync": "Verified - main.py line 1761",
+    "no_regression_debounce": "Verified - _should_finalize_exchange_closed still requires 3 cycles",
+    "no_regression_evidence": "Verified - _can_finalize_exchange_closed still requires closed records or force cycles",
+    "no_regression_origin": "Verified - Position origin attribute persists"
+  },
+  "rca_of_the_issue": {
+    "root_cause": "User requested anti-whipsaw protection: after exchange_closed, bot should not immediately re-enter same symbol as this could cause repeated losses from market noise.",
+    "fix_applied": "(1) Added exchange_closed_reentry_cooldown_sec=900 to config, (2) _finalize_full_close sets reentry block when reason='exchange_closed', (3) _scan_entries checks _exchange_closed_reentry_remaining and rejects symbols under cooldown",
+    "verification": "After exchange_closed on BTCUSDT, bot will reject BTCUSDT entries for 15 minutes. Cooldown is cleared if position reappears on exchange or after 15 minutes."
+  }
+}

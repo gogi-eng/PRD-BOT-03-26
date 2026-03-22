@@ -141,6 +141,7 @@ position_sync:
   exchange_closed_confirm_cycles: 3
   exchange_closed_require_closed_pnl: true
   exchange_closed_force_cycles: 8
+  exchange_closed_reentry_cooldown_sec: 900
 
 partial_tp:
   enabled: true
