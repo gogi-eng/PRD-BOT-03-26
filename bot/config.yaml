@@ -139,6 +139,8 @@ position_sync:
   adopt_all_positions: true
   preserve_existing_sl_tp: true
   exchange_closed_confirm_cycles: 3
+  exchange_closed_require_closed_pnl: true
+  exchange_closed_force_cycles: 8
 
 partial_tp:
   enabled: true

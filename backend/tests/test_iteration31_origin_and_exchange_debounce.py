@@ -40,3 +40,13 @@ def test_exchange_closed_needs_multiple_missing_cycles():
     assert bot._should_finalize_exchange_closed("RDNTUSDT") is False
     assert bot._should_finalize_exchange_closed("RDNTUSDT") is False
     assert bot._should_finalize_exchange_closed("RDNTUSDT") is True
+
+
+def test_exchange_closed_finalize_requires_closed_pnl_or_force_cycles():
+    bot = TradingBot.__new__(TradingBot)
+    bot.exchange_closed_require_closed_pnl = True
+    bot.exchange_closed_force_cycles = 8
+
+    assert bot._can_finalize_exchange_closed(missing_cycles=3, closed_records_count=0) is False
+    assert bot._can_finalize_exchange_closed(missing_cycles=3, closed_records_count=1) is True
+    assert bot._can_finalize_exchange_closed(missing_cycles=8, closed_records_count=0) is True

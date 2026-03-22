@@ -308,6 +308,12 @@ class TradingBot:
         self.exchange_closed_confirm_cycles = int(
             self.cfg.get("position_sync", "exchange_closed_confirm_cycles", default=3)
         )
+        self.exchange_closed_require_closed_pnl = self.cfg.get(
+            "position_sync", "exchange_closed_require_closed_pnl", default=True
+        )
+        self.exchange_closed_force_cycles = int(
+            self.cfg.get("position_sync", "exchange_closed_force_cycles", default=8)
+        )
         self._missing_exchange_cycles: dict[str, int] = {}
         self.partial_tp_enabled = self.cfg.get("partial_tp", "enabled", default=True)
         self.partial_tp_trigger_progress = self.cfg.get("partial_tp", "trigger_progress", default=0.5)
@@ -541,14 +547,24 @@ class TradingBot:
                 if symbol not in exchange_symbols and not self.controls.dry_run:
                     if not self._should_finalize_exchange_closed(symbol):
                         continue
-                    pos = self.position_manager.remove(symbol)
+                    pos = self.position_manager.get(symbol)
                     if pos:
-                        current_price = await self.client.get_price(symbol)
-                        pnl = 0.0
                         closed = await self.client.get_closed_pnl(symbol, limit=3)
-                        if closed:
-                            pnl = float(closed[0].get("closedPnl", 0) or 0)
-                        await self._finalize_full_close(symbol, pos, current_price, pnl, "exchange_closed", already_removed=True)
+                        seen_cycles = int(self._missing_exchange_cycles.get(symbol, 0))
+                        if not self._can_finalize_exchange_closed(seen_cycles, len(closed or [])):
+                            logger.info(
+                                f"[POSITION_SYNC] {symbol} waiting close evidence "
+                                f"(missing={seen_cycles}, closed_records={len(closed or [])})"
+                            )
+                            continue
+
+                        pos = self.position_manager.remove(symbol)
+                        if pos:
+                            current_price = await self.client.get_price(symbol)
+                            pnl = 0.0
+                            if closed:
+                                pnl = float(closed[0].get("closedPnl", 0) or 0)
+                            await self._finalize_full_close(symbol, pos, current_price, pnl, "exchange_closed", already_removed=True)
                 else:
                     self._missing_exchange_cycles.pop(symbol, None)
 
@@ -2179,6 +2195,13 @@ class TradingBot:
             )
             return False
         return True
+
+    def _can_finalize_exchange_closed(self, missing_cycles: int, closed_records_count: int) -> bool:
+        if not self.exchange_closed_require_closed_pnl:
+            return True
+        if closed_records_count > 0:
+            return True
+        return missing_cycles >= max(1, int(self.exchange_closed_force_cycles))
 
     def stop(self):
         self._running = False
