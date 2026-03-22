@@ -1,0 +1,91 @@
+{
+  "summary": "Iteration 35: Verified no_zone entry rejection feature. All 84 tests passed (31 new + 53 existing). Features confirmed: (1) config.yaml has quality_gate.reject_no_zone_entries=true, (2) _passes_signal_quality_gate rejects entry_zone=no_zone with reason 'no_zone_blocked', (3) No regression in existing quality-gate tests (expected edge, anti-flat filters, countertrend, etc.).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 35 No Zone Rejection Tests (31 total) ---",
+    "TestConfigRejectNoZoneEntries::test_config_yaml_has_reject_no_zone_entries_true - PASSED",
+    "TestConfigRejectNoZoneEntries::test_config_yaml_quality_gate_section_complete - PASSED",
+    "TestNoZoneBlockedRejection::test_rejects_no_zone_entry_with_no_zone_blocked_reason - PASSED",
+    "TestNoZoneBlockedRejection::test_rejects_no_zone_regardless_of_confidence - PASSED",
+    "TestNoZoneBlockedRejection::test_rejects_no_zone_for_both_buy_and_sell - PASSED",
+    "TestNoZoneBlockedRejection::test_allows_no_zone_when_reject_disabled - PASSED",
+    "TestNoZoneBlockedRejection::test_no_zone_blocked_takes_precedence_over_no_zone_low_confidence - PASSED",
+    "TestValidZonesStillPass::test_fvg_bullish_zone_passes - PASSED",
+    "TestValidZonesStillPass::test_fvg_bearish_zone_passes - PASSED",
+    "TestValidZonesStillPass::test_ob_bullish_zone_passes - PASSED",
+    "TestValidZonesStillPass::test_ob_bearish_zone_passes - PASSED",
+    "TestRegressionExistingQualityGate::test_low_confidence_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_low_expected_edge_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_chop_regime_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_low_adx_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_low_atr_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_flat_orderflow_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_countertrend_low_confidence_still_rejected - PASSED",
+    "TestRegressionExistingQualityGate::test_no_zone_low_confidence_still_works_when_reject_disabled - PASSED",
+    "TestOrderOfChecks::test_low_confidence_checked_before_no_zone_blocked - PASSED",
+    "TestOrderOfChecks::test_countertrend_checked_before_no_zone_blocked - PASSED",
+    "TestOrderOfChecks::test_no_zone_low_confidence_checked_before_no_zone_blocked - PASSED",
+    "TestEdgeCases::test_no_zone_case_insensitive - PASSED",
+    "TestEdgeCases::test_none_entry_zone_treated_as_no_zone - PASSED",
+    "TestEdgeCases::test_missing_entry_zone_key_treated_as_no_zone - PASSED",
+    "TestEdgeCases::test_expected_edge_still_returned_in_metadata - PASSED",
+    "TestMainPyIntegration::test_main_py_loads_reject_no_zone_entries_config - PASSED",
+    "TestMainPyIntegration::test_main_py_has_no_zone_blocked_check - PASSED",
+    "TestMainPyIntegration::test_scan_entries_logs_quality_gate_rejection - PASSED",
+    "TestSpecificSymbolsFromUserLogs::test_taousdt_no_zone_rejected - PASSED",
+    "TestSpecificSymbolsFromUserLogs::test_ethfi_no_zone_rejected - PASSED",
+    "--- Existing Quality Gate Tests (43 total from iteration17) ---",
+    "All 43 tests from test_quality_gate_iteration17.py - PASSED",
+    "--- Signal Feedback Loop & SL Validation Tests (10 total) ---",
+    "All 10 tests from test_signal_feedback_loop_and_sl_validation.py - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration35_no_zone_rejection.py",
+    "/app/backend/tests/test_quality_gate_iteration17.py",
+    "/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py",
+    "/app/test_reports/pytest/pytest_results_iteration35.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml line 222: reject_no_zone_entries: true - CORRECT",
+    "main.py line 239-241: Bot loads quality_gate_reject_no_zone_entries from config with default=False - CORRECT",
+    "main.py line 1450-1451: _passes_signal_quality_gate checks reject_no_zone_entries and returns 'no_zone_blocked' - CORRECT",
+    "main.py line 1447-1448: no_zone_low_confidence check still exists for backward compatibility - CORRECT",
+    "main.py line 746-750: _scan_entries logs quality gate rejections with reason - CORRECT",
+    "Order of checks: low_confidence -> countertrend -> no_zone_low_confidence -> no_zone_blocked -> expected_edge -> anti-flat - CORRECT"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration35_no_zone_rejection.py"
+  ],
+  "success_rate": {
+    "backend": "84/84 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 35 verified no_zone entry rejection: (1) When quality_gate.reject_no_zone_entries=true, any signal with entry_zone='no_zone' is hard-blocked with reason 'no_zone_blocked', (2) This eliminates entries like TAOUSDT/ETHFI that were entering without proper zone confirmation, (3) Valid zones (fvg_bullish, fvg_bearish, ob_bullish, ob_bearish) still pass, (4) The check is case-insensitive and handles missing entry_zone key (defaults to no_zone), (5) All existing quality gate behavior preserved.",
+  "feature_verification": {
+    "config_reject_no_zone_entries_true": "Verified - config.yaml line 222",
+    "bot_loads_config_value": "Verified - main.py line 239-241",
+    "no_zone_blocked_rejection": "Verified - main.py line 1450-1451",
+    "valid_zones_still_pass": "Verified - fvg_bullish, fvg_bearish, ob_bullish, ob_bearish all pass",
+    "case_insensitive": "Verified - no_zone, NO_ZONE, No_Zone all blocked",
+    "missing_entry_zone_defaults_to_no_zone": "Verified - missing key triggers no_zone_blocked",
+    "no_regression_quality_gate": "Verified - all 53 existing tests pass",
+    "no_regression_feedback_loop": "Verified - signal feedback loop tests pass",
+    "no_regression_sl_validation": "Verified - SL validation tests pass"
+  },
+  "rca_of_the_issue": {
+    "root_cause": "User logs showed entries with entry_zone=no_zone (e.g., TAOUSDT, ETHFI) which were causing losses. These entries lacked proper zone confirmation (FVG/OB) and were entering based on other signals alone.",
+    "fix_applied": "(1) Added quality_gate.reject_no_zone_entries=true to config.yaml, (2) Added check in _passes_signal_quality_gate that hard-blocks any signal with entry_zone='no_zone' when enabled, returning reason 'no_zone_blocked'",
+    "verification": "After this fix, any signal with entry_zone='no_zone' will be rejected regardless of confidence/RR. Only signals with valid zones (fvg_bullish, fvg_bearish, ob_bullish, ob_bearish) will pass the quality gate."
+  }
+}

@@ -236,6 +236,9 @@ class TradingBot:
         self.quality_gate_no_zone_min_confidence = float(
             self.cfg.get("quality_gate", "no_zone_min_confidence", default=0.84)
         )
+        self.quality_gate_reject_no_zone_entries = self.cfg.get(
+            "quality_gate", "reject_no_zone_entries", default=False
+        )
         self.correlation_filter_enabled = self.cfg.get("correlation", "enabled", default=True)
         self.correlation_filter = CorrelationFilter(
             threshold=float(self.cfg.get("correlation", "threshold", default=0.75)),
@@ -1443,6 +1446,9 @@ class TradingBot:
 
         if entry_zone == "no_zone" and confidence < self.quality_gate_no_zone_min_confidence:
             return False, "no_zone_low_confidence", {"quality_expected_edge": round(expected_edge, 4)}
+
+        if getattr(self, "quality_gate_reject_no_zone_entries", False) and entry_zone == "no_zone":
+            return False, "no_zone_blocked", {"quality_expected_edge": round(expected_edge, 4)}
 
         if expected_edge < self.quality_gate_min_expected_edge:
             return False, "low_expected_edge", {"quality_expected_edge": round(expected_edge, 4)}

@@ -219,6 +219,7 @@ quality_gate:
   countertrend_min_confidence: 0.82
   countertrend_min_abs_imbalance: 0.20
   no_zone_min_confidence: 0.80
+  reject_no_zone_entries: true
 
 symbol_quality:
   enabled: true
