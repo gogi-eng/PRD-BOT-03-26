@@ -21,7 +21,7 @@ trading:
   risk_per_trade_pct: 0.4
   max_positions: 5
   min_position_usdt: 5.0
-  trailing_stop_pct: 1.2
+  trailing_stop_pct: 1.0
   tp_pct: 1.8
   sl_pct: 1.0
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
@@ -83,10 +83,10 @@ exit:
   hard_sl_atr_mult: 2.5
   early_exit_bars: 0
   early_exit_min_profit_atr: 0.1
-  trailing_activation_atr: 1.5
-  trailing_distance_atr: 2.0
+  trailing_activation_atr: 1.1
+  trailing_distance_atr: 1.4
   tp_cap_atr_mult: 10.0
-  min_profit_before_trail_pct: 0.6
+  min_profit_before_trail_pct: 0.45
   sl_buffer_atr_mult: 0.5
 
 risk:
