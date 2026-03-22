@@ -137,7 +137,13 @@ def load_dataset(data_path: str) -> tuple[list[list[float]], list[float]]:
     return features, labels
 
 
-def augment_wins(features: list[list[float]], labels: list[float], factor: int, noise_std: float) -> tuple[list[list[float]], list[float]]:
+def augment_wins(
+    features: list[list[float]],
+    labels: list[float],
+    factor: int,
+    noise_std: float,
+    target_pos_count: int | None = None,
+) -> tuple[list[list[float]], list[float]]:
     if factor <= 1:
         return list(features), list(labels)
 
@@ -151,6 +157,8 @@ def augment_wins(features: list[list[float]], labels: list[float], factor: int, 
 
     for _ in range(factor - 1):
         for idx in win_indices:
+            if target_pos_count is not None and sum(1 for y in out_y if y > 0.5) >= target_pos_count:
+                return out_x, out_y
             original = features[idx]
             noisy = []
             for value, (lo, hi) in zip(original, bounds):
@@ -239,13 +247,48 @@ def compute_metrics(logits: torch.Tensor, labels: torch.Tensor, decision_thresho
     return Metrics(tp=tp, fp=fp, tn=tn, fn=fn, precision=precision, recall=recall, f1=f1, accuracy=accuracy)
 
 
+def select_best_threshold(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    default_threshold: float,
+) -> tuple[float, Metrics]:
+    if len(labels) == 0:
+        empty = Metrics(tp=0, fp=0, tn=0, fn=0, precision=0.0, recall=0.0, f1=0.0, accuracy=0.0)
+        return default_threshold, empty
+
+    best_threshold = default_threshold
+    best_metrics = compute_metrics(logits, labels, default_threshold)
+    total = len(labels)
+    min_pred_pos = max(2, int(total * 0.02))
+
+    for step in range(30, 81, 2):
+        threshold = step / 100.0
+        metrics = compute_metrics(logits, labels, threshold)
+        pred_pos = metrics.tp + metrics.fp
+        if metrics.tp == 0 or pred_pos < min_pred_pos:
+            continue
+
+        better = (
+            metrics.precision > best_metrics.precision + 1e-8
+            or (
+                abs(metrics.precision - best_metrics.precision) <= 1e-8
+                and metrics.f1 > best_metrics.f1 + 1e-8
+            )
+        )
+        if better:
+            best_threshold = threshold
+            best_metrics = metrics
+
+    return best_threshold, best_metrics
+
+
 def evaluate(
     model: nn.Module,
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
     decision_threshold: float,
-) -> tuple[float, Metrics]:
+) -> tuple[float, Metrics, torch.Tensor, torch.Tensor]:
     model.eval()
     total_loss = 0.0
     total = 0
@@ -269,7 +312,7 @@ def evaluate(
     merged_logits = torch.cat(all_logits) if all_logits else torch.zeros(0)
     merged_labels = torch.cat(all_labels) if all_labels else torch.zeros(0)
     metrics = compute_metrics(merged_logits, merged_labels, decision_threshold)
-    return total_loss / max(total, 1), metrics
+    return total_loss / max(total, 1), metrics, merged_logits, merged_labels
 
 
 def train(
@@ -295,16 +338,30 @@ def train(
     losses = len(labels) - wins
     logger.info(f"Raw dataset: total={len(labels)} wins={wins} losses={losses}")
 
-    features, labels = augment_wins(features, labels, factor=augment_wins_factor, noise_std=augment_noise_std)
-    wins_aug = sum(1 for y in labels if y > 0.5)
-    losses_aug = len(labels) - wins_aug
-    logger.info(f"After win augmentation: total={len(labels)} wins={wins_aug} losses={losses_aug}")
-
     try:
-        train_x, train_y, val_x, val_y = stratified_split(features, labels, val_ratio=val_ratio, seed=seed)
+        train_x_raw, train_y_raw, val_x, val_y = stratified_split(features, labels, val_ratio=val_ratio, seed=seed)
     except ValueError as exc:
         logger.error(str(exc))
         return False
+
+    train_wins_raw = sum(1 for y in train_y_raw if y > 0.5)
+    train_losses_raw = len(train_y_raw) - train_wins_raw
+
+    target_aug_wins = max(train_wins_raw, int(train_losses_raw * 0.95))
+    train_x, train_y = augment_wins(
+        train_x_raw,
+        train_y_raw,
+        factor=augment_wins_factor,
+        noise_std=augment_noise_std,
+        target_pos_count=target_aug_wins,
+    )
+
+    wins_aug = sum(1 for y in train_y if y > 0.5)
+    losses_aug = len(train_y) - wins_aug
+    logger.info(
+        f"After train-only augmentation: train={len(train_y)} wins={wins_aug} losses={losses_aug} "
+        f"(target_wins={target_aug_wins})"
+    )
 
     train_wins = sum(1 for y in train_y if y > 0.5)
     train_losses = len(train_y) - train_wins
@@ -328,7 +385,7 @@ def train(
     total_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Model params: {total_params:,} | device={device}")
 
-    pos_weight_value = train_losses / max(train_wins, 1)
+    pos_weight_value = max(train_losses_raw / max(train_wins_raw, 1), 1.0)
     pos_weight_tensor = torch.tensor([pos_weight_value], dtype=torch.float32, device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
 
@@ -337,6 +394,7 @@ def train(
 
     best_precision = -1.0
     best_f1 = -1.0
+    best_val_loss = float("inf")
     best_epoch = 0
     no_improve = 0
     patience = 40
@@ -361,28 +419,38 @@ def train(
             seen += bs
 
         train_loss = epoch_loss / max(seen, 1)
-        val_loss, val_metrics = evaluate(model, val_loader, criterion, device, decision_threshold)
+        val_loss, val_metrics, val_logits, val_labels = evaluate(model, val_loader, criterion, device, decision_threshold)
+        tuned_threshold, tuned_metrics = select_best_threshold(val_logits, val_labels, decision_threshold)
         scheduler.step(val_loss)
+
+        eval_metrics = tuned_metrics if (tuned_metrics.tp + tuned_metrics.fp) > 0 else val_metrics
+        eval_threshold = tuned_threshold if (tuned_metrics.tp + tuned_metrics.fp) > 0 else decision_threshold
 
         if epoch == 1 or epoch % 10 == 0:
             logger.info(
                 f"Epoch {epoch:3d}/{epochs} | train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
-                f"P(win)={val_metrics.precision:.3f} R={val_metrics.recall:.3f} F1={val_metrics.f1:.3f} "
-                f"Acc={val_metrics.accuracy * 100:.1f}% "
-                f"(TP={val_metrics.tp} FP={val_metrics.fp} TN={val_metrics.tn} FN={val_metrics.fn})"
+                f"P(win)={eval_metrics.precision:.3f} R={eval_metrics.recall:.3f} F1={eval_metrics.f1:.3f} "
+                f"Acc={eval_metrics.accuracy * 100:.1f}% thr={eval_threshold:.2f} "
+                f"(TP={eval_metrics.tp} FP={eval_metrics.fp} TN={eval_metrics.tn} FN={eval_metrics.fn})"
             )
 
         improved = (
-            val_metrics.precision > best_precision + 1e-8
+            eval_metrics.precision > best_precision + 1e-8
             or (
-                abs(val_metrics.precision - best_precision) <= 1e-8
-                and val_metrics.f1 > best_f1 + 1e-8
+                abs(eval_metrics.precision - best_precision) <= 1e-8
+                and eval_metrics.f1 > best_f1 + 1e-8
+            )
+            or (
+                abs(eval_metrics.precision - best_precision) <= 1e-8
+                and abs(eval_metrics.f1 - best_f1) <= 1e-8
+                and val_loss < best_val_loss - 1e-8
             )
         )
 
         if improved:
-            best_precision = val_metrics.precision
-            best_f1 = val_metrics.f1
+            best_precision = eval_metrics.precision
+            best_f1 = eval_metrics.f1
+            best_val_loss = val_loss
             best_epoch = epoch
             no_improve = 0
             torch.save(
@@ -391,15 +459,15 @@ def train(
                     "epoch": epoch,
                     "feature_dim": TinyTransformerClassifier.FEATURE_DIM,
                     "feature_keys": [name for name, _, _, _ in FEATURE_SPECS],
-                    "val_precision": val_metrics.precision,
-                    "val_recall": val_metrics.recall,
-                    "val_f1": val_metrics.f1,
-                    "val_accuracy": val_metrics.accuracy,
-                    "val_tp": val_metrics.tp,
-                    "val_fp": val_metrics.fp,
-                    "val_tn": val_metrics.tn,
-                    "val_fn": val_metrics.fn,
-                    "decision_threshold": decision_threshold,
+                    "val_precision": eval_metrics.precision,
+                    "val_recall": eval_metrics.recall,
+                    "val_f1": eval_metrics.f1,
+                    "val_accuracy": eval_metrics.accuracy,
+                    "val_tp": eval_metrics.tp,
+                    "val_fp": eval_metrics.fp,
+                    "val_tn": eval_metrics.tn,
+                    "val_fn": eval_metrics.fn,
+                    "decision_threshold": float(eval_threshold),
                     "loss": "BCEWithLogitsLoss",
                     "pos_weight": float(pos_weight_value),
                     "d_model": 16,
