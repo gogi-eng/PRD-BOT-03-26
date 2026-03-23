@@ -4,154 +4,77 @@
 Автоматический торговый бот для криптовалют на Bybit API со стратегией SMC + AI, с фокусом на:
 - контроль качества сигналов (без flood-спама),
 - рабочий pipeline обучения,
-- интеграцию обученной модели в live-entry логику.
+- интеграцию обученной модели в live-entry логику,
+- прибыльность в live-торговле.
 
-## Current Status (обновлено: 2026-03-18)
+## Current Status (обновлено: 2026-03-27)
 
-### ✅ Реализовано в этой итерации
-1. **P0: Signal Flood Fix**
-   - `entry.entry_threshold` зафиксирован на `0.85`.
-   - Добавлен **same-side cooldown 1 час** на символ:
-     - `bot.signal_cooldown_sec: 3600`
-     - блокируются повторные `BUY→BUY` или `SELL→SELL` сигналы по одному символу.
+### Реализовано в текущей итерации (Anti-Loss Package v1)
 
-2. **P1: Полный rewrite `train_transformer.py`**
-   - Loss: `BCEWithLogitsLoss(pos_weight=...)`.
-   - Модель: компактный `TinyTransformerClassifier` (малый размер).
-   - Дисбаланс классов:
-     - `WeightedRandomSampler`
-     - win-augmentation с шумом.
-   - Валидация и чекпоинт по метрике пользователя:
-     - **primary = precision по классу win**
-     - tie-breaker = F1.
+**P0 — Критичные исправления:**
+1. **Повышение порога входа**: `entry_threshold: 0.56 → 0.72` — только высококонфидентные сигналы
+2. **Включение Early Exit**: `early_exit_bars: 0 → 6` — закрытие "мёртвых" позиций после 6 баров
+3. **AI фильтр**: `trained_model_min_prob: 0.0 → 0.52` — модель отклоняет слабые прогнозы
+4. **exchange_closed учитывается**: убран из `ignore_loss_cooldown_reasons` и `ignore_consecutive_loss_reasons`
+5. **Уменьшение позиций**: `max_positions: 3 → 2`, `trade_symbols: 25 → 10`
+6. **Quality gate no_zone**: `reject_no_zone_entries: true` работает в ОБОИХ режимах (LIVE + signal-only)
 
-3. **Интеграция обученных весов в live-entry**
-   - `engine/entry_engine.py` теперь умеет грузить `transformer_weights.pt`.
-   - Добавлены конфиги:
-     - `entry.trained_model_enabled`
-     - `entry.trained_model_min_prob`
-     - `entry.trained_model_blend`
-     - `entry.trained_model_weights_path`
-   - При наличии чекпоинта:
-     - рассчитывается `trained_model_prob`
-     - вход отклоняется, если prob ниже `trained_model_min_prob`
-     - confidence блендится: `composite*(1-blend)+trained_prob*blend`.
+**P1 — Важные исправления:**
+7. **Увеличение влияния AI**: `trained_model_blend: 0.10 → 0.30`
+8. **Улучшение R:R**: `min_rr_ratio: 2.5 → 3.0`
+9. **Увеличение кулдауна**: `cooldown_after_loss_sec: 1800 → 3600` (1 час)
+10. **Шире стопы**: `min_stop_atr_mult: 1.4 → 1.6`, `sl_buffer_atr_mult: 0.8 → 1.0`
+11. **Trailing stop диагностика**: добавлено детальное логирование в `exit_engine.py` и `main.py`
+    - `[TRAIL ACTIVATED]` — момент активации trailing stop (breakeven)
+    - `[TRAIL MOVE]` — каждое подтягивание стопа с R-multiple
+    - `[TRAIL]` — диагностика каждого цикла (цена, best, R, trail_stop, activation, SL, bars)
 
-4. **Операционная прозрачность**
-   - В startup-логах `main.py` добавлен явный статус:
-     - threshold,
-     - cooldown,
-     - ON/OFF trained model gate.
-   - Добавлен документ:
-     - `/app/bot/TRAINING_AND_MODEL_INTEGRATION.md`
+### Ранее реализовано
+1. Signal Flood Fix (threshold + same-side cooldown)
+2. Полный rewrite `train_transformer.py` (BCEWithLogitsLoss, precision-ориентированный)
+3. Интеграция обученных весов в live-entry
+4. Signal-only Feedback Loop с auto-labeling
+5. Quality Gate перед сигналом
+6. LYNUSDT hotfix (контртренд-логика)
+7. AI bias hotfix (direction match + uniformity guard)
+8. Дебаунс exchange_closed (3 цикла + closedPnl)
+9. 15-мин cooldown на символ после exchange_closed
+10. Пауза синхронизации после rate-limit (180с)
+11. Adaptive regime presets (trend/range)
+12. Origin field в trade_history.json
 
-5. **Signal-only Feedback Loop (новое)**
-   - Добавлен модуль: `engine/signal_feedback_loop.py`.
-   - В signal-only режиме каждый отправленный сигнал теперь:
-     - ставится в очередь наблюдения,
-     - автоматически размечается как `win/loss` по `SL/TP` или по timeout,
-     - добавляется в `training_data.json` как `source=signal_only_feedback`.
-   - Добавлен daily retrain gate:
-     - `feedback_loop.retrain_daily`
-     - `feedback_loop.retrain_hour_utc`
-     - `feedback_loop.min_new_labels_for_retrain`.
-   - После успешного daily retrain бот автоматически перезагружает веса в `EntryEngine`.
-
-6. **Дополнительные точечные правки**
-   - `analysis/ai_analyzer.py`: кэш увеличен до `600s`.
-   - `engine/entry_engine.py`: добавлена валидация некорректных SL:
-     - `invalid_sl_long`
-     - `invalid_sl_short`.
-   - `main.py`: синхронизация `LiveControls` с config по `leverage/max_positions` подтверждена.
-
-7. **Quality-Gate перед Telegram сигналом (новое)**
-   - Добавлен фильтр перед отправкой сигнала в signal-only режиме:
-     - `min_confidence`
-     - `min_expected_edge` (формула edge)
-     - anti-flat проверки: `regime/adx/atr/imbalance/htf-trend`.
-   - Формула expected edge:
-     - `base_prob * (rr + 1) - 1`,
-     - где `base_prob = trained_model_prob` (если есть), иначе `confidence`.
-   - В Telegram сообщение добавлено поле: `Expected Edge`.
-   - Все пороги управляются из `config.yaml -> quality_gate`.
-
-8. **LYNUSDT hotfix (2026-03-19, user-requested)**
-   - Внедрена мягкая контртренд-логика (без полного запрета):
-     - контртренд вход допускается только при
-       - `confidence >= 0.82`
-       - `|normalized_imbalance| >= 0.20`.
-   - Для `entry_zone = no_zone` введён повышенный порог:
-     - `confidence >= 0.84`, иначе reject.
-   - Quality-gate ужесточён точечно:
-     - `min_expected_edge = 0.68`
-     - `anti_flat_min_abs_imbalance = 0.10`.
-   - Символы не блэклистились (по выбору пользователя) — используется фильтрация, а не бан.
-
-9. **AI bias hotfix (2026-03-19, user-requested)**
-   - Зафиксирован кейс «почти все пары = SELL ~85%».
-   - Добавлены 2 защиты в `analysis/ai_analyzer.py`:
-     1) **Direction match guard**: AI-решение должно совпадать с `proposed_signal`, иначе reject (`direction_mismatch`).
-     2) **Uniformity bias guard**: если в окне последних сигналов AI даёт одну сторону и почти одинаковую уверенность, сигнал отклоняется (`uniform_confidence_bias`).
-   - Параметры вынесены в `config.yaml -> ai`:
-     - `require_direction_match: true`
-     - `uniformity_guard_enabled: true`
-     - `uniformity_window: 8`
-     - `uniformity_conf_spread_max: 3`
-   - Wiring добавлен в `main.py`.
-
-## Strategy Snapshot (v6 + trained gate)
-```
-Trend Score       × 0.40
-Orderflow Score   × 0.35
-AI/Transformer    × 0.25
-────────────────────────
-Composite Score >= 0.85
-
-Дополнительно (если checkpoint загружен):
-- trained_model_prob >= trained_model_min_prob
-- blended confidence для capital score
-
-Hard filters: spread, funding, RR >= min_rr_ratio
-```
-
-## Architecture (актуальная)
+## Architecture
 ```
 /app/bot/
-├── main.py
-├── config.yaml
-├── backtester.py
-├── train_transformer.py
-├── TRAINING_AND_MODEL_INTEGRATION.md
-├── analysis/
+├── main.py              # Orchestrator
+├── config.yaml          # Central configuration
+├── analysis/            # Market analysis modules
 ├── engine/
-│   └── entry_engine.py   # + trained checkpoint loading + probability gate
+│   ├── entry_engine.py  # Scoring + filters
+│   ├── exit_engine.py   # Exit + trailing (с логированием)
+│   ├── risk_manager.py  # Cooldown + risk limits
+│   └── ...
 ├── exchange/
+│   └── bybit_client.py  # Bybit v5 API
 └── tg/
+    └── controller.py    # Telegram commands
 ```
 
 ## Testing Status
-- Локальный smoke по обучению: `train_transformer.py` успешно обучается на synthetic dataset и сохраняет веса.
-- Pytest:
-  - `/app/backend/tests/test_trained_model_integration.py`
-  - `/app/backend/tests/test_entry_engine_v6.py`
-  - `/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py`
-  - **50/50 passed** (локальный запуск).
-- Testing-agent report: `/app/test_reports/iteration_16.json` — **85/85 backend passed**.
-- Testing-agent report: `/app/test_reports/iteration_17.json` — quality-gate **50/50 backend passed**.
-- Локально: `pytest` (core + feedback + quality gate) — **88/88 passed**.
-- Testing-agent report: `/app/test_reports/iteration_19.json` — LYNUSDT hotfix **162/162 backend passed**.
-- Testing-agent report: `/app/test_reports/iteration_20.json` — AI anti-bias hotfix **114/114 targeted backend passed**.
+- Iteration 39: 46/46 passed (Anti-Loss Package)
+- All config values verified
+- EntryEngine, ExitEngine, RiskGuard behaviour verified
 
 ## Prioritized Backlog
 
-### P0 (следующее действие пользователя)
-- На сервере пользователя запустить новое обучение на реальном `training_data.json` и получить свежий `transformer_weights.pt`.
-- Проверить первые auto-labeled сигналы в `signal_feedback_queue.json`/`training_data.json` и убедиться, что daily retrain запускается в заданный UTC-час.
+### P1 (следующие задачи)
+- Whitelist-only режим (настраиваемый)
+- Partial TP 30/70 логика
+- `/retrain_status` Telegram команда
+- Рассмотреть `adopt_all_positions: false` или строгий фильтр
 
-### P1
-- Онлайн-калибровка `trained_model_min_prob` / `trained_model_blend` по live-статистике (precision/recall на win).
-- Добавить журнал качества сигналов до/после trained gate (daily summary) + quality-gate reject breakdown.
-
-### P2
-- RL position manager (после накопления достаточного датасета).
-- Улучшение liquidation data источника (уменьшить fallback-зависимость).
+### P2 (архитектурные)
+- Переход на 5мин/15мин TF
+- RL position manager
+- A/B/C грейдинг сигналов
+- Добавить фильтр волатильности ATR < 0.3%
