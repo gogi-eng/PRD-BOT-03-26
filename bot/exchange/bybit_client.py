@@ -36,6 +36,7 @@ class BybitClient:
         self._last_private_request_at = 0.0
         self.public_min_interval = 0.22
         self.private_min_interval = 0.35
+        self.last_rate_limit_at_monotonic = 0.0
 
     async def _respect_rate_limit(self, is_private: bool):
         async with self._request_lock:
@@ -181,6 +182,7 @@ class BybitClient:
                 if ret_code == 110043:
                     return data.get("result", {})
                 if ret_code == 10006 and attempt < retries - 1:
+                    self.last_rate_limit_at_monotonic = time.monotonic()
                     # Exponential backoff: 2s, 4s, 8s, 16s...
                     wait = 2 ** (attempt + 1)
                     print(f"[BYBIT] Rate limited, retry in {wait}s (attempt {attempt + 1}/{retries})")

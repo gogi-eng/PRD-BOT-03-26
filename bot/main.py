@@ -321,6 +321,10 @@ class TradingBot:
         self.exchange_closed_reentry_cooldown_sec = int(
             self.cfg.get("position_sync", "exchange_closed_reentry_cooldown_sec", default=900)
         )
+        self.exchange_closed_pause_after_rate_limit_sec = int(
+            self.cfg.get("position_sync", "pause_exchange_closed_after_rate_limit_sec", default=180)
+        )
+        self._last_exchange_sync_pause_log_ts = 0.0
         self._exchange_closed_reentry_until: dict[str, float] = {}
         self.partial_tp_enabled = self.cfg.get("partial_tp", "enabled", default=True)
         self.partial_tp_trigger_progress = self.cfg.get("partial_tp", "trigger_progress", default=0.5)
@@ -548,9 +552,22 @@ class TradingBot:
 
     async def _manage_positions(self, exchange_positions: list | None = None) -> float:
         exchange_positions = exchange_positions if exchange_positions is not None else await self.client.get_positions()
+
+        sync_pause_remaining = self._exchange_closed_sync_pause_remaining()
+        if sync_pause_remaining > 0:
+            now = time.time()
+            if now - self._last_exchange_sync_pause_log_ts >= 30:
+                logger.info(
+                    f"[POSITION_SYNC] exchange_closed reconciliation paused due rate-limit: {sync_pause_remaining}s"
+                )
+                self._last_exchange_sync_pause_log_ts = now
+            self._missing_exchange_cycles.clear()
+
         if exchange_positions:
             exchange_symbols = {item["symbol"] for item in exchange_positions}
             for symbol in self.position_manager.symbols():
+                if sync_pause_remaining > 0:
+                    continue
                 if symbol not in exchange_symbols and not self.controls.dry_run:
                     if not self._should_finalize_exchange_closed(symbol):
                         continue
@@ -2236,6 +2253,16 @@ class TradingBot:
             self._exchange_closed_reentry_until.pop(symbol, None)
             return 0
         return remaining
+
+    def _exchange_closed_sync_pause_remaining(self) -> int:
+        cooldown = max(0, int(self.exchange_closed_pause_after_rate_limit_sec))
+        if cooldown <= 0:
+            return 0
+        last_at = float(getattr(self.client, "last_rate_limit_at_monotonic", 0.0) or 0.0)
+        if last_at <= 0:
+            return 0
+        remaining = int((last_at + cooldown - time.monotonic()) + 0.999)
+        return remaining if remaining > 0 else 0
 
     def stop(self):
         self._running = False
