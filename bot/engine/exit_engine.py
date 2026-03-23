@@ -11,8 +11,11 @@ Trailing logic:
   After that: classic distance-based trailing
 """
 from __future__ import annotations
+import logging
 from typing import Optional, Tuple
 from enum import Enum
+
+logger = logging.getLogger("EXIT_ENGINE")
 
 
 class ExitReason(Enum):
@@ -172,10 +175,20 @@ class ExitEngine:
                 # 1R: move SL to breakeven
                 position.trailing_stop = max(entry, position.stop_loss)
                 updated = True
+                logger.info(
+                    f"[TRAIL ACTIVATED] {getattr(position, 'symbol', '?')} LONG "
+                    f"price={current_price:.4f} >= activation={position.trailing_activation_price:.4f} "
+                    f"→ trail_stop={position.trailing_stop:.4f} (breakeven)"
+                )
             elif not is_long and current_price <= position.trailing_activation_price:
                 position.trailing_active = True
                 position.trailing_stop = min(entry, position.stop_loss) if position.stop_loss > 0 else entry
                 updated = True
+                logger.info(
+                    f"[TRAIL ACTIVATED] {getattr(position, 'symbol', '?')} SHORT "
+                    f"price={current_price:.4f} <= activation={position.trailing_activation_price:.4f} "
+                    f"→ trail_stop={position.trailing_stop:.4f} (breakeven)"
+                )
 
         if not position.trailing_active:
             return updated
@@ -198,6 +211,11 @@ class ExitEngine:
                 new_stop = position.stop_loss
 
             if new_stop > position.trailing_stop:
+                logger.info(
+                    f"[TRAIL MOVE] {getattr(position, 'symbol', '?')} LONG "
+                    f"R={r_multiple:.2f} old_trail={position.trailing_stop:.4f} → new={new_stop:.4f} "
+                    f"(best={position.best_price:.4f} dist_stop={distance_stop:.4f})"
+                )
                 position.trailing_stop = new_stop
                 updated = True
 
@@ -215,6 +233,11 @@ class ExitEngine:
                 new_stop = position.stop_loss
 
             if position.trailing_stop <= 0 or new_stop < position.trailing_stop:
+                logger.info(
+                    f"[TRAIL MOVE] {getattr(position, 'symbol', '?')} SHORT "
+                    f"R={r_multiple:.2f} old_trail={position.trailing_stop:.4f} → new={new_stop:.4f} "
+                    f"(best={position.best_price:.4f} dist_stop={distance_stop:.4f})"
+                )
                 position.trailing_stop = new_stop
                 updated = True
 

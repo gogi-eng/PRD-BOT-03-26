@@ -21,7 +21,7 @@ trading:
   leverage: 8
   margin_total_pct: 8.0
   risk_per_trade_pct: 0.4
-  max_positions: 3
+  max_positions: 2
   min_position_usdt: 10.0
   trailing_stop_pct: 1.0
   tp_pct: 1.8
@@ -32,22 +32,22 @@ entry:
   transformer_threshold: 0.54
   max_liq_distance_pct: 1.30
   min_orderflow_imbalance: 1.10
-  min_rr_ratio: 2.5
+  min_rr_ratio: 3.0
   min_target_profit_pct: 1.2
   require_structural_tp: true
   min_stop_distance_pct: 0.8
-  min_stop_atr_mult: 1.4
-  sl_buffer_atr_mult: 0.8
+  min_stop_atr_mult: 1.6
+  sl_buffer_atr_mult: 1.0
   max_entry_extension_atr: 0.75
   entry_range_atr_mult: 0.22
   allowed_regimes: ["trend", "breakout", "chop"]
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.56
+  entry_threshold: 0.72
   trained_model_enabled: true
-  trained_model_min_prob: 0.0
-  trained_model_blend: 0.10
+  trained_model_min_prob: 0.52
+  trained_model_blend: 0.30
   trained_model_weights_path: "transformer_weights.pt"
   min_liq_depth: 0.0
   min_smc_score: 0.70
@@ -83,7 +83,7 @@ atr:
 
 exit:
   hard_sl_atr_mult: 2.5
-  early_exit_bars: 0
+  early_exit_bars: 6
   early_exit_min_profit_atr: 0.1
   trailing_activation_atr: 1.1
   trailing_distance_atr: 1.4
@@ -96,20 +96,20 @@ risk:
   max_daily_loss_usdt: 50
   max_trades_per_day: 6
   max_consecutive_losses: 5
-  cooldown_after_loss_sec: 1800
+  cooldown_after_loss_sec: 3600
   cooldown_after_stop_hours: 0.5
   max_trades_per_symbol_24h: 2
   reduce_after_losses: 3
   reduction_factor: 0.5
   min_loss_usdt_for_cooldown: 0.35
   min_loss_usdt_for_consecutive: 0.6
-  ignore_loss_cooldown_reasons: ["early_exit", "exchange_closed"]
-  ignore_consecutive_loss_reasons: ["early_exit", "exchange_closed"]
+  ignore_loss_cooldown_reasons: ["early_exit"]
+  ignore_consecutive_loss_reasons: ["early_exit"]
 
 market:
   min_24h_volume_usdt: 30000000
   max_symbols: 50
-  trade_symbols: 25
+  trade_symbols: 10
   whitelist_enabled: true
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
   blacklist_substrings:

@@ -429,17 +429,18 @@ class TradingBot:
             )
         else:
             logger.info("Trained model gate: OFF (checkpoint missing or disabled)")
+        logger.info(
+            "Quality gate: "
+            f"{'ON' if self.quality_gate_enabled else 'OFF'} "
+            f"(min_conf={self.quality_gate_min_confidence:.2f}, "
+            f"min_edge={self.quality_gate_min_expected_edge:.2f}, "
+            f"reject_no_zone={self.quality_gate_reject_no_zone_entries})"
+        )
         if self.signal_only:
             logger.info(
                 "Signal feedback loop: "
                 f"{'ON' if self.signal_feedback.enabled else 'OFF'} "
                 f"(pending timeout={self.signal_feedback.max_pending_hours}h)"
-            )
-            logger.info(
-                "Signal quality gate: "
-                f"{'ON' if self.quality_gate_enabled else 'OFF'} "
-                f"(min_conf={self.quality_gate_min_confidence:.2f}, "
-                f"min_edge={self.quality_gate_min_expected_edge:.2f})"
             )
         logger.info(
             f"Correlation filter: {'ON' if self.correlation_filter_enabled else 'OFF'} "
@@ -699,6 +700,18 @@ class TradingBot:
             last_swing_low = structure.swing_lows[-1].price if structure.swing_lows else 0.0
             last_swing_high = structure.swing_highs[-1].price if structure.swing_highs else 0.0
             self.exit_engine.update_trailing(pos, current_price, last_swing_low, last_swing_high)
+
+            # --- Trailing stop diagnostic logging ---
+            risk = abs(pos.entry_price - pos.stop_loss) if pos.stop_loss > 0 else pos.entry_price * 0.01
+            pnl_from_entry = (current_price - pos.entry_price) if pos.is_long else (pos.entry_price - current_price)
+            r_mult = pnl_from_entry / risk if risk > 0 else 0
+            logger.info(
+                f"[TRAIL] {symbol} price={current_price:.4f} entry={pos.entry_price:.4f} "
+                f"best={pos.best_price:.4f} R={r_mult:.2f} "
+                f"trail_active={pos.trailing_active} trail_stop={pos.trailing_stop:.4f} "
+                f"activation={pos.trailing_activation_price:.4f} SL={pos.stop_loss:.4f} "
+                f"bars={pos.bars_since_entry}"
+            )
 
             # --- Pyramid: add to winning positions ---
             if self.pyramid_enabled and pos.origin == "bot" and pos.add_count < self.pyramid_max_adds:
