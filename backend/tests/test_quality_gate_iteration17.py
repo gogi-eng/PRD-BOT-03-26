@@ -327,17 +327,17 @@ class TestConfigDrivenBehavior:
         assert "anti_flat_require_htf_trend:" in content
 
 
-# ============== TEST: Quality Gate Applied in Signal-Only Mode ============
+# ============== TEST: Quality Gate Applied in All Execution Modes ============
 
 class TestQualityGateAppliedInSignalOnlyMode:
-    """Tests verifying quality gate is checked in _scan_entries for signal_only."""
+    """Tests verifying quality gate is checked in _scan_entries for SIGNAL-ONLY and LIVE."""
     
-    def test_scan_entries_checks_quality_gate_in_signal_only(self):
-        """_scan_entries has quality gate check for signal_only mode."""
+    def test_scan_entries_checks_quality_gate_globally(self):
+        """_scan_entries has quality gate check for all modes."""
         main_path = Path(__file__).parent.parent.parent / "bot" / "main.py"
         content = main_path.read_text()
         # Check that quality gate is invoked inside _scan_entries
-        assert "if self.signal_only and self.quality_gate_enabled:" in content
+        assert "if self.quality_gate_enabled:" in content
         assert "_passes_signal_quality_gate" in content
     
     def test_quality_gate_rejection_is_logged(self):

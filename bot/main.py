@@ -764,7 +764,7 @@ class TradingBot:
                         mark_reject("same_side_cooldown")
                         continue
 
-                    if self.signal_only and self.quality_gate_enabled:
+                    if self.quality_gate_enabled:
                         gate_ok, gate_reason, gate_meta = self._passes_signal_quality_gate(symbol, signal)
                         if not gate_ok:
                             logger.info(f"QUALITY GATE REJECT {symbol}: {gate_reason}")
