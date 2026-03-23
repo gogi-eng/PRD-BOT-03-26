@@ -1,0 +1,114 @@
+{
+  "summary": "Iteration 37: Verified trailing responsiveness improvements - scan_interval_sec (60s) and position_active_sleep_sec (15s) config params, scan interval gate decouples entry scanning from position management ticks, LIVE mode with positions uses faster 15s sleep while signal-only mode keeps 60s default. All 32 new tests + 45 regression tests passed (77 total).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 37 Trailing Responsiveness Tests (32 total) ---",
+    "TestConfigHasScanIntervalAndPositionActiveSleep::test_config_has_scan_interval_sec - PASSED",
+    "TestConfigHasScanIntervalAndPositionActiveSleep::test_config_has_position_active_sleep_sec - PASSED",
+    "TestConfigHasScanIntervalAndPositionActiveSleep::test_config_has_cycle_sleep_sec - PASSED",
+    "TestBotLoadsConfigValues::test_bot_loads_scan_interval_sec - PASSED",
+    "TestBotLoadsConfigValues::test_bot_loads_position_active_sleep_sec - PASSED",
+    "TestScanIntervalGate::test_scan_interval_gate_first_call_returns_true - PASSED",
+    "TestScanIntervalGate::test_scan_interval_gate_second_call_returns_false - PASSED",
+    "TestScanIntervalGate::test_scan_interval_gate_returns_true_after_interval - PASSED",
+    "TestScanIntervalGate::test_scan_interval_gate_updates_timestamp_on_true - PASSED",
+    "TestScanIntervalGate::test_scan_interval_gate_minimum_5_seconds - PASSED",
+    "TestScanIntervalGate::test_scan_interval_gate_respects_configured_value - PASSED",
+    "TestCycleSleepLiveMode::test_cycle_sleep_shorter_when_positions_active_live - PASSED",
+    "TestCycleSleepLiveMode::test_cycle_sleep_default_when_no_positions_live - PASSED",
+    "TestCycleSleepLiveMode::test_cycle_sleep_uses_min_of_active_and_base - PASSED",
+    "TestCycleSleepLiveMode::test_cycle_sleep_minimum_5_seconds - PASSED",
+    "TestCycleSleepSignalOnlyMode::test_cycle_sleep_default_in_signal_only_with_positions - PASSED",
+    "TestCycleSleepSignalOnlyMode::test_cycle_sleep_default_in_signal_only_no_positions - PASSED",
+    "TestEdgeCases::test_single_position_triggers_fast_sleep - PASSED",
+    "TestEdgeCases::test_many_positions_same_fast_sleep - PASSED",
+    "TestEdgeCases::test_scan_interval_independent_of_cycle_sleep - PASSED",
+    "TestRegressionExchangeClosedProtections::test_config_has_exchange_closed_confirm_cycles - PASSED",
+    "TestRegressionExchangeClosedProtections::test_config_has_exchange_closed_require_closed_pnl - PASSED",
+    "TestRegressionExchangeClosedProtections::test_config_has_exchange_closed_force_cycles - PASSED",
+    "TestRegressionExchangeClosedProtections::test_config_has_exchange_closed_reentry_cooldown_sec - PASSED",
+    "TestRegressionExchangeClosedProtections::test_config_has_pause_exchange_closed_after_rate_limit_sec - PASSED",
+    "TestIntegrationScanAndSleepDecoupled::test_fast_position_ticks_dont_trigger_scan_every_time - PASSED",
+    "TestIntegrationScanAndSleepDecoupled::test_scan_triggers_after_interval_despite_fast_ticks - PASSED",
+    "TestConfigValuesMatchExpected::test_all_trailing_responsiveness_config_values - PASSED",
+    "--- Original Iteration 37 Tests (4 total) ---",
+    "test_get_cycle_sleep_shorter_when_positions_active_live - PASSED",
+    "test_get_cycle_sleep_default_when_no_positions - PASSED",
+    "test_get_cycle_sleep_default_in_signal_only - PASSED",
+    "test_scan_interval_gate_works - PASSED",
+    "--- Regression Tests from Iteration 36 (45 total) ---",
+    "All 45 tests from test_iteration36_rate_limit_sync_pause_full.py - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration37_trailing_responsiveness.py",
+    "/app/backend/tests/test_iteration37_trailing_responsiveness_full.py",
+    "/app/test_reports/pytest/pytest_results_iteration37.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml line 11: cycle_sleep_sec: 60 - CORRECT base sleep interval",
+    "config.yaml line 12: scan_interval_sec: 60 - CORRECT entry scan interval",
+    "config.yaml line 13: position_active_sleep_sec: 15 - CORRECT faster sleep for position management",
+    "main.py line 199-202: Bot loads scan_interval_sec and position_active_sleep_sec from config - CORRECT",
+    "main.py line 2272-2278: _should_scan_entries_now() gates entry scanning by scan_interval_sec - CORRECT",
+    "main.py line 2280-2287: _get_cycle_sleep_sec() returns position_active_sleep_sec when LIVE with positions - CORRECT",
+    "main.py line 2282-2283: Signal-only mode always returns base_sleep - CORRECT",
+    "main.py line 533-534: Main loop uses _should_scan_entries_now() to gate entry scanning - CORRECT",
+    "main.py line 541-542: Main loop uses _get_cycle_sleep_sec() for sleep duration - CORRECT"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration37_trailing_responsiveness_full.py"
+  ],
+  "success_rate": {
+    "backend": "77/77 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 37 verified trailing responsiveness improvements: (1) Config has scan_interval_sec=60 and position_active_sleep_sec=15 in bot section, (2) _should_scan_entries_now() gates entry scanning by scan_interval_sec (60s) - prevents scanning on every fast position tick, (3) _get_cycle_sleep_sec() returns position_active_sleep_sec (15s) when LIVE mode and positions exist, (4) Signal-only mode always uses default cycle_sleep (60s) regardless of position count, (5) No regressions in exchange_closed protections (all iteration 36 tests pass). The decoupling allows position management every ~15s while entry scanning remains at 60s intervals.",
+  "feature_verification": {
+    "config_scan_interval_sec": {
+      "config": "config.yaml line 12: scan_interval_sec: 60",
+      "bot_load": "main.py line 200: self.scan_interval_sec = int(self.cfg.get('bot', 'scan_interval_sec', default=self.cycle_sleep))",
+      "status": "VERIFIED"
+    },
+    "config_position_active_sleep_sec": {
+      "config": "config.yaml line 13: position_active_sleep_sec: 15",
+      "bot_load": "main.py line 201: self.position_active_sleep_sec = int(self.cfg.get('bot', 'position_active_sleep_sec', default=15))",
+      "status": "VERIFIED"
+    },
+    "scan_interval_gate": {
+      "implementation": "main.py line 2272-2278: _should_scan_entries_now()",
+      "usage": "main.py line 533: if self._should_scan_entries_now()",
+      "behavior": "Returns True only when scan_interval_sec has elapsed since last scan",
+      "status": "VERIFIED"
+    },
+    "cycle_sleep_live_with_positions": {
+      "implementation": "main.py line 2280-2287: _get_cycle_sleep_sec()",
+      "behavior": "Returns position_active_sleep_sec (15s) when signal_only=False and positions > 0",
+      "status": "VERIFIED"
+    },
+    "cycle_sleep_signal_only": {
+      "implementation": "main.py line 2282-2283: if self.signal_only: return base_sleep",
+      "behavior": "Always returns cycle_sleep (60s) in signal-only mode",
+      "status": "VERIFIED"
+    },
+    "no_regressions_exchange_closed": {
+      "tests": "45 tests from iteration 36 all pass",
+      "status": "VERIFIED"
+    }
+  },
+  "rca_of_the_issue": {
+    "root_cause": "Trailing execution lag (e.g., PAXGUSDT) was caused by position management being tied to the same 60s cycle as entry scanning. When positions exist, trailing stop updates were delayed by up to 60s.",
+    "fix_applied": "Decoupled entry scanning from position management: (1) Added scan_interval_sec (60s) to gate entry scanning, (2) Added position_active_sleep_sec (15s) for faster position management when LIVE with positions, (3) _get_cycle_sleep_sec() returns shorter sleep when positions active, (4) _should_scan_entries_now() ensures entry scanning still happens at 60s intervals.",
+    "verification": "All 77 tests pass confirming: config values correct, scan interval gate works, cycle sleep is faster with positions in LIVE mode, signal-only mode unaffected, no regressions in exchange_closed protections."
+  }
+}

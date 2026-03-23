@@ -197,6 +197,9 @@ class TradingBot:
         self.htf_interval = self.cfg.get("bot", "htf_interval", default="15")
         self.htf_4h_interval = self.cfg.get("bot", "htf_4h_interval", default="240")
         self.cycle_sleep = self.cfg.get("bot", "cycle_sleep_sec", default=45)
+        self.scan_interval_sec = int(self.cfg.get("bot", "scan_interval_sec", default=self.cycle_sleep))
+        self.position_active_sleep_sec = int(self.cfg.get("bot", "position_active_sleep_sec", default=15))
+        self._last_scan_ts = 0.0
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
         self.signal_only = self.cfg.get("bot", "signal_only", default=False)
@@ -527,15 +530,17 @@ class TradingBot:
                 if self.controls.enabled and not self.controls.emergency:
                     can_trade, reason = self.risk_guard.can_trade()
                     if can_trade and (self.signal_only or self.position_manager.count() < self.controls.max_positions):
-                        await self._scan_entries(symbols)
+                        if self._should_scan_entries_now():
+                            await self._scan_entries(symbols)
                     elif not can_trade:
                         logger.info(f"Trading blocked: {reason}")
                 else:
                     logger.info("Bot paused or emergency")
 
                 self.controls.set_positions(self.position_manager.to_controls_dict())
-                logger.info(f"Cycle {cycle} done. Sleeping {self.cycle_sleep}s...")
-                await asyncio.sleep(self.cycle_sleep)
+                sleep_sec = self._get_cycle_sleep_sec()
+                logger.info(f"Cycle {cycle} done. Sleeping {sleep_sec}s...")
+                await asyncio.sleep(sleep_sec)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -2263,6 +2268,23 @@ class TradingBot:
             return 0
         remaining = int((last_at + cooldown - time.monotonic()) + 0.999)
         return remaining if remaining > 0 else 0
+
+    def _should_scan_entries_now(self) -> bool:
+        interval = max(5, int(self.scan_interval_sec))
+        now = time.time()
+        if self._last_scan_ts <= 0 or (now - self._last_scan_ts) >= interval:
+            self._last_scan_ts = now
+            return True
+        return False
+
+    def _get_cycle_sleep_sec(self) -> int:
+        base_sleep = max(5, int(self.cycle_sleep))
+        if self.signal_only:
+            return base_sleep
+        if self.position_manager.count() > 0:
+            active_sleep = max(5, int(self.position_active_sleep_sec))
+            return min(active_sleep, base_sleep)
+        return base_sleep
 
     def stop(self):
         self._running = False

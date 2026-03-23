@@ -9,6 +9,8 @@ bot:
   htf_interval: "15"
   htf_4h_interval: "240"
   cycle_sleep_sec: 60
+  scan_interval_sec: 60
+  position_active_sleep_sec: 15
   klines_limit: 180
   feature_window: 128
   liquidation_stream_symbols: 12
