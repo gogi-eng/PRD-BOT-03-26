@@ -321,6 +321,7 @@ class TradingBot:
             self.cfg.get("position_sync", "exchange_closed_force_cycles", default=8)
         )
         self._missing_exchange_cycles: dict[str, int] = {}
+        self._failed_close_attempts: dict[str, int] = {}
         self.exchange_closed_reentry_cooldown_sec = int(
             self.cfg.get("position_sync", "exchange_closed_reentry_cooldown_sec", default=900)
         )
@@ -731,8 +732,26 @@ class TradingBot:
             if should_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)
                 if close_result.get("success"):
+                    self._failed_close_attempts.pop(symbol, None)
                     pnl = self._calc_pnl(pos, current_price, pos.qty)
                     await self._finalize_full_close(symbol, pos, current_price, pnl, reason.value)
+                else:
+                    fails = self._failed_close_attempts.get(symbol, 0) + 1
+                    self._failed_close_attempts[symbol] = fails
+                    logger.warning(
+                        f"[EXIT FAILED] {symbol} execute_close failed ({fails}/3): "
+                        f"reason={reason.value} error={close_result.get('error', '?')}"
+                    )
+                    if fails >= 3:
+                        logger.error(
+                            f"[FORCE REMOVE] {symbol} — {fails} consecutive close failures. "
+                            f"Removing zombie position (entry={pos.entry_price:.4f} current={current_price:.4f})"
+                        )
+                        self._failed_close_attempts.pop(symbol, None)
+                        pos = self.position_manager.remove(symbol)
+                        if pos:
+                            pnl = self._calc_pnl(pos, current_price, pos.qty)
+                            await self._finalize_full_close(symbol, pos, current_price, pnl, "force_closed_stale", already_removed=True)
             else:
                 pos.bars_since_entry += 1
                 if pos.trailing_active and pos.trailing_stop > 0:
