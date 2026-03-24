@@ -1487,7 +1487,13 @@ class TradingBot:
             return False, "no_zone_low_confidence", {"quality_expected_edge": round(expected_edge, 4)}
 
         if getattr(self, "quality_gate_reject_no_zone_entries", False) and entry_zone == "no_zone":
-            return False, "no_zone_blocked", {"quality_expected_edge": round(expected_edge, 4)}
+            smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
+            if confidence >= 0.85 and smc_score >= 0.85:
+                logger.info(
+                    f"[QUALITY_GATE] {symbol} no_zone BYPASSED (conf={confidence:.2f} smc={smc_score:.2f})"
+                )
+            else:
+                return False, "no_zone_blocked", {"quality_expected_edge": round(expected_edge, 4)}
 
         if expected_edge < self.quality_gate_min_expected_edge:
             return False, "low_expected_edge", {"quality_expected_edge": round(expected_edge, 4)}
