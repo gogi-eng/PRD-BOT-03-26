@@ -253,6 +253,6 @@ adaptive_regime_presets:
   notify_on_switch: true
   benchmark_symbol: "BTCUSDT"
   trend_strict_htf_mode: true
-  trend_volatility_floor_atr_pct: 0.20
+  trend_volatility_floor_atr_pct: 0.06
   range_strict_htf_mode: false
   range_volatility_floor_atr_pct: 0.02
