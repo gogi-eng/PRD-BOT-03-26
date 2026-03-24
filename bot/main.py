@@ -580,11 +580,13 @@ class TradingBot:
                     pos = self.position_manager.get(symbol)
                     if pos:
                         closed = await self.client.get_closed_pnl(symbol, limit=3)
+                        # Only count closedPnl records from the last 5 minutes
+                        recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=300)
                         seen_cycles = int(self._missing_exchange_cycles.get(symbol, 0))
-                        if not self._can_finalize_exchange_closed(seen_cycles, len(closed or [])):
+                        if not self._can_finalize_exchange_closed(seen_cycles, len(recent_closed)):
                             logger.info(
                                 f"[POSITION_SYNC] {symbol} waiting close evidence "
-                                f"(missing={seen_cycles}, closed_records={len(closed or [])})"
+                                f"(missing={seen_cycles}, recent_closed={len(recent_closed)}, total_closed={len(closed or [])})"
                             )
                             continue
 
@@ -592,7 +594,9 @@ class TradingBot:
                         if pos:
                             current_price = await self.client.get_price(symbol)
                             pnl = 0.0
-                            if closed:
+                            if recent_closed:
+                                pnl = float(recent_closed[0].get("closedPnl", 0) or 0)
+                            elif closed:
                                 pnl = float(closed[0].get("closedPnl", 0) or 0)
                             await self._finalize_full_close(symbol, pos, current_price, pnl, "exchange_closed", already_removed=True)
                 else:
@@ -721,7 +725,7 @@ class TradingBot:
                 pos,
                 current_price,
                 atr_val,
-                protective_level=pos.protective_liq_level,
+                protective_level=pos.protective_liq_level if pos.origin == "bot" else 0.0,
                 allow_early_exit=(pos.origin == "bot"),
             )
             if should_exit:
@@ -1866,7 +1870,7 @@ class TradingBot:
             external_tp_locked=external_tp_locked,
             last_notified_stop_loss=stop_loss,
         )
-        self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=stop_loss)
+        self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=0.0)
         self._apply_manual_trailing_profile(adopted, atr_val)
         self._apply_profit_drawdown_profile(adopted)
         if not external_tp_locked and partial_tp > 0:
@@ -2248,6 +2252,20 @@ class TradingBot:
             )
             return False
         return True
+
+    @staticmethod
+    def _filter_recent_closed_pnl(closed_records: list | None, max_age_sec: int = 300) -> list:
+        """Filter closedPnl records to only include those from the last max_age_sec seconds."""
+        if not closed_records:
+            return []
+        now_ms = int(time.time() * 1000)
+        cutoff_ms = now_ms - max_age_sec * 1000
+        recent = []
+        for record in closed_records:
+            updated_time = int(record.get("updatedTime", 0) or record.get("createdTime", 0) or 0)
+            if updated_time >= cutoff_ms:
+                recent.append(record)
+        return recent
 
     def _can_finalize_exchange_closed(self, missing_cycles: int, closed_records_count: int) -> bool:
         if not self.exchange_closed_require_closed_pnl:

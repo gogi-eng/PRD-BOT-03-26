@@ -140,9 +140,9 @@ rl:
 position_sync:
   adopt_all_positions: true
   preserve_existing_sl_tp: true
-  exchange_closed_confirm_cycles: 3
+  exchange_closed_confirm_cycles: 5
   exchange_closed_require_closed_pnl: true
-  exchange_closed_force_cycles: 8
+  exchange_closed_force_cycles: 20
   exchange_closed_reentry_cooldown_sec: 900
   pause_exchange_closed_after_rate_limit_sec: 180
 
