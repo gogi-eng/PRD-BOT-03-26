@@ -584,6 +584,16 @@ class TradingBot:
                         # Only count closedPnl records from the last 5 minutes
                         recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=300)
                         seen_cycles = int(self._missing_exchange_cycles.get(symbol, 0))
+
+                        # Manual positions: NEVER force-close, require closedPnl evidence
+                        if pos.origin == "manual" and len(recent_closed) == 0:
+                            if seen_cycles % 10 == 0:
+                                logger.info(
+                                    f"[POSITION_SYNC] {symbol} MANUAL position — skipping force-close "
+                                    f"(missing={seen_cycles}, waiting for closedPnl evidence only)"
+                                )
+                            continue
+
                         if not self._can_finalize_exchange_closed(seen_cycles, len(recent_closed)):
                             logger.info(
                                 f"[POSITION_SYNC] {symbol} waiting close evidence "
