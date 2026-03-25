@@ -1983,16 +1983,6 @@ class TradingBot:
             pos.trailing_activation_price = pos.entry_price - atr * self.manual_trailing_activation_atr
 
     def _apply_profit_drawdown_profile(self, pos: Position):
-        activation_move = self.profit_drawdown_activation_pct / 100
-        if pos.is_long:
-            target_activation = pos.entry_price * (1 + activation_move)
-            pos.trailing_activation_price = max(pos.trailing_activation_price, target_activation)
-        else:
-            target_activation = pos.entry_price * (1 - activation_move)
-            if pos.trailing_activation_price <= 0:
-                pos.trailing_activation_price = target_activation
-            else:
-                pos.trailing_activation_price = min(pos.trailing_activation_price, target_activation)
         pos.profit_guard_armed = False
         pos.profit_peak_price = pos.entry_price
         pos.profit_peak_pct = 0.0
