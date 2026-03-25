@@ -174,14 +174,14 @@ profit_drawdown_guard:
 manual_management:
   rl_enabled: false
   preserve_existing_tp: true
-  trailing_activation_atr: 3.0
-  trailing_distance_atr: 3.5
+  trailing_activation_atr: 1.0
+  trailing_distance_atr: 1.4
   notify_on_adopt: true
   notify_on_partial_tp: true
   notify_on_sl_move: true
 
 profit_lock:
-  min_profit_pct: 5.0
+  min_profit_pct: 25.0
   decline_threshold_pct: 20.0
   decline_duration_sec: 300
   cooldown_sec: 3600
