@@ -1523,16 +1523,27 @@ class TradingBot:
             atr_pct = float(signal.metadata.get("atr_pct", 0.0) or 0.0)
             htf_trend = str(signal.metadata.get("htf_trend", "neutral")).lower()
 
-            if not self.quality_gate_allow_chop and regime == "chop":
-                return False, "chop_regime", {"quality_expected_edge": round(expected_edge, 4)}
-            if adx < self.quality_gate_min_adx:
-                return False, "low_adx", {"quality_expected_edge": round(expected_edge, 4)}
-            if atr_pct < self.quality_gate_min_atr_pct:
-                return False, "low_atr", {"quality_expected_edge": round(expected_edge, 4)}
-            if abs_imbalance < self.quality_gate_min_abs_imbalance:
-                return False, "flat_orderflow", {"quality_expected_edge": round(expected_edge, 4)}
-            if self.quality_gate_require_htf_trend and htf_trend in {"neutral", "flat", "range", "sideways"}:
-                return False, "flat_htf_trend", {"quality_expected_edge": round(expected_edge, 4)}
+            # Strong signal with real zone bypasses regime/atr/orderflow checks
+            smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
+            has_real_zone = entry_zone not in ("no_zone", "")
+            strong_signal = confidence >= 0.85 and smc_score >= 0.85 and has_real_zone
+
+            if not strong_signal:
+                if not self.quality_gate_allow_chop and regime == "chop":
+                    return False, "chop_regime", {"quality_expected_edge": round(expected_edge, 4)}
+                if adx < self.quality_gate_min_adx:
+                    return False, "low_adx", {"quality_expected_edge": round(expected_edge, 4)}
+                if atr_pct < self.quality_gate_min_atr_pct:
+                    return False, "low_atr", {"quality_expected_edge": round(expected_edge, 4)}
+                if abs_imbalance < self.quality_gate_min_abs_imbalance:
+                    return False, "flat_orderflow", {"quality_expected_edge": round(expected_edge, 4)}
+                if self.quality_gate_require_htf_trend and htf_trend in {"neutral", "flat", "range", "sideways"}:
+                    return False, "flat_htf_trend", {"quality_expected_edge": round(expected_edge, 4)}
+            else:
+                logger.info(
+                    f"[QUALITY_GATE] {symbol} strong signal BYPASS "
+                    f"(conf={confidence:.2f} smc={smc_score:.2f} zone={entry_zone})"
+                )
 
         return True, "ok", {"quality_expected_edge": round(expected_edge, 4), "quality_gate_symbol": symbol}
 
