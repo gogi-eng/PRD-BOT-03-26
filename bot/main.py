@@ -1202,6 +1202,31 @@ class TradingBot:
         }
 
     async def _execute_entry(self, symbol: str, signal: EntrySignal, capital_weight: float):
+        # Pre-execution momentum guard: check last 3 candles for strong opposite momentum
+        recent_klines = await self.client.get_klines(symbol, self.candle_interval, 5)
+        if recent_klines and len(recent_klines) >= 3:
+            last_3 = recent_klines[-3:]
+            atr_check = self.atr.get_atr(symbol, recent_klines)
+            if atr_check > 0:
+                total_body = 0.0
+                for k in last_3:
+                    o, c = float(k.get("open", 0)), float(k.get("close", 0))
+                    total_body += (c - o)  # positive = bullish, negative = bearish
+                # If entering BUY but last 3 candles are strongly bearish (> 1.5 ATR down)
+                if signal.side.upper() == "BUY" and total_body < -1.5 * atr_check:
+                    logger.warning(
+                        f"[MOMENTUM GUARD] {symbol} BUY blocked: last 3 candles bearish "
+                        f"(body={total_body:.4f} vs ATR={atr_check:.4f})"
+                    )
+                    return
+                # If entering SELL but last 3 candles are strongly bullish
+                if signal.side.upper() == "SELL" and total_body > 1.5 * atr_check:
+                    logger.warning(
+                        f"[MOMENTUM GUARD] {symbol} SELL blocked: last 3 candles bullish "
+                        f"(body={total_body:.4f} vs ATR={atr_check:.4f})"
+                    )
+                    return
+
         balance = self.controls.get_balance()
         leverage = self.controls.leverage
         qty = self.risk_guard.calculate_position_size(
