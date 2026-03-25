@@ -1890,12 +1890,13 @@ class TradingBot:
         take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
 
         external_tp_locked = bool(take_profit > 0 and self.manual_preserve_existing_tp)
+        stop_loss_for_tracking = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else 0.0
         adopted = Position(
             symbol=symbol,
             side=side,
             entry_price=entry_price or mark_price,
             qty=size,
-            stop_loss=stop_loss,
+            stop_loss=stop_loss_for_tracking,
             take_profit=take_profit,
             unrealized_pnl=float(exchange_position.get("unrealisedPnl", 0) or 0),
             origin="manual",
@@ -1904,7 +1905,7 @@ class TradingBot:
             total_tp_price=take_profit,
             position_idx=position_idx,
             external_tp_locked=external_tp_locked,
-            last_notified_stop_loss=stop_loss,
+            last_notified_stop_loss=stop_loss_for_tracking,
         )
         self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=0.0)
         self._apply_manual_trailing_profile(adopted, atr_val)
@@ -1914,20 +1915,19 @@ class TradingBot:
         self.position_manager.add(adopted)
 
         if not self.controls.dry_run:
-            if float(exchange_position.get("stopLoss", 0) or 0) <= 0 and stop_loss > 0:
-                await self.execution_engine.update_sl(symbol, stop_loss, position_idx=position_idx)
             if float(exchange_position.get("takeProfit", 0) or 0) <= 0 and take_profit > 0:
                 await self.execution_engine.update_tp(symbol, take_profit, position_idx=position_idx)
         if self.tg and self.manual_notify_on_adopt:
+            sl_info = f"${adopted.stop_loss:.4f}" if adopted.stop_loss > 0 else "НЕТ (ждём trailing)"
             await self.tg.send_message(
                 f"<b>ПОДХВАЧЕНА ВНЕШНЯЯ ПОЗИЦИЯ</b>\n\n"
                 f"Монета: <code>{symbol}</code>\n"
                 f"Сторона: <b>{side}</b>\n"
                 f"Вход: <code>${adopted.entry_price:.4f}</code>\n"
                 f"Объём: <code>{size}</code>\n"
-                f"SL: <code>${adopted.stop_loss:.4f}</code>\n"
+                f"SL: <code>{sl_info}</code>\n"
                 f"TP: <code>${adopted.take_profit:.4f}</code>\n"
-                f"Режим: <code>manual-safe-trailing</code>"
+                f"Режим: <code>manual-safe-trailing (SL только после безубытка)</code>"
             )
 
     def _derive_manual_position_levels(self, side: str, entry_price: float, stop_loss: float, take_profit: float, atr_val: float, liq_analysis=None, klines: list[dict] | None = None, zone_context=None) -> tuple[float, float, float]:
