@@ -718,6 +718,8 @@ class TradingBot:
 
             # --- Trailing stop diagnostic logging ---
             risk = abs(pos.entry_price - pos.stop_loss) if pos.stop_loss > 0 else pos.entry_price * 0.01
+            if risk < pos.entry_price * 0.0001:
+                risk = pos.entry_price * 0.01  # Prevent division by near-zero
             pnl_from_entry = (current_price - pos.entry_price) if pos.is_long else (pos.entry_price - current_price)
             r_mult = pnl_from_entry / risk if risk > 0 else 0
             logger.info(
@@ -760,7 +762,18 @@ class TradingBot:
                         self._failed_close_attempts.pop(symbol, None)
                         pos = self.position_manager.remove(symbol)
                         if pos:
-                            pnl = self._calc_pnl(pos, current_price, pos.qty)
+                            # Get real PnL from exchange closedPnl
+                            closed = await self.client.get_closed_pnl(symbol, limit=3)
+                            recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=600)
+                            if recent_closed:
+                                pnl = float(recent_closed[0].get("closedPnl", 0) or 0)
+                                logger.info(f"[FORCE REMOVE] {symbol} using exchange closedPnl: ${pnl:.4f}")
+                            elif closed:
+                                pnl = float(closed[0].get("closedPnl", 0) or 0)
+                                logger.info(f"[FORCE REMOVE] {symbol} using older closedPnl: ${pnl:.4f}")
+                            else:
+                                pnl = self._calc_pnl(pos, current_price, pos.qty)
+                                logger.info(f"[FORCE REMOVE] {symbol} no closedPnl, estimated: ${pnl:.4f}")
                             await self._finalize_full_close(symbol, pos, current_price, pnl, "force_closed_stale", already_removed=True)
             else:
                 pos.bars_since_entry += 1
