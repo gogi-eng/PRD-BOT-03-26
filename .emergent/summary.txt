@@ -1,141 +1,151 @@
-<analysis>**original_problem_statement:**
-The user's goal is to create a profitable, automated cryptocurrency trading bot. After several unprofitable iterations, the user has directed the development towards a sophisticated quant-fund style strategy. The bot's logic was overhauled to use a weighted scoring system based on Trend, Orderflow, and an AI Transformer model. However, the user is now facing two critical issues: a malfunctioning AI training pipeline and an overwhelming flood of signals from the live bot, making it unusable. The immediate priority is to fix the signal flood and then repair the training process to improve the bot's intelligence.
+<analysis>**original_problem_statement**: The user's goal is to create a profitable, automated cryptocurrency trading bot. After addressing initial signal flooding and AI training issues, the focus has shifted to resolving the bot's unprofitability in live trading. The primary sources of loss have been identified as frequent, potentially erroneous,  events, poor quality trade entries, and ineffective risk management. The user is highly engaged, provides detailed logs and analysis, and expects concrete fixes to make the bot profitable. PRODUCT REQUIREMENTS: SMC + AI strategy, Bybit API integration, strict risk management, trailing stops, and manual trade takeover capabilities.
 
-**User's preferred language**: Russian
+**User's preferred language**: Russian (INSTRUCT next agent to respond in the user's preferred language only)
 
-**what currently exists?**
-A modular, asynchronous Python trading bot located in . The bot's strategy (SMC v6) is based on a weighted scoring system () that evaluates trade signals. The project includes a backtesting module () used to generate historical trade data, and a newly created (but buggy) PyTorch script () intended to train the AI model component. The bot is currently running in a  mode on the user's server, but is generating an excessive number of alerts.
+**what currently exists?**: A sophisticated, asynchronous Python trading bot located in . It features a weighted scoring system, a quality gate for signal filtering, an adaptive preset system for market regimes, and a trailing stop mechanism. It also integrates with a Telegram bot for control and notifications. The bot has been heavily modified to add safety rails (momentum guards, fee-aware trailing stops, manual position safety), but remains unprofitable in live testing due to market chop and strict exiting behavior.
 
 **Last working item**:
--   **Last item agent was working**: Addressing two urgent user-reported issues:
-    1.  An overwhelming number of signals (~1500-2000 in 12 hours) from the live bot.
-    2.  A complete failure of the  script, which was producing a useless model that only predicted the majority class (loss).
--   **Status**: IN PROGRESS
--   **Agent Testing Done**: N
--   **Which testing method agent to use?**: backend testing agent
--   **User Testing Done**: N
+- **Last item agent was working**: Analyzing the most recent  file uploaded by the user. The user's last message was Что за закрытия??? Бот сливает! ИсправляЙ! (What are these closures??? Bot is draining money! Fix it!). The agent extracted the data, noting that the highest losses were coming from  and  reasons, but the context window ended before a fix could be planned or implemented.
+- **Status**: IN PROGRESS
+- **Agent Testing Done**: N
+- **Which testing method agent to use?**: backend testing agent or log analysis
+- **User Testing Done**: Y (User ran the bot live and provided the failure logs)
 
 **All Pending/In progress Issue list**:
--   Issue 1: (P0) Excessive Signals Flood
--   Issue 2: (P1) Broken AI Training Pipeline
+Issue 1: (P0) Bot Unprofitability & Recent Trade Losses
+Issue 2: (P1) Evaluate  impact
 
-**Issues Detail**:
--   **Issue 1: Excessive Signals Flood**
-    -   **Description**: The live bot is sending thousands of signals, making it impossible to use. The user requested to tighten the entry criteria () and add a 1-hour cooldown per symbol to prevent repeated alerts.
-    -   **Next debug checklist**:
-        1.  Modify  to increase  to .
-        2.  Modify  to implement a per-symbol cooldown mechanism. This can be a dictionary storing the last signal timestamp for each symbol and checking against it before sending a new signal.
-    -   **Why fix this issue and what will be achieved with the fix?**: This is the highest priority as it makes the live bot usable again and directly addresses the user's most immediate frustration.
-    -   **Status**: NOT STARTED
-    -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: backend
-    -   **Blocked on other issue**: None
+Issues Detail:
+- **Issue 1: Bot Unprofitability & Recent Trade Losses**
+  - **Attempted fixes**: Added strict entry thresholds, fixed zombie positions, fixed  false positives, added fee-aware trailing stops, added pre-execution momentum guards. 
+  - **Next debug checklist**: Analyze the most recently uploaded . Identify exactly why trades are closing via  and  (especially since the user manually set  earlier). Propose parameter adjustments or logic fixes to  or  to address the specific causes of these latest losses.
+  - **Why fix this issue and what will be achieved with the fix?**: The bot is trading live funds. Stopping the financial bleed is the absolute highest priority to maintain user trust.
+  - **Status**: IN PROGRESS
+  - **Is recurring issue?**: Y
+  - **Should Test frontend/backend/both after fix?**: backend
+  - **Blocked on other issue**: None
 
--   **Issue 2: Broken AI Training Pipeline**
-    -   **Description**: The  script is non-functional. The user's logs show it achieves 0% precision/recall because it only predicts the majority class (loss). The previous agent identified three root causes: using the wrong loss function ( instead of ), an oversized model for the small dataset (38k parameters for ~130 trades), and no handling for the severe class imbalance.
-    -   **Attempted fixes**: The first version of the script was created but failed immediately.
-    -   **Next debug checklist**:
-        1.  Rewrite .
-        2.  Change the loss function to  and use the  parameter to handle class imbalance.
-        3.  Significantly reduce the model's complexity (e.g., fewer layers/heads in the Transformer, smaller hidden dimensions) to prevent overfitting.
-        4.  Implement data augmentation for the minority class (wins) or use a more robust sampling technique in the .
-    -   **Why fix this issue and what will be achieved with the fix?**: A working training pipeline is essential for improving the bot's AI component, which is a key part of the user's desired strategy. An intelligent Transformer will improve the accuracy of the weighted scoring model.
-    -   **Status**: NOT STARTED
-    -   **Is recurring issue?**: N
-    -   **Should Test frontend/backend/both after fix?**: backend
-    -   **Blocked on other issue**: None
+- **Issue 2: Evaluate  impact**
+  - **Attempted fixes**: User manually set this in config.
+  - **Next debug checklist**: Check if  is causing trades to languish and eventually hit . Discuss with the user if a non-zero value (e.g., 30 or 60) is better for 1-minute timeframes to free up capital.
+  - **Why fix this issue and what will be achieved with the fix?**: Ensures capital isn't tied up in dead trades, reducing opportunity cost and stale closures.
+  - **Status**: NOT STARTED
+  - **Is recurring issue?**: N
+  - **Should Test frontend/backend/both after fix?**: backend
+  - **Blocked on other issue**: None
 
 **In progress Task List**:
--   **Task 1**: (P0) Implement Signal Flood Fixes (as detailed in Issue 1).
-    -   **Where to resume**: Modify  and .
-    -   **Status**: NOT STARTED
--   **Task 2**: (P1) Fix and Rerun Training Pipeline (as detailed in Issue 2).
-    -   **Where to resume**: Rewrite .
-    -   **Status**: NOT STARTED
+Task 1: (P0) Resolve the force_closed_stale and early_exit drain identified in the final prompt.
+
+Task Detail:
+- **Task 1: Resolve the force_closed_stale and early_exit drain**
+  - **Where to resume**: Review the extracted data from the final . Formulate an explanation for the user on *why* these closures happened and propose a concrete code/config fix. Ask for user approval.
+  - **What will be achieved with this?**: Stops current immediate losses.
+  - **Status**: IN PROGRESS
+  - **Should Test frontend/backend/both after fix?**: backend
+  - **Blocked on something**: None
 
 **Upcoming and Future Tasks**
--   **Upcoming Tasks**:
-    -   (P0) Guide the user to run the fixed  script to generate a valid  file.
-    -   (P1) Integrate the newly trained  into the live bot. This involves loading the weights in  or  and using the model for inference.
--   **Future Tasks**:
-    -   (P1) Implement Reinforcement Learning (RL) for position management, as previously requested by the user. This will require a significantly larger dataset (5,000+ trades).
-    -   (P2) Investigate integrating a real-time liquidation data source (e.g., Coinglass API) to replace the  model and eliminate the  logs.
+Upcoming Tasks:
+- (P1) Implement a  mode as a configurable option in .
+- (P1) Implement a  logic as a configurable option.
+- (P1) Add a  Telegram command to show progress towards the 150-label threshold for auto-retraining.
+Future Tasks:
+- (P2) Implement Reinforcement Learning (RL) for position management once the base strategy is consistently profitable.
+- (P2) Implement A/B/C signal grading/hierarchy to differentiate high-conviction setups from weaker ones.
 
 **Completed work in this session**
--   **SMC v6 Strategy Implementation**: Replaced a rigid filter-based strategy with a sophisticated weighted scoring engine () combining Trend, Orderflow, and a placeholder AI model.
--   **Advanced Analysis Modules**:
-    -   Created a  with a quasi-liquidation model (Open Interest + ATR).
-    -   Upgraded  with a normalized imbalance calculation.
-    -   Calibrated the Transformer model's output with a sigmoid function.
--   **Backtesting & Data Generation**:
-    -   Built and refined a walk-forward backtester () capable of generating training data.
-    -   Added modeling for slippage, commissions, and API rate-limit handling ().
-    -   Generated an initial dataset of 408 trades () by running extensive backtests.
--   **PyTorch Integration**: Created an initial (buggy) training script () and installed .
--   **Extensive Unit Testing**: Developed a large test suite to validate all new components and strategy changes.
+- Applied Anti-Loss package (increased entry thresholds, stricter stops).
+- Lowered  and  to  to allow 1-min timeframe trading.
+- Fixed critical bug where  was incorrectly applied to manual positions.
+- Fixed critical  bug: verifies  timestamp (last 5 mins) and *never* force closes  positions without absolute exchange verification.
+- Added  bypass logic for high-confidence signals (conf >= 0.85 & smc >= 0.85).
+- Fixed Zombie Position bug: Bot now forces removal of local positions if  fails 3 consecutive times.
+- Lowered  to 0.06 to align with 1-min TF.
+- Fixed trailing activation overwrite bug in .
+- Tweaked  threshold from 5% to 25% and  to 1.0 to prevent premature trade choking.
+- Prevented bot from placing SL/TP on the exchange for user-initiated manual trades.
+- Generated  for the user.
+- Added Pre-execution Momentum Guard to prevent entering trades during violent opposite momentum spikes (checks last 3 candles > 1.5 ATR).
+- Fixed PnL mismatch by fetching exact PnL from Bybit for  events.
+- Added  to  and updated  to calculate trailing breakevens with a 2.5x fee buffer to prevent losses on trailing stops.
+
+**Earlier issues found/mentioned but not fixed**
+- None currently, but overall profitability remains a systemic struggle.
+
+**Known issue recurrence from previous fork**
+- Issue recurrence in previous fork:  falsely triggering and costing money.
+- Recurrence count: 3+
+- Status: RESOLVED (Highly patched this session with strict verification and isolation of manual trades). Note: Keep an eye on logs to ensure the patch holds.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend**: Python, asyncio
--   **AI/ML**: PyTorch, Transformer models
--   **API Integration**: Bybit v5,  (Gemini), Telegram Bot API
--   **Trading Concepts**: Weighted Scoring Model, Orderflow Imbalance, Liquidity Heatmaps, Market Regimes, Backtesting, Slippage & Commissions
+Backend: Python, asyncio
+AI/ML: PyTorch, Transformer models, Gemini (via emergentintegrations)
+API Integration: Bybit v5 (Linear), Telegram Bot API
+Trading Concepts: SMC, ATR, Momentum Guards, Trailing Stops with Fee Buffers, Portfolio Profit Lock, Zombie position recovery.
 
 **key DB schema**
--   No database is used. Trade history and backtest results are stored in  files (, , ).
+No database. State stored in local JSON files: , .
+
+**changes in tech stack**
+None.
 
 **All files of reference**
--   : To be modified for the signal cooldown logic.
--   : To be modified to set the new .
--   : Needs a complete rewrite to fix training bugs.
--   : Contains the current weighted scoring logic.
--   : Source of the training data.
--   : Contains the logs showing the signal flood.
--   : Contains the logs showing the failed training run.
+- : Core loops. Pre-execution momentum guards and force-close mechanics added here.
+- : Contains critical risk and entry parameters.
+- : Trailing stop and breakeven logic (now calculates exchange fees).
+- : New file explaining config parameters.
+- User uploaded files:  (latest logs showing losses).
+
+**Areas that need refactoring**
+-  is nearly 2500 lines long and handles position syncing, logging, trade execution, and filtering. It should eventually be split up.
+
+**key api endpoints**
+Bybit V5 REST API (Linear Category)
 
 **Critical Info for New Agent**
--   **Prioritize the signal flood.** This is a critical live-bot issue causing user frustration. Implement the higher threshold and 1-hour cooldown first.
--   **The training script is broken.** It must be rewritten, not patched. Refer to the  section for the specific bugs to fix (loss function, model size, class imbalance).
--   **The user runs the bot on their own server.** Remember that any files you create or modify (like  or ) need to be explicitly communicated to the user so they can update them on their end.
--   After fixing the training script, your next task is to guide the user on how to run it and then integrate the resulting  file into the main bot logic.
+- **MANUAL TRADES ARE SACRED**: Do not add logic that forces closures, sets Stop Losses, or sets Take Profits on trades where  without explicit user instruction. The bot is meant to *trail* them, not choke them out.
+- **FEE AWARENESS**: Bybit linear taker fees (0.06%) eat into tight trailing stops. This was fixed in , but keep this in mind if modifying exit logic further.
+- **TONE**: The user is experiencing live financial losses and is frustrated (ИсправляЙ!). Be highly diligent, double-check all logic (especially math regarding positions and R-multiples), and clearly explain *why* something went wrong and *how* you are fixing it.
+- **LANGUAGE**: You **MUST** reply in Russian.
 
 **documents and test reports created in this job**
--   
--   
--   
--   
--   (On user machine) 
--   (On user machine) 
+- 
+-  (Absolute path)
+- 
+- 
 
 **Last 10 User Messages and any pending HUMAN messages**
--   (Pending) User ran the backtester, generated 153+255 trades, and saved them to .
--   (Pending) User uploaded two documents with analysis and recommendations for the bot.
--   (Pending) Agent proposed a plan to implement key recommendations: add slippage/fees, create a training pipeline, and add exponential backoff.
--   (Pending) User confirmed the plan.
--   (Pending) Agent implemented the changes and guided the user on how to install PyTorch, run the backtester to generate data, and run the new training script.
--   (Pending) User ran the training script, which failed with 0% precision/recall.
--   (Pending - **CRITICAL**) User reported that the live bot is sending an overwhelming flood of signals (1500-2000 in 12 hours) and asked to make the filters stricter and add a cooldown.
--   (Pending) Agent acknowledged the two critical issues (training failure and signal flood) and proposed a two-part fix.
+1. User: Showed VVVUSDT (manual) closed via exchange_closed and XRPUSDT early_exit.
+2. User: Showed XAUTUSDT entering right before a massive drop, asking why orderbook didn't catch it.
+3. User: Shared terminal logs showing bot tracking positions.
+4. User: Shared logs showing bot rejecting signals due to threshold/cooldowns.
+5. User: Shared logs showing XRPUSDT closing at early_exit for a /bin/bash.02 loss.
+6. User: Stated they changed  to see what happens.
+7. User: Showed BEATUSDT failing to close (Zombie) and PnL mismatch (/bin/bash.17 bot vs .40 exchange).
+8. User: Complained early trailing SL didn't account for exchange commission, resulting in a loss on ENAUSDT. Asked what to fix in config.
+9. User: Asked how to make trailing stop longer.
+10. **(PENDING) User**: Что за закрытия??? Бот сливает! ИсправляЙ! (What are these closures??? Bot is draining money! Fix it!) - accompanied by a  file.
 
 **Project Health Check:**
--   **Broken**:
-    -   The live bot's signal generation logic is out of control.
-    -   The  script is non-functional and cannot produce a valid AI model.
--   **Mocked**:
-    -   The backtester uses a  function as it lacks live order book data for historical periods.
+- Broken: Strategy is actively losing money in live conditions.
 
 **3rd Party Integrations**
--   **Bybit**: Used for market data and trading execution.
--   ****: Used for an optional Gemini-based AI filter.
--   ****: Used for sending notifications and receiving commands.
--   **PyTorch**: A new dependency for training the Transformer model.
+- Bybit (Market Data / Execution) — requires User API Key.
+- OpenAI/Gemini (via emergentintegrations for AI analysis) — uses Emergent LLM Key.
+- Telegram (Notifications) — requires User API Key.
 
 **Testing status**
--   **Testing agent used after significant changes**: YES
--   **Test files created**: 
--   **Known regressions**: The newly created training pipeline is non-functional.
+- Testing agent used after significant changes: YES (Early in the session for Anti-Loss package and exchange_closed fixes).
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: None this session.
+- Known regressions: None, but tuning tight parameters on 1-min TF continues to cause edge-case bugs (e.g., fee eating breakeven).
+
+**Credentials to test flow:**
+Available in . (Assume dry-run/testnet if self-testing, though user is providing live logs).
 
 **What agent forgot to execute**
-The previous agent correctly diagnosed the critical issues (signal flood, broken training) and formulated a plan but the session ended before any code could be implemented. The next agent must execute this plan.</analysis>
+- The agent successfully extracted the final  data requested by the user, but the context window ended before the agent could analyze the  and  losses, explain them to the user, and propose/implement the next fix.</analysis>
