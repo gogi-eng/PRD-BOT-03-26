@@ -1,0 +1,142 @@
+{
+  "summary": "Iteration 41: Verified all P0 manual position protection fixes - all 34 tests passed. Manual positions (origin='manual') are now protected from force-closing: (1) HARD_SL blocked via ExitReason guard, (2) LIQUIDATION_STOP blocked via protective_level=0.0, (3) EARLY_EXIT blocked via allow_early_exit=False, (4) Only TRAILING_EXIT and TP_CAP allowed for manual positions, (5) force_closed_stale (zombie recovery) does NOT force-remove manual positions - resets counter and sends Telegram alert instead. Bot positions still get ALL exit reasons normally. Config: early_exit_bars increased from 6 to 20.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- ExitReason Import Tests (3 tests) ---",
+    "TestExitReasonImport::test_exit_reason_imported_from_exit_engine - PASSED",
+    "TestExitReasonImport::test_exit_reason_used_in_manual_safety_check - PASSED",
+    "TestExitReasonImport::test_exit_reason_enum_has_required_values - PASSED",
+    "--- Manual Position Exit Blocking Tests (8 tests) ---",
+    "TestManualPositionExitBlocking::test_manual_position_hard_sl_blocked_by_guard - PASSED",
+    "TestManualPositionExitBlocking::test_bot_position_hard_sl_allowed - PASSED",
+    "TestManualPositionExitBlocking::test_manual_position_liquidation_stop_blocked_by_zero_protective_level - PASSED",
+    "TestManualPositionExitBlocking::test_bot_position_liquidation_stop_triggers - PASSED",
+    "TestManualPositionExitBlocking::test_manual_position_early_exit_blocked_by_allow_early_exit_false - PASSED",
+    "TestManualPositionExitBlocking::test_bot_position_early_exit_triggers - PASSED",
+    "TestManualPositionExitBlocking::test_manual_position_trailing_exit_allowed - PASSED",
+    "TestManualPositionExitBlocking::test_manual_position_tp_cap_allowed - PASSED",
+    "--- Bot Position All Exit Reasons Tests (5 tests) ---",
+    "TestBotPositionAllExitReasons::test_bot_position_gets_hard_sl - PASSED",
+    "TestBotPositionAllExitReasons::test_bot_position_gets_liquidation_stop - PASSED",
+    "TestBotPositionAllExitReasons::test_bot_position_gets_early_exit - PASSED",
+    "TestBotPositionAllExitReasons::test_bot_position_gets_trailing_exit - PASSED",
+    "TestBotPositionAllExitReasons::test_bot_position_gets_tp_cap - PASSED",
+    "--- force_closed_stale Protection Tests (4 tests) ---",
+    "TestForceClosedStaleProtection::test_manual_position_not_force_removed_code_present - PASSED",
+    "TestForceClosedStaleProtection::test_manual_position_sends_alert_on_close_failure - PASSED",
+    "TestForceClosedStaleProtection::test_bot_position_force_removed_after_3_failures - PASSED",
+    "TestForceClosedStaleProtection::test_force_remove_only_for_bot_origin - PASSED",
+    "--- Config early_exit_bars Tests (2 tests) ---",
+    "TestConfigEarlyExitBars::test_early_exit_bars_is_20 - PASSED",
+    "TestConfigEarlyExitBars::test_early_exit_bars_increased_from_6 - PASSED",
+    "--- ExitEngine allow_early_exit=False Tests (3 tests) ---",
+    "TestExitEngineAllowEarlyExitFalse::test_early_exit_skipped_when_allow_early_exit_false - PASSED",
+    "TestExitEngineAllowEarlyExitFalse::test_early_exit_triggers_when_allow_early_exit_true - PASSED",
+    "TestExitEngineAllowEarlyExitFalse::test_early_exit_bars_20_requires_more_bars - PASSED",
+    "--- Main.py Manual Safety Guard Tests (5 tests) ---",
+    "TestMainPyManualSafetyGuard::test_manual_safety_comment_present - PASSED",
+    "TestMainPyManualSafetyGuard::test_manual_safety_checks_origin - PASSED",
+    "TestMainPyManualSafetyGuard::test_manual_safety_allows_trailing_exit_and_tp_cap - PASSED",
+    "TestMainPyManualSafetyGuard::test_manual_safety_blocks_other_exits - PASSED",
+    "TestMainPyManualSafetyGuard::test_manual_safety_sets_should_exit_false - PASSED",
+    "--- Integration Tests (3 tests) ---",
+    "TestManualPositionProtectionIntegration::test_full_exit_flow_manual_position_hard_sl_blocked - PASSED",
+    "TestManualPositionProtectionIntegration::test_full_exit_flow_manual_position_trailing_exit_allowed - PASSED",
+    "TestManualPositionProtectionIntegration::test_full_exit_flow_bot_position_all_exits_allowed - PASSED",
+    "--- Summary Test (1 test) ---",
+    "TestIteration41P0Summary::test_all_p0_fixes_present - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration41_p0_manual_position_protection.py",
+    "/app/test_reports/pytest/pytest_results_iteration41.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py line 41: ExitReason correctly imported from engine.exit_engine alongside ExitEngine",
+    "main.py lines 745-753: MANUAL SAFETY guard blocks HARD_SL, LIQUIDATION_STOP, EARLY_EXIT for manual positions - only TRAILING_EXIT and TP_CAP allowed",
+    "main.py line 742: protective_level=pos.protective_liq_level if pos.origin == 'bot' else 0.0 - Manual positions get 0.0 which skips LIQUIDATION_STOP check",
+    "main.py line 743: allow_early_exit=(pos.origin == 'bot') - Manual positions get False which skips EARLY_EXIT check",
+    "main.py lines 769-784: force_closed_stale (zombie recovery) does NOT force-remove manual positions - resets counter and sends Telegram alert instead",
+    "main.py lines 785-805: force_closed_stale still works normally for bot positions after 3 close failures",
+    "config.yaml line 86: early_exit_bars: 20 (increased from 6) - Gives positions more time before early_exit triggers",
+    "exit_engine.py lines 127-135: check_exit correctly handles allow_early_exit=False - skips early_exit check when False"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration41_p0_manual_position_protection.py"
+  ],
+  "success_rate": {
+    "backend": "34/34 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 41 verified all P0 manual position protection fixes: (1) ExitReason imported from engine.exit_engine in main.py line 41, (2) Manual positions blocked from HARD_SL via ExitReason guard (lines 745-753) - only TRAILING_EXIT and TP_CAP allowed, (3) Manual positions blocked from LIQUIDATION_STOP via protective_level=0.0 (line 742), (4) Manual positions blocked from EARLY_EXIT via allow_early_exit=False (line 743), (5) force_closed_stale does NOT force-remove manual positions (lines 769-784) - resets counter and sends Telegram alert, (6) Bot positions still get ALL exit reasons normally, (7) Config early_exit_bars=20 (was 6). All 34 tests passed.",
+  "feature_verification": {
+    "exit_reason_import": {
+      "code_location": "main.py line 41",
+      "code": "from engine.exit_engine import ExitEngine, ExitReason",
+      "status": "VERIFIED"
+    },
+    "manual_hard_sl_blocked": {
+      "code_location": "main.py lines 745-753",
+      "behavior": "ExitReason guard blocks HARD_SL for manual positions - only TRAILING_EXIT and TP_CAP allowed",
+      "status": "VERIFIED"
+    },
+    "manual_liquidation_stop_blocked": {
+      "code_location": "main.py line 742",
+      "code": "protective_level=pos.protective_liq_level if pos.origin == 'bot' else 0.0",
+      "behavior": "Manual positions get protective_level=0.0 which skips LIQUIDATION_STOP check in ExitEngine",
+      "status": "VERIFIED"
+    },
+    "manual_early_exit_blocked": {
+      "code_location": "main.py line 743",
+      "code": "allow_early_exit=(pos.origin == 'bot')",
+      "behavior": "Manual positions get allow_early_exit=False which skips EARLY_EXIT check in ExitEngine",
+      "status": "VERIFIED"
+    },
+    "manual_trailing_exit_allowed": {
+      "code_location": "main.py lines 746-747",
+      "code": "reason not in (ExitReason.TRAILING_EXIT, ExitReason.TP_CAP)",
+      "behavior": "TRAILING_EXIT is allowed for manual positions",
+      "status": "VERIFIED"
+    },
+    "manual_tp_cap_allowed": {
+      "code_location": "main.py lines 746-747",
+      "behavior": "TP_CAP is allowed for manual positions",
+      "status": "VERIFIED"
+    },
+    "bot_all_exits_allowed": {
+      "behavior": "Bot positions (origin='bot') get ALL exit reasons: HARD_SL, LIQUIDATION_STOP, EARLY_EXIT, TRAILING_EXIT, TP_CAP",
+      "status": "VERIFIED"
+    },
+    "force_closed_stale_manual_protected": {
+      "code_location": "main.py lines 769-784",
+      "behavior": "Manual positions are NEVER force-removed after 3 close failures - counter is reset and Telegram alert is sent",
+      "status": "VERIFIED"
+    },
+    "force_closed_stale_bot_works": {
+      "code_location": "main.py lines 785-805",
+      "behavior": "Bot positions are force-removed after 3 consecutive close failures (zombie recovery)",
+      "status": "VERIFIED"
+    },
+    "early_exit_bars_20": {
+      "config_location": "config.yaml line 86",
+      "value": "early_exit_bars: 20",
+      "behavior": "Positions need 20+ bars before early_exit can trigger (was 6)",
+      "status": "VERIFIED"
+    },
+    "exit_engine_allow_early_exit_false": {
+      "code_location": "exit_engine.py lines 127-135",
+      "behavior": "ExitEngine.check_exit correctly skips early_exit check when allow_early_exit=False",
+      "status": "VERIFIED"
+    }
+  }
+}

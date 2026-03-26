@@ -38,7 +38,7 @@ from core.security import SecureStore
 from engine.capital_allocator import MultiSymbolCapitalAllocator
 from engine.entry_engine import EntryEngine, EntrySignal
 from engine.execution_engine import ExecutionEngine
-from engine.exit_engine import ExitEngine
+from engine.exit_engine import ExitEngine, ExitReason
 from engine.position_manager import Position, PositionManager
 from engine.risk_manager import RiskGuard
 from engine.rl_position_agent import RLAction, RLPositionAgent
@@ -742,6 +742,15 @@ class TradingBot:
                 protective_level=pos.protective_liq_level if pos.origin == "bot" else 0.0,
                 allow_early_exit=(pos.origin == "bot"),
             )
+            # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions
+            if should_exit and pos.origin == "manual" and reason not in (
+                ExitReason.TRAILING_EXIT, ExitReason.TP_CAP
+            ):
+                logger.info(
+                    f"[MANUAL SAFE] {symbol} exit blocked: {reason.value} — "
+                    f"only trailing_exit/tp_cap allowed for manual positions. {details}"
+                )
+                should_exit = False
             if should_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)
                 if close_result.get("success"):
@@ -756,26 +765,44 @@ class TradingBot:
                         f"reason={reason.value} error={close_result.get('error', '?')}"
                     )
                     if fails >= 3:
-                        logger.error(
-                            f"[FORCE REMOVE] {symbol} — {fails} consecutive close failures. "
-                            f"Removing zombie position (entry={pos.entry_price:.4f} current={current_price:.4f})"
-                        )
-                        self._failed_close_attempts.pop(symbol, None)
-                        pos = self.position_manager.remove(symbol)
-                        if pos:
-                            # Get real PnL from exchange closedPnl
-                            closed = await self.client.get_closed_pnl(symbol, limit=3)
-                            recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=600)
-                            if recent_closed:
-                                pnl = float(recent_closed[0].get("closedPnl", 0) or 0)
-                                logger.info(f"[FORCE REMOVE] {symbol} using exchange closedPnl: ${pnl:.4f}")
-                            elif closed:
-                                pnl = float(closed[0].get("closedPnl", 0) or 0)
-                                logger.info(f"[FORCE REMOVE] {symbol} using older closedPnl: ${pnl:.4f}")
-                            else:
-                                pnl = self._calc_pnl(pos, current_price, pos.qty)
-                                logger.info(f"[FORCE REMOVE] {symbol} no closedPnl, estimated: ${pnl:.4f}")
-                            await self._finalize_full_close(symbol, pos, current_price, pnl, "force_closed_stale", already_removed=True)
+                        # MANUAL POSITIONS: NEVER force-remove. Alert user and reset counter.
+                        if pos.origin == "manual":
+                            logger.warning(
+                                f"[MANUAL SAFE] {symbol} — {fails} close failures but origin=manual. "
+                                f"NOT removing. Resetting counter. User must close manually."
+                            )
+                            self._failed_close_attempts.pop(symbol, None)
+                            if self.tg:
+                                try:
+                                    await self.tg.send_alert(
+                                        f"[MANUAL SAFE] {symbol}\n"
+                                        f"Close failed {fails}x — position kept.\n"
+                                        f"Entry: {pos.entry_price:.4f} | Current: {current_price:.4f}\n"
+                                        f"Please close manually if needed."
+                                    )
+                                except Exception:
+                                    pass
+                        else:
+                            logger.error(
+                                f"[FORCE REMOVE] {symbol} — {fails} consecutive close failures. "
+                                f"Removing zombie position (entry={pos.entry_price:.4f} current={current_price:.4f})"
+                            )
+                            self._failed_close_attempts.pop(symbol, None)
+                            pos = self.position_manager.remove(symbol)
+                            if pos:
+                                # Get real PnL from exchange closedPnl
+                                closed = await self.client.get_closed_pnl(symbol, limit=3)
+                                recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=600)
+                                if recent_closed:
+                                    pnl = float(recent_closed[0].get("closedPnl", 0) or 0)
+                                    logger.info(f"[FORCE REMOVE] {symbol} using exchange closedPnl: ${pnl:.4f}")
+                                elif closed:
+                                    pnl = float(closed[0].get("closedPnl", 0) or 0)
+                                    logger.info(f"[FORCE REMOVE] {symbol} using older closedPnl: ${pnl:.4f}")
+                                else:
+                                    pnl = self._calc_pnl(pos, current_price, pos.qty)
+                                    logger.info(f"[FORCE REMOVE] {symbol} no closedPnl, estimated: ${pnl:.4f}")
+                                await self._finalize_full_close(symbol, pos, current_price, pnl, "force_closed_stale", already_removed=True)
             else:
                 pos.bars_since_entry += 1
                 if pos.trailing_active and pos.trailing_stop > 0:

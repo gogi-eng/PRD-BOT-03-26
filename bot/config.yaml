@@ -83,7 +83,7 @@ atr:
 
 exit:
   hard_sl_atr_mult: 2.5
-  early_exit_bars: 6
+  early_exit_bars: 20
   early_exit_min_profit_atr: 0.1
   trailing_activation_atr: 1.1
   trailing_distance_atr: 1.4
