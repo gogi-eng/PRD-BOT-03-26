@@ -164,6 +164,7 @@ class TradingBot:
             tp_cap_atr_mult=self.cfg.get("exit", "tp_cap_atr_mult", default=8.0),
             min_profit_before_trail_pct=self.cfg.get("exit", "min_profit_before_trail_pct", default=0.5),
             sl_buffer_atr_mult=self.cfg.get("exit", "sl_buffer_atr_mult", default=0.2),
+            fee_rate=float(self.cfg.get("exit", "fee_rate", default=0.0006)),
         )
 
         self.tg = None

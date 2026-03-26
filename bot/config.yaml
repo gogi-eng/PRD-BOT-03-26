@@ -90,6 +90,7 @@ exit:
   tp_cap_atr_mult: 10.0
   min_profit_before_trail_pct: 0.45
   sl_buffer_atr_mult: 0.5
+  fee_rate: 0.0006
 
 risk:
   max_daily_loss_pct: 4.0

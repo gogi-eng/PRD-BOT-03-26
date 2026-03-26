@@ -41,6 +41,7 @@ class ExitEngine:
         tp_cap_atr_mult: float = 8.0,
         min_profit_before_trail_pct: float = 0.5,
         sl_buffer_atr_mult: float = 0.2,
+        fee_rate: float = 0.0006,
     ):
         self.hard_sl_atr_mult = hard_sl_atr_mult
         self.early_exit_bars = early_exit_bars
@@ -50,6 +51,8 @@ class ExitEngine:
         self.tp_cap_atr_mult = tp_cap_atr_mult
         self.min_profit_before_trail_pct = min_profit_before_trail_pct
         self.sl_buffer_atr_mult = sl_buffer_atr_mult
+        self.fee_rate = fee_rate
+        self.breakeven_fee_mult = 2.5  # round-trip fee buffer (open + close + slippage margin)
 
     def initialize_position(self, position, atr_value: float, protective_liq_level: float = 0.0):
         """Set exit levels when entering. SL/TP should already come from entry engine."""
@@ -170,24 +173,27 @@ class ExitEngine:
 
         # Check activation (1R profit)
         if not position.trailing_active:
+            fee_buffer = entry * self.fee_rate * self.breakeven_fee_mult
             if is_long and current_price >= position.trailing_activation_price:
                 position.trailing_active = True
-                # 1R: move SL to breakeven
-                position.trailing_stop = max(entry, position.stop_loss)
+                # 1R: move SL to breakeven + fee buffer
+                breakeven_with_fee = entry + fee_buffer
+                position.trailing_stop = max(breakeven_with_fee, position.stop_loss)
                 updated = True
                 logger.info(
                     f"[TRAIL ACTIVATED] {getattr(position, 'symbol', '?')} LONG "
                     f"price={current_price:.4f} >= activation={position.trailing_activation_price:.4f} "
-                    f"→ trail_stop={position.trailing_stop:.4f} (breakeven)"
+                    f"→ trail_stop={position.trailing_stop:.4f} (breakeven+fee, fee_buf={fee_buffer:.4f})"
                 )
             elif not is_long and current_price <= position.trailing_activation_price:
                 position.trailing_active = True
-                position.trailing_stop = min(entry, position.stop_loss) if position.stop_loss > 0 else entry
+                breakeven_with_fee = entry - fee_buffer
+                position.trailing_stop = min(breakeven_with_fee, position.stop_loss) if position.stop_loss > 0 else breakeven_with_fee
                 updated = True
                 logger.info(
                     f"[TRAIL ACTIVATED] {getattr(position, 'symbol', '?')} SHORT "
                     f"price={current_price:.4f} <= activation={position.trailing_activation_price:.4f} "
-                    f"→ trail_stop={position.trailing_stop:.4f} (breakeven)"
+                    f"→ trail_stop={position.trailing_stop:.4f} (breakeven+fee, fee_buf={fee_buffer:.4f})"
                 )
 
         if not position.trailing_active:
@@ -197,15 +203,17 @@ class ExitEngine:
         if is_long:
             profit = position.best_price - entry
             r_multiple = profit / risk if risk > 0 else 0
+            fee_buffer = entry * self.fee_rate * self.breakeven_fee_mult
+            breakeven_with_fee = entry + fee_buffer
 
             # Distance-based trailing
-            distance_stop = max(entry, position.best_price - position.trailing_distance)
+            distance_stop = max(breakeven_with_fee, position.best_price - position.trailing_distance)
 
-            if r_multiple >= 2.0 and last_swing_low > 0 and last_swing_low > entry:
+            if r_multiple >= 2.0 and last_swing_low > 0 and last_swing_low > breakeven_with_fee:
                 # 2R: max of (swing low, distance trail)
                 new_stop = max(last_swing_low, distance_stop)
             elif r_multiple >= 1.0:
-                # 1R: breakeven minimum, then distance-based
+                # 1R: breakeven+fee minimum, then distance-based
                 new_stop = distance_stop
             else:
                 new_stop = position.stop_loss
@@ -222,10 +230,12 @@ class ExitEngine:
         else:
             profit = entry - position.best_price
             r_multiple = profit / risk if risk > 0 else 0
+            fee_buffer = entry * self.fee_rate * self.breakeven_fee_mult
+            breakeven_with_fee = entry - fee_buffer
 
-            distance_stop = min(entry, position.best_price + position.trailing_distance)
+            distance_stop = min(breakeven_with_fee, position.best_price + position.trailing_distance)
 
-            if r_multiple >= 2.0 and last_swing_high > 0 and last_swing_high < entry:
+            if r_multiple >= 2.0 and last_swing_high > 0 and last_swing_high < breakeven_with_fee:
                 new_stop = min(last_swing_high, distance_stop)
             elif r_multiple >= 1.0:
                 new_stop = distance_stop
