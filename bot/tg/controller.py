@@ -37,6 +37,7 @@ class TelegramController:
         self._last_menu_id: dict[int, int] = {}
         self._profit_lock = None
         self._signal_feedback = None
+        self._bot_instance = None
 
         self.app: Application = ApplicationBuilder().token(token).build()
         self.app.add_handler(CommandHandler("start", self.cmd_start))
@@ -46,6 +47,7 @@ class TelegramController:
         self.app.add_handler(CommandHandler("balance", self.cmd_balance))
         self.app.add_handler(CommandHandler("profitlock", self.cmd_profitlock))
         self.app.add_handler(CommandHandler("retrain_status", self.cmd_retrain_status))
+        self.app.add_handler(CommandHandler("tf", self.cmd_tf_status))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         self.app.add_error_handler(self.on_error)
@@ -55,6 +57,9 @@ class TelegramController:
 
     def set_signal_feedback(self, signal_feedback):
         self._signal_feedback = signal_feedback
+
+    def set_bot_instance(self, bot_instance):
+        self._bot_instance = bot_instance
 
     def start(self):
         print("[TG] Telegram бот запущен")
@@ -228,6 +233,7 @@ class TelegramController:
             "/balance - Баланс\n"
             "/profitlock - Статус Portfolio Profit Lock\n"
             "/retrain_status - Прогресс авто-ретрейна модели\n"
+            "/tf - Статус таймфрейма (текущий пресет)\n"
             "/help - Эта справка\n\n"
             "<b>Архитектура:</b>\n"
             "Data Layer -> Features -> Transformer -> Entry -> RL -> Execution\n\n"
@@ -279,6 +285,30 @@ class TelegramController:
             f"Последний ретрейн: <code>{info['last_retrain_success']}</code>\n"
             f"Последняя попытка: <code>{info['last_retrain_attempt']}</code>\n"
             f"Время ретрейна: <code>{info['retrain_hour_utc']}:00 UTC</code>"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def cmd_tf_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._allowed(update):
+            return await self._deny(update)
+        if not self._bot_instance:
+            await update.message.reply_text("Бот не подключён", parse_mode=ParseMode.HTML)
+            return
+        bot = self._bot_instance
+        preset = getattr(bot, '_active_tf_preset', 'N/A')
+        text = (
+            "<b>TIMEFRAME STATUS</b>\n\n"
+            f"Активный пресет: <b>{preset or 'none (manual)'}</b>\n"
+            f"Основные свечи: <code>{bot.candle_interval}m</code>\n"
+            f"HTF: <code>{bot.htf_interval}m</code>\n"
+            f"HTF 4H: <code>{bot.htf_4h_interval}</code>\n"
+            f"Цикл: <code>{bot.cycle_sleep}s</code>\n"
+            f"Active sleep: <code>{bot.position_active_sleep_sec}s</code>\n"
+            f"Early exit bars: <code>{bot.exit_engine.early_exit_bars}</code>\n"
+            f"Trail activation ATR: <code>{bot.exit_engine.trailing_activation_atr}</code>\n"
+            f"Trail distance ATR: <code>{bot.exit_engine.trailing_distance_atr}</code>\n"
+            f"Volatility floor: <code>{bot.volatility_floor_atr_pct}</code>\n\n"
+            f"Доступные пресеты: <code>1m, 5m, 15m</code>"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -392,16 +422,18 @@ class TelegramController:
     # === Уведомления ===
 
     async def send_trade_notification(self, symbol: str, side: str, qty: float, price: float,
-                                      pnl: Optional[float] = None, is_open: bool = True, reason: str = ""):
+                                      pnl: Optional[float] = None, is_open: bool = True, reason: str = "",
+                                      grade: str = ""):
         if not self.allowed_chat_id:
             return
         try:
             if is_open:
                 direction = "ЛОНГ" if side.upper() in ["BUY", "LONG"] else "ШОРТ"
+                grade_str = f"\nГрейд: <b>{grade}</b>" if grade else ""
                 text = (
                     f"<b>НОВАЯ СДЕЛКА</b>\n\n"
                     f"Монета: <code>{symbol}</code>\n"
-                    f"Направление: <b>{direction}</b>\n"
+                    f"Направление: <b>{direction}</b>{grade_str}\n"
                     f"Объём: <code>{qty}</code>\n"
                     f"Цена: <code>${price:.4f}</code>"
                 )

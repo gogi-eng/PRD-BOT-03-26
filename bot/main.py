@@ -200,6 +200,9 @@ class TradingBot:
         self._last_scan_ts = 0.0
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
+
+        # TF preset name (applied after all other config reads)
+        self._active_tf_preset = self.cfg.get("tf_presets", "active_preset", default="")
         self.signal_only = self.cfg.get("bot", "signal_only", default=False)
         self.controls.signal_only = self.signal_only
         self.signal_cooldown_sec = int(self.cfg.get("bot", "signal_cooldown_sec", default=3600) or 0)
@@ -209,6 +212,7 @@ class TradingBot:
         if self.tg:
             self.tg.set_profit_lock(self.profit_lock)
             self.tg.set_signal_feedback(self.signal_feedback)
+            self.tg.set_bot_instance(self)
         self.feedback_notify_labeling = self.cfg.get("feedback_loop", "notify_labeling", default=True)
         self.feedback_train_epochs = int(self.cfg.get("feedback_loop", "train_epochs", default=220))
         self.feedback_train_lr = float(self.cfg.get("feedback_loop", "train_lr", default=0.002))
@@ -364,6 +368,38 @@ class TradingBot:
         self.pyramid_max_total_risk_pct = self.cfg.get("pyramid", "max_total_risk_pct", default=2.0)
         self.pyramid_add1_min_r = self.cfg.get("pyramid", "add1_min_r", default=0.5)
         self.pyramid_add2_min_r = self.cfg.get("pyramid", "add2_min_r", default=1.2)
+
+        # Apply TF preset overrides (LAST, to override all individual settings)
+        self._apply_tf_preset()
+
+    def _apply_tf_preset(self):
+        """Apply timeframe preset overrides (1m/5m/15m) to all relevant settings."""
+        if not self._active_tf_preset:
+            return
+        presets_cfg = self.cfg.get("tf_presets", "presets", default={})
+        tf = presets_cfg.get(self._active_tf_preset) if isinstance(presets_cfg, dict) else None
+        if not tf or not isinstance(tf, dict):
+            logger.warning(f"[TF PRESET] '{self._active_tf_preset}' not found, using base config")
+            return
+        self.candle_interval = str(tf.get("candle_interval", self.candle_interval))
+        self.htf_interval = str(tf.get("htf_interval", self.htf_interval))
+        self.htf_4h_interval = str(tf.get("htf_4h_interval", self.htf_4h_interval))
+        self.cycle_sleep = int(tf.get("cycle_sleep_sec", self.cycle_sleep))
+        self.scan_interval_sec = int(tf.get("scan_interval_sec", self.scan_interval_sec))
+        self.position_active_sleep_sec = int(tf.get("position_active_sleep_sec", self.position_active_sleep_sec))
+        self.klines_limit = max(int(tf.get("klines_limit", self.klines_limit)), self.feature_window)
+        self.exit_engine.early_exit_bars = int(tf.get("early_exit_bars", self.exit_engine.early_exit_bars))
+        self.exit_engine.trailing_activation_atr = float(tf.get("trailing_activation_atr", self.exit_engine.trailing_activation_atr))
+        self.exit_engine.trailing_distance_atr = float(tf.get("trailing_distance_atr", self.exit_engine.trailing_distance_atr))
+        self.exit_engine.hard_sl_atr_mult = float(tf.get("hard_sl_atr_mult", self.exit_engine.hard_sl_atr_mult))
+        if "volatility_floor_atr_pct" in tf:
+            self.volatility_floor_atr_pct = float(tf["volatility_floor_atr_pct"])
+        logger.info(
+            f"[TF PRESET] Applied '{self._active_tf_preset}': "
+            f"candle={self.candle_interval} htf={self.htf_interval} htf_4h={self.htf_4h_interval} "
+            f"cycle={self.cycle_sleep}s early_exit={self.exit_engine.early_exit_bars}bars "
+            f"trail_act={self.exit_engine.trailing_activation_atr} trail_dist={self.exit_engine.trailing_distance_atr}"
+        )
 
     async def _notify_tg(self, message: str):
         if self.tg:
@@ -668,6 +704,18 @@ class TradingBot:
 
             pnl_pct = self._calc_pnl_pct(pos, current_price)
             if self.controls.rl_enabled and (pos.origin == "bot" or (pos.origin == "manual" and self.manual_rl_enabled)):
+                # Calculate drawdown from peak
+                if pos.best_price > 0 and pos.entry_price > 0:
+                    if pos.is_long:
+                        peak_profit = pos.best_price - pos.entry_price
+                        curr_profit = current_price - pos.entry_price
+                    else:
+                        peak_profit = pos.entry_price - pos.best_price
+                        curr_profit = pos.entry_price - current_price
+                    dd_from_peak = ((peak_profit - curr_profit) / max(peak_profit, pos.entry_price * 0.001)) * 100 if peak_profit > 0 else 0.0
+                else:
+                    dd_from_peak = 0.0
+
                 state = {
                     "trend_bias": market.htf_trend.value if market.htf_trend.value != 0 else market.trend.value,
                     "volatility": market.atr_pct / 100,
@@ -675,6 +723,9 @@ class TradingBot:
                     "liq_signal": liq.signal,
                     "orderflow_edge": orderflow.imbalance_score,
                     "transformer_edge": transformer.prob_up - transformer.prob_down,
+                    "regime": regime.regime.value if hasattr(regime, 'regime') else "chop",
+                    "bars_held": pos.bars_since_entry,
+                    "drawdown_from_peak_pct": dd_from_peak,
                 }
                 decision = self.rl_agent.decide(pos, state)
                 pos.last_rl_action = decision.action.value
@@ -689,6 +740,22 @@ class TradingBot:
                     close_result = await self.execution_engine.execute_close(symbol, pos.side, qty=reduce_qty, reason=decision.reason, position_idx=pos.position_idx)
                     if close_result.get("success"):
                         await self._finalize_partial_close(symbol, pos, current_price, reduce_qty, f"rl_reduce:{decision.reason}")
+                elif decision.action == RLAction.TIGHTEN and pos.trailing_active:
+                    # Move trailing stop closer by fraction of current distance
+                    if pos.is_long and pos.trailing_stop > 0:
+                        gap = current_price - pos.trailing_stop
+                        new_stop = pos.trailing_stop + gap * decision.fraction
+                        if new_stop > pos.trailing_stop:
+                            pos.trailing_stop = new_stop
+                            await self.execution_engine.update_sl(symbol, new_stop, position_idx=pos.position_idx)
+                            logger.info(f"[RL TIGHTEN] {symbol} LONG trail_stop → {new_stop:.4f}")
+                    elif not pos.is_long and pos.trailing_stop > 0:
+                        gap = pos.trailing_stop - current_price
+                        new_stop = pos.trailing_stop - gap * decision.fraction
+                        if new_stop < pos.trailing_stop:
+                            pos.trailing_stop = new_stop
+                            await self.execution_engine.update_sl(symbol, new_stop, position_idx=pos.position_idx)
+                            logger.info(f"[RL TIGHTEN] {symbol} SHORT trail_stop → {new_stop:.4f}")
                 elif decision.action == RLAction.ADD and pos.add_count < self.max_rl_adds:
                     allowed, _ = self.risk_guard.can_trade(symbol)
                     if allowed:
@@ -926,8 +993,9 @@ class TradingBot:
                 entry_range_high = float(signal.metadata.get("entry_range_high", entry) or entry)
 
                 msg = (
-                    f"<b>SIGNAL {direction}</b>\n\n"
+                    f"<b>SIGNAL {direction} [{signal.grade}]</b>\n\n"
                     f"Монета: <code>{symbol}</code>\n"
+                    f"Грейд: <b>{signal.grade}</b>\n"
                     f"Вход: <code>${entry:.4f}</code>\n"
                     f"Рекомендуемый вход: <code>${entry_range_low:.4f} - ${entry_range_high:.4f}</code>\n"
                     f"SL: <code>${sl:.4f}</code>\n"
@@ -939,7 +1007,7 @@ class TradingBot:
                     f"Zone: <code>{zone}</code>\n"
                     f"BOS: <code>{bos}</code> | Sweep: <code>{sweep}</code>"
                 )
-                logger.info(f"SIGNAL-ONLY {symbol}: {direction} entry=${entry:.4f} SL=${sl:.4f} TP=${tp:.4f} RR={rr:.1f}")
+                logger.info(f"SIGNAL-ONLY {symbol}: {direction} [{signal.grade}] entry=${entry:.4f} SL=${sl:.4f} TP=${tp:.4f} RR={rr:.1f}")
                 self._register_signal_timestamp(symbol, side)
                 self.signal_feedback.register_signal(symbol, signal)
                 if self.tg:
@@ -1325,7 +1393,7 @@ class TradingBot:
             self._apply_profit_drawdown_profile(pos)
             self.position_manager.add(pos)
             self._register_signal_timestamp(symbol, signal.side)
-            logger.info(f"ENTERED {symbol}: {signal.side} qty={pos.qty:.6f} entry=${executed_price:.4f} weight={capital_weight:.2f}")
+            logger.info(f"ENTERED {symbol}: {signal.side} [{signal.grade}] qty={pos.qty:.6f} entry=${executed_price:.4f} weight={capital_weight:.2f}")
 
     async def _process_signal_feedback_loop(self):
         outcomes = await self.signal_feedback.process_pending(self.client.get_price)

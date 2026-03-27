@@ -46,7 +46,31 @@ class EntrySignal:
     reasons: list = field(default_factory=list)
     filters_passed: dict = field(default_factory=dict)
     capital_score: float = 0.0
+    grade: str = "C"  # A/B/C signal grade
     metadata: dict = field(default_factory=dict)
+
+
+def classify_signal_grade(
+    confidence: float,
+    rr_ratio: float,
+    has_sweep: bool,
+    has_bos: bool,
+    htf_aligned: bool,
+    entry_zone: str,
+) -> str:
+    """Classify signal into A/B/C grade.
+
+    A — High conviction: conf >= 0.85, RR >= 4.0, sweep+BOS, HTF aligned, has zone
+    B — Standard: conf >= 0.75, RR >= 3.0, at least 2 confirmations
+    C — Marginal: everything else that passed entry threshold
+    """
+    confirmations = sum([has_sweep, has_bos, htf_aligned, entry_zone != "no_zone"])
+
+    if confidence >= 0.85 and rr_ratio >= 4.0 and confirmations >= 3:
+        return "A"
+    if confidence >= 0.75 and rr_ratio >= 3.0 and confirmations >= 2:
+        return "B"
+    return "C"
 
 
 if nn is not None and torch is not None:
@@ -553,6 +577,20 @@ class EntryEngine:
         signal.rr_ratio = round(rr_ratio, 2)
         signal.capital_score = round(blended_confidence * rr_ratio, 4)
         signal.reasons = all_reasons
+
+        # A/B/C signal grading
+        entry_zone_str = f"{active_zone.kind}_{active_zone.bias}" if active_zone else "no_zone"
+        htf_aligned = (htf_4h_trend > 0 and is_long) or (htf_4h_trend < 0 and not is_long)
+        signal.grade = classify_signal_grade(
+            confidence=blended_confidence,
+            rr_ratio=rr_ratio,
+            has_sweep=sweep is not None,
+            has_bos=bos is not None,
+            htf_aligned=htf_aligned,
+            entry_zone=entry_zone_str,
+        )
+        all_reasons.append(f"grade={signal.grade}")
+
         signal.metadata = {
             "composite_score": composite,
             "smc_score": composite,
@@ -573,7 +611,7 @@ class EntryEngine:
             "tp1_level": tp1,
             "tp2_level": tp2,
             "tp_confirmed_by_structure": tp_confirmed_by_structure,
-            "entry_zone": f"{active_zone.kind}_{active_zone.bias}" if active_zone else "no_zone",
+            "entry_zone": entry_zone_str,
             "struct_trend": struct_trend,
             "has_bos": bos is not None,
             "has_sweep": sweep is not None,
@@ -585,5 +623,6 @@ class EntryEngine:
             "blended_confidence": round(blended_confidence, 4),
             "entry_range_low": round(entry_range_low, 8),
             "entry_range_high": round(entry_range_high, 8),
+            "signal_grade": signal.grade,
         }
         return signal

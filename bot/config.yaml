@@ -258,3 +258,49 @@ adaptive_regime_presets:
   trend_volatility_floor_atr_pct: 0.06
   range_strict_htf_mode: false
   range_volatility_floor_atr_pct: 0.02
+
+
+# Timeframe presets: "1m", "5m", "15m"
+# Switching active_tf_preset adjusts candle_interval and related params automatically
+tf_presets:
+  active_preset: "1m"
+  presets:
+    1m:
+      candle_interval: "1"
+      htf_interval: "15"
+      htf_4h_interval: "240"
+      cycle_sleep_sec: 60
+      position_active_sleep_sec: 15
+      scan_interval_sec: 60
+      klines_limit: 180
+      early_exit_bars: 20
+      trailing_activation_atr: 1.1
+      trailing_distance_atr: 1.4
+      volatility_floor_atr_pct: 0.06
+      hard_sl_atr_mult: 2.5
+    5m:
+      candle_interval: "5"
+      htf_interval: "60"
+      htf_4h_interval: "240"
+      cycle_sleep_sec: 120
+      position_active_sleep_sec: 30
+      scan_interval_sec: 120
+      klines_limit: 120
+      early_exit_bars: 12
+      trailing_activation_atr: 1.3
+      trailing_distance_atr: 1.6
+      volatility_floor_atr_pct: 0.10
+      hard_sl_atr_mult: 2.8
+    15m:
+      candle_interval: "15"
+      htf_interval: "240"
+      htf_4h_interval: "D"
+      cycle_sleep_sec: 300
+      position_active_sleep_sec: 60
+      scan_interval_sec: 300
+      klines_limit: 96
+      early_exit_bars: 8
+      trailing_activation_atr: 1.5
+      trailing_distance_atr: 1.8
+      volatility_floor_atr_pct: 0.15
+      hard_sl_atr_mult: 3.0
