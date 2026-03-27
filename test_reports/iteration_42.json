@@ -1,0 +1,141 @@
+{
+  "summary": "Iteration 42: Verified all P1 features - 43/43 tests passed after fixing 2 bugs. (1) Whitelist-only mode: config.yaml has whitelist_only: false, main.py reads and uses it in get_trade_symbols(). (2) Partial TP 30/70: close_fraction: 0.3 in config, dynamic label f'partial_tp_{int(fraction*100)}pct' used. (3) /retrain_status: SignalFeedbackLoop.get_retrain_status() returns full status dict, TelegramController has cmd_retrain_status handler with progress bar. (4) P0 regression: early_exit_bars=20 confirmed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [
+    {
+      "bug": "signal_feedback created AFTER set_signal_feedback called",
+      "location": "main.py lines 192-211",
+      "severity": "CRITICAL",
+      "description": "self.tg.set_signal_feedback(self.signal_feedback) was called at line 194 but self.signal_feedback was not created until line 211. This would cause AttributeError on bot startup.",
+      "fix": "Moved set_signal_feedback call to after signal_feedback creation (line 207+)"
+    },
+    {
+      "bug": "Unreachable code in get_retrain_status()",
+      "location": "signal_feedback_loop.py lines 275-281",
+      "severity": "LOW",
+      "description": "Code after return statement was unreachable. Looked like leftover from another method.",
+      "fix": "Extracted unreachable code into new method mark_retrain_attempt(success: bool)"
+    }
+  ],
+  "passed_tests": [
+    "--- Config YAML P1 Features (6 tests) ---",
+    "TestConfigYamlP1Features::test_whitelist_only_exists_in_market_section - PASSED",
+    "TestConfigYamlP1Features::test_whitelist_only_is_false_by_default - PASSED",
+    "TestConfigYamlP1Features::test_whitelist_symbols_exist - PASSED",
+    "TestConfigYamlP1Features::test_close_fraction_is_0_3 - PASSED",
+    "TestConfigYamlP1Features::test_partial_tp_enabled - PASSED",
+    "TestConfigYamlP1Features::test_early_exit_bars_is_20 - PASSED",
+    "--- Main.py Whitelist-Only Mode (5 tests) ---",
+    "TestMainPyWhitelistOnlyMode::test_whitelist_only_read_from_config - PASSED",
+    "TestMainPyWhitelistOnlyMode::test_whitelist_only_stored_as_attribute - PASSED",
+    "TestMainPyWhitelistOnlyMode::test_get_trade_symbols_checks_whitelist_only - PASSED",
+    "TestMainPyWhitelistOnlyMode::test_get_trade_symbols_returns_whitelist_only_when_enabled - PASSED",
+    "TestMainPyWhitelistOnlyMode::test_get_trade_symbols_skips_ticker_scanning_when_whitelist_only - PASSED",
+    "--- Partial TP 30/70 Dynamic Label (4 tests) ---",
+    "TestPartialTP30_70DynamicLabel::test_partial_tp_uses_dynamic_label - PASSED",
+    "TestPartialTP30_70DynamicLabel::test_partial_tp_not_hardcoded_50pct - PASSED",
+    "TestPartialTP30_70DynamicLabel::test_partial_close_fraction_read_from_config - PASSED",
+    "TestPartialTP30_70DynamicLabel::test_partial_close_fraction_passed_to_position - PASSED",
+    "--- SignalFeedbackLoop get_retrain_status (9 tests) ---",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_method_exists - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_returns_dict - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_quality_labels - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_total_labels - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_min_for_retrain - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_progress_pct - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_dataset_size - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_last_dates - PASSED",
+    "TestSignalFeedbackLoopRetrainStatus::test_get_retrain_status_has_enabled_flag - PASSED",
+    "--- TelegramController /retrain_status (7 tests) ---",
+    "TestTelegramControllerRetrainStatus::test_cmd_retrain_status_handler_exists - PASSED",
+    "TestTelegramControllerRetrainStatus::test_retrain_status_command_registered - PASSED",
+    "TestTelegramControllerRetrainStatus::test_signal_feedback_attribute_exists - PASSED",
+    "TestTelegramControllerRetrainStatus::test_set_signal_feedback_method_exists - PASSED",
+    "TestTelegramControllerRetrainStatus::test_retrain_status_in_help_text - PASSED",
+    "TestTelegramControllerRetrainStatus::test_cmd_retrain_status_calls_get_retrain_status - PASSED",
+    "TestTelegramControllerRetrainStatus::test_cmd_retrain_status_displays_progress_bar - PASSED",
+    "--- Main.py Signal Feedback Connection (2 tests) ---",
+    "TestMainPySignalFeedbackConnection::test_set_signal_feedback_called - PASSED",
+    "TestMainPySignalFeedbackConnection::test_signal_feedback_created_before_connection - PASSED",
+    "--- Functional Tests (6 tests) ---",
+    "TestSignalFeedbackLoopFunctional::test_get_retrain_status_returns_correct_structure - PASSED",
+    "TestSignalFeedbackLoopFunctional::test_get_retrain_status_progress_pct_calculation - PASSED",
+    "TestSignalFeedbackLoopFunctional::test_get_retrain_status_enabled_flag - PASSED",
+    "TestWhitelistOnlyModeFunctional::test_whitelist_only_logic_in_get_trade_symbols - PASSED",
+    "TestWhitelistOnlyModeFunctional::test_whitelist_only_false_does_not_skip_scanning - PASSED",
+    "--- Partial TP Dynamic Label Functional (3 tests) ---",
+    "TestPartialTPDynamicLabelFunctional::test_dynamic_label_30pct - PASSED",
+    "TestPartialTPDynamicLabelFunctional::test_dynamic_label_50pct - PASSED",
+    "TestPartialTPDynamicLabelFunctional::test_dynamic_label_70pct - PASSED",
+    "--- Code Quality (1 test) ---",
+    "TestCodeQualityP1::test_no_unreachable_code_in_get_retrain_status - PASSED",
+    "--- Summary (1 test) ---",
+    "TestIteration42P1Summary::test_all_p1_features_present - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration42_p1_features.py",
+    "/app/test_reports/pytest/pytest_results_iteration42.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py line 207: signal_feedback now created BEFORE set_signal_feedback is called (was a critical bug)",
+    "main.py line 209-210: set_profit_lock and set_signal_feedback now called after both objects exist",
+    "main.py line 303: whitelist_only read from config.market section",
+    "main.py lines 372-379: get_trade_symbols() returns ONLY whitelist when whitelist_only=True, skips ticker scanning",
+    "main.py line 2151: partial TP uses dynamic label f'partial_tp_{int(pos.partial_close_fraction*100)}pct'",
+    "config.yaml line 115: whitelist_only: false (default behavior preserved)",
+    "config.yaml line 154: close_fraction: 0.3 (30% first TP, 70% remaining)",
+    "config.yaml line 86: early_exit_bars: 20 (P0 regression check passed)",
+    "signal_feedback_loop.py lines 248-274: get_retrain_status() returns complete status dict",
+    "signal_feedback_loop.py lines 276-285: mark_retrain_attempt() extracted from unreachable code",
+    "controller.py line 48: /retrain_status command registered",
+    "controller.py lines 261-283: cmd_retrain_status handler with progress bar display"
+  ],
+  "updated_files": [
+    "/app/bot/main.py",
+    "/app/bot/engine/signal_feedback_loop.py",
+    "/app/backend/tests/test_iteration42_p1_features.py"
+  ],
+  "success_rate": {
+    "backend": "43/43 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 42 verified all P1 features and fixed 2 bugs: (1) CRITICAL: signal_feedback was created AFTER set_signal_feedback was called - fixed by moving the call after creation. (2) Unreachable code in get_retrain_status() - extracted into new mark_retrain_attempt() method. All P1 features verified: whitelist_only mode (config + main.py logic), partial TP 30/70 (close_fraction=0.3 + dynamic label), /retrain_status command (SignalFeedbackLoop.get_retrain_status() + TelegramController.cmd_retrain_status). P0 regression check passed (early_exit_bars=20).",
+  "feature_verification": {
+    "whitelist_only_mode": {
+      "config_location": "config.yaml line 115",
+      "value": "whitelist_only: false",
+      "main_py_read": "line 303: self.whitelist_only = self.cfg.get('market', 'whitelist_only', default=False)",
+      "main_py_logic": "lines 372-379: if self.whitelist_only and self.whitelist: return [s for s in self.whitelist if s not in self.blacklist]",
+      "status": "VERIFIED"
+    },
+    "partial_tp_30_70": {
+      "config_location": "config.yaml line 154",
+      "value": "close_fraction: 0.3",
+      "dynamic_label": "line 2151: f'partial_tp_{int(pos.partial_close_fraction*100)}pct'",
+      "status": "VERIFIED"
+    },
+    "retrain_status_command": {
+      "signal_feedback_loop": "get_retrain_status() method returns dict with quality_labels, total_labels, min_for_retrain, progress_pct, dataset_size, last dates, enabled flag",
+      "telegram_controller": "cmd_retrain_status handler registered, calls get_retrain_status(), displays progress bar",
+      "connection": "main.py line 210: self.tg.set_signal_feedback(self.signal_feedback)",
+      "help_text": "/retrain_status in /help command",
+      "status": "VERIFIED"
+    },
+    "early_exit_bars_regression": {
+      "config_location": "config.yaml line 86",
+      "value": "early_exit_bars: 20",
+      "status": "VERIFIED (P0 regression check passed)"
+    }
+  }
+}

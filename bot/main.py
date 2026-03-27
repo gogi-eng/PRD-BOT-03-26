@@ -189,9 +189,6 @@ class TradingBot:
             cooldown_sec=self.cfg.get("profit_lock", "cooldown_sec", default=3600.0),
             dry_run=self.controls.dry_run,
         )
-        if self.tg:
-            self.tg.set_profit_lock(self.profit_lock)
-
         self._running = False
         self._stop_event = threading.Event()
         self.candle_interval = self.cfg.get("bot", "candle_interval", default="1")
@@ -208,6 +205,10 @@ class TradingBot:
         self.signal_cooldown_sec = int(self.cfg.get("bot", "signal_cooldown_sec", default=3600) or 0)
         self._last_signal_ts: dict[tuple[str, str], float] = {}
         self.signal_feedback = SignalFeedbackLoop(BOT_DIR, self.cfg)
+        # Connect signal_feedback to Telegram controller (must be after signal_feedback creation)
+        if self.tg:
+            self.tg.set_profit_lock(self.profit_lock)
+            self.tg.set_signal_feedback(self.signal_feedback)
         self.feedback_notify_labeling = self.cfg.get("feedback_loop", "notify_labeling", default=True)
         self.feedback_train_epochs = int(self.cfg.get("feedback_loop", "train_epochs", default=220))
         self.feedback_train_lr = float(self.cfg.get("feedback_loop", "train_lr", default=0.002))
@@ -303,6 +304,7 @@ class TradingBot:
         self.max_symbols = self.cfg.get("market", "max_symbols", default=15)
         self.trade_symbols = self.cfg.get("market", "trade_symbols", default=5)
         self.whitelist_enabled = self.cfg.get("market", "whitelist_enabled", default=True)
+        self.whitelist_only = self.cfg.get("market", "whitelist_only", default=False)
         self.whitelist = self.cfg.get("market", "whitelist_symbols", default=[])
         self.blacklist = self.cfg.get("trading", "blacklist_symbols", default=[])
         self.blacklist_substrings = self.cfg.get("market", "blacklist_substrings", default=[])
@@ -368,7 +370,14 @@ class TradingBot:
             await self.tg.send_alert(message)
 
     async def get_trade_symbols(self) -> list:
-        """Scan top symbols by momentum. Whitelist symbols always at front (priority)."""
+        """Scan top symbols by momentum. Whitelist symbols always at front (priority).
+        If whitelist_only=True, ONLY whitelist symbols are traded."""
+        # Whitelist-only mode: skip scanning, return whitelist directly
+        if self.whitelist_only and self.whitelist:
+            result = [s for s in self.whitelist if s not in self.blacklist]
+            logger.info(f"Symbol scanner: WHITELIST-ONLY mode → {len(result)} symbols: {result}")
+            return result
+
         try:
             tickers = await self.client.get_tickers()
         except Exception as exc:
@@ -2143,7 +2152,7 @@ class TradingBot:
         )
         if not close_result.get("success"):
             return False
-        await self._finalize_partial_close(pos.symbol, pos, current_price, close_qty, "partial_tp_50pct")
+        await self._finalize_partial_close(pos.symbol, pos, current_price, close_qty, f"partial_tp_{int(pos.partial_close_fraction*100)}pct")
         remaining = self.position_manager.get(pos.symbol)
         if remaining:
             remaining.partial_tp_done = True

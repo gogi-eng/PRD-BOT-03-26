@@ -112,6 +112,7 @@ market:
   max_symbols: 50
   trade_symbols: 10
   whitelist_enabled: true
+  whitelist_only: false
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
   blacklist_substrings:
     - "1000"
@@ -150,7 +151,7 @@ position_sync:
 partial_tp:
   enabled: true
   trigger_progress: 0.5
-  close_fraction: 0.5
+  close_fraction: 0.3
   move_stop_to_entry: true
 
 portfolio_tp:

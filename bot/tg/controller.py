@@ -36,6 +36,7 @@ class TelegramController:
         self.mode_switcher = mode_switcher
         self._last_menu_id: dict[int, int] = {}
         self._profit_lock = None
+        self._signal_feedback = None
 
         self.app: Application = ApplicationBuilder().token(token).build()
         self.app.add_handler(CommandHandler("start", self.cmd_start))
@@ -44,12 +45,16 @@ class TelegramController:
         self.app.add_handler(CommandHandler("stats", self.cmd_stats))
         self.app.add_handler(CommandHandler("balance", self.cmd_balance))
         self.app.add_handler(CommandHandler("profitlock", self.cmd_profitlock))
+        self.app.add_handler(CommandHandler("retrain_status", self.cmd_retrain_status))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         self.app.add_error_handler(self.on_error)
 
     def set_profit_lock(self, profit_lock):
         self._profit_lock = profit_lock
+
+    def set_signal_feedback(self, signal_feedback):
+        self._signal_feedback = signal_feedback
 
     def start(self):
         print("[TG] Telegram бот запущен")
@@ -222,6 +227,7 @@ class TelegramController:
             "/stats - Статистика\n"
             "/balance - Баланс\n"
             "/profitlock - Статус Portfolio Profit Lock\n"
+            "/retrain_status - Прогресс авто-ретрейна модели\n"
             "/help - Эта справка\n\n"
             "<b>Архитектура:</b>\n"
             "Data Layer -> Features -> Transformer -> Entry -> RL -> Execution\n\n"
@@ -251,6 +257,30 @@ class TelegramController:
             await update.message.reply_text(self._profit_lock.get_report(), parse_mode=ParseMode.HTML)
         else:
             await update.message.reply_text("Profit Lock не подключён", parse_mode=ParseMode.HTML)
+
+    async def cmd_retrain_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._allowed(update):
+            return await self._deny(update)
+        if not self._signal_feedback:
+            await update.message.reply_text("Feedback Loop не подключён", parse_mode=ParseMode.HTML)
+            return
+        info = self._signal_feedback.get_retrain_status()
+        pct = info["progress_pct"]
+        filled = pct // 10
+        bar = "=" * filled + "-" * (10 - filled)
+        status = "ON" if info["enabled"] else "OFF"
+        text = (
+            "<b>RETRAIN STATUS</b>\n\n"
+            f"Статус: <code>{status}</code>\n"
+            f"Прогресс: [{bar}] <b>{pct}%</b>\n"
+            f"Качественных меток: <code>{info['quality_labels']}/{info['min_for_retrain']}</code>\n"
+            f"Всего меток: <code>{info['total_labels']}</code>\n"
+            f"Размер датасета: <code>{info['dataset_size']}</code>\n\n"
+            f"Последний ретрейн: <code>{info['last_retrain_success']}</code>\n"
+            f"Последняя попытка: <code>{info['last_retrain_attempt']}</code>\n"
+            f"Время ретрейна: <code>{info['retrain_hour_utc']}:00 UTC</code>"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._allowed(update):

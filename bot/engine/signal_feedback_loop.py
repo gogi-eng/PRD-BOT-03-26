@@ -245,7 +245,36 @@ class SignalFeedbackLoop:
             return False
         return True
 
-    def mark_retrain_attempt(self, success: bool):
+    def get_retrain_status(self) -> dict:
+        """Return retrain progress info for Telegram command."""
+        quality_labels = int(
+            self._state.get(
+                "quality_labels_since_retrain",
+                self._state.get("new_labels_since_retrain", 0),
+            )
+        )
+        total_labels = int(self._state.get("new_labels_since_retrain", 0))
+        dataset_size = 0
+        try:
+            dataset = self._load_json(self.dataset_path, default=[])
+            if isinstance(dataset, list):
+                dataset_size = len(dataset)
+        except Exception:
+            pass
+        return {
+            "quality_labels": quality_labels,
+            "total_labels": total_labels,
+            "min_for_retrain": self.min_new_labels_for_retrain,
+            "progress_pct": min(100, int(quality_labels / max(1, self.min_new_labels_for_retrain) * 100)),
+            "dataset_size": dataset_size,
+            "last_retrain_attempt": self._state.get("last_retrain_attempt_date", "—"),
+            "last_retrain_success": self._state.get("last_retrain_success_date", "—"),
+            "retrain_hour_utc": self.retrain_hour_utc,
+            "enabled": self.enabled and self.retrain_daily,
+        }
+
+    def mark_retrain_attempt(self, success: bool = False):
+        """Mark a retrain attempt and optionally reset counters on success."""
         today = datetime.now(timezone.utc).date().isoformat()
         self._state["last_retrain_attempt_date"] = today
         if success:
