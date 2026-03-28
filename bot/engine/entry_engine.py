@@ -378,6 +378,55 @@ class EntryEngine:
             }
             return signal
 
+        side = "BUY" if is_long else "SELL"
+
+        # =====================================================
+        # EXHAUSTION GUARD: reject if entering at end of move
+        # Check last 5 candles — if all moved in signal direction,
+        # the move is likely exhausting and about to reverse.
+        # =====================================================
+        if len(klines) >= 7:
+            last_candles = klines[-7:]
+            consecutive_dir = 0
+            for k in last_candles:
+                c_open = float(k.get("open", 0))
+                c_close = float(k.get("close", 0))
+                if is_long and c_close > c_open:
+                    consecutive_dir += 1
+                elif not is_long and c_close < c_open:
+                    consecutive_dir += 1
+            if consecutive_dir >= 5:
+                # 5+ candles already moved in our direction = exhaustion
+                signal.metadata = {
+                    "reject_reason": f"exhaustion_guard ({consecutive_dir}/7 candles same dir)",
+                    "composite_score": composite,
+                    "side": side,
+                }
+                return signal
+
+        # =====================================================
+        # COUNTER-FLOW GUARD: reject if recent trades contradict signal
+        # If signal is SELL but aggressive buying in last 30 trades (absorption)
+        # =====================================================
+        of_buy_vol = getattr(orderflow_snapshot, 'buy_volume', 0)
+        of_sell_vol = getattr(orderflow_snapshot, 'sell_volume', 0)
+        if is_long and of_sell_vol > 0 and of_sell_vol > of_buy_vol * 1.4:
+            # Want to BUY but heavy selling — counter-flow
+            signal.metadata = {
+                "reject_reason": f"counter_flow_guard (BUY but sell_vol {of_sell_vol:.0f} > buy_vol {of_buy_vol:.0f} * 1.4)",
+                "composite_score": composite,
+                "side": side,
+            }
+            return signal
+        if not is_long and of_buy_vol > 0 and of_buy_vol > of_sell_vol * 1.4:
+            # Want to SELL but heavy buying — absorption / counter-flow
+            signal.metadata = {
+                "reject_reason": f"counter_flow_guard (SELL but buy_vol {of_buy_vol:.0f} > sell_vol {of_sell_vol:.0f} * 1.4)",
+                "composite_score": composite,
+                "side": side,
+            }
+            return signal
+
         # =====================================================
         # THRESHOLD CHECK
         # =====================================================

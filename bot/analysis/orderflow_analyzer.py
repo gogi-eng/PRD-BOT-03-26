@@ -27,7 +27,7 @@ class OrderflowSnapshot:
 class OrderflowAnalyzer:
     """Builds a compact orderflow snapshot from Bybit orderbook and trades."""
 
-    def __init__(self, depth_levels: int = 10):
+    def __init__(self, depth_levels: int = 25):
         self.depth_levels = depth_levels
 
     def analyze(self, orderbook: Dict, trades: List[Dict]) -> OrderflowSnapshot:
@@ -41,23 +41,33 @@ class OrderflowAnalyzer:
         buy_volume = 0.0
         sell_volume = 0.0
         sizes: List[float] = []
-        for trade in trades:
+        # Track recent aggressive trades for absorption detection
+        recent_buy_vol = 0.0
+        recent_sell_vol = 0.0
+        for i, trade in enumerate(trades):
             size = float(trade.get("size", 0.0))
             side = str(trade.get("side", "")).lower()
             sizes.append(size)
             if side == "buy":
                 buy_volume += size
+                if i < 30:
+                    recent_buy_vol += size
             elif side == "sell":
                 sell_volume += size
+                if i < 30:
+                    recent_sell_vol += size
 
         trade_ratio = buy_volume / sell_volume if sell_volume > 0 else (2.0 if buy_volume > 0 else 1.0)
         bearish_trade_ratio = sell_volume / buy_volume if buy_volume > 0 else (2.0 if sell_volume > 0 else 1.0)
         trade_delta = buy_volume - sell_volume
 
         # Normalized imbalance: (Buy - Sell) / (Buy + Sell)
-        # Range: -1 (all sells) to +1 (all buys)
         total_trade_volume = buy_volume + sell_volume
         normalized_imbalance = (buy_volume - sell_volume) / total_trade_volume if total_trade_volume > 0 else 0.0
+
+        # Recent flow imbalance (last 30 trades) — detects absorption
+        recent_total = recent_buy_vol + recent_sell_vol
+        recent_imbalance = (recent_buy_vol - recent_sell_vol) / recent_total if recent_total > 0 else 0.0
 
         recent = sizes[:10] if sizes else []
         baseline = sizes[10:50] if len(sizes) > 10 else sizes
@@ -70,15 +80,18 @@ class OrderflowAnalyzer:
         mid = (best_bid + best_ask) / 2 if best_bid > 0 and best_ask > 0 else 0.0
         spread_pct = ((best_ask - best_bid) / mid * 100) if mid > 0 else 0.0
 
+        # Weighted imbalance: 60% recent + 40% total (recent trades matter more)
+        weighted_imb = recent_imbalance * 0.6 + normalized_imbalance * 0.4
+
         # Combined imbalance: orderbook + trade flow
         orderbook_edge = orderbook_ratio - 1.0
         trade_edge = trade_ratio - 1.0
-        imbalance_score = orderbook_edge * 0.55 + trade_edge * 0.45
+        imbalance_score = orderbook_edge * 0.40 + trade_edge * 0.35 + weighted_imb * 0.25
 
         dominant_side = "neutral"
-        if normalized_imbalance >= 0.15:
+        if weighted_imb >= 0.15:
             dominant_side = "bullish"
-        elif normalized_imbalance <= -0.15:
+        elif weighted_imb <= -0.15:
             dominant_side = "bearish"
 
         return OrderflowSnapshot(
@@ -95,5 +108,5 @@ class OrderflowAnalyzer:
             volume_spike=round(volume_spike, 4),
             spread_pct=round(spread_pct, 5),
             dominant_side=dominant_side,
-            normalized_imbalance=round(normalized_imbalance, 4),
+            normalized_imbalance=round(weighted_imb, 4),
         )

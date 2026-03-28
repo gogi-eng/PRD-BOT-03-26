@@ -85,8 +85,8 @@ exit:
   hard_sl_atr_mult: 2.5
   early_exit_bars: 20
   early_exit_min_profit_atr: 0.1
-  trailing_activation_atr: 1.1
-  trailing_distance_atr: 1.4
+  trailing_activation_atr: 0.7
+  trailing_distance_atr: 1.2
   tp_cap_atr_mult: 10.0
   min_profit_before_trail_pct: 0.45
   sl_buffer_atr_mult: 0.5
@@ -142,9 +142,9 @@ rl:
 position_sync:
   adopt_all_positions: true
   preserve_existing_sl_tp: true
-  exchange_closed_confirm_cycles: 5
+  exchange_closed_confirm_cycles: 8
   exchange_closed_require_closed_pnl: true
-  exchange_closed_force_cycles: 20
+  exchange_closed_force_cycles: 30
   exchange_closed_reentry_cooldown_sec: 900
   pause_exchange_closed_after_rate_limit_sec: 180
 
@@ -274,8 +274,8 @@ tf_presets:
       scan_interval_sec: 60
       klines_limit: 180
       early_exit_bars: 20
-      trailing_activation_atr: 1.1
-      trailing_distance_atr: 1.4
+      trailing_activation_atr: 0.7
+      trailing_distance_atr: 1.2
       volatility_floor_atr_pct: 0.06
       hard_sl_atr_mult: 2.5
     5m:
