@@ -1,0 +1,120 @@
+{
+  "summary": "Iteration 47: Bug Fixes for Position Gone and Manual Position Sync - 32/32 tests passed. Verified TWO BUG FIXES: (1) POSITION GONE logic now finalizes positions as exchange_closed when execute_close fails 3x with 'Position not found' error, regardless of origin (manual or bot). Uses wider 3600s window for closedPnl lookup. Telegram alert sent. (2) Manual position sync now uses wider 7200s window (2 hours) for closedPnl evidence. If no evidence found, force-finalizes after exchange_closed_force_cycles (30 cycles). Logs every 10 cycles while waiting. All regression tests passed: bot positions still force-removed after 3 fails, MANUAL SAFE still blocks hard_sl/early_exit but allows trailing_exit/tp_cap/trend_exit.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [],
+  "passed_tests": [
+    "--- Config Values (2 tests) ---",
+    "TestConfigValues::test_exchange_closed_force_cycles_is_30 - PASSED",
+    "TestConfigValues::test_exchange_closed_confirm_cycles_is_8 - PASSED",
+    "--- Filter Recent Closed PnL (4 tests) ---",
+    "TestFilterRecentClosedPnl::test_filter_with_300s_window - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_with_3600s_window - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_with_7200s_window - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_empty_records - PASSED",
+    "--- Bug Fix 1: Position Gone Logic (4 tests) ---",
+    "TestPositionGoneLogic::test_position_gone_detection_for_manual_position - PASSED",
+    "TestPositionGoneLogic::test_position_gone_detection_for_bot_position - PASSED",
+    "TestPositionGoneLogic::test_non_not_found_error_for_manual_position - PASSED",
+    "TestPositionGoneLogic::test_position_gone_uses_3600s_window - PASSED",
+    "--- Bug Fix 2: Manual Position Sync Wider Window (3 tests) ---",
+    "TestManualPositionSyncWiderWindow::test_manual_sync_uses_7200s_window - PASSED",
+    "TestManualPositionSyncWiderWindow::test_manual_sync_force_finalize_after_30_cycles - PASSED",
+    "TestManualPositionSyncWiderWindow::test_manual_sync_logs_every_10_cycles - PASSED",
+    "--- Regression: Bot Position Behavior (2 tests) ---",
+    "TestBotPositionRegression::test_bot_position_force_removed_after_3_fails - PASSED",
+    "TestBotPositionRegression::test_bot_position_sync_uses_300s_window - PASSED",
+    "--- Regression: MANUAL SAFE Exit Blocking (6 tests) ---",
+    "TestManualSafeExitBlocking::test_manual_safe_allows_trailing_exit - PASSED",
+    "TestManualSafeExitBlocking::test_manual_safe_allows_tp_cap - PASSED",
+    "TestManualSafeExitBlocking::test_manual_safe_allows_trend_exit - PASSED",
+    "TestManualSafeExitBlocking::test_manual_safe_blocks_hard_sl - PASSED",
+    "TestManualSafeExitBlocking::test_manual_safe_blocks_early_exit - PASSED",
+    "TestManualSafeExitBlocking::test_manual_safe_code_exists - PASSED",
+    "--- ExitReason Enum (2 tests) ---",
+    "TestExitReasonEnum::test_trend_exit_exists - PASSED",
+    "TestExitReasonEnum::test_exchange_closed_exists - PASSED",
+    "--- Telegram Alert (1 test) ---",
+    "TestTelegramAlertPositionGone::test_telegram_alert_code_exists - PASSED",
+    "--- Can Finalize Exchange Closed (3 tests) ---",
+    "TestCanFinalizeExchangeClosed::test_can_finalize_with_closed_records - PASSED",
+    "TestCanFinalizeExchangeClosed::test_can_finalize_after_force_cycles - PASSED",
+    "TestCanFinalizeExchangeClosed::test_cannot_finalize_before_force_cycles_without_records - PASSED",
+    "--- Code Structure Verification (3 tests) ---",
+    "TestCodeStructure::test_position_gone_handles_both_origins - PASSED",
+    "TestCodeStructure::test_manual_safe_non_not_found_resets_counter - PASSED",
+    "TestCodeStructure::test_wider_window_only_for_manual - PASSED",
+    "--- Integration Tests (2 tests) ---",
+    "TestPositionGoneIntegration::test_manual_position_gone_scenario - PASSED",
+    "TestPositionGoneIntegration::test_manual_position_sync_wider_window_scenario - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration47_position_gone_and_manual_sync.py",
+    "/app/test_reports/pytest/pytest_results_iteration47.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py lines 877-912: POSITION GONE logic correctly detects 'not found' in error message and finalizes position regardless of origin (manual or bot)",
+    "main.py line 892: Uses max_age_sec=3600 (1 hour) for closedPnl lookup in POSITION GONE scenario",
+    "main.py lines 903-912: Telegram alert sent with position details when POSITION GONE detected",
+    "main.py lines 638-665: Manual position sync uses wider 7200s window (2 hours) for closedPnl evidence",
+    "main.py line 648: Force-finalize after exchange_closed_force_cycles (30) even for manual positions without closedPnl",
+    "main.py line 650: Logs every 10 cycles while waiting for manual position closedPnl evidence",
+    "main.py lines 913-929: MANUAL SAFE preserved - non-'not found' errors reset counter and keep position",
+    "config.yaml line 156: exchange_closed_force_cycles=30 (was 8)",
+    "config.yaml line 154: exchange_closed_confirm_cycles=8"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration47_position_gone_and_manual_sync.py"
+  ],
+  "success_rate": {
+    "backend": "32/32 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 47 verified TWO BUG FIXES for live trading issues: (1) POSITION GONE (main.py ~line 877-912): When execute_close fails 3x with 'Position not found' error, position is now finalized as exchange_closed regardless of origin. Uses 3600s window for closedPnl. Telegram alert sent. (2) Manual Position Sync (main.py ~line 638-665): Uses wider 7200s window for closedPnl evidence. Force-finalizes after 30 cycles even without evidence. Logs every 10 cycles. Regression tests confirmed: bot positions still force-removed, MANUAL SAFE still blocks hard_sl/early_exit but allows trailing_exit/tp_cap/trend_exit.",
+  "feature_verification": {
+    "bug_fix_1_position_gone": {
+      "location": "main.py lines 877-912",
+      "detects_not_found": "Checks 'not found' in error message (line 879)",
+      "finalizes_regardless_of_origin": "Removes position for both manual and bot origins",
+      "uses_3600s_window": "max_age_sec=3600 for closedPnl lookup (line 892)",
+      "sends_telegram_alert": "Calls tg.send_alert with position details (lines 903-912)",
+      "status": "VERIFIED"
+    },
+    "bug_fix_2_manual_sync_wider_window": {
+      "location": "main.py lines 638-665",
+      "uses_7200s_window": "max_age_sec=7200 for manual positions (line 640)",
+      "force_finalize_after_30_cycles": "Uses exchange_closed_force_cycles=30 (line 648)",
+      "logs_every_10_cycles": "seen_cycles % 10 == 0 (line 650)",
+      "status": "VERIFIED"
+    },
+    "regression_bot_positions": {
+      "force_removed_after_3_fails": "FORCE REMOVE logic at lines 930-950",
+      "uses_300s_window": "Default max_age_sec=300 (line 634)",
+      "status": "VERIFIED"
+    },
+    "regression_manual_safe": {
+      "allows_trailing_exit": "ExitReason.TRAILING_EXIT in allowed list (line 850)",
+      "allows_tp_cap": "ExitReason.TP_CAP in allowed list (line 850)",
+      "allows_trend_exit": "ExitReason.TREND_EXIT in allowed list (line 850)",
+      "blocks_hard_sl": "ExitReason.HARD_SL not in allowed list",
+      "blocks_early_exit": "ExitReason.EARLY_EXIT not in allowed list",
+      "non_not_found_resets_counter": "Lines 913-929 reset counter for manual positions",
+      "status": "VERIFIED"
+    },
+    "config_values": {
+      "exchange_closed_force_cycles": "30 (config.yaml line 156)",
+      "exchange_closed_confirm_cycles": "8 (config.yaml line 154)",
+      "status": "VERIFIED"
+    }
+  }
+}

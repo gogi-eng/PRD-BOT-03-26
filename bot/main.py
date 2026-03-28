@@ -634,14 +634,34 @@ class TradingBot:
                         recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=300)
                         seen_cycles = int(self._missing_exchange_cycles.get(symbol, 0))
 
-                        # Manual positions: NEVER force-close, require closedPnl evidence
+                        # Manual positions: require closedPnl evidence, but widen window progressively
                         if pos.origin == "manual" and len(recent_closed) == 0:
-                            if seen_cycles % 10 == 0:
+                            # Try wider time window for manual positions (up to 2 hours)
+                            wider_closed = self._filter_recent_closed_pnl(closed, max_age_sec=7200)
+                            if len(wider_closed) > 0:
+                                # Found closedPnl in wider window — use it
+                                recent_closed = wider_closed
                                 logger.info(
-                                    f"[POSITION_SYNC] {symbol} MANUAL position — skipping force-close "
-                                    f"(missing={seen_cycles}, waiting for closedPnl evidence only)"
+                                    f"[POSITION_SYNC] {symbol} MANUAL — found closedPnl in wider window "
+                                    f"(missing={seen_cycles}, records={len(wider_closed)})"
                                 )
-                            continue
+                            elif seen_cycles < max(1, int(self.exchange_closed_force_cycles)):
+                                # Still waiting — no evidence yet
+                                if seen_cycles % 10 == 0:
+                                    logger.info(
+                                        f"[POSITION_SYNC] {symbol} MANUAL position — waiting for closedPnl "
+                                        f"(missing={seen_cycles}/{self.exchange_closed_force_cycles})"
+                                    )
+                                continue
+                            else:
+                                # Force-finalize after exchange_closed_force_cycles even for manual
+                                logger.warning(
+                                    f"[POSITION_SYNC] {symbol} MANUAL position — force-finalizing after "
+                                    f"{seen_cycles} missing cycles with no closedPnl"
+                                )
+                                # Use any closedPnl if available, or estimate
+                                if closed:
+                                    recent_closed = closed[:1]
 
                         if not self._can_finalize_exchange_closed(seen_cycles, len(recent_closed)):
                             logger.info(
@@ -855,8 +875,43 @@ class TradingBot:
                         f"reason={reason.value} error={close_result.get('error', '?')}"
                     )
                     if fails >= 3:
-                        # MANUAL POSITIONS: NEVER force-remove. Alert user and reset counter.
-                        if pos.origin == "manual":
+                        error_msg = str(close_result.get("error", "")).lower()
+                        position_gone = "not found" in error_msg or "position" in error_msg
+
+                        if position_gone:
+                            # Position no longer exists on exchange (user closed it, or exchange SL/TP hit)
+                            # Finalize regardless of origin (manual or bot)
+                            logger.warning(
+                                f"[POSITION GONE] {symbol} — position not found on exchange after {fails} attempts. "
+                                f"Finalizing as exchange_closed (origin={pos.origin})"
+                            )
+                            self._failed_close_attempts.pop(symbol, None)
+                            removed = self.position_manager.remove(symbol)
+                            if removed:
+                                closed = await self.client.get_closed_pnl(symbol, limit=5)
+                                recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=3600)
+                                if recent_closed:
+                                    pnl = float(recent_closed[0].get("closedPnl", 0) or 0)
+                                    logger.info(f"[POSITION GONE] {symbol} exchange closedPnl: ${pnl:.4f}")
+                                elif closed:
+                                    pnl = float(closed[0].get("closedPnl", 0) or 0)
+                                    logger.info(f"[POSITION GONE] {symbol} older closedPnl: ${pnl:.4f}")
+                                else:
+                                    pnl = self._calc_pnl(removed, current_price, removed.qty)
+                                    logger.info(f"[POSITION GONE] {symbol} estimated pnl: ${pnl:.4f}")
+                                await self._finalize_full_close(symbol, removed, current_price, pnl, "exchange_closed", already_removed=True)
+                                if self.tg:
+                                    try:
+                                        await self.tg.send_alert(
+                                            f"[POSITION GONE] {symbol}\n"
+                                            f"Position not found on exchange — removed.\n"
+                                            f"Entry: {removed.entry_price:.4f} | PnL: ${pnl:.2f}\n"
+                                            f"Origin: {removed.origin}"
+                                        )
+                                    except Exception:
+                                        pass
+                        # MANUAL POSITIONS: NEVER force-remove for non-"not found" errors
+                        elif pos.origin == "manual":
                             logger.warning(
                                 f"[MANUAL SAFE] {symbol} — {fails} close failures but origin=manual. "
                                 f"NOT removing. Resetting counter. User must close manually."
