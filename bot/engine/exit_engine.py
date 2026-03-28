@@ -12,6 +12,7 @@ Trailing logic:
 """
 from __future__ import annotations
 import logging
+import numpy as np
 from typing import Optional, Tuple
 from enum import Enum
 
@@ -24,6 +25,7 @@ class ExitReason(Enum):
     EARLY_EXIT = "early_exit"
     TRAILING_EXIT = "trailing_exit"
     TP_CAP = "tp_cap"
+    TREND_EXIT = "trend_exit"
     MANUAL = "manual"
     EXCHANGE_CLOSED = "exchange_closed"
 
@@ -253,3 +255,56 @@ class ExitEngine:
                 updated = True
 
         return updated
+
+    @staticmethod
+    def _compute_ema(prices: np.ndarray, period: int) -> np.ndarray:
+        """Compute EMA for a price array."""
+        if len(prices) < period:
+            return prices.copy()
+        ema = np.empty_like(prices, dtype=float)
+        ema[:period] = np.nan
+        ema[period - 1] = np.mean(prices[:period])
+        k = 2.0 / (period + 1)
+        for i in range(period, len(prices)):
+            ema[i] = prices[i] * k + ema[i - 1] * (1 - k)
+        return ema
+
+    def check_ema_trend_exit(
+        self, position, klines: list, ema_period: int = 20
+    ) -> Tuple[bool, Optional[ExitReason], str]:
+        """
+        EMA Trend Exit: close position if price crosses below EMA(period) for longs
+        or above EMA(period) for shorts. Indicates trend reversal.
+
+        Only triggers after position has been held for at least ema_period bars
+        to avoid premature exits.
+        """
+        if not klines or len(klines) < ema_period + 5:
+            return False, None, ""
+
+        # Need enough bars of holding to avoid false trigger on entry
+        if hasattr(position, 'bars_since_entry') and position.bars_since_entry < ema_period:
+            return False, None, ""
+
+        closes = np.array([float(k.get("close", 0)) for k in klines], dtype=float)
+        ema = self._compute_ema(closes, ema_period)
+
+        current_price = closes[-1]
+        ema_val = ema[-1]
+
+        if np.isnan(ema_val):
+            return False, None, ""
+
+        is_long = position.is_long
+
+        if is_long and current_price < ema_val:
+            return True, ExitReason.TREND_EXIT, (
+                f"EMA trend exit: LONG price {current_price:.4f} < EMA{ema_period} {ema_val:.4f}"
+            )
+        if not is_long and current_price > ema_val:
+            return True, ExitReason.TREND_EXIT, (
+                f"EMA trend exit: SHORT price {current_price:.4f} > EMA{ema_period} {ema_val:.4f}"
+            )
+
+        return False, None, ""
+

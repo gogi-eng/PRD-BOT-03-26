@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import math
+import numpy as np
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -141,8 +142,40 @@ class EntryEngine:
         self.trained_model_weights_path = cfg.get("entry", "trained_model_weights_path", default="transformer_weights.pt")
         self._trained_model = None
 
+        # PRO filters from user config
+        self.ema_trend_filter = cfg.get("entry", "ema_trend_filter", default=True)
+        self.ema_fast_period = cfg.get("entry", "ema_fast_period", default=20)
+        self.ema_slow_period = cfg.get("entry", "ema_slow_period", default=50)
+        self.momentum_filter = cfg.get("entry", "momentum_filter", default=True)
+        self.momentum_lookback = cfg.get("entry", "momentum_lookback", default=5)
+        self.volume_filter = cfg.get("entry", "volume_filter", default=True)
+        self.volume_lookback = cfg.get("entry", "volume_lookback", default=20)
+
         if self.trained_model_enabled:
             self._load_trained_model()
+
+    # =====================================================
+    # PRO HELPERS: EMA / ATR calculation
+    # =====================================================
+    @staticmethod
+    def _compute_ema(prices: np.ndarray, period: int) -> np.ndarray:
+        """Compute EMA for a price array."""
+        if len(prices) < period:
+            return prices.copy()
+        ema = np.empty_like(prices, dtype=float)
+        ema[:period] = np.nan
+        ema[period - 1] = np.mean(prices[:period])
+        k = 2.0 / (period + 1)
+        for i in range(period, len(prices)):
+            ema[i] = prices[i] * k + ema[i - 1] * (1 - k)
+        return ema
+
+    @staticmethod
+    def _extract_closes_and_volumes(klines: List[Dict]):
+        """Extract close prices and volumes from klines list."""
+        closes = np.array([float(k.get("close", 0)) for k in klines], dtype=float)
+        volumes = np.array([float(k.get("volume", 0)) for k in klines], dtype=float)
+        return closes, volumes
 
     def _resolve_weights_path(self) -> Path:
         weights_path = Path(self.trained_model_weights_path)
@@ -449,6 +482,70 @@ class EntryEngine:
                 "side": side,
             }
             return signal
+
+        # =====================================================
+        # EMA TREND GUARD: reject if EMA(20) vs EMA(50) disagrees
+        # with the signal direction on current timeframe candles
+        # =====================================================
+        if self.ema_trend_filter and len(klines) >= self.ema_slow_period + 5:
+            closes, volumes = self._extract_closes_and_volumes(klines)
+            ema_fast = self._compute_ema(closes, self.ema_fast_period)
+            ema_slow = self._compute_ema(closes, self.ema_slow_period)
+            ema_f = ema_fast[-1]
+            ema_s = ema_slow[-1]
+            if not np.isnan(ema_f) and not np.isnan(ema_s):
+                if is_long and ema_f < ema_s:
+                    signal.metadata = {
+                        "reject_reason": f"ema_trend_guard (BUY but EMA{self.ema_fast_period}={ema_f:.2f} < EMA{self.ema_slow_period}={ema_s:.2f})",
+                        "composite_score": composite,
+                        "side": side,
+                    }
+                    return signal
+                if not is_long and ema_f > ema_s:
+                    signal.metadata = {
+                        "reject_reason": f"ema_trend_guard (SELL but EMA{self.ema_fast_period}={ema_f:.2f} > EMA{self.ema_slow_period}={ema_s:.2f})",
+                        "composite_score": composite,
+                        "side": side,
+                    }
+                    return signal
+
+        # =====================================================
+        # MOMENTUM GUARD: reject if price momentum (close[-1] vs
+        # close[-N]) contradicts the signal direction
+        # =====================================================
+        if self.momentum_filter and len(klines) >= self.momentum_lookback + 1:
+            closes_m, _ = self._extract_closes_and_volumes(klines)
+            momentum = closes_m[-1] - closes_m[-self.momentum_lookback]
+            if is_long and momentum < 0:
+                signal.metadata = {
+                    "reject_reason": f"momentum_guard (BUY but momentum={momentum:.4f} over {self.momentum_lookback} bars)",
+                    "composite_score": composite,
+                    "side": side,
+                }
+                return signal
+            if not is_long and momentum > 0:
+                signal.metadata = {
+                    "reject_reason": f"momentum_guard (SELL but momentum={momentum:+.4f} over {self.momentum_lookback} bars)",
+                    "composite_score": composite,
+                    "side": side,
+                }
+                return signal
+
+        # =====================================================
+        # VOLUME GUARD: reject if current volume is below
+        # average of last N candles (no conviction behind move)
+        # =====================================================
+        if self.volume_filter and len(klines) >= self.volume_lookback + 1:
+            _, vols = self._extract_closes_and_volumes(klines)
+            avg_vol = np.mean(vols[-self.volume_lookback - 1:-1])  # avg of prev N candles
+            cur_vol = vols[-1]
+            if avg_vol > 0 and cur_vol < avg_vol:
+                signal.metadata = {
+                    "reject_reason": f"volume_guard (vol={cur_vol:.0f} < avg{self.volume_lookback}={avg_vol:.0f})",
+                    "composite_score": composite,
+                    "side": side,
+                }
+                return signal
 
         # =====================================================
         # THRESHOLD CHECK

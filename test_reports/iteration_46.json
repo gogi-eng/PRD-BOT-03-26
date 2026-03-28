@@ -1,0 +1,154 @@
+{
+  "summary": "Iteration 46: PRO Filter Integration - 44/44 tests passed. Verified all NEW features: (1) EMA Trend Guard rejects LONG when EMA(20)<EMA(50) and SELL when EMA(20)>EMA(50). (2) Momentum Guard rejects BUY when close[-1]<close[-5] and SELL when close[-1]>close[-5]. (3) Volume Guard rejects when current volume < avg of last 20 bars. (4) EMA Trend Exit closes LONG when price<EMA(20) and SHORT when price>EMA(20), only after ema_period bars held. (5) Config fixes: leverage=5, chop removed from allowed_regimes, ignore_loss_cooldown_reasons=[]. (6) Regression: existing guards (exhaustion, contra-trend, counter-flow) and A/B/C grading still work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [],
+  "passed_tests": [
+    "--- Config YAML Parsing (13 tests) ---",
+    "TestConfigYamlParsing::test_leverage_is_5 - PASSED",
+    "TestConfigYamlParsing::test_allowed_regimes_does_not_contain_chop - PASSED",
+    "TestConfigYamlParsing::test_ignore_loss_cooldown_reasons_is_empty - PASSED",
+    "TestConfigYamlParsing::test_active_preset_is_1h - PASSED",
+    "TestConfigYamlParsing::test_ema_trend_filter_enabled - PASSED",
+    "TestConfigYamlParsing::test_ema_fast_period_is_20 - PASSED",
+    "TestConfigYamlParsing::test_ema_slow_period_is_50 - PASSED",
+    "TestConfigYamlParsing::test_momentum_filter_enabled - PASSED",
+    "TestConfigYamlParsing::test_momentum_lookback_is_5 - PASSED",
+    "TestConfigYamlParsing::test_volume_filter_enabled - PASSED",
+    "TestConfigYamlParsing::test_volume_lookback_is_20 - PASSED",
+    "TestConfigYamlParsing::test_ema_trend_exit_enabled - PASSED",
+    "TestConfigYamlParsing::test_ema_exit_period_is_20 - PASSED",
+    "--- Entry Engine Initialization (2 tests) ---",
+    "TestEntryEngineInitialization::test_entry_engine_initializes_with_pro_filters - PASSED",
+    "TestEntryEngineInitialization::test_entry_engine_defaults_when_not_in_config - PASSED",
+    "--- EMA Computation Helper (4 tests) ---",
+    "TestEMAComputation::test_compute_ema_returns_correct_values - PASSED",
+    "TestEMAComputation::test_compute_ema_uptrend - PASSED",
+    "TestEMAComputation::test_compute_ema_downtrend - PASSED",
+    "TestEMAComputation::test_compute_ema_short_array - PASSED",
+    "--- EMA Trend Guard (3 tests) ---",
+    "TestEMATrendGuard::test_ema_trend_guard_rejects_long_in_downtrend - PASSED",
+    "TestEMATrendGuard::test_ema_trend_guard_rejects_short_in_uptrend - PASSED",
+    "TestEMATrendGuard::test_ema_trend_guard_passes_aligned_signal - PASSED",
+    "--- Momentum Guard (3 tests) ---",
+    "TestMomentumGuard::test_momentum_guard_rejects_buy_negative_momentum - PASSED",
+    "TestMomentumGuard::test_momentum_guard_rejects_sell_positive_momentum - PASSED",
+    "TestMomentumGuard::test_momentum_guard_passes_aligned_momentum - PASSED",
+    "--- Volume Guard (2 tests) ---",
+    "TestVolumeGuard::test_volume_guard_rejects_low_volume - PASSED",
+    "TestVolumeGuard::test_volume_guard_passes_high_volume - PASSED",
+    "--- EMA Trend Exit (5 tests) ---",
+    "TestEMATrendExit::test_trend_exit_enum_exists - PASSED",
+    "TestEMATrendExit::test_ema_trend_exit_long_below_ema - PASSED",
+    "TestEMATrendExit::test_ema_trend_exit_short_above_ema - PASSED",
+    "TestEMATrendExit::test_ema_trend_exit_no_exit_when_held_less_than_period - PASSED",
+    "TestEMATrendExit::test_ema_trend_exit_no_exit_when_trend_aligns - PASSED",
+    "--- Manual Position Safety (1 test) ---",
+    "TestManualPositionSafety::test_trend_exit_allowed_for_manual_positions - PASSED",
+    "--- Extract Closes and Volumes Helper (1 test) ---",
+    "TestExtractClosesAndVolumes::test_extract_closes_and_volumes_works - PASSED",
+    "--- Existing Guards Regression (3 tests) ---",
+    "TestExistingGuardsRegression::test_exhaustion_guard_still_works - PASSED",
+    "TestExistingGuardsRegression::test_contra_trend_guard_still_works - PASSED",
+    "TestExistingGuardsRegression::test_counter_flow_guard_still_works - PASSED",
+    "--- A/B/C Grading Regression (5 tests) ---",
+    "TestABCGradingRegression::test_classify_signal_grade_exists - PASSED",
+    "TestABCGradingRegression::test_grade_a_high_conviction - PASSED",
+    "TestABCGradingRegression::test_grade_b_standard - PASSED",
+    "TestABCGradingRegression::test_grade_c_marginal - PASSED",
+    "TestABCGradingRegression::test_entry_signal_has_grade_field - PASSED",
+    "--- Trailing Stop Regression (2 tests) ---",
+    "TestTrailingStopRegression::test_exit_engine_has_update_trailing - PASSED",
+    "TestTrailingStopRegression::test_trailing_exit_before_hard_sl - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration46_pro_filters.py",
+    "/app/test_reports/pytest/pytest_results_iteration46.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "entry_engine.py lines 146-152: PRO filter config params loaded correctly (ema_trend_filter, ema_fast_period=20, ema_slow_period=50, momentum_filter, momentum_lookback=5, volume_filter, volume_lookback=20)",
+    "entry_engine.py lines 160-171: _compute_ema helper correctly computes EMA with proper initialization",
+    "entry_engine.py lines 174-178: _extract_closes_and_volumes helper correctly parses kline dict format",
+    "entry_engine.py lines 490-510: EMA Trend Guard rejects LONG when EMA(20)<EMA(50) and SELL when EMA(20)>EMA(50)",
+    "entry_engine.py lines 516-532: Momentum Guard rejects BUY when close[-1]<close[-5] and SELL when close[-1]>close[-5]",
+    "entry_engine.py lines 538-548: Volume Guard rejects when current volume < avg of last 20 bars",
+    "exit_engine.py line 28: TREND_EXIT added to ExitReason enum",
+    "exit_engine.py lines 260-270: _compute_ema helper in ExitEngine (same implementation as EntryEngine)",
+    "exit_engine.py lines 272-309: check_ema_trend_exit method closes LONG when price<EMA and SHORT when price>EMA, only after ema_period bars held",
+    "main.py line 170: ema_trend_exit_enabled config loaded from exit.ema_trend_exit",
+    "main.py line 171: ema_exit_period config loaded from exit.ema_exit_period",
+    "main.py line 830: TREND_EXIT added to allowed exit reasons for manual positions",
+    "main.py lines 839-841: EMA trend exit check wired into position monitoring loop",
+    "config.yaml: leverage=5 (was 10), allowed_regimes=['trend', 'breakout'] (chop removed), ignore_loss_cooldown_reasons=[] (was ['early_exit'])"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration46_pro_filters.py"
+  ],
+  "success_rate": {
+    "backend": "44/44 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 46 verified all PRO filter features: (1) EMA Trend Guard (entry_engine.py ~line 490) rejects signals when EMA direction contradicts signal. (2) Momentum Guard (entry_engine.py ~line 516) rejects when price momentum contradicts signal. (3) Volume Guard (entry_engine.py ~line 538) rejects when current volume below average. (4) EMA Trend Exit (exit_engine.py ~line 272) closes positions when price crosses EMA against position direction, only after ema_period bars held. (5) Config fixes verified: leverage=5, chop removed from allowed_regimes, ignore_loss_cooldown_reasons=[]. (6) Regression tests passed for existing guards (exhaustion, contra-trend, counter-flow) and A/B/C grading. New guards run AFTER existing guards (exhaustion, contra-trend, counter-flow) but BEFORE threshold check.",
+  "feature_verification": {
+    "ema_trend_guard": {
+      "location": "entry_engine.py lines 490-510",
+      "rejects_long_in_downtrend": "When EMA(20) < EMA(50)",
+      "rejects_short_in_uptrend": "When EMA(20) > EMA(50)",
+      "passes_aligned_signal": "When EMA direction matches signal",
+      "config_params": "ema_trend_filter=True, ema_fast_period=20, ema_slow_period=50",
+      "status": "VERIFIED"
+    },
+    "momentum_guard": {
+      "location": "entry_engine.py lines 516-532",
+      "rejects_buy_negative_momentum": "When close[-1] < close[-momentum_lookback]",
+      "rejects_sell_positive_momentum": "When close[-1] > close[-momentum_lookback]",
+      "passes_aligned_momentum": "When momentum direction matches signal",
+      "config_params": "momentum_filter=True, momentum_lookback=5",
+      "status": "VERIFIED"
+    },
+    "volume_guard": {
+      "location": "entry_engine.py lines 538-548",
+      "rejects_low_volume": "When current volume < avg of last volume_lookback bars",
+      "passes_high_volume": "When current volume >= avg volume",
+      "config_params": "volume_filter=True, volume_lookback=20",
+      "status": "VERIFIED"
+    },
+    "ema_trend_exit": {
+      "location": "exit_engine.py lines 272-309",
+      "trend_exit_enum": "TREND_EXIT added to ExitReason",
+      "long_exit": "When price < EMA(ema_exit_period)",
+      "short_exit": "When price > EMA(ema_exit_period)",
+      "minimum_hold": "Only triggers after bars_since_entry >= ema_period",
+      "no_exit_aligned": "No exit when trend aligns with position",
+      "manual_position_allowed": "TREND_EXIT in allowed exits for manual positions (main.py line 830)",
+      "main_py_wiring": "Lines 839-841 call check_ema_trend_exit in position monitoring",
+      "config_params": "ema_trend_exit=True, ema_exit_period=20",
+      "status": "VERIFIED"
+    },
+    "config_fixes": {
+      "leverage": "5 (was 10)",
+      "allowed_regimes": "['trend', 'breakout'] - chop removed",
+      "ignore_loss_cooldown_reasons": "[] - empty list (was ['early_exit'])",
+      "active_preset": "1h",
+      "status": "VERIFIED"
+    },
+    "regression_tests": {
+      "exhaustion_guard": "5+/7 same direction → reject (still works)",
+      "contra_trend_guard": "7+/10 opposing → reject (still works)",
+      "counter_flow_guard": "volume 1.4x ratio → reject (still works)",
+      "abc_grading": "classify_signal_grade A/B/C works correctly",
+      "trailing_stop": "TRAILING_EXIT checked before HARD_SL",
+      "status": "VERIFIED"
+    }
+  }
+}

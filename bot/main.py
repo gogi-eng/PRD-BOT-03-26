@@ -166,6 +166,9 @@ class TradingBot:
             sl_buffer_atr_mult=self.cfg.get("exit", "sl_buffer_atr_mult", default=0.2),
             fee_rate=float(self.cfg.get("exit", "fee_rate", default=0.0006)),
         )
+        # EMA trend exit config
+        self.ema_trend_exit_enabled = self.cfg.get("exit", "ema_trend_exit", default=False)
+        self.ema_exit_period = int(self.cfg.get("exit", "ema_exit_period", default=20))
 
         self.tg = None
         tg_token = self.security.get_key("TELEGRAM_TOKEN")
@@ -824,13 +827,20 @@ class TradingBot:
             )
             # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions
             if should_exit and pos.origin == "manual" and reason not in (
-                ExitReason.TRAILING_EXIT, ExitReason.TP_CAP
+                ExitReason.TRAILING_EXIT, ExitReason.TP_CAP, ExitReason.TREND_EXIT
             ):
                 logger.info(
                     f"[MANUAL SAFE] {symbol} exit blocked: {reason.value} — "
-                    f"only trailing_exit/tp_cap allowed for manual positions. {details}"
+                    f"only trailing_exit/tp_cap/trend_exit allowed for manual positions. {details}"
                 )
                 should_exit = False
+
+            # EMA TREND EXIT — close if price reverses against EMA(20)
+            if not should_exit and self.ema_trend_exit_enabled:
+                should_exit, reason, details = self.exit_engine.check_ema_trend_exit(
+                    pos, klines, ema_period=self.ema_exit_period
+                )
+
             if should_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)
                 if close_result.get("success"):
