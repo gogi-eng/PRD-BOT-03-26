@@ -1,0 +1,113 @@
+{
+  "summary": "Iteration 45: Verified all guard fixes and bug fixes - 29/29 tests passed. (1) No-zone bypass: requires has_bos=True OR has_sweep=True for bypass (conf>=0.85, smc>=0.85 alone is NOT enough). (2) Contra-trend guard: rejects when 7+/10 candles oppose signal direction. (3) Exit engine: TRAILING_EXIT checked BEFORE HARD_SL in check_exit(). (4) HTF ATR floor: position monitoring uses max(1m_atr, htf_atr). (5) Regression: P0 manual protection and A/B/C grading still work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [],
+  "passed_tests": [
+    "--- No-Zone Bypass (5 tests) ---",
+    "TestNoZoneBypass::test_no_zone_bypass_requires_bos_or_sweep - PASSED",
+    "TestNoZoneBypass::test_no_zone_bypass_allowed_with_bos - PASSED",
+    "TestNoZoneBypass::test_no_zone_bypass_blocked_without_structure - PASSED",
+    "TestNoZoneBypass::test_no_zone_bypass_allowed_with_sweep - PASSED",
+    "TestNoZoneBypass::test_no_zone_bypass_low_confidence_blocked - PASSED",
+    "--- Contra-Trend Guard (5 tests) ---",
+    "TestContraTrendGuard::test_contra_trend_rejects_sell_when_7_bullish - PASSED",
+    "TestContraTrendGuard::test_contra_trend_rejects_buy_when_7_bearish - PASSED",
+    "TestContraTrendGuard::test_contra_trend_allows_entry_with_5_opposing - PASSED",
+    "TestContraTrendGuard::test_contra_trend_edge_case_exactly_7 - PASSED",
+    "TestContraTrendGuard::test_contra_trend_allows_entry_with_6_opposing - PASSED",
+    "--- Exhaustion Guard Regression (1 test) ---",
+    "TestExhaustionGuard::test_exhaustion_guard_still_works - PASSED",
+    "--- Exit Engine Order (4 tests) ---",
+    "TestExitEngineOrder::test_trailing_exit_checked_before_hard_sl - PASSED",
+    "TestExitEngineOrder::test_short_trailing_exit_before_hard_sl - PASSED",
+    "TestExitEngineOrder::test_long_trailing_exit_before_hard_sl - PASSED",
+    "TestExitEngineOrder::test_position_without_trailing_returns_hard_sl - PASSED",
+    "--- HTF ATR Floor (3 tests) ---",
+    "TestHTFATRFloor::test_htf_atr_floor_logic - PASSED",
+    "TestHTFATRFloor::test_htf_atr_floor_uses_1m_when_larger - PASSED",
+    "TestHTFATRFloor::test_htf_atr_floor_handles_zero_htf - PASSED",
+    "--- P0 Manual Protection Regression (2 tests) ---",
+    "TestP0ManualProtection::test_exit_reason_enum_exists - PASSED",
+    "TestP0ManualProtection::test_manual_position_protection_logic - PASSED",
+    "--- A/B/C Grading Regression (5 tests) ---",
+    "TestABCGrading::test_classify_signal_grade_function_exists - PASSED",
+    "TestABCGrading::test_grade_a_high_conviction - PASSED",
+    "TestABCGrading::test_grade_b_standard - PASSED",
+    "TestABCGrading::test_grade_c_marginal - PASSED",
+    "TestABCGrading::test_entry_signal_has_grade_field - PASSED",
+    "--- Code Verification (4 tests) ---",
+    "TestCodeVerification::test_exit_engine_trailing_before_hard_sl_in_code - PASSED",
+    "TestCodeVerification::test_main_py_has_htf_atr_floor - PASSED",
+    "TestCodeVerification::test_main_py_has_no_zone_bypass_with_structure - PASSED",
+    "TestCodeVerification::test_entry_engine_has_contra_trend_guard - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration45_guards_and_fixes.py",
+    "/app/test_reports/pytest/pytest_results_iteration45.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py lines 1708-1723: No-zone bypass now requires (has_bos OR has_sweep) in addition to conf>=0.85 and smc>=0.85",
+    "main.py lines 692-696: HTF ATR floor uses max(atr_val, htf_atr_val) for position monitoring",
+    "entry_engine.py lines 411-428: Contra-trend guard rejects when 7+/10 candles oppose signal direction",
+    "exit_engine.py lines 121-127: TRAILING_EXIT check comes BEFORE HARD_SL check (fixes manual position trailing bug)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration45_guards_and_fixes.py"
+  ],
+  "success_rate": {
+    "backend": "29/29 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 45 verified all guard fixes: (1) No-zone bypass requires BOS or sweep structural confirmation (conf>=0.85, smc>=0.85 alone is NOT enough). (2) Contra-trend guard rejects when 7+/10 candles oppose signal direction. (3) Exit engine checks TRAILING_EXIT before HARD_SL (fixes manual position trailing bug). (4) HTF ATR floor in position monitoring uses max(1m_atr, htf_atr). (5) Regression tests passed for P0 manual protection and A/B/C grading.",
+  "feature_verification": {
+    "no_zone_bypass": {
+      "requirement": "requires has_bos=True OR has_sweep=True for bypass",
+      "conf_smc_alone_not_enough": "conf>=0.85, smc>=0.85 alone is NOT enough",
+      "with_bos": "ALLOWED",
+      "with_sweep": "ALLOWED",
+      "without_structure": "BLOCKED with reason 'no_zone_no_structure'",
+      "low_confidence_with_bos": "BLOCKED (conf < 0.85)",
+      "status": "VERIFIED"
+    },
+    "contra_trend_guard": {
+      "threshold": "7+/10 candles opposing signal direction",
+      "sell_with_7_bullish": "REJECTED",
+      "buy_with_7_bearish": "REJECTED",
+      "5_opposing": "ALLOWED",
+      "6_opposing": "ALLOWED",
+      "exactly_7_opposing": "REJECTED (edge case)",
+      "status": "VERIFIED"
+    },
+    "exit_engine_order": {
+      "trailing_exit_before_hard_sl": "TRAILING_EXIT checked BEFORE HARD_SL",
+      "short_trailing_exit": "Returns TRAILING_EXIT when price >= trailing_stop",
+      "long_trailing_exit": "Returns TRAILING_EXIT when price <= trailing_stop",
+      "no_trailing_hard_sl": "Returns HARD_SL when SL hit and no trailing",
+      "status": "VERIFIED"
+    },
+    "htf_atr_floor": {
+      "logic": "max(1m_atr, htf_atr)",
+      "htf_larger": "Uses HTF ATR",
+      "1m_larger": "Uses 1m ATR",
+      "htf_zero": "Uses 1m ATR",
+      "status": "VERIFIED"
+    },
+    "regression_tests": {
+      "exhaustion_guard": "5+/7 same direction → reject (still works)",
+      "p0_manual_protection": "HARD_SL blocked for manual, TRAILING_EXIT/TP_CAP allowed",
+      "abc_grading": "classify_signal_grade A/B/C works correctly",
+      "status": "VERIFIED"
+    }
+  }
+}

@@ -1707,12 +1707,20 @@ class TradingBot:
 
         if getattr(self, "quality_gate_reject_no_zone_entries", False) and entry_zone == "no_zone":
             smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
-            if confidence >= 0.85 and smc_score >= 0.85:
+            has_bos = bool(signal.metadata.get("has_bos", False))
+            has_sweep = bool(signal.metadata.get("has_sweep", False))
+            # Require at least 1 structural confirmation (BOS or sweep)
+            # even for high-confidence signals. Pure AI + trend = unreliable.
+            if confidence >= 0.85 and smc_score >= 0.85 and (has_bos or has_sweep):
                 logger.info(
-                    f"[QUALITY_GATE] {symbol} no_zone BYPASSED (conf={confidence:.2f} smc={smc_score:.2f})"
+                    f"[QUALITY_GATE] {symbol} no_zone BYPASSED (conf={confidence:.2f} smc={smc_score:.2f} bos={has_bos} sweep={has_sweep})"
                 )
             else:
-                return False, "no_zone_blocked", {"quality_expected_edge": round(expected_edge, 4)}
+                logger.info(
+                    f"[QUALITY_GATE] {symbol} no_zone BLOCKED — need BOS or sweep "
+                    f"(conf={confidence:.2f} smc={smc_score:.2f} bos={has_bos} sweep={has_sweep})"
+                )
+                return False, "no_zone_no_structure", {"quality_expected_edge": round(expected_edge, 4)}
 
         if expected_edge < self.quality_gate_min_expected_edge:
             return False, "low_expected_edge", {"quality_expected_edge": round(expected_edge, 4)}

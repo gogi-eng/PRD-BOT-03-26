@@ -246,7 +246,7 @@ class EntryEngine:
             return signal
 
         # =====================================================
-        # SCORE 1: TREND (0.30)
+        # SCORE 1: TREND (0.35)
         # 4H trend + structure trend + sweep alignment
         # =====================================================
         trend_score = 0.0
@@ -283,7 +283,7 @@ class EntryEngine:
         trend_score = min(1.0, trend_score)
 
         # =====================================================
-        # SCORE 2: ORDERFLOW (0.30)
+        # SCORE 2: ORDERFLOW (0.40)
         # Normalized imbalance [-1, +1]
         # =====================================================
         orderflow_score = 0.0
@@ -327,7 +327,7 @@ class EntryEngine:
                 of_reasons.append(f"OF_bullish({norm_imb:+.2f})")
 
         # =====================================================
-        # SCORE 3: TRANSFORMER / AI (0.40)
+        # SCORE 3: TRANSFORMER / AI (0.25)
         # Uses calibrated probabilities
         # =====================================================
         ai_score = 0.0
@@ -399,6 +399,29 @@ class EntryEngine:
                 # 5+ candles already moved in our direction = exhaustion
                 signal.metadata = {
                     "reject_reason": f"exhaustion_guard ({consecutive_dir}/7 candles same dir)",
+                    "composite_score": composite,
+                    "side": side,
+                }
+                return signal
+
+        # =====================================================
+        # CONTRA-TREND GUARD: reject if short-term price is
+        # clearly moving AGAINST the signal direction.
+        # If 7+ of last 10 candles are bullish and signal is SELL → reject
+        # =====================================================
+        if len(klines) >= 11:
+            last_10 = klines[-10:]
+            contra = 0
+            for k in last_10:
+                c_open = float(k.get("open", 0))
+                c_close = float(k.get("close", 0))
+                if is_long and c_close < c_open:
+                    contra += 1
+                elif not is_long and c_close > c_open:
+                    contra += 1
+            if contra >= 7:
+                signal.metadata = {
+                    "reject_reason": f"contra_trend_guard ({contra}/10 candles oppose {side})",
                     "composite_score": composite,
                     "side": side,
                 }
