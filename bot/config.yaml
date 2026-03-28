@@ -35,7 +35,7 @@ entry:
   min_rr_ratio: 3.0
   min_target_profit_pct: 1.2
   require_structural_tp: true
-  min_stop_distance_pct: 0.8
+  min_stop_distance_pct: 1.5
   min_stop_atr_mult: 1.6
   sl_buffer_atr_mult: 1.0
   max_entry_extension_atr: 0.75

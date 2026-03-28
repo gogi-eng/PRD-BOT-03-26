@@ -1042,6 +1042,10 @@ class TradingBot:
         htf_4h_trend = self._determine_4h_trend(htf_4h_klines)
 
         atr_val = self.atr.get_atr(symbol, klines)
+        # HTF ATR floor: use max of 1m ATR and HTF ATR to prevent micro-stops
+        htf_atr_val = self.atr.get_atr(f"{symbol}_htf", htf_klines)
+        if htf_atr_val > 0:
+            atr_val = max(atr_val, htf_atr_val)
         current_price = float(klines[-1]["close"])
 
         # Market Structure: swings, BOS, sweeps, momentum
