@@ -1095,6 +1095,45 @@ class TradingBot:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
 
+        # =====================================================
+        # ORDERBOOK DIRECTION GUARD:
+        # Reject if orderbook volume contradicts signal direction
+        # SELL blocked when bid_vol >> ask_vol (buyers dominate)
+        # BUY blocked when ask_vol >> bid_vol (sellers dominate)
+        # =====================================================
+        ob_bid_vol = getattr(orderflow, 'bid_volume', 0)
+        ob_ask_vol = getattr(orderflow, 'ask_volume', 0)
+        is_long_sig = signal.side.upper() in ("BUY", "LONG")
+        if not is_long_sig and ob_bid_vol > 0 and ob_bid_vol > ob_ask_vol * 1.3:
+            return reject(f"orderbook_direction_guard (SELL but bid_vol={ob_bid_vol:.0f} >> ask_vol={ob_ask_vol:.0f})")
+        if is_long_sig and ob_ask_vol > 0 and ob_ask_vol > ob_bid_vol * 1.3:
+            return reject(f"orderbook_direction_guard (BUY but ask_vol={ob_ask_vol:.0f} >> bid_vol={ob_bid_vol:.0f})")
+
+        # =====================================================
+        # PRICE MOMENTUM CONFIRMATION:
+        # Last 3 candles must show at least 1 candle moving in signal direction.
+        # This prevents entering after pure one-directional exhaustion.
+        # Also check: price should not be moving strongly AGAINST signal.
+        # =====================================================
+        if len(klines) >= 4:
+            last_3 = klines[-3:]
+            favorable = 0
+            against = 0
+            for k in last_3:
+                c_open = float(k.get("open", 0))
+                c_close = float(k.get("close", 0))
+                if is_long_sig and c_close > c_open:
+                    favorable += 1
+                elif is_long_sig and c_close < c_open:
+                    against += 1
+                elif not is_long_sig and c_close < c_open:
+                    favorable += 1
+                elif not is_long_sig and c_close > c_open:
+                    against += 1
+            # All 3 candles against signal = strong opposite momentum, reject
+            if against == 3:
+                return reject(f"price_momentum_against (3/3 candles oppose {signal.side})")
+
         if self.strict_htf_mode:
             htf_ok, htf_reason = self._passes_strict_htf_mode(signal.side, htf_4h_trend)
             if not htf_ok:
