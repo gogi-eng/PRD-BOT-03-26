@@ -263,7 +263,7 @@ adaptive_regime_presets:
 # Timeframe presets: "1m", "5m", "15m"
 # Switching active_tf_preset adjusts candle_interval and related params automatically
 tf_presets:
-  active_preset: "1m"
+  active_preset: "1h"
   presets:
     1m:
       candle_interval: "1"
@@ -303,4 +303,17 @@ tf_presets:
       trailing_activation_atr: 1.5
       trailing_distance_atr: 1.8
       volatility_floor_atr_pct: 0.15
+      hard_sl_atr_mult: 3.0
+    1h:
+      candle_interval: "60"
+      htf_interval: "240"
+      htf_4h_interval: "D"
+      cycle_sleep_sec: 600
+      position_active_sleep_sec: 120
+      scan_interval_sec: 600
+      klines_limit: 96
+      early_exit_bars: 6
+      trailing_activation_atr: 1.5
+      trailing_distance_atr: 2.0
+      volatility_floor_atr_pct: 0.25
       hard_sl_atr_mult: 3.0
