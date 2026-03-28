@@ -40,14 +40,14 @@ entry:
   sl_buffer_atr_mult: 1.0
   max_entry_extension_atr: 0.75
   entry_range_atr_mult: 0.22
-  allowed_regimes: ["trend", "breakout", "chop"]
+  allowed_regimes: ["trend", "breakout"]
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
   entry_threshold: 0.72
   trained_model_enabled: true
   trained_model_min_prob: 0.52
-  trained_model_blend: 0.30
+  trained_model_blend: 0.15
   trained_model_weights_path: "transformer_weights.pt"
   min_liq_depth: 0.0
   min_smc_score: 0.70
@@ -104,8 +104,8 @@ risk:
   reduction_factor: 0.5
   min_loss_usdt_for_cooldown: 0.35
   min_loss_usdt_for_consecutive: 0.6
-  ignore_loss_cooldown_reasons: ["early_exit"]
-  ignore_consecutive_loss_reasons: ["early_exit"]
+  ignore_loss_cooldown_reasons: []
+  ignore_consecutive_loss_reasons: []
 
 market:
   min_24h_volume_usdt: 30000000

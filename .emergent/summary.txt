@@ -1,82 +1,94 @@
-<analysis>**original_problem_statement**: The user's goal is to create a profitable, automated cryptocurrency trading bot. After addressing initial signal flooding and AI training issues, the focus has shifted to resolving the bot's unprofitability in live trading. The primary sources of loss have been identified as frequent, potentially erroneous,  events, poor quality trade entries, and ineffective risk management. The user is highly engaged, provides detailed logs and analysis, and expects concrete fixes to make the bot profitable. PRODUCT REQUIREMENTS: SMC + AI strategy, Bybit API integration, strict risk management, trailing stops, and manual trade takeover capabilities.
+<analysis>**original_problem_statement**: The user wants to build and refine a profitable, automated cryptocurrency trading bot using Bybit API and an SMC + AI strategy. The bot has been suffering from frequent losses in live trading due to tight stop-losses, fake signal entries against market momentum, and erroneous  triggers. PRODUCT REQUIREMENTS: SMC + AI strategy, Bybit API integration, strict risk management, trailing stops, manual trade takeover capabilities, and multi-timeframe regime awareness.
 
-**User's preferred language**: Russian (INSTRUCT next agent to respond in the user's preferred language only)
+**User's preferred language**: Russian (You MUST respond in Russian only)
 
-**what currently exists?**: A sophisticated, asynchronous Python trading bot located in . It features a weighted scoring system, a quality gate for signal filtering, an adaptive preset system for market regimes, and a trailing stop mechanism. It also integrates with a Telegram bot for control and notifications. The bot has been heavily modified to add safety rails (momentum guards, fee-aware trailing stops, manual position safety), but remains unprofitable in live testing due to market chop and strict exiting behavior.
+**what currently exists?**: A heavily modified, asynchronous Python trading bot (). It features a weighted entry scoring system (Trend, Orderflow, AI), an advanced , dynamic , and Telegram integration. Significant structural guards have recently been added: A/B/C signal grading, HTF (Higher Timeframe) ATR floors for wider stop-losses, Multi-TF presets (currently set to 1 Hour to reduce noise), and extensive momentum/orderflow guards to prevent entering trades against immediate market pressure.
 
 **Last working item**:
-- **Last item agent was working**: Analyzing the most recent  file uploaded by the user. The user's last message was Что за закрытия??? Бот сливает! ИсправляЙ! (What are these closures??? Bot is draining money! Fix it!). The agent extracted the data, noting that the highest losses were coming from  and  reasons, but the context window ended before a fix could be planned or implemented.
-- **Status**: IN PROGRESS
-- **Agent Testing Done**: N
-- **Which testing method agent to use?**: backend testing agent or log analysis
-- **User Testing Done**: Y (User ran the bot live and provided the failure logs)
+    - **Last item agent was working**: Applying configuration fixes based on a trading_bot_analysis_report.pdf uploaded by the user. The agent modified  to remove chop from , removed early_exit from , and adjusted the AI model blend dependency.
+    - **Status**: IN PROGRESS
+    - **Agent Testing Done**: N (Code edits were made, but the syntax verification and testing subagent were not called before the session ended).
+    - **Which testing method agent to use?**: backend testing agent (to verify  parses correctly and tests pass).
+    - **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
-Issue 1: (P0) Bot Unprofitability & Recent Trade Losses
-Issue 2: (P1) Evaluate  impact
-
-Issues Detail:
-- **Issue 1: Bot Unprofitability & Recent Trade Losses**
-  - **Attempted fixes**: Added strict entry thresholds, fixed zombie positions, fixed  false positives, added fee-aware trailing stops, added pre-execution momentum guards. 
-  - **Next debug checklist**: Analyze the most recently uploaded . Identify exactly why trades are closing via  and  (especially since the user manually set  earlier). Propose parameter adjustments or logic fixes to  or  to address the specific causes of these latest losses.
-  - **Why fix this issue and what will be achieved with the fix?**: The bot is trading live funds. Stopping the financial bleed is the absolute highest priority to maintain user trust.
-  - **Status**: IN PROGRESS
-  - **Is recurring issue?**: Y
-  - **Should Test frontend/backend/both after fix?**: backend
-  - **Blocked on other issue**: None
-
-- **Issue 2: Evaluate  impact**
-  - **Attempted fixes**: User manually set this in config.
-  - **Next debug checklist**: Check if  is causing trades to languish and eventually hit . Discuss with the user if a non-zero value (e.g., 30 or 60) is better for 1-minute timeframes to free up capital.
-  - **Why fix this issue and what will be achieved with the fix?**: Ensures capital isn't tied up in dead trades, reducing opportunity cost and stale closures.
-  - **Status**: NOT STARTED
-  - **Is recurring issue?**: N
-  - **Should Test frontend/backend/both after fix?**: backend
-  - **Blocked on other issue**: None
+  Issue 1: Verify Expert Configuration Fixes (P0)
+  Issue 2: Reduce Bot Leverage (P1)
+  Issue 3: Bot Restart and Process Verification (P1)
+  
+  Issues Detail:
+  - Issue 1: Verify Expert Configuration Fixes
+     - Attempted fixes: Agent used  to update  (removed chop regime, fixed cooldown ignores).
+     - Next debug checklist: Run  to ensure YAML syntax is valid, then run .
+     - Why fix this issue and what will be achieved with the fix? Ensures the bot doesn't crash on startup due to malformed YAML and validates that the bot no longer trades in chop markets.
+     - Status: TESTING PENDING
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? backend
+     - Blocked on other issue: None
+  - Issue 2: Reduce Bot Leverage
+     - Attempted fixes: None yet. The agent noted that the expert report recommended lowering leverage to 3-5x, but the current config still has .
+     - Next debug checklist: Check  and change  to 3, 4, or 5 based on user preference.
+     - Why fix this issue and what will be achieved with the fix? Reduces risk of liquidation and extreme drawdown, aligning with professional fund practices.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? backend
+     - Blocked on other issue: None
+  - Issue 3: Bot Restart and Process Verification
+     - Attempted fixes: The user ran  commands via bash to stop the bot, but was confused about how to restart it cleanly with the new 1H preset.
+     - Next debug checklist: Provide the user with exact bash commands to start the bot via  or backend                          RUNNING   pid 46, uptime 0:00:06
+code-server                      STOPPED   Not started
+frontend                         STOPPED   Mar 28 02:10 PM
+mongodb                          RUNNING   pid 51, uptime 0:00:06
+nginx-code-proxy                 RUNNING   pid 45, uptime 0:00:06
+supervisor> , and verify logs.
+     - Why fix this issue and what will be achieved with the fix? Gets the bot back online in live trading.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? manual testing by curl/logs
+     - Blocked on other issue: Issue 1
 
 **In progress Task List**:
-Task 1: (P0) Resolve the force_closed_stale and early_exit drain identified in the final prompt.
+  Task 1: Finalize integration of expert report feedback into .
 
-Task Detail:
-- **Task 1: Resolve the force_closed_stale and early_exit drain**
-  - **Where to resume**: Review the extracted data from the final . Formulate an explanation for the user on *why* these closures happened and propose a concrete code/config fix. Ask for user approval.
-  - **What will be achieved with this?**: Stops current immediate losses.
-  - **Status**: IN PROGRESS
-  - **Should Test frontend/backend/both after fix?**: backend
-  - **Blocked on something**: None
+ Task Detail:
+  - Task 1: 
+     - Where to resume: Verify the last 3  edits to  made at the very end of the session. Check if  needs adjustment, and run backend tests.
+     - What will be achieved with this? Closes out the user's request to apply feedback from their trading colleagues.
+     - Status: IN PROGRESS
+     - Should Test frontend/backend/both after fix? backend
+     - Blocked on something: None
 
 **Upcoming and Future Tasks**
-Upcoming Tasks:
-- (P1) Implement a  mode as a configurable option in .
-- (P1) Implement a  logic as a configurable option.
-- (P1) Add a  Telegram command to show progress towards the 150-label threshold for auto-retraining.
-Future Tasks:
-- (P2) Implement Reinforcement Learning (RL) for position management once the base strategy is consistently profitable.
-- (P2) Implement A/B/C signal grading/hierarchy to differentiate high-conviction setups from weaker ones.
+    Upcoming Tasks:
+    - (P1) Implement  Telegram command to show the last 10 rejected signals and their reasons.
+    - (P2) Implement grade-based sizing (e.g., Grade A = 100% size, Grade B = 75%, Grade C = 50%).
+    Future Tasks:
+    - None explicitly defined beyond the above.
 
 **Completed work in this session**
-- Applied Anti-Loss package (increased entry thresholds, stricter stops).
-- Lowered  and  to  to allow 1-min timeframe trading.
-- Fixed critical bug where  was incorrectly applied to manual positions.
-- Fixed critical  bug: verifies  timestamp (last 5 mins) and *never* force closes  positions without absolute exchange verification.
-- Added  bypass logic for high-confidence signals (conf >= 0.85 & smc >= 0.85).
-- Fixed Zombie Position bug: Bot now forces removal of local positions if  fails 3 consecutive times.
-- Lowered  to 0.06 to align with 1-min TF.
-- Fixed trailing activation overwrite bug in .
-- Tweaked  threshold from 5% to 25% and  to 1.0 to prevent premature trade choking.
-- Prevented bot from placing SL/TP on the exchange for user-initiated manual trades.
-- Generated  for the user.
-- Added Pre-execution Momentum Guard to prevent entering trades during violent opposite momentum spikes (checks last 3 candles > 1.5 ATR).
-- Fixed PnL mismatch by fetching exact PnL from Bybit for  events.
-- Added  to  and updated  to calculate trailing breakevens with a 2.5x fee buffer to prevent losses on trailing stops.
+- Protected manual positions () from bot-initiated  and  triggers (DONE)
+- Implemented  mode and dynamic partial TP logic (DONE)
+- Added Telegram commands  and  (to switch timeframe presets) (DONE)
+- Implemented RL Position Manager v2 with regime-awareness and a new  action (DONE)
+- Added A/B/C Signal Grading (DONE)
+- Added Multi-TF presets to  and migrated the default active preset to  (1 Hour) (DONE)
+- Widened Stop Losses by using an HTF ATR floor () in both  and position monitoring in  (DONE)
+- Increased  to 1.5% (DONE)
+- Added 4 layers of entry guards: Orderbook Direction, Counter-Flow, Exhaustion, and Short-term Contra-Trend guards (DONE)
+- Removed  bypass logic to force the bot to require structural BOS or Sweeps before entering a trade (DONE)
+- Fixed trailing stop logic bug where  evaluated before  (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-- None currently, but overall profitability remains a systemic struggle.
+   Issue 1: Leverage reduction
+   - Debug checklist: Update  in  from 8 to 3-5 based on colleague report.
+   - Why to solve this issue and what will be achieved with this? Prevents severe drawdowns on standard trades.
+   - Should Test frontend/backend/both after fix: backend
+   - Is recurring issue? N
 
 **Known issue recurrence from previous fork**
-- Issue recurrence in previous fork:  falsely triggering and costing money.
-- Recurrence count: 3+
-- Status: RESOLVED (Highly patched this session with strict verification and isolation of manual trades). Note: Keep an eye on logs to ensure the patch holds.
+  - Issue recurrence in previous fork: Bot entering trades at the exact wrong time (against momentum) and getting stopped out immediately due to tight 1-min ATR stops.
+  - Recurrence count: 5+
+  - Status: RESOLVED (Heavily patched with Orderbook/Exhaustion guards and HTF ATR floors. Needs live observation).
 
 **Code Architecture**
 
@@ -85,67 +97,71 @@ Future Tasks:
 Backend: Python, asyncio
 AI/ML: PyTorch, Transformer models, Gemini (via emergentintegrations)
 API Integration: Bybit v5 (Linear), Telegram Bot API
-Trading Concepts: SMC, ATR, Momentum Guards, Trailing Stops with Fee Buffers, Portfolio Profit Lock, Zombie position recovery.
+Trading Concepts: SMC, HTF ATR Floors, Orderflow Imbalance, Multi-Timeframe Analysis, Regime Detection.
 
 **key DB schema**
-No database. State stored in local JSON files: , .
+No external DB. State stored locally in  and .
 
 **changes in tech stack**
 None.
 
-**All files of reference**
-- : Core loops. Pre-execution momentum guards and force-close mechanics added here.
-- : Contains critical risk and entry parameters.
-- : Trailing stop and breakeven logic (now calculates exchange fees).
-- : New file explaining config parameters.
-- User uploaded files:  (latest logs showing losses).
+**All files of reference** 
+- : Contains critical risk, preset, and regime parameters.
+- : Core orchestrator.
+- : Scoring, guards, and A/B/C grading.
+- : Trailing stops and exit condition hierarchy.
+- : Position state adjustments.
+- : Deep orderbook inspection.
+- : User UI via Telegram.
 
-**Areas that need refactoring**
--  is nearly 2500 lines long and handles position syncing, logging, trade execution, and filtering. It should eventually be split up.
+**Areas that need refactoring**: 
+ is over 2500 lines long. It handles position management, Telegram formatting, exchange syncing, and loop coordination. It should eventually be split into modular managers.
 
 **key api endpoints**
 Bybit V5 REST API (Linear Category)
 
 **Critical Info for New Agent**
-- **MANUAL TRADES ARE SACRED**: Do not add logic that forces closures, sets Stop Losses, or sets Take Profits on trades where  without explicit user instruction. The bot is meant to *trail* them, not choke them out.
-- **FEE AWARENESS**: Bybit linear taker fees (0.06%) eat into tight trailing stops. This was fixed in , but keep this in mind if modifying exit logic further.
-- **TONE**: The user is experiencing live financial losses and is frustrated (ИсправляЙ!). Be highly diligent, double-check all logic (especially math regarding positions and R-multiples), and clearly explain *why* something went wrong and *how* you are fixing it.
-- **LANGUAGE**: You **MUST** reply in Russian.
+- **MANUAL TRADES ARE SACRED**: Never allow the bot's standard , , or  logic to close a position where . Manual trades must only be closed by the user's own exchange SL/TP, or by the bot's  / .
+- **HTF ATR IS MANDATORY**: Do not use 1-minute ATR for trailing stops or hard stops. It is too tight and causes instant losses. Always use  or .
+- **1 HOUR PRESET**: The user agreed to switch from a 1-minute to a 1-Hour timeframe to avoid noise.  is now set to . Do not revert to 1m without explicit user instruction.
+- **LANGUAGE**: The user is Russian and expects all communication to be in Russian.
 
-**documents and test reports created in this job**
-- 
--  (Absolute path)
-- 
-- 
+**documents and test reports created in this job** 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
 
-**Last 10 User Messages and any pending HUMAN messages**
-1. User: Showed VVVUSDT (manual) closed via exchange_closed and XRPUSDT early_exit.
-2. User: Showed XAUTUSDT entering right before a massive drop, asking why orderbook didn't catch it.
-3. User: Shared terminal logs showing bot tracking positions.
-4. User: Shared logs showing bot rejecting signals due to threshold/cooldowns.
-5. User: Shared logs showing XRPUSDT closing at early_exit for a /bin/bash.02 loss.
-6. User: Stated they changed  to see what happens.
-7. User: Showed BEATUSDT failing to close (Zombie) and PnL mismatch (/bin/bash.17 bot vs .40 exchange).
-8. User: Complained early trailing SL didn't account for exchange commission, resulting in a loss on ENAUSDT. Asked what to fix in config.
-9. User: Asked how to make trailing stop longer.
-10. **(PENDING) User**: Что за закрытия??? Бот сливает! ИсправляЙ! (What are these closures??? Bot is draining money! Fix it!) - accompanied by a  file.
+**Last 10 User Messages and any pending HUMAN messages** 
+ 1. User: Asked to see bot signals on TAOUSDT and LINKUSDT showing instant losses.
+ 2. User: Asked what files to change to apply fixes.
+ 3. User: Shared terminal logs of bot cycles.
+ 4. User: Showed LINKUSDT losing trade chart, noting it bounced instantly after entry.
+ 5. User: Asked what files changed.
+ 6. User: Showed TAOUSDT short blocked by manual safe guard.
+ 7. User: Showed TAOUSDT entering a short without structural confirmation, losing .80.
+ 8. User: Shared FibTrader channel copy-paste to show how other bots work.
+ 9. User: Agreed to switch to option b (1 Hour timeframe).
+ 10. **(PENDING) User**: Shared terminal logs showing they killed the bot process, followed by uploading 4 files (chat exports, txt analysis, and a PDF report from colleagues) asking the agent to analyze their colleagues' opinions and apply the suggested changes.
 
 **Project Health Check:**
-- Broken: Strategy is actively losing money in live conditions.
+Recovering. Heavy logical flaws regarding tight stops and counter-trend entries were fixed. The bot requires a clean restart and verification of the latest config changes.
 
 **3rd Party Integrations**
-- Bybit (Market Data / Execution) — requires User API Key.
-- OpenAI/Gemini (via emergentintegrations for AI analysis) — uses Emergent LLM Key.
-- Telegram (Notifications) — requires User API Key.
+  •	Bybit (Market Data & Execution) — requires User API Key
+  •	OpenAI/Gemini (via emergentintegrations) — uses Emergent LLM Key
+  •	Telegram (Notifications) — requires User API Key
 
 **Testing status**
-- Testing agent used after significant changes: YES (Early in the session for Anti-Loss package and exchange_closed fixes).
-- Troubleshoot agent used after agent stuck in loop: NO
-- Test files created: None this session.
-- Known regressions: None, but tuning tight parameters on 1-min TF continues to cause edge-case bugs (e.g., fee eating breakeven).
+  - Testing agent used after significant changes: YES (Used extensively, iterations 41 through 45).
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: None
+  - Known regressions: None detected in the last test run, but pending yaml changes need verification.
 
 **Credentials to test flow:**
-Available in . (Assume dry-run/testnet if self-testing, though user is providing live logs).
+Available in .
 
 **What agent forgot to execute**
-- The agent successfully extracted the final  data requested by the user, but the context window ended before the agent could analyze the  and  losses, explain them to the user, and propose/implement the next fix.</analysis>
+The agent analyzed the expert report and applied 3 critical config fixes (chop regime removal, cooldown fix, AI blend reduction), but forgot to apply the recommendation to reduce  from 8x to 3-5x. Additionally, the agent did not test the final  edits before the context window ran out.</analysis>
