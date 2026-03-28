@@ -5,48 +5,34 @@
 
 ## Current Status (обновлено: 2026-03-28)
 
-### Signal Quality Fix (итерация 44, 32/32 passed):
-**Проблема**: 80% сигналов разворачивались после входа. Бот входил в конце движения.
+### Signal Logic Fixes (итерация 45, 29/29 passed):
+**Проблема**: 80% сигналов разворачивались. TAOUSDT SHORT при бычьем рынке, без структуры.
 
-**Исправления:**
-1. **Orderflow Analyzer v2**: depth 10→25, absorption detection (последние 30 трейдов), weighted imbalance (60% recent + 40% total), новые веса imbalance_score (40% orderbook + 35% trade + 25% weighted)
-2. **Exhaustion Guard**: отклоняет если 5+ из 7 последних свечей двигались в направлении сигнала (исчерпание движения)
-3. **Counter-Flow Guard**: отклоняет SELL если buy_vol > sell_vol * 1.4 (absorption), аналогично для BUY
-4. **Trailing activation**: 1.1→0.7 ATR (trailing активируется раньше, больше trailing_exit)
-5. **Trailing distance**: 1.4→1.2 ATR (стоп ближе к цене, лучше lock profit)
-6. **Exchange_closed**: confirm 5→8, force 20→30 (реже ложные срабатывания)
-7. **HTF ATR floor**: SL рассчитывается по max(1m ATR, 15m ATR)
-8. **min_stop_distance**: 0.8%→1.5%
+1. **No-zone bypass ужесточён** — теперь bypass требует BOS или sweep, даже при conf>=0.85 и smc>=0.85. Чисто AI-based сигналы без структуры = REJECT.
+2. **Contra-trend guard** — отклоняет если 7+/10 свечей идут ПРОТИВ сигнала (бычьи свечи при SELL).
+3. **TRAILING_EXIT перед HARD_SL** — исправлен баг когда trail stop совпадал с SL и manual позиция зависала.
+4. **HTF ATR floor в мониторинге** — trailing distance теперь = max(1m ATR, 15m ATR). Для TAOUSDT: $0.30 → $1.80.
+5. **Orderbook direction guard** — SELL блокируется когда bid_vol >> ask_vol (покупатели доминируют).
+6. **Price momentum guard** — все 3 свечи против сигнала = reject.
 
-### P2 Features (итерация 43, 69/69 passed):
-- RL Position Manager v2 (regime-aware, TIGHTEN action)
-- A/B/C Signal Grading
-- Multi-TF Support (1m/5m/15m presets)
+### Итерация 44 (32/32):
+- Orderflow v2 (depth 25, absorption), exhaustion guard, counter-flow guard, trailing 0.7/1.2
 
-### P1 Features (итерация 42, 43/43 passed):
-- Whitelist-only, Partial TP 30/70, /retrain_status
+### P0-P2 (итерации 41-43, 146/146):
+- Manual protection, whitelist-only, partial TP 30/70, RL v2, A/B/C grading, multi-TF
 
-### P0 Manual Protection (итерация 41, 34/34 passed):
-- Manual позиции защищены от force_closed_stale, HARD_SL, LIQUIDATION_STOP, EARLY_EXIT
+## Testing: 236/236 total
+- 41: 34/34 (P0) | 42: 43/43 (P1) | 43: 69/69 (P2) | 44: 32/32 (Signal v1) | 45: 29/29 (Signal v2)
 
-## Testing: 178/178 total passed
-- Iteration 41: 34/34 (P0)
-- Iteration 42: 43/43 (P1)
-- Iteration 43: 69/69 (P2)
-- Iteration 44: 32/32 (Signal Quality)
-
-## Config Changes Summary
-```yaml
-# Signal quality
-exit.trailing_activation_atr: 1.1 → 0.7
-exit.trailing_distance_atr: 1.4 → 1.2
-market.exchange_closed_confirm_cycles: 5 → 8
-market.exchange_closed_force_cycles: 20 → 30
-entry.min_stop_distance_pct: 0.8 → 1.5
-```
+## Signal Quality Filters (6 layers):
+1. Entry Engine: exhaustion guard (5+/7 same dir)
+2. Entry Engine: contra-trend guard (7+/10 opposing)
+3. Entry Engine: counter-flow guard (1.4x opposing trade vol)
+4. Main: orderbook direction guard (1.3x bid/ask imbalance)
+5. Main: price momentum guard (3/3 candles against)
+6. Quality Gate: no_zone requires BOS or sweep
 
 ## Critical Rules
 - MANUAL TRADES ARE SACRED
-- FEE AWARENESS (0.06% taker fees)
-- EXHAUSTION GUARD (5+/7 candles same dir = reject)
-- COUNTER-FLOW GUARD (1.4x opposing volume = reject)
+- FEE AWARENESS (0.06%)
+- NO ZONE WITHOUT STRUCTURE = REJECT
