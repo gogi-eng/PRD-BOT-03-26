@@ -118,13 +118,21 @@ class ExitEngine:
             if not is_long and current_price >= protective_level:
                 return True, ExitReason.LIQUIDATION_STOP, f"Price {current_price:.4f} >= liq stop {protective_level:.4f}"
 
-        # 1. HARD SL
+        # 1. TRAILING EXIT — check BEFORE hard_sl to prevent blocking on manual positions
+        #    (when SL == trailing_stop, hard_sl fires first and gets blocked for manual)
+        if position.trailing_active and position.trailing_stop > 0:
+            if is_long and current_price <= position.trailing_stop:
+                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at {position.trailing_stop:.4f}"
+            if not is_long and current_price >= position.trailing_stop:
+                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at {position.trailing_stop:.4f}"
+
+        # 2. HARD SL
         if is_long and current_price <= position.stop_loss:
             return True, ExitReason.HARD_SL, f"SL hit at {position.stop_loss:.4f}"
         if not is_long and current_price >= position.stop_loss:
             return True, ExitReason.HARD_SL, f"SL hit at {position.stop_loss:.4f}"
 
-        # 2. EARLY EXIT — dead trades after N bars
+        # 3. EARLY EXIT — dead trades after N bars
         # early_exit_bars <= 0 means feature disabled
         if allow_early_exit and self.early_exit_bars > 0 and position.bars_since_entry >= self.early_exit_bars:
             min_profit = atr_value * self.early_exit_min_profit_atr
@@ -134,18 +142,11 @@ class ExitEngine:
                     f"Profit {profit:.4f} < required {min_profit:.4f}"
                 )
 
-        # 3. TP CAP
+        # 4. TP CAP
         if is_long and current_price >= position.take_profit:
             return True, ExitReason.TP_CAP, f"TP hit at {position.take_profit:.4f}"
         if not is_long and current_price <= position.take_profit:
             return True, ExitReason.TP_CAP, f"TP hit at {position.take_profit:.4f}"
-
-        # 4. TRAILING EXIT
-        if position.trailing_active and position.trailing_stop > 0:
-            if is_long and current_price <= position.trailing_stop:
-                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at {position.trailing_stop:.4f}"
-            if not is_long and current_price >= position.trailing_stop:
-                return True, ExitReason.TRAILING_EXIT, f"Trailing stop hit at {position.trailing_stop:.4f}"
 
         return False, None, ""
 

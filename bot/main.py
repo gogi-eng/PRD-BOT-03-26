@@ -690,6 +690,10 @@ class TradingBot:
             if len(klines) < 40:
                 continue
             atr_val = self.atr.get_atr(symbol, klines)
+            # HTF ATR floor for trailing distance (same as entry)
+            htf_atr_val = self.atr.get_atr(f"{symbol}_htf", htf_klines)
+            if htf_atr_val > 0:
+                atr_val = max(atr_val, htf_atr_val)
             market = self.market_analyzer.analyze(klines, htf_klines)
             regime = self.regime_ai.classify(market)
             orderbook = await self.client.get_orderbook(symbol, limit=25)
