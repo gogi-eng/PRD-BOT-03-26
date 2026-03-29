@@ -138,10 +138,13 @@ class ExitEngine:
         # early_exit_bars <= 0 means feature disabled
         if allow_early_exit and self.early_exit_bars > 0 and position.bars_since_entry >= self.early_exit_bars:
             min_profit = atr_value * self.early_exit_min_profit_atr
+            # Ensure min_profit covers at least trading fees (entry + exit)
+            fee_per_unit = entry * self.fee_rate + current_price * self.fee_rate
+            min_profit = max(min_profit, fee_per_unit)
             if profit < min_profit:
                 return True, ExitReason.EARLY_EXIT, (
                     f"No movement after {position.bars_since_entry} bars. "
-                    f"Profit {profit:.4f} < required {min_profit:.4f}"
+                    f"Profit {profit:.4f} < required {min_profit:.4f} (incl fees {fee_per_unit:.4f})"
                 )
 
         # 4. TP CAP

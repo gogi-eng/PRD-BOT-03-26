@@ -169,6 +169,8 @@ class TradingBot:
         # EMA trend exit config
         self.ema_trend_exit_enabled = self.cfg.get("exit", "ema_trend_exit", default=False)
         self.ema_exit_period = int(self.cfg.get("exit", "ema_exit_period", default=20))
+        # Fee rate for PnL calculation
+        self.fee_rate = float(self.cfg.get("exit", "fee_rate", default=0.001))
 
         self.tg = None
         tg_token = self.security.get_key("TELEGRAM_TOKEN")
@@ -1616,15 +1618,23 @@ class TradingBot:
 
     def _calc_pnl(self, pos: Position, exit_price: float, qty: float) -> float:
         if pos.is_long:
-            return (exit_price - pos.entry_price) * qty
-        return (pos.entry_price - exit_price) * qty
+            raw_pnl = (exit_price - pos.entry_price) * qty
+        else:
+            raw_pnl = (pos.entry_price - exit_price) * qty
+        # Deduct trading fees (entry + exit)
+        entry_fee = pos.entry_price * qty * self.fee_rate
+        exit_fee = exit_price * qty * self.fee_rate
+        return raw_pnl - entry_fee - exit_fee
 
     def _calc_pnl_pct(self, pos: Position, price: float) -> float:
         if pos.entry_price <= 0:
             return 0.0
         if pos.is_long:
-            return (price - pos.entry_price) / pos.entry_price * 100
-        return (pos.entry_price - price) / pos.entry_price * 100
+            raw_pct = (price - pos.entry_price) / pos.entry_price * 100
+        else:
+            raw_pct = (pos.entry_price - price) / pos.entry_price * 100
+        # Deduct fee percentage (entry + exit ≈ 2x fee_rate)
+        return raw_pct - (self.fee_rate * 2 * 100)
 
     async def _maybe_pyramid_add(self, pos: Position, current_price: float, atr_val: float, structure):
         """Pyramid strategy: add to winning positions.

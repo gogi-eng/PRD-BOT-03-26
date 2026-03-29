@@ -1,0 +1,109 @@
+{
+  "summary": "Iteration 48: Fee PnL Fix and Early Exit Timing Fix - 28/28 tests passed. Verified TWO BUG FIXES: (1) _calc_pnl now deducts entry_fee + exit_fee from raw PnL. LINKUSDT SHORT example: entry=8.555 exit=8.550 qty=2.5 fee_rate=0.001 → raw=$0.0125, fees=$0.0428, net=-$0.03 (matches Bybit). _calc_pnl_pct deducts 2*fee_rate*100 from percentage. (2) 1H preset early_exit_bars changed from 6 to 90 (~3 hours with 600s cycle). ExitEngine early_exit now uses max(atr_min_profit, fee_per_unit) to ensure min_profit covers trading fees. Config verified: fee_rate=0.001, leverage=5, 1h.early_exit_bars=90. All regression tests passed: TRAILING_EXIT, HARD_SL, TP_CAP still work correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [],
+  "passed_tests": [
+    "--- Config Values (4 tests) ---",
+    "TestConfigValues::test_fee_rate_is_0001 - PASSED",
+    "TestConfigValues::test_leverage_is_5 - PASSED",
+    "TestConfigValues::test_1h_preset_early_exit_bars_is_90 - PASSED",
+    "TestConfigValues::test_active_preset_is_1h - PASSED",
+    "--- _calc_pnl with Fee Deduction (5 tests) ---",
+    "TestCalcPnlWithFees::test_linkusdt_short_example - PASSED (raw=$0.0125, fees=$0.0428, net=-$0.03)",
+    "TestCalcPnlWithFees::test_adausdt_short_example - PASSED (raw=$0.0304, fees=$0.0374, net=-$0.007)",
+    "TestCalcPnlWithFees::test_long_position_pnl_with_fees - PASSED",
+    "TestCalcPnlWithFees::test_short_position_pnl_with_fees - PASSED",
+    "TestCalcPnlWithFees::test_large_profitable_trade_still_positive - PASSED",
+    "--- _calc_pnl_pct with Fee Deduction (3 tests) ---",
+    "TestCalcPnlPctWithFees::test_pnl_pct_deducts_2x_fee_rate - PASSED",
+    "TestCalcPnlPctWithFees::test_pnl_pct_long_position - PASSED",
+    "TestCalcPnlPctWithFees::test_pnl_pct_short_position - PASSED",
+    "--- ExitEngine Early Exit Fee-Aware (3 tests) ---",
+    "TestExitEngineEarlyExitFeeAware::test_exit_engine_has_fee_rate - PASSED",
+    "TestExitEngineEarlyExitFeeAware::test_early_exit_min_profit_covers_fees - PASSED",
+    "TestExitEngineEarlyExitFeeAware::test_early_exit_not_triggered_when_profit_exceeds_fees - PASSED",
+    "--- Early Exit Bars Config (2 tests) ---",
+    "TestEarlyExitBarsConfig::test_1h_preset_early_exit_bars_value - PASSED (90 bars * 600s = 15 hours)",
+    "TestEarlyExitBarsConfig::test_early_exit_disabled_when_bars_zero - PASSED",
+    "--- TradingBot Fee Rate Init (1 test) ---",
+    "TestTradingBotFeeRateInit::test_fee_rate_loaded_from_config - PASSED",
+    "--- Regression: PnL Calculations (2 tests) ---",
+    "TestRegressionPnLCalculations::test_long_position_correct_fee_adjusted_pnl - PASSED",
+    "TestRegressionPnLCalculations::test_short_position_correct_fee_adjusted_pnl - PASSED",
+    "--- Regression: ExitEngine (5 tests) ---",
+    "TestRegressionExitEngine::test_early_exit_not_triggered_before_bars - PASSED",
+    "TestRegressionExitEngine::test_early_exit_not_triggered_when_profit_exceeds_min - PASSED",
+    "TestRegressionExitEngine::test_trailing_exit_still_works - PASSED",
+    "TestRegressionExitEngine::test_hard_sl_still_works - PASSED",
+    "TestRegressionExitEngine::test_tp_cap_still_works - PASSED",
+    "--- Code Structure Verification (3 tests) ---",
+    "TestCodeStructure::test_calc_pnl_has_fee_deduction - PASSED",
+    "TestCodeStructure::test_calc_pnl_pct_has_fee_deduction - PASSED",
+    "TestCodeStructure::test_exit_engine_early_exit_has_fee_check - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration48_fee_pnl_and_early_exit_fix.py",
+    "/app/test_reports/pytest/pytest_results_iteration48.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py line 173: self.fee_rate = float(self.cfg.get('exit', 'fee_rate', default=0.001)) - correctly loads fee_rate from config",
+    "main.py lines 1619-1627: _calc_pnl correctly deducts entry_fee + exit_fee from raw PnL",
+    "main.py lines 1629-1637: _calc_pnl_pct correctly deducts 2 * fee_rate * 100 from percentage",
+    "exit_engine.py line 56: self.fee_rate stored for fee-aware calculations",
+    "exit_engine.py lines 139-148: early_exit uses max(atr_min_profit, fee_per_unit) to ensure min_profit covers fees",
+    "config.yaml line 100: exit.fee_rate=0.001 (updated from 0.0006 based on real Bybit data)",
+    "config.yaml line 21: trading.leverage=5",
+    "config.yaml line 324: tf_presets.presets.1h.early_exit_bars=90 (was 6, now ~15 hours with 600s cycle)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration48_fee_pnl_and_early_exit_fix.py"
+  ],
+  "success_rate": {
+    "backend": "28/28 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 48 verified TWO BUG FIXES for live trading issues: (1) Fee PnL Fix (main.py ~lines 1619-1637): _calc_pnl now deducts entry_fee + exit_fee. LINKUSDT example: raw=$0.0125 - fees=$0.0428 = net=-$0.03 (matches Bybit). _calc_pnl_pct deducts 2*fee_rate*100. (2) Early Exit Timing Fix: 1h.early_exit_bars=90 (was 6). ExitEngine early_exit uses max(atr_min_profit, fee_per_unit) to ensure min_profit covers fees. Config: fee_rate=0.001, leverage=5. All regression tests passed: TRAILING_EXIT, HARD_SL, TP_CAP still work.",
+  "feature_verification": {
+    "bug_fix_1_fee_pnl": {
+      "location": "main.py lines 1619-1637",
+      "_calc_pnl_formula": "raw_pnl - entry_fee - exit_fee where entry_fee = entry_price * qty * fee_rate, exit_fee = exit_price * qty * fee_rate",
+      "_calc_pnl_pct_formula": "raw_pct - (fee_rate * 2 * 100)",
+      "linkusdt_example": "entry=8.555 exit=8.550 qty=2.5 → raw=$0.0125, fees=$0.0428, net=-$0.03",
+      "adausdt_example": "entry=0.2465 exit=0.2461 qty=76 → raw=$0.0304, fees=$0.0374, net=-$0.007",
+      "status": "VERIFIED"
+    },
+    "bug_fix_2_early_exit_timing": {
+      "location": "config.yaml line 324, exit_engine.py lines 139-148",
+      "1h_early_exit_bars": "90 (was 6)",
+      "time_calculation": "90 bars * 600s cycle = 54000s = 15 hours (was 6 * 120s = 12 minutes)",
+      "fee_aware_min_profit": "max(atr_value * early_exit_min_profit_atr, fee_per_unit)",
+      "status": "VERIFIED"
+    },
+    "config_values": {
+      "fee_rate": "0.001 (config.yaml line 100)",
+      "leverage": "5 (config.yaml line 21)",
+      "1h_early_exit_bars": "90 (config.yaml line 324)",
+      "active_preset": "1h (config.yaml line 275)",
+      "status": "VERIFIED"
+    },
+    "regression_exit_engine": {
+      "trailing_exit": "VERIFIED - triggers when price <= trailing_stop (LONG) or >= trailing_stop (SHORT)",
+      "hard_sl": "VERIFIED - triggers when price <= stop_loss (LONG) or >= stop_loss (SHORT)",
+      "tp_cap": "VERIFIED - triggers when price >= take_profit (LONG) or <= take_profit (SHORT)",
+      "early_exit_bars_check": "VERIFIED - only triggers after bars_since_entry >= early_exit_bars",
+      "early_exit_profit_check": "VERIFIED - only triggers when profit < min_profit",
+      "status": "VERIFIED"
+    }
+  }
+}
