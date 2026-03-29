@@ -440,7 +440,7 @@ class EntryEngine:
         # =====================================================
         # CONTRA-TREND GUARD: reject if short-term price is
         # clearly moving AGAINST the signal direction.
-        # If 7+ of last 10 candles are bullish and signal is SELL → reject
+        # If 9+ of last 10 candles are bullish and signal is SELL → reject
         # =====================================================
         if len(klines) >= 11:
             last_10 = klines[-10:]
@@ -452,7 +452,7 @@ class EntryEngine:
                     contra += 1
                 elif not is_long and c_close > c_open:
                     contra += 1
-            if contra >= 7:
+            if contra >= 9:
                 signal.metadata = {
                     "reject_reason": f"contra_trend_guard ({contra}/10 candles oppose {side})",
                     "composite_score": composite,
@@ -539,7 +539,7 @@ class EntryEngine:
             _, vols = self._extract_closes_and_volumes(klines)
             avg_vol = np.mean(vols[-self.volume_lookback - 1:-1])  # avg of prev N candles
             cur_vol = vols[-1]
-            if avg_vol > 0 and cur_vol < avg_vol:
+            if avg_vol > 0 and cur_vol < avg_vol * 0.7:
                 signal.metadata = {
                     "reject_reason": f"volume_guard (vol={cur_vol:.0f} < avg{self.volume_lookback}={avg_vol:.0f})",
                     "composite_score": composite,
