@@ -428,8 +428,8 @@ class EntryEngine:
                     consecutive_dir += 1
                 elif not is_long and c_close < c_open:
                     consecutive_dir += 1
-            if consecutive_dir >= 5:
-                # 5+ candles already moved in our direction = exhaustion
+            if consecutive_dir >= 6:
+                # 6+ candles already moved in our direction = exhaustion
                 signal.metadata = {
                     "reject_reason": f"exhaustion_guard ({consecutive_dir}/7 candles same dir)",
                     "composite_score": composite,
@@ -519,16 +519,19 @@ class EntryEngine:
         if self.momentum_filter and len(klines) >= self.momentum_lookback + 1:
             closes_m, _ = self._extract_closes_and_volumes(klines)
             momentum = closes_m[-1] - closes_m[-self.momentum_lookback]
-            if is_long and momentum < 0:
+            # Ignore micro-momentum (noise) — must exceed 0.1% of price
+            price_ref = closes_m[-1] if closes_m[-1] > 0 else 1
+            momentum_pct = abs(momentum) / price_ref * 100
+            if momentum_pct > 0.1 and is_long and momentum < 0:
                 signal.metadata = {
-                    "reject_reason": f"momentum_guard (BUY but momentum={momentum:.4f} over {self.momentum_lookback} bars)",
+                    "reject_reason": f"momentum_guard (BUY but momentum={momentum:.4f} ({momentum_pct:.2f}%) over {self.momentum_lookback} bars)",
                     "composite_score": composite,
                     "side": side,
                 }
                 return signal
-            if not is_long and momentum > 0:
+            if momentum_pct > 0.1 and not is_long and momentum > 0:
                 signal.metadata = {
-                    "reject_reason": f"momentum_guard (SELL but momentum={momentum:+.4f} over {self.momentum_lookback} bars)",
+                    "reject_reason": f"momentum_guard (SELL but momentum={momentum:+.4f} ({momentum_pct:.2f}%) over {self.momentum_lookback} bars)",
                     "composite_score": composite,
                     "side": side,
                 }
@@ -542,7 +545,7 @@ class EntryEngine:
             _, vols = self._extract_closes_and_volumes(klines)
             avg_vol = np.mean(vols[-self.volume_lookback - 1:-1])  # avg of prev N candles
             cur_vol = vols[-1]
-            if avg_vol > 0 and cur_vol < avg_vol * 0.7:
+            if avg_vol > 0 and cur_vol < avg_vol * 0.5:
                 signal.metadata = {
                     "reject_reason": f"volume_guard (vol={cur_vol:.0f} < avg{self.volume_lookback}={avg_vol:.0f})",
                     "composite_score": composite,
