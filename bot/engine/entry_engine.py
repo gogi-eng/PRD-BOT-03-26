@@ -494,20 +494,23 @@ class EntryEngine:
             ema_f = ema_fast[-1]
             ema_s = ema_slow[-1]
             if not np.isnan(ema_f) and not np.isnan(ema_s):
-                if is_long and ema_f < ema_s:
-                    signal.metadata = {
-                        "reject_reason": f"ema_trend_guard (BUY but EMA{self.ema_fast_period}={ema_f:.2f} < EMA{self.ema_slow_period}={ema_s:.2f})",
-                        "composite_score": composite,
-                        "side": side,
-                    }
-                    return signal
-                if not is_long and ema_f > ema_s:
-                    signal.metadata = {
-                        "reject_reason": f"ema_trend_guard (SELL but EMA{self.ema_fast_period}={ema_f:.2f} > EMA{self.ema_slow_period}={ema_s:.2f})",
-                        "composite_score": composite,
-                        "side": side,
-                    }
-                    return signal
+                ema_diff_pct = abs(ema_f - ema_s) / ema_s * 100 if ema_s > 0 else 0
+                # Skip guard if EMAs are within 0.15% — flat/undecided market
+                if ema_diff_pct >= 0.15:
+                    if is_long and ema_f < ema_s:
+                        signal.metadata = {
+                            "reject_reason": f"ema_trend_guard (BUY but EMA{self.ema_fast_period}={ema_f:.2f} < EMA{self.ema_slow_period}={ema_s:.2f}, diff={ema_diff_pct:.2f}%)",
+                            "composite_score": composite,
+                            "side": side,
+                        }
+                        return signal
+                    if not is_long and ema_f > ema_s:
+                        signal.metadata = {
+                            "reject_reason": f"ema_trend_guard (SELL but EMA{self.ema_fast_period}={ema_f:.2f} > EMA{self.ema_slow_period}={ema_s:.2f}, diff={ema_diff_pct:.2f}%)",
+                            "composite_score": composite,
+                            "side": side,
+                        }
+                        return signal
 
         # =====================================================
         # MOMENTUM GUARD: reject if price momentum (close[-1] vs
