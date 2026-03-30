@@ -44,7 +44,7 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.72
+  entry_threshold: 0.60
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
