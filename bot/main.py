@@ -46,6 +46,7 @@ from engine.signal_feedback_loop import SignalFeedbackLoop
 from engine.symbol_quality_filter import SymbolQualityFilter
 from exchange.bybit_client import BybitClient
 from portfolio_profit_lock import PortfolioProfitLock
+from strategy import ScalpSessionStrategy
 from tg.controller import TelegramController
 from utils import ATRCalculator
 
@@ -125,6 +126,10 @@ class TradingBot:
         )
         self.feature_engineer = FeatureEngineer(sequence_length=self.cfg.get("bot", "feature_window", default=128))
         self.transformer_model = TransformerPriceModel(sequence_length=self.cfg.get("bot", "feature_window", default=128))
+        scalp_cfg = self.cfg.get("scalp", default={}) or {}
+        if "timezone_offset" not in scalp_cfg:
+            scalp_cfg["timezone_offset"] = int(self.cfg.get("timezone_offset", default=3))
+        self.scalp_strategy = ScalpSessionStrategy(config=scalp_cfg, debug=False)
         self.structure_zone_analyzer = StructureZoneAnalyzer()
         self.liquidity_heatmap = LiquidityHeatmap(depth_levels=200)
         self.market_structure_engine = MarketStructureEngine(
@@ -510,6 +515,12 @@ class TradingBot:
         logger.info(
             f"Adaptive presets: {'ON' if self.adaptive_regime_presets_enabled else 'OFF'} "
             f"(interval={self.adaptive_regime_presets_interval_sec}s, benchmark={self.adaptive_regime_presets_benchmark_symbol})"
+        )
+        logger.info(
+            f"SCALP session strategy: {'ON' if self.scalp_strategy.enabled else 'OFF'} "
+            f"(UTC+{self.scalp_strategy.timezone_offset} "
+            f"pump={sorted(self.scalp_strategy.pump_hours_local)} "
+            f"dump={sorted(self.scalp_strategy.dump_hours_local)})"
         )
         logger.info(
             f"Symbol quality filter: {'ON' if self.symbol_quality_filter.enabled else 'OFF'}"
@@ -1095,6 +1106,88 @@ class TradingBot:
             signal.metadata["reject_reason"] = reason
             return signal
 
+        def build_scalp_signal(
+            side: str,
+            confidence: float,
+            reason: str,
+            current_price: float,
+            atr_value: float,
+            market,
+            orderflow,
+            htf_4h_trend: int,
+        ) -> EntrySignal:
+            sig = EntrySignal()
+            sig.should_enter = True
+            sig.side = side
+            sig.entry_price = current_price
+
+            stop_mult = 1.6
+            tp_mult = 3.2
+            if side == "BUY":
+                sig.stop_loss = max(0.0, current_price - atr_value * stop_mult)
+                sig.take_profit = current_price + atr_value * tp_mult
+            else:
+                sig.stop_loss = current_price + atr_value * stop_mult
+                sig.take_profit = max(0.0, current_price - atr_value * tp_mult)
+
+            risk = abs(current_price - sig.stop_loss)
+            reward = abs(sig.take_profit - current_price)
+            sig.rr_ratio = round((reward / risk) if risk > 0 else 0.0, 2)
+            sig.confidence = round(max(0.0, min(1.0, confidence)), 4)
+            sig.capital_score = round(sig.confidence * max(sig.rr_ratio, 0.0), 4)
+            sig.grade = "B" if sig.confidence >= 0.8 else "C"
+            sig.reasons = ["SCALP_SESSION", reason]
+
+            norm_imb = float(getattr(orderflow, "normalized_imbalance", 0.0) or 0.0)
+            liq_distance = 0.0
+            if current_price > 0 and sig.take_profit > 0:
+                liq_distance = abs(sig.take_profit - current_price) / current_price * 100.0
+
+            sig.metadata = {
+                "strategy": "scalp_session",
+                "scalp": True,
+                "composite_score": sig.confidence,
+                "smc_score": sig.confidence,
+                "trend_score": round(abs(norm_imb), 3),
+                "orderflow_score": round(abs(norm_imb), 3),
+                "ai_score": round(sig.confidence, 3),
+                "normalized_imbalance": norm_imb,
+                "target_level": sig.take_profit,
+                "protective_liq_level": sig.stop_loss,
+                "transformer_prob_up": sig.confidence if side == "BUY" else max(0.0, 1.0 - sig.confidence),
+                "transformer_prob_down": sig.confidence if side == "SELL" else max(0.0, 1.0 - sig.confidence),
+                "transformer_prob_flat": 0.0,
+                "regime": market.regime.value,
+                "spread_pct": float(getattr(orderflow, "spread_pct", 0.0) or 0.0),
+                "liq_distance_pct": round(liq_distance, 4),
+                "liq_signal": 1 if side == "BUY" else -1,
+                "liq_magnet": "bullish" if side == "BUY" else "bearish",
+                "tp1_level": sig.take_profit,
+                "tp2_level": sig.take_profit,
+                "tp_confirmed_by_structure": False,
+                "entry_zone": "scalp_session",
+                "struct_trend": "up" if side == "BUY" else "down",
+                "has_bos": True,
+                "has_sweep": True,
+                "sweep_direction": "down" if side == "BUY" else "up",
+                "bos_direction": "up" if side == "BUY" else "down",
+                "funding_rate": 0.0,
+                "htf_4h_trend": htf_4h_trend,
+                "trained_model_prob": None,
+                "trained_model_applied": False,
+                "blended_confidence": sig.confidence,
+                "entry_range_low": current_price,
+                "entry_range_high": current_price,
+                "signal_grade": sig.grade,
+                "orderflow_bullish_ratio": float(getattr(orderflow, "bullish_ratio", 1.0) or 1.0),
+                "orderflow_bearish_ratio": float(getattr(orderflow, "bearish_ratio", 1.0) or 1.0),
+                "adx": float(getattr(market, "adx", 0.0) or 0.0),
+                "trend": market.trend.name.lower(),
+                "htf_trend": market.htf_trend.name.lower(),
+                "atr_pct": float(getattr(market, "atr_pct", 0.0) or 0.0),
+            }
+            return sig
+
         klines = await self.client.get_klines(symbol, self.candle_interval, self.klines_limit)
         if len(klines) < 80:
             return reject("not_enough_klines")
@@ -1125,6 +1218,29 @@ class TradingBot:
         orderbook = await self.client.get_orderbook(symbol, limit=25)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
+
+        scalp_result = self.scalp_strategy.analyze(symbol, klines)
+        if scalp_result:
+            scalp_side = str(scalp_result.get("signal", "")).upper()
+            if scalp_side in {"BUY", "SELL"}:
+                htf_ok, htf_reason = self._passes_strict_htf_mode(scalp_side, htf_4h_trend)
+                if not htf_ok:
+                    return reject(htf_reason)
+                scalp_signal = build_scalp_signal(
+                    side=scalp_side,
+                    confidence=float(scalp_result.get("confidence", 0.0) or 0.0),
+                    reason=str(scalp_result.get("reason", "SCALP session signal")),
+                    current_price=current_price,
+                    atr_value=atr_val if atr_val > 0 else current_price * 0.008,
+                    market=market,
+                    orderflow=orderflow,
+                    htf_4h_trend=htf_4h_trend,
+                )
+                logger.info(
+                    f"SCALP SIGNAL {symbol}: {scalp_signal.side} conf={scalp_signal.confidence:.0%} "
+                    f"RR={scalp_signal.rr_ratio:.1f} reason={scalp_signal.reasons[-1]}"
+                )
+                return scalp_signal
 
         # Real orderbook-based heatmap (replaces synthetic fallback)
         heatmap_orderbook = await self.client.get_orderbook(symbol, limit=200)

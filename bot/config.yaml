@@ -17,6 +17,25 @@ bot:
   signal_only: true
   signal_cooldown_sec: 3600
 
+# ========================================
+# SCALP SESSION MODE (Asian + hot hours)
+# ========================================
+# Local hours in UTC+3:
+# - User requested: 03, 04, 05
+# - Added from volatility analysis hot windows:
+#   pump: 07, 11, 14, 18
+#   dump: 13, 19, 20, 21
+scalp:
+  enabled: true
+  timezone_offset: 3
+  pump_hours_local: [3, 4, 5, 7, 11, 14, 18]
+  dump_hours_local: [3, 4, 5, 13, 19, 20, 21]
+  min_impulse_pct: 0.45
+  min_confirm_move_pct: 0.75
+  min_volume_ratio: 1.6
+  confirm_bars: 3
+  cooldown_bars: 6
+
 trading:
   leverage: 5
   margin_total_pct: 10.0
