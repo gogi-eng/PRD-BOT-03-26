@@ -160,7 +160,7 @@ ai:
 
 advisor:
   enabled: true
-  mode: "enforce"         # enforce | advisory | disabled
+  mode: "advisory"        # enforce | advisory | disabled
   min_rr: 1.8
   min_confidence: 0.62
   min_edge: 0.45
