@@ -158,6 +158,18 @@ ai:
   uniformity_window: 8
   uniformity_conf_spread_max: 3
 
+advisor:
+  enabled: true
+  mode: "enforce"         # enforce | advisory | disabled
+  min_rr: 1.8
+  min_confidence: 0.62
+  min_edge: 0.45
+  max_spread_pct: 0.12
+  min_atr_pct: 0.03
+  min_abs_imbalance: 0.06
+  allow_countertrend: false
+  allow_chop: true
+
 rl:
   enabled: false
   add_threshold: 0.78

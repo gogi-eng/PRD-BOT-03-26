@@ -22,6 +22,7 @@ if str(BOT_DIR) not in sys.path:
     sys.path.insert(0, str(BOT_DIR))
 
 from analysis.ai_analyzer import AITradeAnalyzer
+from analysis.advisor import LocalTradingAdvisor
 from analysis.correlation_filter import CorrelationFilter
 from analysis.feature_engineering import FeatureEngineer
 from analysis.liquidation_clusters import LiquidationCluster, LiquidationClusterDetector, LiquidationAnalysis
@@ -147,6 +148,7 @@ class TradingBot:
         self.ai_analyzer.uniformity_conf_spread_max = int(
             self.cfg.get("ai", "uniformity_conf_spread_max", default=3)
         )
+        self.advisor = LocalTradingAdvisor(self.cfg.get("advisor", default={}) or {})
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
@@ -524,6 +526,10 @@ class TradingBot:
         )
         logger.info(
             f"Symbol quality filter: {'ON' if self.symbol_quality_filter.enabled else 'OFF'}"
+        )
+        logger.info(
+            f"Local advisor: {'ON' if self.advisor.enabled else 'OFF'} "
+            f"(mode={self.advisor.mode})"
         )
 
         ok, err = self.security.validate_bybit_keys()
@@ -1375,6 +1381,26 @@ class TradingBot:
         elif not self.cfg.get("ai", "fail_open", default=False):
             # AI disabled but fail_open=false → reject
             return reject("ai_disabled_fail_closed")
+
+        advisor_decision = self.advisor.evaluate(symbol, signal, market)
+        signal.metadata.update(
+            {
+                "advisor_score": advisor_decision.score,
+                "advisor_reason": advisor_decision.reason,
+                "advisor_checks": advisor_decision.checks,
+            }
+        )
+        if not advisor_decision.allow and self.advisor.mode == "enforce":
+            logger.info(
+                f"[ADVISOR] {symbol} REJECTED: {advisor_decision.reason} "
+                f"(score={advisor_decision.score:.2f})"
+            )
+            return reject(advisor_decision.reason)
+        if not advisor_decision.allow and self.advisor.mode == "advisory":
+            logger.info(
+                f"[ADVISOR] {symbol} advisory warning: {advisor_decision.reason} "
+                f"(score={advisor_decision.score:.2f})"
+            )
 
         logger.info(
             f"SIGNAL {symbol}: {signal.side} conf={signal.confidence:.0%} "
