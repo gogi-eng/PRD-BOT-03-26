@@ -14,7 +14,7 @@ bot:
   klines_limit: 180
   feature_window: 128
   liquidation_stream_symbols: 12
-  signal_only: true
+  signal_only: false
   signal_cooldown_sec: 3600
 
 # ========================================
@@ -39,9 +39,9 @@ scalp:
 trading:
   leverage: 5
   margin_total_pct: 10.0
-  risk_per_trade_pct: 0.4
-  max_positions: 2
-  min_position_usdt: 10.0
+  risk_per_trade_pct: 1.2
+  max_positions: 3
+  min_position_usdt: 5.0
   trailing_stop_pct: 1.0
   tp_pct: 1.8
   sl_pct: 1.0
@@ -63,7 +63,7 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.60
+  entry_threshold: 0.54
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
@@ -76,12 +76,12 @@ entry:
   strict_htf_mode: true
   volatility_floor_enabled: true
   volatility_floor_atr_pct: 0.06
-  ema_trend_filter: true
+  ema_trend_filter: false
   ema_fast_period: 20
   ema_slow_period: 50
-  momentum_filter: true
-  momentum_lookback: 5
-  volume_filter: true
+  momentum_filter: false
+  momentum_lookback: 3
+  volume_filter: false
   volume_lookback: 20
 
 market_structure:
@@ -125,15 +125,15 @@ risk:
   max_daily_loss_usdt: 50
   max_trades_per_day: 26
   max_consecutive_losses: 5
-  cooldown_after_loss_sec: 3600
+  cooldown_after_loss_sec: 900
   cooldown_after_stop_hours: 0.5
   max_trades_per_symbol_24h: 2
   reduce_after_losses: 3
   reduction_factor: 0.5
   min_loss_usdt_for_cooldown: 0.35
   min_loss_usdt_for_consecutive: 0.6
-  ignore_loss_cooldown_reasons: []
-  ignore_consecutive_loss_reasons: []
+  ignore_loss_cooldown_reasons: ["exchange_closed", "trend_exit"]
+  ignore_consecutive_loss_reasons: ["exchange_closed", "trend_exit"]
 
 market:
   min_24h_volume_usdt: 30000000
@@ -162,8 +162,8 @@ advisor:
   enabled: true
   mode: "advisory"        # enforce | advisory | disabled
   min_rr: 1.8
-  min_confidence: 0.62
-  min_edge: 0.45
+  min_confidence: 0.58
+  min_edge: 0.35
   max_spread_pct: 0.12
   min_atr_pct: 0.03
   min_abs_imbalance: 0.06
@@ -180,7 +180,7 @@ rl:
   min_reduce_profit_pct: 0.8
 
 position_sync:
-  adopt_all_positions: true
+  adopt_all_positions: false
   preserve_existing_sl_tp: true
   exchange_closed_confirm_cycles: 8
   exchange_closed_require_closed_pnl: true
@@ -255,16 +255,16 @@ feedback_loop:
 quality_gate:
   enabled: true
   min_confidence: 0.64
-  min_expected_edge: 0.68
+  min_expected_edge: 0.50
   anti_flat_min_adx: 14.5
   anti_flat_min_atr_pct: 0.06
   anti_flat_min_abs_imbalance: 0.10
-  anti_flat_allow_chop: false
+  anti_flat_allow_chop: true
   anti_flat_require_htf_trend: false
   countertrend_min_confidence: 0.82
   countertrend_min_abs_imbalance: 0.20
-  no_zone_min_confidence: 0.80
-  reject_no_zone_entries: true
+  no_zone_min_confidence: 0.72
+  reject_no_zone_entries: false
 
 symbol_quality:
   enabled: true
@@ -280,8 +280,8 @@ symbol_quality:
 
 correlation:
   enabled: true
-  threshold: 0.75
-  max_correlated: 1
+  threshold: 0.88
+  max_correlated: 2
   lookback: 50
 
 mtf_zone_confirmation:
@@ -303,7 +303,7 @@ adaptive_regime_presets:
 # Timeframe presets: "1m", "5m", "15m"
 # Switching active_tf_preset adjusts candle_interval and related params automatically
 tf_presets:
-  active_preset: "1h"
+  active_preset: "5m"
   presets:
     1m:
       candle_interval: "1"
