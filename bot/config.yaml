@@ -30,17 +30,17 @@ scalp:
   timezone_offset: 3
   pump_hours_local: [3, 4, 5, 7, 11, 14, 18]
   dump_hours_local: [3, 4, 5, 13, 19, 20, 21]
-  min_impulse_pct: 0.45
-  min_confirm_move_pct: 0.75
-  min_volume_ratio: 1.6
-  confirm_bars: 3
-  cooldown_bars: 6
+  min_impulse_pct: 0.65
+  min_confirm_move_pct: 1.00
+  min_volume_ratio: 2.2
+  confirm_bars: 4
+  cooldown_bars: 12
 
 trading:
   leverage: 5
   margin_total_pct: 10.0
-  risk_per_trade_pct: 1.2
-  max_positions: 3
+  risk_per_trade_pct: 0.7
+  max_positions: 2
   min_position_usdt: 5.0
   trailing_stop_pct: 1.0
   tp_pct: 1.8
@@ -48,11 +48,11 @@ trading:
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
 
 entry:
-  transformer_threshold: 0.54
+  transformer_threshold: 0.60
   max_liq_distance_pct: 1.30
-  min_orderflow_imbalance: 1.10
+  min_orderflow_imbalance: 1.20
   min_rr_ratio: 3.0
-  min_target_profit_pct: 1.2
+  min_target_profit_pct: 1.5
   require_structural_tp: true
   min_stop_distance_pct: 1.5
   min_stop_atr_mult: 1.6
@@ -63,25 +63,25 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.54
+  entry_threshold: 0.62
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
   trained_model_weights_path: "transformer_weights.pt"
   min_liq_depth: 0.0
-  min_smc_score: 0.70
-  min_volatility_pct: 0.04
+  min_smc_score: 0.76
+  min_volatility_pct: 0.08
   require_sweep: true
   require_4h_trend: true
   strict_htf_mode: true
   volatility_floor_enabled: true
   volatility_floor_atr_pct: 0.06
-  ema_trend_filter: false
+  ema_trend_filter: true
   ema_fast_period: 20
   ema_slow_period: 50
-  momentum_filter: false
-  momentum_lookback: 3
-  volume_filter: false
+  momentum_filter: true
+  momentum_lookback: 5
+  volume_filter: true
   volume_lookback: 20
 
 market_structure:
@@ -91,7 +91,7 @@ market_structure:
   spread_expansion_mult: 1.5
 
 pyramid:
-  enabled: true
+  enabled: false
   max_adds: 2
   add_on_pullback: true
   add_on_continuation: true
@@ -123,14 +123,14 @@ exit:
 risk:
   max_daily_loss_pct: 4.0
   max_daily_loss_usdt: 50
-  max_trades_per_day: 26
-  max_consecutive_losses: 5
-  cooldown_after_loss_sec: 900
+  max_trades_per_day: 10
+  max_consecutive_losses: 3
+  cooldown_after_loss_sec: 1800
   cooldown_after_stop_hours: 0.5
-  max_trades_per_symbol_24h: 2
-  reduce_after_losses: 3
-  reduction_factor: 0.5
-  min_loss_usdt_for_cooldown: 0.35
+  max_trades_per_symbol_24h: 1
+  reduce_after_losses: 2
+  reduction_factor: 0.35
+  min_loss_usdt_for_cooldown: 0.20
   min_loss_usdt_for_consecutive: 0.6
   ignore_loss_cooldown_reasons: ["exchange_closed", "trend_exit"]
   ignore_consecutive_loss_reasons: ["exchange_closed", "trend_exit"]
@@ -138,7 +138,7 @@ risk:
 market:
   min_24h_volume_usdt: 30000000
   max_symbols: 50
-  trade_symbols: 10
+  trade_symbols: 6
   whitelist_enabled: true
   whitelist_only: false
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
@@ -151,7 +151,7 @@ market:
 
 ai:
   enabled: true
-  min_confidence: 55
+  min_confidence: 65
   fail_open: false
   require_direction_match: true
   uniformity_guard_enabled: true
@@ -254,17 +254,17 @@ feedback_loop:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.64
-  min_expected_edge: 0.50
+  min_confidence: 0.70
+  min_expected_edge: 0.62
   anti_flat_min_adx: 14.5
-  anti_flat_min_atr_pct: 0.06
-  anti_flat_min_abs_imbalance: 0.10
-  anti_flat_allow_chop: true
+  anti_flat_min_atr_pct: 0.10
+  anti_flat_min_abs_imbalance: 0.14
+  anti_flat_allow_chop: false
   anti_flat_require_htf_trend: false
-  countertrend_min_confidence: 0.82
-  countertrend_min_abs_imbalance: 0.20
-  no_zone_min_confidence: 0.72
-  reject_no_zone_entries: false
+  countertrend_min_confidence: 0.88
+  countertrend_min_abs_imbalance: 0.24
+  no_zone_min_confidence: 0.80
+  reject_no_zone_entries: true
 
 symbol_quality:
   enabled: true
@@ -272,7 +272,7 @@ symbol_quality:
   feedback_only: true
   whitelist_bypass: true
   min_trades: 4
-  min_winrate: 0.25
+  min_winrate: 0.38
   min_avg_pnl_pct: -1.5
   max_recent_losses: 10
   lookback_per_symbol: 30
@@ -281,7 +281,7 @@ symbol_quality:
 correlation:
   enabled: true
   threshold: 0.88
-  max_correlated: 2
+  max_correlated: 1
   lookback: 50
 
 mtf_zone_confirmation:
