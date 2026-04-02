@@ -1,0 +1,84 @@
+{
+  "summary": "Iteration 31: Origin field in trade_history and exchange_closed debounce verified. All 27 tests passed (25 new + 2 original). Features confirmed: (1) _save_trade persists origin field, (2) _finalize_full_close/_finalize_partial_close pass pos.origin to _save_trade, (3) exchange_closed requires 3 confirm cycles before closing position, (4) config has position_sync.exchange_closed_confirm_cycles=3. No regression with iteration 30 fixes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 31 Comprehensive Tests (25 total) ---",
+    "TestConfigExchangeClosedConfirmCycles::test_config_has_exchange_closed_confirm_cycles - PASSED",
+    "TestConfigExchangeClosedConfirmCycles::test_bot_loads_exchange_closed_confirm_cycles - PASSED",
+    "TestSaveTradeOrigin::test_save_trade_with_bot_origin - PASSED",
+    "TestSaveTradeOrigin::test_save_trade_with_manual_origin - PASSED",
+    "TestSaveTradeOrigin::test_save_trade_default_origin_is_bot - PASSED",
+    "TestSaveTradeOrigin::test_save_trade_multiple_trades_different_origins - PASSED",
+    "TestExchangeClosedDebounce::test_first_missing_cycle_returns_false - PASSED",
+    "TestExchangeClosedDebounce::test_second_missing_cycle_returns_false - PASSED",
+    "TestExchangeClosedDebounce::test_third_missing_cycle_returns_true - PASSED",
+    "TestExchangeClosedDebounce::test_different_symbols_tracked_separately - PASSED",
+    "TestExchangeClosedDebounce::test_confirm_cycles_of_1_finalizes_immediately - PASSED",
+    "TestExchangeClosedDebounce::test_confirm_cycles_of_5_requires_5_cycles - PASSED",
+    "TestFinalizeFullCloseOrigin::test_finalize_full_close_passes_bot_origin - PASSED",
+    "TestFinalizeFullCloseOrigin::test_finalize_full_close_passes_manual_origin - PASSED",
+    "TestFinalizePartialCloseOrigin::test_finalize_partial_close_passes_bot_origin - PASSED",
+    "TestFinalizePartialCloseOrigin::test_finalize_partial_close_passes_manual_origin - PASSED",
+    "TestPositionOriginAttribute::test_position_has_origin_attribute - PASSED",
+    "TestPositionOriginAttribute::test_position_origin_defaults_to_bot - PASSED",
+    "TestPositionOriginAttribute::test_position_origin_can_be_manual - PASSED",
+    "TestRegressionExchangeClosedIgnore::test_exchange_closed_in_ignore_cooldown_reasons - PASSED",
+    "TestRegressionExchangeClosedIgnore::test_exchange_closed_in_ignore_consecutive_reasons - PASSED",
+    "TestRDNTUSDTScenario::test_rdntusdt_not_closed_on_first_missing_cycle - PASSED",
+    "TestRDNTUSDTScenario::test_rdntusdt_closed_after_confirm_cycles - PASSED",
+    "TestCounterResetOnReappear::test_counter_cleared_on_finalize - PASSED",
+    "TestCounterResetOnReappear::test_counter_can_be_manually_cleared - PASSED",
+    "--- Original Tests (2 total) ---",
+    "test_save_trade_persists_origin - PASSED",
+    "test_exchange_closed_needs_multiple_missing_cycles - PASSED",
+    "--- Iteration 30 Regression Tests (20 total) - ALL PASSED ---"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration31_comprehensive.py",
+    "/app/backend/tests/test_iteration31_origin_and_exchange_debounce.py",
+    "/app/test_reports/pytest/pytest_results_iteration31.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py line 2144: _save_trade accepts origin parameter with default='bot' - CORRECT",
+    "main.py line 2157: origin field is persisted in trade_history.json - CORRECT",
+    "main.py line 1239: _finalize_full_close passes origin=pos.origin to _save_trade - CORRECT",
+    "main.py line 1260: _finalize_partial_close passes origin=pos.origin to _save_trade - CORRECT",
+    "main.py lines 2172-2181: _should_finalize_exchange_closed implements debounce with configurable cycles - CORRECT",
+    "config.yaml line 141: exchange_closed_confirm_cycles=3 - CORRECT",
+    "position_manager.py line 34: Position dataclass has origin='bot' default - CORRECT",
+    "No regression with iteration 30 exchange_closed ignore fixes - VERIFIED"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration31_comprehensive.py"
+  ],
+  "success_rate": {
+    "backend": "47/47 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 31 verified: (1) trade_history entries now include origin field (bot/manual), (2) _finalize_full_close and _finalize_partial_close correctly pass pos.origin to _save_trade, (3) exchange_closed debounce requires 3 confirm cycles (configurable via position_sync.exchange_closed_confirm_cycles), (4) RDNTUSDT scenario fixed - first missing cycle no longer force-closes position. Counter is tracked per-symbol in _missing_exchange_cycles dict and cleared when position is finalized or reappears.",
+  "feature_verification": {
+    "origin_field_in_trade_history": "Verified - main.py line 2157",
+    "finalize_full_close_passes_origin": "Verified - main.py line 1239",
+    "finalize_partial_close_passes_origin": "Verified - main.py line 1260",
+    "exchange_closed_debounce": "Verified - main.py lines 2172-2181",
+    "config_exchange_closed_confirm_cycles": "Verified - config.yaml line 141 (value=3)",
+    "position_origin_attribute": "Verified - position_manager.py line 34",
+    "iteration_30_regression": "Verified - all 20 tests passed"
+  },
+  "rca_of_the_issue": {
+    "root_cause": "User reported RDNTUSDT closed as exchange_closed too aggressively on first missing cycle. Position sync was immediately finalizing when position was not found on exchange.",
+    "fix_applied": "(1) Added _should_finalize_exchange_closed method with configurable confirm cycles (default=3), (2) Added _missing_exchange_cycles dict to track per-symbol missing counts, (3) Position only finalized after reaching confirm threshold",
+    "verification": "With exchange_closed_confirm_cycles=3, first mismatch no longer force-closes position. Position must be missing for 3 consecutive cycles before being finalized as exchange_closed."
+  }
+}

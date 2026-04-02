@@ -1,0 +1,89 @@
+{
+  "summary": "Comprehensive testing of quality gate feature for signal-only mode. All 50 tests passed covering: expected edge threshold, anti-flat filters (chop/ADX/ATR/imbalance), quality metadata, config-driven behavior, and no regressions in feedback-loop/SL guards/trained-model.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "TestExpectedEdgeThresholdFilter::test_expected_edge_formula_without_trained_model",
+    "TestExpectedEdgeThresholdFilter::test_expected_edge_formula_with_trained_model",
+    "TestExpectedEdgeThresholdFilter::test_rejects_low_expected_edge",
+    "TestExpectedEdgeThresholdFilter::test_passes_sufficient_expected_edge",
+    "TestExpectedEdgeThresholdFilter::test_boundary_expected_edge_exactly_at_threshold",
+    "TestAntiFlatFilters::test_rejects_chop_regime_when_not_allowed",
+    "TestAntiFlatFilters::test_allows_chop_regime_when_enabled",
+    "TestAntiFlatFilters::test_rejects_low_adx",
+    "TestAntiFlatFilters::test_passes_sufficient_adx",
+    "TestAntiFlatFilters::test_rejects_low_atr_pct",
+    "TestAntiFlatFilters::test_passes_sufficient_atr_pct",
+    "TestAntiFlatFilters::test_rejects_flat_orderflow_low_imbalance",
+    "TestAntiFlatFilters::test_passes_sufficient_imbalance",
+    "TestAntiFlatFilters::test_negative_imbalance_uses_absolute_value",
+    "TestAntiFlatFilters::test_rejects_flat_htf_trend_when_required",
+    "TestAntiFlatFilters::test_allows_flat_htf_trend_when_not_required",
+    "TestLowConfidenceRejection::test_rejects_low_confidence",
+    "TestLowConfidenceRejection::test_passes_sufficient_confidence",
+    "TestLowConfidenceRejection::test_confidence_checked_before_anti_flat",
+    "TestQualityGateMetadata::test_passed_signal_contains_expected_edge",
+    "TestQualityGateMetadata::test_passed_signal_contains_symbol",
+    "TestQualityGateMetadata::test_rejected_signal_still_has_expected_edge",
+    "TestConfigDrivenBehavior::test_config_yaml_has_quality_gate_section",
+    "TestConfigDrivenBehavior::test_config_contains_enabled_setting",
+    "TestConfigDrivenBehavior::test_config_contains_min_confidence",
+    "TestConfigDrivenBehavior::test_config_contains_min_expected_edge",
+    "TestConfigDrivenBehavior::test_config_contains_anti_flat_settings",
+    "TestQualityGateAppliedInSignalOnlyMode::test_scan_entries_checks_quality_gate_in_signal_only",
+    "TestQualityGateAppliedInSignalOnlyMode::test_quality_gate_rejection_is_logged",
+    "TestQualityGateAppliedInSignalOnlyMode::test_quality_gate_metadata_updated_for_passed_signals",
+    "TestTelegramMessageContainsExpectedEdge::test_telegram_message_builder_has_expected_edge",
+    "TestNoRegressionsInRelatedFeatures::test_signal_feedback_register_still_called",
+    "TestNoRegressionsInRelatedFeatures::test_sl_validation_code_still_present",
+    "TestNoRegressionsInRelatedFeatures::test_trained_model_integration_paths_exist",
+    "TestNoRegressionsInRelatedFeatures::test_feedback_loop_enabled_check_exists",
+    "TestQualityGateDisabledBehavior::test_quality_gate_disabled_skips_anti_flat_checks",
+    "TestEdgeCasesAndBoundaryConditions::test_zero_confidence_rejected",
+    "TestEdgeCasesAndBoundaryConditions::test_zero_rr_ratio_handled",
+    "TestEdgeCasesAndBoundaryConditions::test_none_values_in_metadata_handled",
+    "TestEdgeCasesAndBoundaryConditions::test_missing_metadata_keys_handled",
+    "TestOrderOfFilterChecks::test_confidence_checked_before_expected_edge",
+    "TestOrderOfFilterChecks::test_expected_edge_checked_before_anti_flat",
+    "TestOrderOfFilterChecks::test_anti_flat_checks_run_in_order_chop_adx_atr_imbalance_htf",
+    "test_invalid_sl_long_rejected",
+    "test_invalid_sl_short_rejected",
+    "test_signal_feedback_loop_labels_and_appends_dataset",
+    "test_feedback_loop_daily_retrain_gate",
+    "test_quality_gate_rejects_low_expected_edge",
+    "test_quality_gate_rejects_chop_regime",
+    "test_quality_gate_passes_strong_signal"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_quality_gate_iteration17.py",
+    "/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py",
+    "/app/test_reports/pytest/pytest_results_iteration17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py lines 1097-1128: _passes_signal_quality_gate correctly implements multi-stage filtering: confidence → expected_edge → anti-flat checks",
+    "main.py lines 593-599: Quality gate is correctly invoked only when signal_only=True AND quality_gate_enabled=True in _scan_entries",
+    "main.py line 599: signal.metadata.update(gate_meta) correctly adds quality_expected_edge to passed signals",
+    "main.py lines 639-650: Telegram message builder correctly includes Expected Edge field for signal-only mode",
+    "config.yaml lines 186-194: quality_gate section complete with all required settings (enabled, min_confidence, min_expected_edge, anti_flat_*)",
+    "Expected edge formula: base_prob * (rr + 1) - 1 correctly uses trained_model_prob when available, fallback to confidence",
+    "Anti-flat filters correctly check: chop regime, ADX threshold, ATR% threshold, absolute imbalance, HTF trend requirement"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_quality_gate_iteration17.py (created - 43 comprehensive tests)"
+  ],
+  "success_rate": {
+    "backend": "50/50 (100%)"
+  },
+  "seed_data_creation": "None - all tests use mock objects and direct method calls",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Quality gate feature fully verified: (1) _passes_signal_quality_gate checks confidence >= 0.68 first, then expected_edge >= 0.75, then anti-flat filters when enabled (2) Anti-flat filters: chop regime rejection, ADX >= 16, ATR% >= 0.20, |imbalance| >= 0.08, optional HTF trend requirement (3) quality_expected_edge metadata added for all signals (passed and rejected) (4) Config-driven via quality_gate section in config.yaml (5) No regressions in feedback-loop (register_signal still called), SL guards (invalid_sl_long/short validation), trained-model integration"
+}

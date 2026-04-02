@@ -1,0 +1,92 @@
+{
+  "summary": "Iteration 33: Verified stronger exchange_closed debounce with close evidence requirement. All 34 tests passed (31 new + 3 original). Features confirmed: (1) exchange_closed_require_closed_pnl=true in config, (2) exchange_closed_force_cycles=8 in config, (3) _can_finalize_exchange_closed requires closed records OR force_cycles threshold, (4) Position not removed until both debounce AND evidence conditions met, (5) Origin persistence intact, (6) No regression in early_exit and cooldown fixes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 33 Exchange Closed Evidence Tests (31 total) ---",
+    "TestConfigExchangeClosedRequireClosedPnl::test_config_has_exchange_closed_require_closed_pnl_true - PASSED",
+    "TestConfigExchangeClosedRequireClosedPnl::test_bot_loads_exchange_closed_require_closed_pnl - PASSED",
+    "TestConfigExchangeClosedForceCycles::test_config_has_exchange_closed_force_cycles_8 - PASSED",
+    "TestConfigExchangeClosedForceCycles::test_bot_loads_exchange_closed_force_cycles - PASSED",
+    "TestCanFinalizeExchangeClosed::test_no_closed_records_below_force_cycles_returns_false - PASSED",
+    "TestCanFinalizeExchangeClosed::test_with_closed_records_returns_true - PASSED",
+    "TestCanFinalizeExchangeClosed::test_force_cycles_reached_without_closed_records_returns_true - PASSED",
+    "TestCanFinalizeExchangeClosed::test_below_force_cycles_no_closed_records_returns_false - PASSED",
+    "TestCanFinalizeExchangeClosed::test_require_closed_pnl_disabled_always_returns_true - PASSED",
+    "TestCanFinalizeExchangeClosed::test_multiple_closed_records_returns_true - PASSED",
+    "TestCanFinalizeExchangeClosed::test_force_cycles_boundary_7_returns_false - PASSED",
+    "TestCanFinalizeExchangeClosed::test_force_cycles_boundary_9_returns_true - PASSED",
+    "TestCombinedDebounceAndEvidence::test_position_not_removed_until_both_conditions_met - PASSED",
+    "TestCombinedDebounceAndEvidence::test_position_removed_with_closed_records_after_debounce - PASSED",
+    "TestCombinedDebounceAndEvidence::test_position_force_removed_after_8_cycles_no_evidence - PASSED",
+    "TestAPIInconsistencyScenario::test_temporary_api_miss_does_not_close_position - PASSED",
+    "TestAPIInconsistencyScenario::test_position_reappears_resets_counter - PASSED",
+    "TestRegressionOriginPersistence::test_save_trade_persists_origin - PASSED",
+    "TestRegressionOriginPersistence::test_position_origin_attribute_exists - PASSED",
+    "TestRegressionEarlyExitCooldown::test_early_exit_in_ignore_cooldown_reasons - PASSED",
+    "TestRegressionEarlyExitCooldown::test_early_exit_in_ignore_consecutive_reasons - PASSED",
+    "TestRegressionEarlyExitCooldown::test_exchange_closed_in_ignore_cooldown_reasons - PASSED",
+    "TestRegressionEarlyExitCooldown::test_exchange_closed_in_ignore_consecutive_reasons - PASSED",
+    "TestCanFinalizeEdgeCases::test_zero_missing_cycles_with_closed_records - PASSED",
+    "TestCanFinalizeEdgeCases::test_negative_missing_cycles_handled - PASSED",
+    "TestCanFinalizeEdgeCases::test_force_cycles_of_1_with_require_pnl - PASSED",
+    "TestCanFinalizeEdgeCases::test_large_force_cycles_value - PASSED",
+    "TestDebounceEvidenceIntegration::test_full_flow_no_evidence_waits_for_force_cycles - PASSED",
+    "TestDebounceEvidenceIntegration::test_full_flow_with_evidence_finalizes_at_debounce - PASSED",
+    "TestDebounceEvidenceIntegration::test_counter_persists_across_cycles - PASSED",
+    "TestConfigValuesMatch::test_all_position_sync_config_values - PASSED",
+    "--- Original Iteration 31 Tests (3 total) ---",
+    "test_save_trade_persists_origin - PASSED",
+    "test_exchange_closed_needs_multiple_missing_cycles - PASSED",
+    "test_exchange_closed_finalize_requires_closed_pnl_or_force_cycles - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration33_exchange_closed_evidence.py",
+    "/app/backend/tests/test_iteration31_origin_and_exchange_debounce.py",
+    "/app/test_reports/pytest/pytest_results_iteration33.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py line 311-316: Bot loads exchange_closed_require_closed_pnl and exchange_closed_force_cycles from config - CORRECT",
+    "main.py line 548: _should_finalize_exchange_closed called first (debounce check) - CORRECT",
+    "main.py line 552-554: get_closed_pnl called, then _can_finalize_exchange_closed checks evidence - CORRECT",
+    "main.py line 555-559: Logs 'waiting close evidence' when evidence not met - CORRECT",
+    "main.py line 2199-2204: _can_finalize_exchange_closed logic: (1) if require_pnl=false, return True; (2) if closed_records>0, return True; (3) if missing_cycles>=force_cycles, return True; else False - CORRECT",
+    "config.yaml line 142: exchange_closed_require_closed_pnl=true - CORRECT",
+    "config.yaml line 143: exchange_closed_force_cycles=8 - CORRECT",
+    "No regression with iteration 30/31 fixes - VERIFIED"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration33_exchange_closed_evidence.py"
+  ],
+  "success_rate": {
+    "backend": "34/34 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 33 verified stronger exchange_closed debounce: (1) Two-stage check: _should_finalize_exchange_closed (debounce, 3 cycles) THEN _can_finalize_exchange_closed (evidence check), (2) Evidence requirement: needs closed PnL records from exchange API OR force_cycles=8 threshold reached, (3) This prevents false exchange_closed under API inconsistency/rate limits while still allowing eventual forced reconciliation after 8 cycles (~8 minutes with 60s cycle_sleep).",
+  "feature_verification": {
+    "exchange_closed_require_closed_pnl_config": "Verified - config.yaml line 142 (value=true)",
+    "exchange_closed_force_cycles_config": "Verified - config.yaml line 143 (value=8)",
+    "can_finalize_logic_no_evidence_below_force": "Verified - returns False when no closed records and cycles<8",
+    "can_finalize_logic_with_evidence": "Verified - returns True when closed_records>0",
+    "can_finalize_logic_force_threshold": "Verified - returns True when cycles>=8 even without evidence",
+    "debounce_still_works": "Verified - _should_finalize_exchange_closed requires 3 cycles",
+    "counter_reset_on_reappear": "Verified - _missing_exchange_cycles.pop() clears counter",
+    "origin_persistence": "Verified - _save_trade persists origin field",
+    "early_exit_cooldown_regression": "Verified - early_exit and exchange_closed in ignore lists"
+  },
+  "rca_of_the_issue": {
+    "root_cause": "User reported exchange_closed triggered after missing only 2/3 cycles due to API inconsistency/rate limits. The previous debounce (3 cycles) was not strong enough.",
+    "fix_applied": "(1) Added exchange_closed_require_closed_pnl=true to require actual closed PnL records as evidence, (2) Added exchange_closed_force_cycles=8 as fallback threshold, (3) _can_finalize_exchange_closed now checks: closed_records>0 OR missing_cycles>=force_cycles",
+    "verification": "With new logic, position missing for 3 cycles but no closed PnL records will NOT be finalized. Must either have closed records OR wait 8 cycles for forced reconciliation."
+  }
+}

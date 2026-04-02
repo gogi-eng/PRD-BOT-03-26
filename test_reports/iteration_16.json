@@ -1,0 +1,81 @@
+{
+  "summary": "Comprehensive testing of signal-only feedback loop, auto-labeling, daily retrain gate, config-based controls, AI cache TTL, and SL validation guards. All 85 tests passed across 4 test files, covering all requested features.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Signal Registration: register_signal_adds_to_queue",
+    "Signal Registration: register_signal_captures_all_metadata",
+    "Signal Registration: register_signal_disabled_does_nothing",
+    "Auto-labeling: label_win_when_tp_hit_long",
+    "Auto-labeling: label_loss_when_sl_hit_long",
+    "Auto-labeling: label_win_when_tp_hit_short",
+    "Auto-labeling: label_loss_when_sl_hit_short",
+    "Auto-labeling: label_timeout_after_max_pending_hours",
+    "Auto-labeling: appends_to_training_data_json",
+    "Daily Retrain Gate: retrain_blocked_when_disabled",
+    "Daily Retrain Gate: retrain_blocked_before_retrain_hour_utc",
+    "Daily Retrain Gate: retrain_allowed_after_retrain_hour_utc",
+    "Daily Retrain Gate: retrain_blocked_below_min_new_labels",
+    "Daily Retrain Gate: retrain_blocked_if_already_attempted_today",
+    "Daily Retrain Gate: mark_retrain_attempt_success_resets_counter",
+    "Daily Retrain Gate: mark_retrain_attempt_failure_keeps_counter",
+    "Main Config: config_contains_leverage",
+    "Main Config: config_contains_max_positions",
+    "Main Config: main_reads_leverage_from_config",
+    "Main Config: main_reads_max_positions_from_config",
+    "Main Config: config_leverage_value (15)",
+    "Main Config: config_max_positions_value (6)",
+    "AI Cache TTL: cache_ttl_is_600",
+    "AI Cache TTL: cache_ttl_hardcoded_in_init",
+    "AI Cache TTL: cache_used_in_analyze",
+    "SL Validation: invalid_sl_long_rejection",
+    "SL Validation: invalid_sl_short_rejection",
+    "SL Validation: valid_sl_long_not_rejected",
+    "SL Validation: valid_sl_short_not_rejected",
+    "SL Validation: entry_engine_contains_sl_validation_code",
+    "Feedback Config: feedback_loop_enabled_in_config",
+    "Feedback Config: retrain_daily_in_config",
+    "Feedback Config: min_new_labels_for_retrain (8)",
+    "Feedback Config: retrain_hour_utc (1)",
+    "Feedback Config: dataset_path (training_data.json)",
+    "test_signal_feedback_loop_and_sl_validation.py: 4 tests passed",
+    "test_trained_model_integration.py: 30 tests passed",
+    "test_entry_engine_v6.py: 16 tests passed"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_signal_feedback_loop_and_sl_validation.py",
+    "/app/backend/tests/test_signal_feedback_features_iteration16.py",
+    "/app/backend/tests/test_entry_engine_v6.py",
+    "/app/backend/tests/test_trained_model_integration.py",
+    "/app/test_reports/pytest/pytest_results_iteration16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "signal_feedback_loop.py: register_signal correctly captures all signal metadata (composite_score, trend_score, orderflow_score, ai_score, normalized_imbalance, htf_4h_trend, trained_model_prob, entry_zone)",
+    "signal_feedback_loop.py: _resolve_outcome_reason correctly checks SL/TP hit for BUY/SELL sides and timeout expiry",
+    "signal_feedback_loop.py: should_run_daily_retrain properly gates on enabled, retrain_daily, retrain_hour_utc, min_new_labels_for_retrain, last_retrain_attempt_date",
+    "main.py: LiveControls init reads leverage/max_positions from config via self.cfg.get() (lines 80, 85)",
+    "main.py: _process_signal_feedback_loop called only when signal_only=True and feedback.enabled=True (lines 361-362)",
+    "main.py: register_signal called for each ranked signal in signal_only mode (line 627)",
+    "ai_analyzer.py: _cache_ttl = 600 set in __init__ (line 56)",
+    "entry_engine.py: SL validation at lines 421-426 rejects invalid_sl_long and invalid_sl_short",
+    "config.yaml: feedback_loop section correctly configured with enabled=true, retrain_daily=true, retrain_hour_utc=1, min_new_labels_for_retrain=8"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_signal_feedback_features_iteration16.py (created - 35 comprehensive tests)"
+  ],
+  "success_rate": {
+    "backend": "85/85 (100%)"
+  },
+  "seed_data_creation": "None - all tests use temporary directories and mock objects",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 6 requested features verified: (1) signal_feedback.register_signal() captures full signal metadata and saves to queue, (2) Auto-labeling uses _resolve_outcome_reason to label by SL/TP/timeout and appends to training_data.json via _build_training_record + _append_training_record, (3) Daily retrain gate in should_run_daily_retrain checks hour >= retrain_hour_utc AND new_labels >= min_new_labels_for_retrain AND not attempted today, (4) main.py reads leverage=15 and max_positions=6 from config.yaml trading section via cfg.get(), (5) ai_analyzer._cache_ttl = 600 seconds, (6) entry_engine rejects invalid SL with 'invalid_sl_long' or 'invalid_sl_short' reject_reason. No regressions found in trained model integration or entry engine v6 tests."
+}

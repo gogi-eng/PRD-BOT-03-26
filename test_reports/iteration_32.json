@@ -1,0 +1,75 @@
+{
+  "summary": "Iteration 32: Verified train_transformer.py fixes for degenerate precision=0 runs. All 20 tests passed. Key behaviors confirmed: (1) augmentation is train-only (val set unchanged), (2) win augmentation capped at 95% of losses, (3) pos_weight computed from raw train split and clamped >=1, (4) threshold selection sweep (0.30-0.80) maximizes precision with non-trivial positives, (5) checkpoint fallback to val_loss on precision tie, (6) script runs successfully on synthetic data with non-zero precision/recall.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 32 train_transformer.py Tests (20 total) ---",
+    "TestAugmentationTrainOnly::test_stratified_split_returns_original_data - PASSED",
+    "TestAugmentationTrainOnly::test_augment_wins_only_modifies_input_copy - PASSED",
+    "TestAugmentationTrainOnly::test_val_set_not_augmented_in_train_flow - PASSED",
+    "TestWinAugmentationCapped::test_augment_wins_respects_target_cap - PASSED",
+    "TestWinAugmentationCapped::test_augment_wins_does_not_exceed_95_percent_of_losses - PASSED",
+    "TestWinAugmentationCapped::test_augment_wins_factor_1_returns_copy - PASSED",
+    "TestPosWeightComputation::test_pos_weight_formula - PASSED",
+    "TestPosWeightComputation::test_pos_weight_uses_raw_not_augmented - PASSED",
+    "TestThresholdSelectionSweep::test_select_best_threshold_sweeps_range - PASSED",
+    "TestThresholdSelectionSweep::test_select_best_threshold_requires_min_predictions - PASSED",
+    "TestThresholdSelectionSweep::test_select_best_threshold_prefers_higher_precision - PASSED",
+    "TestCheckpointFallback::test_improved_logic_precision_first - PASSED",
+    "TestCheckpointFallback::test_checkpoint_saves_all_metrics - PASSED",
+    "TestSyntheticDataRun::test_train_on_synthetic_data - PASSED",
+    "TestSyntheticDataRun::test_load_dataset_filters_invalid_results - PASSED",
+    "TestComputeMetrics::test_compute_metrics_basic - PASSED",
+    "TestModelArchitecture::test_model_feature_dim - PASSED",
+    "TestModelArchitecture::test_model_forward_pass - PASSED",
+    "TestModelArchitecture::test_model_param_count - PASSED",
+    "TestWeightedSampler::test_build_weighted_sampler - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration32_train_transformer.py",
+    "/app/test_reports/pytest/pytest_results_iteration32.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Line 342: stratified_split called BEFORE augmentation - CORRECT (no val leakage)",
+    "Line 350-357: augment_wins called only on train_x_raw, train_y_raw - CORRECT",
+    "Line 350: target_aug_wins = max(train_wins_raw, int(train_losses_raw * 0.95)) - CORRECT (capped)",
+    "Line 388: pos_weight = max(train_losses_raw / train_wins_raw, 1.0) - CORRECT (uses raw, clamped)",
+    "Line 264-282: select_best_threshold sweeps 0.30-0.80 with min_pred_pos check - CORRECT",
+    "Line 437-448: Checkpoint selection: precision > F1 > val_loss fallback - CORRECT",
+    "Line 456-478: Checkpoint saves all metrics including confusion matrix - CORRECT"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration32_train_transformer.py"
+  ],
+  "success_rate": {
+    "backend": "20/20 (100%)"
+  },
+  "seed_data_creation": "Synthetic training data created in tests with 100 trades (30 wins, 70 losses)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 32 verified train_transformer.py fixes: (1) augmentation is train-only via stratified_split before augment_wins, (2) win augmentation capped at 95% of losses via target_pos_count, (3) pos_weight uses raw train split values (train_losses_raw/train_wins_raw) clamped >=1, (4) threshold selection sweeps 0.30-0.80 requiring min_pred_pos, (5) checkpoint fallback: precision > F1 > val_loss. E2E test confirmed non-zero precision/recall on synthetic data.",
+  "feature_verification": {
+    "augmentation_train_only": "Verified - stratified_split at line 342 before augment_wins at line 351",
+    "win_augmentation_capped": "Verified - target_aug_wins = max(train_wins_raw, int(train_losses_raw * 0.95)) at line 350",
+    "pos_weight_from_raw_clamped": "Verified - max(train_losses_raw / train_wins_raw, 1.0) at line 388",
+    "threshold_selection_sweep": "Verified - select_best_threshold sweeps 0.30-0.80 at lines 264-282",
+    "checkpoint_fallback_val_loss": "Verified - improved logic at lines 437-448",
+    "synthetic_data_run": "Verified - E2E test with 100 trades produced precision=1.0, recall=1.0"
+  },
+  "e2e_test_output": {
+    "raw_dataset": "total=100 wins=30 losses=70",
+    "after_augmentation": "train=104 wins=48 losses=56 (target_wins=53)",
+    "split": "train=104 (win=48, loss=56) val=20 (win=6, loss=14)",
+    "final_metrics": "precision=1.000 recall=1.000 F1=1.000 accuracy=100%",
+    "pos_weight": 2.33,
+    "checkpoint_saved": true
+  }
+}

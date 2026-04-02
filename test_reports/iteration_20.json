@@ -1,0 +1,82 @@
+{
+  "summary": "Comprehensive testing of AI analyzer direction mismatch and uniformity bias guard fixes to prevent the 'repeated SELL 85% blind acceptance' pattern. All 55 targeted tests pass (6 original + 49 new), plus 59 regression tests for quality gate and entry engine. Total: 114/114 passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "N/A", "issue": "2 stale tests from iteration 16/17 fail due to config changes (entry_threshold 0.62 != 0.65, SL validation logic change) - these are from previous iterations and unrelated to current AI bias fix"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "TestConfigValues::test_require_direction_match_is_true",
+    "TestConfigValues::test_uniformity_guard_enabled_is_true",
+    "TestConfigValues::test_uniformity_window_is_8",
+    "TestConfigValues::test_uniformity_conf_spread_max_is_3",
+    "TestConfigValues::test_ai_enabled_is_true",
+    "TestConfigValues::test_ai_min_confidence_is_55",
+    "TestConfigValues::test_ai_fail_open_is_false",
+    "TestDirectionMismatch::test_buy_vs_sell_detected",
+    "TestDirectionMismatch::test_sell_vs_buy_detected",
+    "TestDirectionMismatch::test_buy_aligned_not_detected",
+    "TestDirectionMismatch::test_sell_aligned_not_detected",
+    "TestDirectionMismatch::test_wait_ai_decision_not_mismatch",
+    "TestDirectionMismatch::test_neutral_proposed_not_mismatch",
+    "TestDirectionMismatch::test_case_insensitive",
+    "TestDirectionMismatch::test_none_values_handled",
+    "TestUniformBiasDetection::test_repeated_sell_85_detected",
+    "TestUniformBiasDetection::test_repeated_sell_near_identical_conf_detected",
+    "TestUniformBiasDetection::test_repeated_buy_near_identical_conf_detected",
+    "TestUniformBiasDetection::test_wide_confidence_spread_not_detected",
+    "TestUniformBiasDetection::test_mixed_directions_not_detected",
+    "TestUniformBiasDetection::test_not_detected_below_window_size",
+    "TestUniformBiasDetection::test_only_most_recent_window_checked",
+    "TestUniformBiasDetection::test_wait_decisions_not_recorded",
+    "TestUniformBiasDetection::test_guard_disabled_returns_false",
+    "TestMainPyWiring::test_main_py_has_require_direction_match_wiring",
+    "TestMainPyWiring::test_main_py_has_uniformity_guard_enabled_wiring",
+    "TestMainPyWiring::test_main_py_has_uniformity_window_wiring",
+    "TestMainPyWiring::test_main_py_has_uniformity_conf_spread_max_wiring",
+    "TestPreventsSellBiasScenario::test_direction_mismatch_prevents_wrong_direction_entry",
+    "TestPreventsSellBiasScenario::test_uniformity_guard_prevents_repeated_pattern",
+    "TestPreventsSellBiasScenario::test_healthy_ai_variance_allowed",
+    "TestPreventsSellBiasScenario::test_aligned_directions_with_varied_confidence_allowed",
+    "TestDefaultValues::test_default_require_direction_match",
+    "TestDefaultValues::test_default_uniformity_guard_enabled",
+    "TestDefaultValues::test_default_uniformity_window",
+    "TestDefaultValues::test_default_uniformity_conf_spread_max",
+    "All 6 original tests from test_ai_analyzer_direction_uniformity.py",
+    "All 43 tests from test_quality_gate_iteration17.py (regression)",
+    "All 16 tests from test_entry_engine_v6.py (regression)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_ai_analyzer_bias_prevention_iteration20.py",
+    "/app/backend/tests/test_ai_analyzer_direction_uniformity.py",
+    "/app/test_reports/pytest/pytest_results_iteration20.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ai_analyzer.py line 56-59: Default values correctly set (require_direction_match=True, uniformity_guard_enabled=True, uniformity_window=8, uniformity_conf_spread_max=3)",
+    "ai_analyzer.py lines 141-147: _direction_mismatch() correctly detects when proposed signal != AI decision",
+    "ai_analyzer.py lines 155-167: _uniform_bias_detected() correctly checks for same-direction + near-identical confidence pattern (spread <= 3)",
+    "ai_analyzer.py lines 214-219: analyze() correctly rejects on direction mismatch with reason='direction_mismatch'",
+    "ai_analyzer.py lines 222-229: analyze() correctly rejects on uniform bias with reason='uniform_confidence_bias'",
+    "config.yaml lines 112-119: AI section has all required keys with correct values",
+    "main.py lines 131-136: Correctly wires all AI config values to analyzer instance",
+    "CONFIRMS: The fix DOES prevent repeated 'SELL 85%' blind acceptance pattern via uniformity guard (window=8, spread<=3)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ai_analyzer_bias_prevention_iteration20.py (created - 49 comprehensive tests)"
+  ],
+  "success_rate": {
+    "backend": "114/114 (100%) for targeted tests, 448/450 overall (2 stale tests unrelated to this fix)"
+  },
+  "seed_data_creation": "None - all tests use mock objects and direct method calls",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "AI bias prevention fully verified: (1) Direction mismatch guard: rejects when AI decision (BUY/SELL) != proposed signal (BUY/SELL) (2) Uniformity bias guard: tracks last 8 AI outputs, rejects if all same direction AND confidence spread <= 3 (3) Config: ai.require_direction_match=true, ai.uniformity_guard_enabled=true, ai.uniformity_window=8, ai.uniformity_conf_spread_max=3 (4) main.py correctly wires all config values (5) AI kept enabled with fail_open=false (6) 2 stale tests from iteration 16 fail due to entry_threshold change (0.62 vs 0.65) - unrelated to current fix",
+  "rca_of_the_issue": "The 'repeated SELL 85% blind acceptance' pattern was caused by the AI LLM returning near-identical responses for different symbols. Two guards now prevent this: (1) Direction mismatch guard ensures AI decision must match strategy's proposed signal direction (2) Uniformity guard detects suspicious pattern of same-direction outputs with near-identical confidence values within a sliding window"
+}

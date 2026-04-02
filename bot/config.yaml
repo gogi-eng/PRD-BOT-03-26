@@ -1,0 +1,359 @@
+timezone_offset: 3
+
+bybit:
+  testnet: false
+  category: linear
+
+bot:
+  candle_interval: "1"
+  htf_interval: "15"
+  htf_4h_interval: "240"
+  cycle_sleep_sec: 60
+  scan_interval_sec: 60
+  position_active_sleep_sec: 15
+  klines_limit: 180
+  feature_window: 128
+  liquidation_stream_symbols: 12
+  signal_only: false
+  signal_cooldown_sec: 3600
+
+# ========================================
+# SCALP SESSION MODE (Asian + hot hours)
+# ========================================
+# Local hours in UTC+3:
+# - User requested: 03, 04, 05
+# - Added from volatility analysis hot windows:
+#   pump: 07, 11, 14, 18
+#   dump: 13, 19, 20, 21
+scalp:
+  enabled: true
+  timezone_offset: 3
+  pump_hours_local: [3, 4, 5, 7, 11, 14, 18]
+  dump_hours_local: [3, 4, 5, 13, 19, 20, 21]
+  min_impulse_pct: 0.65
+  min_confirm_move_pct: 1.00
+  min_volume_ratio: 2.2
+  confirm_bars: 4
+  cooldown_bars: 12
+
+trading:
+  leverage: 5
+  margin_total_pct: 10.0
+  risk_per_trade_pct: 0.7
+  max_positions: 2
+  min_position_usdt: 5.0
+  trailing_stop_pct: 1.0
+  tp_pct: 1.8
+  sl_pct: 1.0
+  blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
+
+entry:
+  transformer_threshold: 0.60
+  max_liq_distance_pct: 1.30
+  min_orderflow_imbalance: 1.20
+  min_rr_ratio: 3.0
+  min_target_profit_pct: 1.5
+  require_structural_tp: true
+  min_stop_distance_pct: 1.5
+  min_stop_atr_mult: 1.6
+  sl_buffer_atr_mult: 1.0
+  max_entry_extension_atr: 0.75
+  entry_range_atr_mult: 0.22
+  allowed_regimes: ["trend", "breakout"]
+  zone_proximity_pct: 0.4
+  max_spread_pct: 0.08
+  max_funding_rate: 0.05
+  entry_threshold: 0.62
+  trained_model_enabled: true
+  trained_model_min_prob: 0.52
+  trained_model_blend: 0.15
+  trained_model_weights_path: "transformer_weights.pt"
+  min_liq_depth: 0.0
+  min_smc_score: 0.76
+  min_volatility_pct: 0.08
+  require_sweep: true
+  require_4h_trend: true
+  strict_htf_mode: true
+  volatility_floor_enabled: true
+  volatility_floor_atr_pct: 0.06
+  ema_trend_filter: true
+  ema_fast_period: 20
+  ema_slow_period: 50
+  momentum_filter: true
+  momentum_lookback: 5
+  volume_filter: true
+  volume_lookback: 20
+
+market_structure:
+  swing_lookback: 2
+  volume_spike_mult: 2.0
+  bos_volume_mult: 1.5
+  spread_expansion_mult: 1.5
+
+pyramid:
+  enabled: false
+  max_adds: 2
+  add_on_pullback: true
+  add_on_continuation: true
+  max_total_risk_pct: 2.0
+  add1_min_r: 0.5
+  add2_min_r: 1.2
+
+heatmap:
+  cluster_step: 20
+  max_levels: 10
+
+atr:
+  period: 14
+  min_atr_pct: 0.20
+
+exit:
+  hard_sl_atr_mult: 2.5
+  early_exit_bars: 20
+  early_exit_min_profit_atr: 0.1
+  trailing_activation_atr: 0.7
+  trailing_distance_atr: 1.2
+  tp_cap_atr_mult: 10.0
+  min_profit_before_trail_pct: 0.45
+  sl_buffer_atr_mult: 0.5
+  fee_rate: 0.001
+  ema_trend_exit: true
+  ema_exit_period: 20
+
+risk:
+  max_daily_loss_pct: 4.0
+  max_daily_loss_usdt: 50
+  max_trades_per_day: 10
+  max_consecutive_losses: 3
+  cooldown_after_loss_sec: 1800
+  cooldown_after_stop_hours: 0.5
+  max_trades_per_symbol_24h: 1
+  reduce_after_losses: 2
+  reduction_factor: 0.35
+  min_loss_usdt_for_cooldown: 0.20
+  min_loss_usdt_for_consecutive: 0.6
+  ignore_loss_cooldown_reasons: ["early_exit", "trend_exit"]
+  ignore_consecutive_loss_reasons: ["early_exit", "trend_exit"]
+
+market:
+  min_24h_volume_usdt: 30000000
+  max_symbols: 50
+  trade_symbols: 6
+  whitelist_enabled: true
+  whitelist_only: false
+  whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
+  blacklist_substrings:
+    - "1000"
+    - "LUNA"
+    - "UST"
+    - "BUSD"
+  momentum_top_n: 8
+
+ai:
+  enabled: true
+  min_confidence: 65
+  fail_open: false
+  require_direction_match: true
+  uniformity_guard_enabled: true
+  uniformity_window: 8
+  uniformity_conf_spread_max: 3
+
+advisor:
+  enabled: true
+  mode: "advisory"        # enforce | advisory | disabled
+  min_rr: 1.8
+  min_confidence: 0.58
+  min_edge: 0.35
+  max_spread_pct: 0.12
+  min_atr_pct: 0.03
+  min_abs_imbalance: 0.06
+  allow_countertrend: false
+  allow_chop: true
+
+rl:
+  enabled: false
+  add_threshold: 0.78
+  reduce_threshold: 0.7
+  close_threshold: 0.8
+  min_close_profit_pct: 0.5
+  max_panic_loss_pct: 0.6
+  min_reduce_profit_pct: 0.8
+
+position_sync:
+  adopt_all_positions: false
+  preserve_existing_sl_tp: true
+  exchange_closed_confirm_cycles: 8
+  exchange_closed_require_closed_pnl: true
+  exchange_closed_force_cycles: 30
+  exchange_closed_reentry_cooldown_sec: 900
+  pause_exchange_closed_after_rate_limit_sec: 180
+
+partial_tp:
+  enabled: true
+  trigger_progress: 0.5
+  close_fraction: 0.3
+  move_stop_to_entry: true
+
+portfolio_tp:
+  enabled: false
+  target_profit_pct: 2.0
+
+basket_profit_guard:
+  enabled: true
+  min_positions: 3
+  monitor_window_sec: 900
+  symbol_pnl_drop_pct: 40.0
+  total_drawdown_pct_after_symbol_drop: 15.0
+  min_symbol_peak_profit_usdt: 0.5
+  min_total_profit_usdt: 1.0
+  drawdown_confirm_sec: 900
+
+profit_drawdown_guard:
+  enabled: true
+  activation_profit_pct: 3.0
+  retrace_from_peak_pct: 25.0
+
+manual_management:
+  rl_enabled: false
+  preserve_existing_tp: true
+  trailing_activation_atr: 1.0
+  trailing_distance_atr: 1.4
+  notify_on_adopt: true
+  notify_on_partial_tp: true
+  notify_on_sl_move: true
+
+profit_lock:
+  min_profit_pct: 25.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600
+
+feedback_loop:
+  enabled: true
+  notify_labeling: true
+  max_pending_hours: 12
+  dataset_path: "signal_only_feedback_data.json"
+  base_dataset_path: "training_data.json"
+  queue_path: "signal_feedback_queue.json"
+  state_path: "signal_feedback_state.json"
+  retrain_daily: true
+  retrain_hour_utc: 1
+  min_new_labels_for_retrain: 150
+  use_merged_dataset_for_retrain: true
+  apply_to_risk_guard: false
+  min_feedback_label_abs_pnl_pct: 0.4
+  min_feedback_label_hold_minutes: 8
+  train_epochs: 220
+  train_lr: 0.002
+  train_batch_size: 32
+  train_val_ratio: 0.2
+  train_decision_threshold: 0.55
+  train_seed: 42
+  augment_wins_factor: 2
+  augment_noise_std: 0.03
+
+quality_gate:
+  enabled: true
+  min_confidence: 0.70
+  min_expected_edge: 0.62
+  anti_flat_min_adx: 14.5
+  anti_flat_min_atr_pct: 0.10
+  anti_flat_min_abs_imbalance: 0.14
+  anti_flat_allow_chop: false
+  anti_flat_require_htf_trend: false
+  countertrend_min_confidence: 0.88
+  countertrend_min_abs_imbalance: 0.24
+  no_zone_min_confidence: 0.80
+  reject_no_zone_entries: true
+
+symbol_quality:
+  enabled: true
+  dataset_path: "signal_only_feedback_data.json"
+  feedback_only: true
+  whitelist_bypass: true
+  min_trades: 4
+  min_winrate: 0.38
+  min_avg_pnl_pct: -1.5
+  max_recent_losses: 10
+  lookback_per_symbol: 30
+  cache_ttl_sec: 180
+
+correlation:
+  enabled: true
+  threshold: 0.88
+  max_correlated: 1
+  lookback: 50
+
+mtf_zone_confirmation:
+  enabled: true
+  require_any_zone: false
+  min_confidence_if_single_tf: 0.78
+
+adaptive_regime_presets:
+  enabled: true
+  switch_interval_sec: 900
+  notify_on_switch: true
+  benchmark_symbol: "BTCUSDT"
+  trend_strict_htf_mode: true
+  trend_volatility_floor_atr_pct: 0.06
+  range_strict_htf_mode: false
+  range_volatility_floor_atr_pct: 0.02
+
+
+# Timeframe presets: "1m", "5m", "15m"
+# Switching active_tf_preset adjusts candle_interval and related params automatically
+tf_presets:
+  active_preset: "5m"
+  presets:
+    1m:
+      candle_interval: "1"
+      htf_interval: "15"
+      htf_4h_interval: "240"
+      cycle_sleep_sec: 60
+      position_active_sleep_sec: 15
+      scan_interval_sec: 60
+      klines_limit: 180
+      early_exit_bars: 20
+      trailing_activation_atr: 0.7
+      trailing_distance_atr: 1.2
+      volatility_floor_atr_pct: 0.06
+      hard_sl_atr_mult: 2.5
+    5m:
+      candle_interval: "5"
+      htf_interval: "60"
+      htf_4h_interval: "240"
+      cycle_sleep_sec: 120
+      position_active_sleep_sec: 30
+      scan_interval_sec: 120
+      klines_limit: 120
+      early_exit_bars: 24
+      trailing_activation_atr: 0.45
+      trailing_distance_atr: 1.0
+      volatility_floor_atr_pct: 0.10
+      hard_sl_atr_mult: 2.8
+    15m:
+      candle_interval: "15"
+      htf_interval: "240"
+      htf_4h_interval: "D"
+      cycle_sleep_sec: 300
+      position_active_sleep_sec: 60
+      scan_interval_sec: 300
+      klines_limit: 96
+      early_exit_bars: 8
+      trailing_activation_atr: 1.5
+      trailing_distance_atr: 1.8
+      volatility_floor_atr_pct: 0.15
+      hard_sl_atr_mult: 3.0
+    1h:
+      candle_interval: "60"
+      htf_interval: "240"
+      htf_4h_interval: "D"
+      cycle_sleep_sec: 600
+      position_active_sleep_sec: 120
+      scan_interval_sec: 600
+      klines_limit: 96
+      early_exit_bars: 90
+      trailing_activation_atr: 1.5
+      trailing_distance_atr: 2.0
+      volatility_floor_atr_pct: 0.25
+      hard_sl_atr_mult: 3.0

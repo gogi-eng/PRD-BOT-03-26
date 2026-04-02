@@ -1,0 +1,55 @@
+{
+  "summary": "Verified all micro-exit prevention fixes (TP/SL too tight causing +0.01% and -0.02% exits). Main agent's changes correctly address the user's Telegram evidence. All 186 tests pass including 13 new targeted tests for this specific issue.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "RLPositionAgent does NOT close on +0.01% profit (user's XRPUSDT case)",
+    "RLPositionAgent does NOT close on -0.02% loss (user's BTCUSDT case)",
+    "RLPositionAgent requires >= 0.5% profit to allow CLOSE",
+    "RLPositionAgent requires <= -0.6% loss to panic CLOSE",
+    "RLPositionAgent requires >= 0.8% profit to allow REDUCE",
+    "EntryEngine enforces min_target_profit_pct (1.2%) for TP distance",
+    "EntryEngine enforces min_stop_distance_pct (0.35%) for SL distance",
+    "Manual position adoption enforces minimum SL distance",
+    "Manual position adoption enforces minimum TP distance",
+    "protective_liq_level in metadata is set to final stop_loss (not raw level)",
+    "Integration test: XRPUSDT short at +0.01% won't close",
+    "Integration test: BTCUSDT short at -0.02% won't close",
+    "All 21 backend_test.py tests pass",
+    "All 165 pytest tests pass (no regressions)"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_micro_exit_prevention.py",
+    "/app/test_reports/pytest/pytest_results_iteration10.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "rl_position_agent.py: Lines 50-52 correctly gate CLOSE action with min_close_profit_pct (0.5%) and max_panic_loss_pct (0.6%)",
+    "rl_position_agent.py: Line 56 correctly gates REDUCE action with min_reduce_profit_pct (0.8%)",
+    "entry_engine.py: Lines 82-85 enforce minimum stop distance (0.35% from config)",
+    "entry_engine.py: Lines 99-102 enforce minimum target distance (1.2% from config)",
+    "entry_engine.py: Line 141 sets protective_liq_level to final stop_loss (not raw level)",
+    "main.py: Lines 897-900 enforce minimum SL/TP distances for adopted manual positions",
+    "config.yaml: rl section has min_close_profit_pct=0.5, max_panic_loss_pct=0.6, min_reduce_profit_pct=0.8",
+    "config.yaml: entry section has min_target_profit_pct=1.2, min_stop_distance_pct=0.35"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_micro_exit_prevention.py"
+  ],
+  "success_rate": {
+    "backend": "100% (186 total tests: 21 backend_test.py + 165 pytest suite)"
+  },
+  "seed_data_creation": "None - all tests use synthetic/mocked data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Micro-exit prevention verified. Key thresholds: RL won't CLOSE unless profit >= 0.5% or loss <= -0.6%, won't REDUCE unless profit >= 0.8%. Entry signals require TP >= 1.2% and SL >= 0.35% from entry. Manual position adoption also enforces these minimums. The protective_liq_level metadata now stores final stop_loss, not raw liquidation level. This directly addresses user's XRPUSDT (+0.01% close) and BTCUSDT (-0.02% liquidation_stop) issues.",
+  "rca_of_the_issue": "User's Telegram logs showed XRPUSDT short closed at +0.01% by 'RL close' and BTCUSDT short at -0.02% by 'liquidation_stop'. Root cause: (1) RLPositionAgent had no minimum profit/loss thresholds - would close on any adverse signal regardless of P&L. (2) TP/SL levels could be set too tight from raw liquidity clusters. Fix: Added min_close_profit_pct/max_panic_loss_pct/min_reduce_profit_pct to RL agent, added min_target_profit_pct/min_stop_distance_pct to EntryEngine, and set protective_liq_level to final stop_loss rather than raw near-liquidation level."
+}

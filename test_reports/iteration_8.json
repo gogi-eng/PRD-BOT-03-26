@@ -1,0 +1,73 @@
+{
+  "summary": "Verified Strategy v2 implementation: breakout+pullback+momentum continuation entry logic, RSI removal, AI advisory mode with fake-breakout-only veto, level-based TP/SL derivation, and SCAN SUMMARY rejection logs. All 193 tests pass (20 backend_test.py + 173 pytest including 24 new strategy v2 tests). Updated 4 test expectations to match new config values.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "RSI removed: EntryEngine has no RSI threshold attributes",
+    "RSI removed: _long_ready conditions don't check RSI",
+    "RSI removed: _short_ready conditions don't check RSI",
+    "Structure detection returns all scenarios (breakout/pullback/continuation for long/short)",
+    "Breakout long detection requires trend alignment and structure break",
+    "Continuation detection checks momentum (closing price direction)",
+    "AI system prompt focuses on momentum continuation, not RSI reversal",
+    "AI fake breakout veto keywords present (fake breakout, bull trap, bear trap)",
+    "AI min_confidence lowered to 55 for v2 (more permissive)",
+    "AI fail_open enabled (allows trades when AI fails)",
+    "Entry engine uses liq_stop_buffer_atr=0.35 for protective SL",
+    "Entry engine uses level_tp_buffer_atr=0.20 for TP buffer",
+    "Manual position derives levels from liquidity clusters and swing levels",
+    "SCAN SUMMARY log format present with rejection counters",
+    "Reject reason tracking implemented (mark_reject pattern)",
+    "Config v2: transformer_threshold=0.56 (permissive)",
+    "Config v2: max_liq_distance_pct=1.10 (farther targets allowed)",
+    "Config v2: min_orderflow_imbalance=1.05 (achievable)",
+    "Config v2: min_rr_ratio=1.4 (reasonable)",
+    "Config v2: allowed_regimes includes 'chop'",
+    "No regression: profit_drawdown_guard enabled (3% activation, 25% retrace)",
+    "No regression: basket_profit_guard enabled (min 2 positions)",
+    "No regression: manual positions preserve existing TP",
+    "No regression: partial TP enabled",
+    "All 20 backend_test.py tests pass",
+    "All 149 previous pytest tests pass",
+    "All 24 new strategy v2 pytest tests pass"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_strategy_v2_changes.py",
+    "/app/backend/tests/test_entry_engine_and_level_derivation.py",
+    "/app/backend/tests/test_p0_fixes.py",
+    "/app/test_reports/pytest/pytest_results_iteration8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Strategy v2 correctly removes RSI from entry conditions - no RSI threshold/overbought/oversold checks in EntryEngine",
+    "_detect_structure() returns 6 structure types: breakout_long/short, pullback_long/short, continuation_long/short",
+    "Structure triggers are trend-aligned: breakout requires price >= breakout_high * 0.998, pullback requires touch of EMA then bounce",
+    "AI veto is now soft: only explicit fake-breakout keywords (fake breakout, bull trap, bear trap) with confidence >= 70 trigger hard veto",
+    "structural_override bypasses AI veto when: confidence >= 0.72 AND trend == htf_trend AND (structure_breakout OR structure_pullback)",
+    "_derive_manual_position_levels() uses liquidity clusters and swing highs/lows for level-based SL/TP, falls back to ATR*min_rr_ratio",
+    "SCAN SUMMARY logs rejection counters via mark_reject() pattern in _scan_entries()",
+    "Config changes: transformer_threshold 0.60->0.56, max_liq_distance 0.55->1.10, orderflow_imbalance 1.12->1.05, min_rr 1.8->1.4",
+    "allowed_regimes now includes 'chop' for more entry opportunities"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_entry_engine_and_level_derivation.py",
+    "/app/backend/tests/test_p0_fixes.py",
+    "/app/backend/tests/test_strategy_v2_changes.py"
+  ],
+  "success_rate": {
+    "backend": "100% (193/193 tests passed - 20 backend_test.py + 173 pytest)"
+  },
+  "seed_data_creation": "None - all tests use mocked/synthetic data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Strategy v2 implementation verified: (1) RSI is completely removed from entry conditions, (2) AI veto is advisory-only except for explicit fake-breakout keywords, (3) Entry uses breakout+pullback+continuation structure detection, (4) SL/TP derivation uses liquidity clusters and swing levels with ATR buffers, (5) Config thresholds lowered to address no-trade problem. No live network testing performed per instructions.",
+  "rca_of_the_issue": "Strategy v2 addresses the no-trade problem: Previous strategy was too restrictive with RSI acting as hard reversal gate, high transformer_threshold (0.60), tight max_liq_distance (0.55), and strict orderflow imbalance (1.12). The rewrite removes RSI entirely, lowers thresholds (0.56, 1.10, 1.05), and makes AI veto soft (advisory-only except for fake-breakout). SL/TP now derives from structural levels (liquidity clusters, swing highs/lows) instead of blind ATR-based calculations."
+}

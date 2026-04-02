@@ -1,0 +1,64 @@
+{
+  "summary": "Verified adaptive liquidation heatmap clustering and synthetic fallback for low-priced symbols. All 125 tests pass (19 backend_test.py + 106 pytest). The adaptive cluster step correctly scales based on price ranges (100.0 for BTC, 0.01 for TRUMP ~$4.19), synthetic heatmap fallback provides valid targets when liquidation cache is empty, and _analyze_symbol no longer blocks entries due to missing liquidation target.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Adaptive cluster step: BTC ~$60000 uses step=100.0",
+    "Adaptive cluster step: ETH ~$3000 uses step=100.0",
+    "Adaptive cluster step: price 100-1000 uses step=20.0",
+    "Adaptive cluster step: price 10-100 uses step=0.1",
+    "Adaptive cluster step: price 1-10 (TRUMP ~$4.19) uses step=0.01",
+    "Adaptive cluster step: price 0.1-1 uses step=0.001",
+    "Adaptive cluster step: price <0.1 uses step=0.0001",
+    "Low-price symbol clusters properly with valid events",
+    "Low-price symbol with no events returns neutral analysis",
+    "Low-price symbol bearish magnet correctly signals -1",
+    "Synthetic fallback provides target when no live events cached",
+    "Synthetic fallback builds events from candle highs and lows",
+    "Synthetic fallback uses last 36 candles (window)",
+    "Live liquidation events preferred over synthetic fallback",
+    "_analyze_symbol uses synthetic fallback for low-price symbols",
+    "BTC heatmap still works (no regression)",
+    "ETH heatmap still works (no regression)",
+    "Zero/negative price returns neutral analysis",
+    "Events with zero/negative price are ignored",
+    "Events with zero/negative size are ignored",
+    "All 19 backend_test.py tests pass",
+    "All 84 previous pytest tests pass",
+    "All 22 new adaptive heatmap pytest tests pass"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_liquidation_heatmap_adaptive.py",
+    "/app/backend/tests/test_p0_fixes.py",
+    "/app/backend/tests/test_trading_bot_features.py",
+    "/app/backend/tests/test_profit_drawdown_guard.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_resolve_cluster_step() correctly adapts bucket size based on price: >=1000→100, >=100→20, >=10→0.1, >=1→0.01, >=0.1→0.001, <0.1→0.0001",
+    "_resolve_liquidation_context() properly tries live events first, falls back to synthetic when target_level==0",
+    "_build_synthetic_liquidation_events() uses last 36 candles and creates Buy events from lows, Sell events from highs relative to current_price",
+    "Synthetic events have proper weight calculation: max(volume * close, 1.0) ensuring non-zero size",
+    "_analyze_symbol() at line 506-507 still blocks if liq.target_level <= 0, but fallback should prevent this for most cases",
+    "No changes to existing profit_drawdown_guard, basket_profit_guard, or manual position logic"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_liquidation_heatmap_adaptive.py"
+  ],
+  "success_rate": {
+    "backend": "100% (125/125 tests passed - 19 backend_test.py + 106 pytest)"
+  },
+  "seed_data_creation": "None - all tests use mocked data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All adaptive heatmap features verified: (1) _resolve_cluster_step() adapts bucket size for low-price symbols (0.01 for $1-10, 0.001 for $0.1-1, etc.), (2) _resolve_liquidation_context() falls back to synthetic heatmap when live cache is empty, (3) _build_synthetic_liquidation_events() creates events from candle highs/lows with volume-weighted sizes, (4) no regressions in existing features. Note: _analyze_symbol still has early return at line 506-507 if liq.target_level <= 0, but synthetic fallback should provide target in most cases. No live network testing performed per instructions."
+}

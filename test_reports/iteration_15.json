@@ -1,0 +1,89 @@
+{
+  "summary": "Comprehensive testing of trained model integration in Entry Engine v6. All 46 tests passed covering: (1) Checkpoint loading behavior when file exists/missing/corrupted, (2) Trained win probability prediction clamped safely to [0,1], (3) Low probability rejection via trained_model_min_prob threshold, (4) Confidence blending formula with trained_model_blend, (5) Same-side cooldown regression check in main.py.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Checkpoint Loading: model_none_when_checkpoint_missing",
+    "Checkpoint Loading: model_none_when_disabled",
+    "Checkpoint Loading: model_loaded_when_checkpoint_exists",
+    "Checkpoint Loading: corrupted_checkpoint_handled_gracefully",
+    "Checkpoint Loading: relative_path_resolution",
+    "Trained Win Probability: prediction_returns_none_when_model_missing",
+    "Trained Win Probability: prediction_clamped_to_0_1_range",
+    "Trained Win Probability: prediction_with_extreme_inputs",
+    "Trained Win Probability: _clamp static method correctness",
+    "Trained Win Probability: _normalize_rr method (RR/15 capped to 1.0)",
+    "Trained Win Probability: _normalize_htf_trend method (-1,0,1 → 0,0.5,1)",
+    "Low Probability Rejection: low_prob_rejects_entry via trained_model_min_prob",
+    "Low Probability Rejection: rejection_metadata_contains_prob",
+    "Confidence Blending: blending_formula_correctness (composite*(1-blend)+prob*blend)",
+    "Confidence Blending: no_blending_when_model_missing",
+    "Confidence Blending: blending_applied_when_model_loaded",
+    "Confidence Blending: blend_clamped_to_0_1",
+    "Same-Side Cooldown Regression: _same_side_cooldown_remaining method exists",
+    "Same-Side Cooldown Regression: _register_signal_timestamp method exists",
+    "Same-Side Cooldown Regression: signal_cooldown_sec in config (3600)",
+    "Same-Side Cooldown Regression: _last_signal_ts attribute initialized",
+    "Same-Side Cooldown Regression: cooldown_check_in_scan_entries",
+    "Same-Side Cooldown Regression: cooldown_logic_returns_remaining_seconds",
+    "Config: trained_model_enabled = true",
+    "Config: trained_model_min_prob = 0.55",
+    "Config: trained_model_blend = 0.35",
+    "Config: trained_model_weights_path = transformer_weights.pt",
+    "Config: entry_threshold reasonable (0.5-0.95)",
+    "Signal Generation: metadata_contains_trained_model_fields",
+    "Signal Generation: full_signal_flow_with_trained_model",
+    "Entry Engine v6: all_signals_aligned_bull_enters",
+    "Entry Engine v6: all_signals_aligned_bear_enters",
+    "Entry Engine v6: conflicting_signals_below_threshold",
+    "Entry Engine v6: score_breakdown_in_metadata",
+    "Entry Engine v6: neutral_trend_can_still_trade",
+    "Entry Engine v6: rr_still_hard_requirement",
+    "Transformer Calibration: no_100_percent_probability",
+    "Transformer Calibration: calibration_preserves_ordering",
+    "Transformer Calibration: calibrated_probs_sum_to_one",
+    "Orderflow Scoring: strong_bullish_imbalance_boosts_score",
+    "Orderflow Scoring: bearish_imbalance_on_bullish_trend_lowers_score",
+    "Orderflow Scoring: uses_normalized_not_raw_ratio",
+    "Config v6: entry_threshold = 0.85 (updated from 0.65)",
+    "Config v6: trade_symbols = 25",
+    "Config v6: min_rr_ratio >= 2.0 (actual: 2.5)",
+    "Config v6: early_exit_bars = 0"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_trained_model_integration.py",
+    "/app/backend/tests/test_entry_engine_v6.py",
+    "/app/test_reports/pytest/pytest_results_iteration15.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "entry_engine.py: _load_trained_model correctly handles missing file, corrupted checkpoint, and torch unavailability",
+    "entry_engine.py: _predict_trained_win_prob uses 7 features properly normalized: composite_score, trend_score, orderflow_score, ai_score, normalized_imbalance, rr_ratio, htf_4h_trend",
+    "entry_engine.py: Probability output is clamped to [0,1] via sigmoid + _clamp at line 191",
+    "entry_engine.py: Low probability rejection at lines 460-468 checks trained_win_prob < trained_model_min_prob",
+    "entry_engine.py: Blending formula at lines 471-473: composite*(1-blend) + trained_prob*blend",
+    "entry_engine.py: Signal metadata includes trained_model_prob, trained_model_applied, blended_confidence at lines 516-518",
+    "main.py: Same-side cooldown logic preserved at lines 962-976 (_same_side_cooldown_remaining)",
+    "main.py: Cooldown check integrated in _scan_entries at lines 535-539",
+    "config.yaml: All trained_model_* keys present (enabled, min_prob, blend, weights_path) at lines 42-45"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_trained_model_integration.py (created)",
+    "/app/backend/tests/test_entry_engine_v6.py (fixed entry_threshold expected value 0.65→0.85)"
+  ],
+  "success_rate": {
+    "backend": "46/46 (100%)"
+  },
+  "seed_data_creation": "None - all tests use mock objects and temporary checkpoint files",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Trained model integration fully tested. Key implementation details: (1) _TinyTransformerClassifier in entry_engine.py with 7-feature input (FEATURE_DIM=7), (2) Checkpoint format: {model_state_dict, d_model, nhead, num_layers, val_precision}, (3) Probability always clamped [0,1] via torch.sigmoid + _clamp, (4) Blending uses trained_model_blend weight (0.35 default), (5) Low prob rejection threshold is trained_model_min_prob (0.55 default), (6) Weights resolved relative to /app/bot/ directory. No regressions: same-side cooldown in main.py still functional.",
+  "rca_of_the_issue": "N/A - This is a verification test run for new trained model integration features. All 46 tests pass, confirming the 5-point feature implementation is correct."
+}

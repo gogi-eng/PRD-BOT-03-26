@@ -1,0 +1,127 @@
+{
+  "summary": "Iteration 40: Verified TWO critical bug fixes - (1) Manual positions no longer trigger liquidation_stop exit (protective_liq_level=0.0), (2) exchange_closed closedPnl check now validates timestamps (max 5 min age). All 34 tests passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Config Value Verification (3 tests) ---",
+    "TestConfigExchangeClosedValues::test_exchange_closed_confirm_cycles_is_5 - PASSED",
+    "TestConfigExchangeClosedValues::test_exchange_closed_force_cycles_is_20 - PASSED",
+    "TestConfigExchangeClosedValues::test_exchange_closed_require_closed_pnl_is_true - PASSED",
+    "--- Manual Position protective_liq_level Tests (3 tests) ---",
+    "TestManualPositionProtectiveLiqLevel::test_position_dataclass_has_protective_liq_level_default_zero - PASSED",
+    "TestManualPositionProtectiveLiqLevel::test_position_dataclass_has_origin_field - PASSED",
+    "TestManualPositionProtectiveLiqLevel::test_manual_position_origin_can_be_set - PASSED",
+    "--- ExitEngine Protective Level Tests (4 tests) ---",
+    "TestExitEngineProtectiveLevel::test_protective_level_zero_skips_liquidation_stop_check - PASSED",
+    "TestExitEngineProtectiveLevel::test_protective_level_positive_triggers_liquidation_stop_long - PASSED",
+    "TestExitEngineProtectiveLevel::test_protective_level_positive_no_trigger_when_price_above - PASSED",
+    "TestExitEngineProtectiveLevel::test_short_position_protective_level_triggers_when_price_above - PASSED",
+    "--- Manual Position Still Triggers Other Exits (4 tests) ---",
+    "TestManualPositionStillTriggersOtherExits::test_manual_position_triggers_hard_sl_long - PASSED",
+    "TestManualPositionStillTriggersOtherExits::test_manual_position_triggers_hard_sl_short - PASSED",
+    "TestManualPositionStillTriggersOtherExits::test_manual_position_triggers_tp_cap_long - PASSED",
+    "TestManualPositionStillTriggersOtherExits::test_manual_position_triggers_trailing_exit - PASSED",
+    "--- Manual Position No Early Exit (1 test) ---",
+    "TestManualPositionNoEarlyExit::test_manual_position_no_early_exit - PASSED",
+    "--- _filter_recent_closed_pnl Tests (7 tests) ---",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_method_exists - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_filters_old_records - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_empty_input - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_all_old - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_all_recent - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_uses_createdTime_fallback - PASSED",
+    "TestFilterRecentClosedPnl::test_filter_recent_closed_pnl_boundary_exactly_5_min - PASSED",
+    "--- Main.py Code Verification Tests (6 tests) ---",
+    "TestMainPyManualPositionProtection::test_sync_exchange_position_sets_protective_liq_level_zero - PASSED",
+    "TestMainPyManualPositionProtection::test_check_exit_passes_zero_for_manual_origin - PASSED",
+    "TestMainPyManualPositionProtection::test_check_exit_passes_allow_early_exit_false_for_manual - PASSED",
+    "TestMainPyExchangeClosedTimestampFiltering::test_filter_recent_closed_pnl_called_in_manage_positions - PASSED",
+    "TestMainPyExchangeClosedTimestampFiltering::test_recent_closed_used_for_finalization_check - PASSED",
+    "TestMainPyExchangeClosedTimestampFiltering::test_max_age_sec_300_used - PASSED",
+    "--- Integration Tests (4 tests) ---",
+    "TestManualPositionIntegration::test_exit_engine_initialize_position_with_zero_protective_level - PASSED",
+    "TestManualPositionIntegration::test_bot_position_can_have_protective_level - PASSED",
+    "TestExchangeClosedCycleValues::test_trading_bot_loads_confirm_cycles_5 - PASSED",
+    "TestExchangeClosedCycleValues::test_trading_bot_loads_force_cycles_20 - PASSED",
+    "--- Finalization Logic Tests (1 test) ---",
+    "TestCanFinalizeExchangeClosed::test_can_finalize_with_recent_closed_records - PASSED",
+    "--- Summary Test (1 test) ---",
+    "TestIteration40Summary::test_all_bug_fixes_present - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration40_manual_position_protection.py",
+    "/app/test_reports/pytest/pytest_results_iteration40.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "main.py line 1873: exit_engine.initialize_position(adopted, atr_val, protective_liq_level=0.0) - Manual positions correctly initialized with NO protective liquidation level",
+    "main.py line 728: protective_level=pos.protective_liq_level if pos.origin == 'bot' else 0.0 - check_exit correctly passes 0.0 for manual positions",
+    "main.py line 729: allow_early_exit=(pos.origin == 'bot') - Manual positions correctly skip early_exit check",
+    "main.py line 2257-2268: _filter_recent_closed_pnl static method correctly filters closedPnl records by timestamp (updatedTime or createdTime)",
+    "main.py line 584: recent_closed = self._filter_recent_closed_pnl(closed, max_age_sec=300) - exchange_closed finalization now uses timestamp-filtered records",
+    "main.py line 586: _can_finalize_exchange_closed uses len(recent_closed) instead of len(closed) - Old records no longer count as evidence",
+    "config.yaml line 143: exchange_closed_confirm_cycles: 5 (was 3) - More cycles required before confirming position closed",
+    "config.yaml line 145: exchange_closed_force_cycles: 20 (was 8) - Much longer wait before force-finalizing without closedPnl evidence"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration40_manual_position_protection.py"
+  ],
+  "success_rate": {
+    "backend": "34/34 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 40 verified TWO critical bug fixes: (1) Manual (adopted) positions no longer trigger liquidation_stop exit - protective_liq_level is set to 0.0 in _sync_exchange_position (line 1873) and check_exit passes protective_level=0.0 for manual origins (line 728). Manual positions still trigger hard_sl, trailing_exit, tp_cap exits but NOT liquidation_stop or early_exit. (2) exchange_closed closedPnl check now validates timestamps - _filter_recent_closed_pnl method (line 2257-2268) filters records by updatedTime/createdTime with max 5 min age. Old closedPnl records from previous trades no longer count as evidence for exchange_closed finalization. Config changes: exchange_closed_confirm_cycles=5 (was 3), exchange_closed_force_cycles=20 (was 8).",
+  "feature_verification": {
+    "manual_position_no_liquidation_stop": {
+      "code_location": "main.py line 1873, line 728",
+      "behavior": "Manual positions have protective_liq_level=0.0, so ExitEngine.check_exit skips liquidation_stop check (if protective_level > 0 condition fails)",
+      "status": "VERIFIED"
+    },
+    "manual_position_no_early_exit": {
+      "code_location": "main.py line 729",
+      "behavior": "allow_early_exit=(pos.origin == 'bot') means manual positions skip early_exit check",
+      "status": "VERIFIED"
+    },
+    "manual_position_still_triggers_hard_sl": {
+      "behavior": "Manual positions still trigger hard_sl when price hits stop_loss",
+      "status": "VERIFIED"
+    },
+    "manual_position_still_triggers_trailing_exit": {
+      "behavior": "Manual positions still trigger trailing_exit when trailing is active and price hits trailing_stop",
+      "status": "VERIFIED"
+    },
+    "manual_position_still_triggers_tp_cap": {
+      "behavior": "Manual positions still trigger tp_cap when price hits take_profit",
+      "status": "VERIFIED"
+    },
+    "filter_recent_closed_pnl_method": {
+      "code_location": "main.py line 2257-2268",
+      "behavior": "Static method filters closedPnl records by timestamp (updatedTime or createdTime), keeping only records from last max_age_sec seconds (default 300 = 5 min)",
+      "status": "VERIFIED"
+    },
+    "exchange_closed_uses_recent_closed": {
+      "code_location": "main.py line 584, 586",
+      "behavior": "exchange_closed finalization now uses recent_closed (timestamp-filtered) instead of all closedPnl records",
+      "status": "VERIFIED"
+    },
+    "exchange_closed_confirm_cycles_5": {
+      "config_location": "config.yaml line 143",
+      "behavior": "5 cycles required before confirming position closed (was 3)",
+      "status": "VERIFIED"
+    },
+    "exchange_closed_force_cycles_20": {
+      "config_location": "config.yaml line 145",
+      "behavior": "20 cycles required before force-finalizing without closedPnl evidence (was 8)",
+      "status": "VERIFIED"
+    }
+  }
+}

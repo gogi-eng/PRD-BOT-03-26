@@ -1,0 +1,168 @@
+{
+  "summary": "Iteration 39: Verified comprehensive 'Anti-Loss' package - all 46 tests passed. Config values verified: entry_threshold=0.72, early_exit_bars=6, trained_model_min_prob=0.52, trained_model_blend=0.30, min_rr_ratio=3.0, max_positions=2, trade_symbols=10, cooldown_after_loss_sec=3600, exchange_closed REMOVED from ignore lists, min_stop_atr_mult=1.6, sl_buffer_atr_mult=1.0. EntryEngine, ExitEngine, and RiskGuard all load correct values. Trailing stop logging present in exit_engine.py and main.py.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Config Value Verification (12 tests) ---",
+    "TestConfigAntiLossValues::test_entry_threshold_is_072 - PASSED",
+    "TestConfigAntiLossValues::test_early_exit_bars_is_6 - PASSED",
+    "TestConfigAntiLossValues::test_trained_model_min_prob_is_052 - PASSED",
+    "TestConfigAntiLossValues::test_trained_model_blend_is_030 - PASSED",
+    "TestConfigAntiLossValues::test_min_rr_ratio_is_30 - PASSED",
+    "TestConfigAntiLossValues::test_max_positions_is_2 - PASSED",
+    "TestConfigAntiLossValues::test_trade_symbols_is_10 - PASSED",
+    "TestConfigAntiLossValues::test_cooldown_after_loss_sec_is_3600 - PASSED",
+    "TestConfigAntiLossValues::test_exchange_closed_not_in_ignore_loss_cooldown_reasons - PASSED",
+    "TestConfigAntiLossValues::test_exchange_closed_not_in_ignore_consecutive_loss_reasons - PASSED",
+    "TestConfigAntiLossValues::test_min_stop_atr_mult_is_16 - PASSED",
+    "TestConfigAntiLossValues::test_sl_buffer_atr_mult_entry_is_10 - PASSED",
+    "--- EntryEngine Threshold Tests (6 tests) ---",
+    "TestEntryEngineThreshold::test_entry_engine_loads_threshold_072 - PASSED",
+    "TestEntryEngineThreshold::test_entry_engine_loads_min_rr_ratio_30 - PASSED",
+    "TestEntryEngineThreshold::test_entry_engine_loads_trained_model_min_prob_052 - PASSED",
+    "TestEntryEngineThreshold::test_entry_engine_loads_trained_model_blend_030 - PASSED",
+    "TestEntryEngineThreshold::test_entry_engine_loads_min_stop_atr_mult_16 - PASSED",
+    "TestEntryEngineThreshold::test_entry_engine_loads_sl_buffer_atr_mult_10 - PASSED",
+    "--- ExitEngine Early Exit Tests (4 tests) ---",
+    "TestExitEngineEarlyExit::test_exit_engine_loads_early_exit_bars_6 - PASSED",
+    "TestExitEngineEarlyExit::test_early_exit_triggers_after_6_bars_no_profit - PASSED",
+    "TestExitEngineEarlyExit::test_no_early_exit_before_6_bars - PASSED",
+    "TestExitEngineEarlyExit::test_no_early_exit_with_sufficient_profit - PASSED",
+    "--- RiskGuard exchange_closed Tests (7 tests) ---",
+    "TestRiskGuardExchangeClosed::test_exchange_closed_not_in_ignore_cooldown_reasons - PASSED",
+    "TestRiskGuardExchangeClosed::test_exchange_closed_not_in_ignore_consecutive_reasons - PASSED",
+    "TestRiskGuardExchangeClosed::test_early_exit_is_in_ignore_cooldown_reasons - PASSED",
+    "TestRiskGuardExchangeClosed::test_early_exit_is_in_ignore_consecutive_reasons - PASSED",
+    "TestRiskGuardExchangeClosed::test_exchange_closed_loss_triggers_cooldown - PASSED",
+    "TestRiskGuardExchangeClosed::test_exchange_closed_loss_counts_for_consecutive - PASSED",
+    "TestRiskGuardExchangeClosed::test_early_exit_loss_does_not_trigger_cooldown - PASSED",
+    "--- Trailing Stop Logging Tests (5 tests) ---",
+    "TestTrailingStopLogging::test_trail_activated_log_present_in_exit_engine - PASSED",
+    "TestTrailingStopLogging::test_trail_move_log_present_in_exit_engine - PASSED",
+    "TestTrailingStopLogging::test_trail_activated_log_for_long - PASSED",
+    "TestTrailingStopLogging::test_trail_activated_log_for_short - PASSED",
+    "TestTrailingStopLogging::test_trail_move_log_includes_r_multiple - PASSED",
+    "--- Main.py Quality Gate and Trailing Tests (5 tests) ---",
+    "TestMainPyQualityGateAndTrailing::test_quality_gate_log_present_in_main - PASSED",
+    "TestMainPyQualityGateAndTrailing::test_quality_gate_log_shows_reject_no_zone - PASSED",
+    "TestMainPyQualityGateAndTrailing::test_trail_diagnostic_log_present_in_main - PASSED",
+    "TestMainPyQualityGateAndTrailing::test_trail_diagnostic_includes_r_multiple - PASSED",
+    "TestMainPyQualityGateAndTrailing::test_trail_diagnostic_includes_trail_active - PASSED",
+    "--- Quality Gate reject_no_zone Tests (3 tests) ---",
+    "TestQualityGateRejectNoZone::test_config_has_reject_no_zone_entries_true - PASSED",
+    "TestQualityGateRejectNoZone::test_config_has_quality_gate_enabled - PASSED",
+    "TestQualityGateRejectNoZone::test_quality_gate_check_is_outside_signal_only_block - PASSED",
+    "--- Integration Tests (4 tests) ---",
+    "TestAntiLossIntegration::test_all_anti_loss_config_values_summary - PASSED",
+    "TestAntiLossIntegration::test_entry_engine_with_config_values - PASSED",
+    "TestAntiLossIntegration::test_exit_engine_with_config_values - PASSED",
+    "TestAntiLossIntegration::test_risk_guard_with_config_values - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration39_anti_loss_package.py",
+    "/app/test_reports/pytest/pytest_results_iteration39.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "config.yaml: All Anti-Loss values correctly set - entry_threshold=0.72, early_exit_bars=6, trained_model_min_prob=0.52, trained_model_blend=0.30, min_rr_ratio=3.0, max_positions=2, trade_symbols=10, cooldown_after_loss_sec=3600",
+    "config.yaml line 106-107: exchange_closed correctly REMOVED from ignore_loss_cooldown_reasons and ignore_consecutive_loss_reasons (only 'early_exit' remains)",
+    "entry_engine.py: EntryEngine correctly loads all Anti-Loss config values including entry_threshold=0.72, min_stop_atr_mult=1.6, sl_buffer_atr_mult=1.0",
+    "exit_engine.py line 178-191: [TRAIL ACTIVATED] logging added for both LONG and SHORT positions with breakeven info",
+    "exit_engine.py line 214-220, 236-242: [TRAIL MOVE] logging added with R multiple, old/new trail stop values",
+    "main.py line 432-438: Quality gate startup log shows for ALL modes (not just signal-only) with reject_no_zone setting",
+    "main.py line 705-714: [TRAIL] diagnostic logging in position management loop with R multiple, trail_active, trail_stop, activation price, SL, bars"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration39_anti_loss_package.py"
+  ],
+  "success_rate": {
+    "backend": "46/46 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 39 verified comprehensive Anti-Loss package: (1) Config values: entry_threshold=0.72, early_exit_bars=6, trained_model_min_prob=0.52, trained_model_blend=0.30, min_rr_ratio=3.0, max_positions=2, trade_symbols=10, cooldown_after_loss_sec=3600, min_stop_atr_mult=1.6, sl_buffer_atr_mult=1.0, (2) exchange_closed REMOVED from ignore_loss_cooldown_reasons and ignore_consecutive_loss_reasons - now counts for cooldown and consecutive loss tracking, (3) EntryEngine uses entry_threshold=0.72 to reject signals below it, (4) ExitEngine early_exit_bars=6 closes stagnant trades after 6 bars, (5) Trailing stop logging present in exit_engine.py ([TRAIL ACTIVATED], [TRAIL MOVE]) and main.py ([TRAIL] diagnostic), (6) Quality gate reject_no_zone_entries=true works in ALL modes.",
+  "feature_verification": {
+    "entry_threshold_072": {
+      "config": "config.yaml line 47: entry_threshold: 0.72",
+      "engine_load": "entry_engine.py line 113: self.entry_threshold = cfg.get('entry', 'entry_threshold', default=self.ENTRY_THRESHOLD)",
+      "behavior": "Signals with composite score < 0.72 are rejected",
+      "status": "VERIFIED"
+    },
+    "early_exit_bars_6": {
+      "config": "config.yaml line 86: early_exit_bars: 6",
+      "engine_load": "ExitEngine constructor loads early_exit_bars from config",
+      "behavior": "Positions with bars_since_entry >= 6 and insufficient profit trigger EARLY_EXIT",
+      "status": "VERIFIED"
+    },
+    "trained_model_min_prob_052": {
+      "config": "config.yaml line 49: trained_model_min_prob: 0.52",
+      "engine_load": "entry_engine.py line 115: self.trained_model_min_prob = cfg.get('entry', 'trained_model_min_prob', default=0.55)",
+      "behavior": "Trained model predictions below 0.52 are rejected",
+      "status": "VERIFIED"
+    },
+    "trained_model_blend_030": {
+      "config": "config.yaml line 50: trained_model_blend: 0.30",
+      "engine_load": "entry_engine.py line 116: self.trained_model_blend = cfg.get('entry', 'trained_model_blend', default=0.35)",
+      "behavior": "30% weight given to trained model in blended confidence",
+      "status": "VERIFIED"
+    },
+    "min_rr_ratio_30": {
+      "config": "config.yaml line 35: min_rr_ratio: 3.0",
+      "engine_load": "entry_engine.py line 102: self.min_rr_ratio = cfg.get('entry', 'min_rr_ratio', default=2.0)",
+      "behavior": "Signals with RR < 3.0 are rejected",
+      "status": "VERIFIED"
+    },
+    "max_positions_2": {
+      "config": "config.yaml line 24: max_positions: 2",
+      "behavior": "Bot limits to 2 concurrent positions",
+      "status": "VERIFIED"
+    },
+    "trade_symbols_10": {
+      "config": "config.yaml line 112: trade_symbols: 10",
+      "behavior": "Bot scans top 10 symbols for entries",
+      "status": "VERIFIED"
+    },
+    "cooldown_after_loss_sec_3600": {
+      "config": "config.yaml line 99: cooldown_after_loss_sec: 3600",
+      "guard_load": "RiskGuard constructor loads cooldown_after_loss_sec from config",
+      "behavior": "1 hour cooldown after significant loss",
+      "status": "VERIFIED"
+    },
+    "exchange_closed_not_ignored": {
+      "config": "config.yaml line 106-107: ignore_loss_cooldown_reasons: ['early_exit'], ignore_consecutive_loss_reasons: ['early_exit']",
+      "behavior": "exchange_closed losses now trigger cooldown and count for consecutive loss tracking",
+      "status": "VERIFIED"
+    },
+    "min_stop_atr_mult_16": {
+      "config": "config.yaml line 39: min_stop_atr_mult: 1.6",
+      "engine_load": "entry_engine.py line 105: self.min_stop_atr_mult = cfg.get('entry', 'min_stop_atr_mult', default=0.9)",
+      "behavior": "Minimum stop distance is 1.6 * ATR",
+      "status": "VERIFIED"
+    },
+    "sl_buffer_atr_mult_10": {
+      "config": "config.yaml line 40: sl_buffer_atr_mult: 1.0",
+      "engine_load": "entry_engine.py line 107: self.sl_buffer_atr_mult = cfg.get('entry', 'sl_buffer_atr_mult', default=0.5)",
+      "behavior": "SL buffer is 1.0 * ATR below sweep low",
+      "status": "VERIFIED"
+    },
+    "trailing_stop_logging": {
+      "exit_engine": "exit_engine.py line 178-191 ([TRAIL ACTIVATED]), line 214-220 ([TRAIL MOVE] LONG), line 236-242 ([TRAIL MOVE] SHORT)",
+      "main_py": "main.py line 705-714 ([TRAIL] diagnostic with R multiple, trail_active, trail_stop, activation, SL, bars)",
+      "status": "VERIFIED"
+    },
+    "quality_gate_all_modes": {
+      "config": "config.yaml line 225: reject_no_zone_entries: true",
+      "main_py": "main.py line 432-438: Quality gate log shows for ALL modes",
+      "behavior": "Quality gate applies to both signal-only and LIVE modes",
+      "status": "VERIFIED"
+    }
+  }
+}

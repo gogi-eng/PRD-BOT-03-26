@@ -1,0 +1,125 @@
+{
+  "summary": "Iteration 44: Verified all signal quality fixes - 32/32 tests passed. (1) OrderflowAnalyzer: depth_levels=25 (was 10), tracks recent_buy_vol/recent_sell_vol for last 30 trades, normalized_imbalance uses weighted_imb (60% recent + 40% total), imbalance_score uses 40% orderbook + 35% trade + 25% weighted_imb, dominant_side uses weighted_imb threshold 0.15, handles empty orderbook/trades. (2) Exhaustion guard: rejects entry when 5+ of 7 last candles move in signal direction, allows entry with 3-4 candles, works for BUY and SELL. (3) Counter-flow guard: rejects SELL when buy_vol > sell_vol * 1.4, rejects BUY when sell_vol > buy_vol * 1.4, allows entry when volumes balanced. (4) Config: trailing_activation_atr=0.7, trailing_distance_atr=1.2, exchange_closed_confirm_cycles=8, exchange_closed_force_cycles=30, 1m preset has correct trailing values. (5) Regression: classify_signal_grade A/B/C works, EntrySignal.grade field intact.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [],
+  "passed_tests": [
+    "--- OrderflowAnalyzer Depth Levels (3 tests) ---",
+    "TestOrderflowAnalyzerDepthLevels::test_default_depth_levels_is_25 - PASSED",
+    "TestOrderflowAnalyzerDepthLevels::test_depth_levels_can_be_customized - PASSED",
+    "TestOrderflowAnalyzerDepthLevels::test_analyzer_uses_depth_levels_for_orderbook - PASSED",
+    "--- OrderflowAnalyzer Recent Trade Tracking (2 tests) ---",
+    "TestOrderflowAnalyzerRecentTradeTracking::test_recent_trades_affect_weighted_imbalance - PASSED",
+    "TestOrderflowAnalyzerRecentTradeTracking::test_old_trades_have_less_weight - PASSED",
+    "--- OrderflowAnalyzer Imbalance Score Weights (1 test) ---",
+    "TestOrderflowAnalyzerImbalanceScoreWeights::test_imbalance_score_formula - PASSED",
+    "--- OrderflowAnalyzer Dominant Side (3 tests) ---",
+    "TestOrderflowAnalyzerDominantSide::test_dominant_side_bullish_threshold - PASSED",
+    "TestOrderflowAnalyzerDominantSide::test_dominant_side_bearish_threshold - PASSED",
+    "TestOrderflowAnalyzerDominantSide::test_dominant_side_neutral_threshold - PASSED",
+    "--- OrderflowAnalyzer Empty Data Handling (3 tests) ---",
+    "TestOrderflowAnalyzerEmptyDataHandling::test_empty_orderbook - PASSED",
+    "TestOrderflowAnalyzerEmptyDataHandling::test_empty_trades - PASSED",
+    "TestOrderflowAnalyzerEmptyDataHandling::test_empty_orderbook_and_trades - PASSED",
+    "--- Exhaustion Guard (4 tests) ---",
+    "TestExhaustionGuard::test_exhaustion_guard_rejects_buy_after_5_bullish_candles - PASSED",
+    "TestExhaustionGuard::test_exhaustion_guard_rejects_sell_after_5_bearish_candles - PASSED",
+    "TestExhaustionGuard::test_exhaustion_guard_allows_entry_with_3_candles_same_direction - PASSED",
+    "TestExhaustionGuard::test_exhaustion_guard_allows_entry_with_4_candles_same_direction - PASSED",
+    "--- Counter-Flow Guard (3 tests) ---",
+    "TestCounterFlowGuard::test_counter_flow_rejects_sell_when_heavy_buying - PASSED",
+    "TestCounterFlowGuard::test_counter_flow_rejects_buy_when_heavy_selling - PASSED",
+    "TestCounterFlowGuard::test_counter_flow_allows_entry_when_volumes_balanced - PASSED",
+    "--- Config Values (6 tests) ---",
+    "TestConfigValues::test_trailing_activation_atr_is_0_7 - PASSED",
+    "TestConfigValues::test_trailing_distance_atr_is_1_2 - PASSED",
+    "TestConfigValues::test_exchange_closed_confirm_cycles_is_8 - PASSED",
+    "TestConfigValues::test_exchange_closed_force_cycles_is_30 - PASSED",
+    "TestConfigValues::test_1m_preset_trailing_activation_atr - PASSED",
+    "TestConfigValues::test_1m_preset_trailing_distance_atr - PASSED",
+    "--- Regression: Classify Signal Grade (4 tests) ---",
+    "TestRegressionClassifySignalGrade::test_classify_signal_grade_exists - PASSED",
+    "TestRegressionClassifySignalGrade::test_grade_a_high_conviction - PASSED",
+    "TestRegressionClassifySignalGrade::test_grade_b_standard - PASSED",
+    "TestRegressionClassifySignalGrade::test_grade_c_marginal - PASSED",
+    "--- Regression: P0 Manual Protection (2 tests) ---",
+    "TestRegressionP0ManualProtection::test_entry_signal_has_grade_field - PASSED",
+    "TestRegressionP0ManualProtection::test_entry_signal_has_metadata_field - PASSED",
+    "--- Summary (1 test) ---",
+    "TestIteration44Summary::test_all_signal_quality_fixes_present - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration44_signal_quality_fixes.py",
+    "/app/test_reports/pytest/pytest_results_iteration44.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "orderflow_analyzer.py: depth_levels default changed from 10 to 25 (line 30)",
+    "orderflow_analyzer.py: recent_buy_vol/recent_sell_vol tracked for first 30 trades (lines 45-58)",
+    "orderflow_analyzer.py: weighted_imb = recent_imbalance * 0.6 + normalized_imbalance * 0.4 (line 84)",
+    "orderflow_analyzer.py: imbalance_score = orderbook_edge * 0.40 + trade_edge * 0.35 + weighted_imb * 0.25 (line 89)",
+    "orderflow_analyzer.py: dominant_side uses weighted_imb threshold 0.15 (lines 91-95)",
+    "orderflow_analyzer.py: normalized_imbalance field now stores weighted_imb (line 111)",
+    "entry_engine.py: Exhaustion guard checks last 7 candles, rejects if 5+ move in signal direction (lines 387-405)",
+    "entry_engine.py: Counter-flow guard rejects if opposing volume > signal volume * 1.4 (lines 410-428)",
+    "config.yaml: trailing_activation_atr=0.7 (was 1.1), trailing_distance_atr=1.2 (was 1.4)",
+    "config.yaml: exchange_closed_confirm_cycles=8 (was 5), exchange_closed_force_cycles=30 (was 20)",
+    "config.yaml: 1m TF preset has trailing_activation_atr=0.7, trailing_distance_atr=1.2"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration44_signal_quality_fixes.py"
+  ],
+  "success_rate": {
+    "backend": "32/32 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 44 verified all signal quality fixes: (1) OrderflowAnalyzer enhanced with depth=25, recent trade absorption detection (last 30 trades), weighted imbalance (60% recent + 40% total), imbalance_score weights (40% orderbook + 35% trade + 25% weighted_imb), dominant_side threshold 0.15. (2) Exhaustion guard rejects entry when 5+ of 7 last candles move in signal direction. (3) Counter-flow guard rejects when opposing volume > signal volume * 1.4. (4) Config values updated: trailing_activation_atr=0.7, trailing_distance_atr=1.2, exchange_closed_confirm_cycles=8, exchange_closed_force_cycles=30. (5) Regression tests passed for classify_signal_grade A/B/C and EntrySignal.grade field.",
+  "feature_verification": {
+    "orderflow_analyzer_enhancements": {
+      "depth_levels": "25 (was 10)",
+      "recent_trade_tracking": "recent_buy_vol/recent_sell_vol for last 30 trades",
+      "weighted_imbalance": "60% recent + 40% total",
+      "imbalance_score_weights": "40% orderbook + 35% trade + 25% weighted_imb",
+      "dominant_side_threshold": "0.15",
+      "empty_data_handling": "Graceful handling of empty orderbook/trades",
+      "status": "VERIFIED"
+    },
+    "exhaustion_guard": {
+      "threshold": "5+ of 7 last candles in signal direction",
+      "buy_rejection": "Rejects BUY after 5+ bullish candles",
+      "sell_rejection": "Rejects SELL after 5+ bearish candles",
+      "allows_3_4_candles": "Allows entry with 3-4 candles same direction",
+      "status": "VERIFIED"
+    },
+    "counter_flow_guard": {
+      "threshold": "1.4x volume ratio",
+      "sell_rejection": "Rejects SELL when buy_vol > sell_vol * 1.4",
+      "buy_rejection": "Rejects BUY when sell_vol > buy_vol * 1.4",
+      "balanced_volumes": "Allows entry when volumes balanced",
+      "status": "VERIFIED"
+    },
+    "config_values": {
+      "trailing_activation_atr": "0.7 (was 1.1)",
+      "trailing_distance_atr": "1.2 (was 1.4)",
+      "exchange_closed_confirm_cycles": "8 (was 5)",
+      "exchange_closed_force_cycles": "30 (was 20)",
+      "1m_preset_trailing_activation_atr": "0.7",
+      "1m_preset_trailing_distance_atr": "1.2",
+      "status": "VERIFIED"
+    },
+    "regression_tests": {
+      "classify_signal_grade": "A/B/C grading works correctly",
+      "entry_signal_grade_field": "grade field defaults to 'C'",
+      "status": "VERIFIED"
+    }
+  }
+}

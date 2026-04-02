@@ -1,0 +1,137 @@
+{
+  "summary": "Iteration 36: Verified loss-reduction measures - rate limit sync pause (180s), exchange_closed evidence requirement, trade history origin field, and reentry cooldown (900s). All 106 tests passed (51 new + 55 existing).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "--- Iteration 36 Rate Limit Sync Pause Tests (51 total) ---",
+    "TestRateLimitSyncPause::test_config_has_pause_exchange_closed_after_rate_limit_sec - PASSED",
+    "TestRateLimitSyncPause::test_bot_loads_pause_config_value - PASSED",
+    "TestRateLimitSyncPause::test_sync_pause_remaining_returns_positive_after_recent_rate_limit - PASSED",
+    "TestRateLimitSyncPause::test_sync_pause_remaining_returns_zero_when_no_rate_limit - PASSED",
+    "TestRateLimitSyncPause::test_sync_pause_remaining_returns_zero_when_expired - PASSED",
+    "TestRateLimitSyncPause::test_sync_pause_remaining_decreases_over_time - PASSED",
+    "TestRateLimitSyncPause::test_sync_pause_remaining_with_zero_config - PASSED",
+    "TestRateLimitSyncPause::test_sync_pause_remaining_with_negative_config - PASSED",
+    "TestBybitClientRateLimitTracking::test_bybit_client_has_rate_limit_attribute - PASSED",
+    "TestBybitClientRateLimitTracking::test_bybit_client_rate_limit_attribute_is_float - PASSED",
+    "TestExchangeClosedEvidence::test_config_has_exchange_closed_require_closed_pnl - PASSED",
+    "TestExchangeClosedEvidence::test_config_has_exchange_closed_force_cycles - PASSED",
+    "TestExchangeClosedEvidence::test_can_finalize_with_closed_records - PASSED",
+    "TestExchangeClosedEvidence::test_cannot_finalize_without_evidence_below_force_cycles - PASSED",
+    "TestExchangeClosedEvidence::test_can_finalize_at_force_cycles_without_evidence - PASSED",
+    "TestExchangeClosedEvidence::test_can_finalize_above_force_cycles_without_evidence - PASSED",
+    "TestExchangeClosedEvidence::test_can_finalize_when_require_pnl_disabled - PASSED",
+    "TestExchangeClosedDebounce::test_config_has_exchange_closed_confirm_cycles - PASSED",
+    "TestExchangeClosedDebounce::test_should_finalize_requires_multiple_cycles - PASSED",
+    "TestExchangeClosedDebounce::test_should_finalize_counter_increments - PASSED",
+    "TestExchangeClosedDebounce::test_should_finalize_independent_per_symbol - PASSED",
+    "TestTradeHistoryOrigin::test_save_trade_persists_origin_bot - PASSED",
+    "TestTradeHistoryOrigin::test_save_trade_persists_origin_manual - PASSED",
+    "TestTradeHistoryOrigin::test_save_trade_default_origin_is_bot - PASSED",
+    "TestTradeHistoryOrigin::test_save_trade_appends_to_existing_history - PASSED",
+    "TestPositionOriginAttribute::test_position_has_origin_attribute - PASSED",
+    "TestPositionOriginAttribute::test_position_origin_manual - PASSED",
+    "TestReentryCooldown::test_config_has_exchange_closed_reentry_cooldown_sec - PASSED",
+    "TestReentryCooldown::test_set_reentry_block_sets_cooldown - PASSED",
+    "TestReentryCooldown::test_reentry_remaining_returns_zero_when_no_cooldown - PASSED",
+    "TestReentryCooldown::test_reentry_remaining_returns_zero_when_expired - PASSED",
+    "TestReentryCooldown::test_reentry_cooldown_cleanup_on_expiration - PASSED",
+    "TestReentryCooldown::test_reentry_cooldown_independent_per_symbol - PASSED",
+    "TestRegressionExchangeClosedInIgnoreReasons::test_exchange_closed_in_ignore_cooldown_reasons_config - PASSED",
+    "TestRegressionExchangeClosedInIgnoreReasons::test_exchange_closed_in_ignore_consecutive_reasons_config - PASSED",
+    "TestRegressionEarlyExitInIgnoreReasons::test_early_exit_in_ignore_cooldown_reasons_config - PASSED",
+    "TestRegressionEarlyExitInIgnoreReasons::test_early_exit_in_ignore_consecutive_reasons_config - PASSED",
+    "TestRegressionAllPositionSyncConfig::test_all_position_sync_config_values - PASSED",
+    "TestIntegrationRateLimitPausesClearsMissingCycles::test_rate_limit_pause_clears_missing_cycles - PASSED",
+    "TestIntegrationFullExchangeClosedFlow::test_full_flow_debounce_evidence_reentry_cooldown - PASSED",
+    "TestEdgeCases::test_sync_pause_with_missing_client_attribute - PASSED",
+    "TestEdgeCases::test_sync_pause_with_none_client_attribute - PASSED",
+    "TestEdgeCases::test_reentry_remaining_rounds_up - PASSED",
+    "TestEdgeCases::test_force_cycles_boundary_7_returns_false - PASSED",
+    "TestEdgeCases::test_force_cycles_boundary_8_returns_true - PASSED",
+    "--- Existing Tests (55 total from iterations 31-34) ---",
+    "All 27 tests from test_iteration33_exchange_closed_evidence.py - PASSED",
+    "All 25 tests from test_iteration34_exchange_closed_reentry_cooldown_full.py - PASSED",
+    "All 3 tests from test_iteration31_origin_and_exchange_debounce.py - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration36_rate_limit_sync_pause.py",
+    "/app/backend/tests/test_iteration36_rate_limit_sync_pause_full.py",
+    "/app/backend/tests/test_iteration34_exchange_closed_reentry_cooldown.py",
+    "/app/backend/tests/test_iteration34_exchange_closed_reentry_cooldown_full.py",
+    "/app/backend/tests/test_iteration33_exchange_closed_evidence.py",
+    "/app/backend/tests/test_iteration31_origin_and_exchange_debounce.py",
+    "/app/test_reports/pytest/pytest_results_iteration36.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "bybit_client.py line 39: last_rate_limit_at_monotonic = 0.0 - CORRECT initialization",
+    "bybit_client.py line 185: Sets last_rate_limit_at_monotonic on rate limit 10006 - CORRECT",
+    "config.yaml line 145: pause_exchange_closed_after_rate_limit_sec: 180 - CORRECT",
+    "config.yaml line 143: exchange_closed_require_closed_pnl: true - CORRECT",
+    "config.yaml line 144: exchange_closed_force_cycles: 8 - CORRECT",
+    "config.yaml line 146: exchange_closed_reentry_cooldown_sec: 900 - CORRECT",
+    "main.py line 2257-2265: _exchange_closed_sync_pause_remaining() correctly calculates remaining pause time - CORRECT",
+    "main.py line 556-565: _manage_positions clears missing_exchange_cycles when pause is active - CORRECT",
+    "main.py line 2234-2239: _can_finalize_exchange_closed requires evidence or force cycles - CORRECT",
+    "main.py line 2186-2221: _save_trade persists origin field - CORRECT",
+    "main.py line 1280-1281: _finalize_full_close sets reentry block for exchange_closed - CORRECT"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration36_rate_limit_sync_pause_full.py"
+  ],
+  "success_rate": {
+    "backend": "106/106 (100%)"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 36 verified loss-reduction measures: (1) Position sync pauses exchange_closed reconciliation for 180s after Bybit rate limit 10006 - BybitClient tracks last_rate_limit_at_monotonic, _exchange_closed_sync_pause_remaining() calculates remaining pause, _manage_positions clears missing_exchange_cycles when pause active, (2) exchange_closed finalization requires evidence (closed pnl records) OR force cycles (8) - _can_finalize_exchange_closed() implements this logic, (3) Trade history stores origin field from position - _save_trade() persists origin='bot' or 'manual', (4) Reentry cooldown after exchange_closed remains active (900s) - _set_exchange_closed_reentry_block() and _exchange_closed_reentry_remaining() implement this, (5) No regressions in existing tests from iterations 31-34.",
+  "feature_verification": {
+    "rate_limit_sync_pause_180s": {
+      "config": "config.yaml line 145: pause_exchange_closed_after_rate_limit_sec: 180",
+      "bybit_client_tracking": "bybit_client.py line 39, 185: last_rate_limit_at_monotonic set on 10006",
+      "pause_calculation": "main.py line 2257-2265: _exchange_closed_sync_pause_remaining()",
+      "missing_cycles_clear": "main.py line 564-565: clears _missing_exchange_cycles when pause active",
+      "status": "VERIFIED"
+    },
+    "exchange_closed_evidence_requirement": {
+      "config_require_pnl": "config.yaml line 143: exchange_closed_require_closed_pnl: true",
+      "config_force_cycles": "config.yaml line 144: exchange_closed_force_cycles: 8",
+      "implementation": "main.py line 2234-2239: _can_finalize_exchange_closed()",
+      "status": "VERIFIED"
+    },
+    "trade_history_origin_field": {
+      "implementation": "main.py line 2186-2221: _save_trade() with origin parameter",
+      "finalize_full_close": "main.py line 1286: passes pos.origin to _save_trade()",
+      "finalize_partial_close": "main.py line 1307: passes pos.origin to _save_trade()",
+      "status": "VERIFIED"
+    },
+    "reentry_cooldown_900s": {
+      "config": "config.yaml line 146: exchange_closed_reentry_cooldown_sec: 900",
+      "set_block": "main.py line 2241-2245: _set_exchange_closed_reentry_block()",
+      "check_remaining": "main.py line 2247-2255: _exchange_closed_reentry_remaining()",
+      "trigger": "main.py line 1280-1281: called in _finalize_full_close for exchange_closed",
+      "scan_check": "main.py line 736-739: _scan_entries checks reentry cooldown",
+      "status": "VERIFIED"
+    },
+    "no_regressions": {
+      "iteration_31_tests": "3/3 passed",
+      "iteration_33_tests": "27/27 passed",
+      "iteration_34_tests": "25/25 passed",
+      "status": "VERIFIED"
+    }
+  },
+  "rca_of_the_issue": {
+    "root_cause": "False exchange_closed closures were occurring due to: (1) API rate limiting causing temporary position data unavailability, (2) Lack of evidence requirement before finalizing exchange_closed, (3) Immediate re-entry after exchange_closed causing whipsaw losses.",
+    "fix_applied": "(1) Added 180s pause on exchange_closed reconciliation after rate limit 10006, (2) Required closed PnL evidence OR 8 force cycles before finalizing, (3) Added 900s reentry cooldown after exchange_closed, (4) Preserved origin field in trade history for analysis.",
+    "verification": "All 106 tests pass confirming: rate limit pause works correctly, evidence requirement blocks premature finalization, origin field is persisted, reentry cooldown prevents whipsaw."
+  }
+}

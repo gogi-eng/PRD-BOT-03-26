@@ -1,0 +1,92 @@
+{
+  "summary": "Comprehensive testing of SMC (Smart Money Concepts) features for the Bybit trading bot. Verified FVG/OB detection, structural SL/TP placement, zone proximity methods, confluence detection, SMC-based entry signals, exit engine trailing, and 15-minute basket profit guard timer. All 41 new tests pass. 53 older tests fail because the entry engine was refactored from breakout/pullback detection to SMC-based scoring - these tests check for OLD methods/logic that no longer exist.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "N/A - standalone bot",
+        "issue": "53 older tests in test files (test_generic_market_quality.py, test_entry_engine_and_level_derivation.py, test_strategy_v2_changes.py, etc.) fail because they test methods that were removed during SMC refactoring",
+        "priority": "LOW"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "StructureZoneAnalyzer correctly detects bullish FVG (gap up)",
+    "StructureZoneAnalyzer correctly detects bearish FVG (gap down)",
+    "StructureZoneAnalyzer correctly detects bullish Order Blocks",
+    "StructureZoneAnalyzer correctly detects bearish Order Blocks",
+    "StructureZoneAnalyzer tracks mitigation - zones filled marked mitigated",
+    "StructureZoneAnalyzer handles insufficient klines gracefully",
+    "ZoneContext.price_in_bullish_zone returns correct zone when inside",
+    "ZoneContext.price_in_bullish_zone returns None when outside",
+    "ZoneContext.price_near_bullish_zone works with tolerance",
+    "ZoneContext.price_in_bearish_zone returns correct zone",
+    "ZoneContext.price_near_bearish_zone works correctly",
+    "ZoneContext.structural_sl_long places SL below bullish zone with ATR buffer",
+    "ZoneContext.structural_sl_short places SL above bearish zone with ATR buffer",
+    "ZoneContext.structural_tp_long returns targets from resistance zones",
+    "ZoneContext.structural_tp_short returns targets from support zones",
+    "ZoneContext.bullish_confluence is True when both FVG and OB exist",
+    "ZoneContext.bearish_confluence is True when both FVG and OB exist",
+    "No confluence when only one zone type exists",
+    "EntryEngine generates BUY signal in bullish zone + uptrend",
+    "EntryEngine generates SELL signal in bearish zone + downtrend",
+    "EntryEngine rejects entries when no SMC zones near price",
+    "Low transformer does not block entry if SMC score is high (soft boost)",
+    "EntryEngine SL derived from structure via zone_context",
+    "EntryEngine min_rr_ratio=1.3 enforced",
+    "EntryEngine min_stop_distance_pct=0.35 enforced",
+    "EntryEngine min_target_profit_pct=1.2 enforced",
+    "ExitEngine initialize_position sets trailing_activation based on min_profit_before_trail_pct",
+    "ExitEngine check_exit triggers hard_sl correctly",
+    "ExitEngine check_exit triggers tp_cap correctly",
+    "ExitEngine check_exit triggers trailing_exit correctly",
+    "ExitEngine update_trailing activates after sufficient profit",
+    "ExitEngine does not close on micro-profit",
+    "BasketProfitState has drawdown_detected_at field",
+    "Basket guard does NOT close immediately on first drawdown detection",
+    "Basket guard DOES close after 15 minutes (drawdown_confirm_sec=900)",
+    "Basket guard timer resets if drawdown resolves",
+    "RL is disabled in config (rl.enabled=false)",
+    "zone_proximity_pct=0.4 configured in entry section",
+    "min_profit_before_trail_pct=0.5 configured in exit section",
+    "drawdown_confirm_sec=900 configured for 15-minute timer",
+    "All required config keys present"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_smc_zones_and_entry.py",
+    "/app/test_reports/pytest/pytest_results_iteration12.xml"
+  ],
+  "action_items": [
+    "Consider removing or updating old test files that test deprecated breakout/pullback/continuation logic: test_generic_market_quality.py, test_entry_engine_and_level_derivation.py, test_strategy_v2_changes.py, test_trading_bot_features.py, test_p0_fixes.py, test_micro_exit_prevention.py",
+    "Old tests reference methods like _passes_market_quality_filter, _detect_structure, _long_ready, _short_ready that were removed during SMC refactoring"
+  ],
+  "critical_code_review_comments": [
+    "structure_zones.py: StructureZoneAnalyzer.analyze() correctly implements FVG detection (candle3_low > candle1_high for bullish, candle3_high < candle1_low for bearish)",
+    "structure_zones.py: Order Block detection checks for bearish candle followed by strong move up (bullish OB) and vice versa",
+    "structure_zones.py: Mitigation tracking via _is_mitigated_below/_is_mitigated_above - zones are excluded if price went back through them",
+    "structure_zones.py: ZoneContext provides structural_sl_long/short with ATR buffer (0.3x ATR)",
+    "entry_engine.py: SMC scoring via _smc_long_score/_smc_short_score - price in/near zone gives 0.2-0.3 score, confluence adds 0.1",
+    "entry_engine.py: Transformer/orderflow are soft boosters via _compute_boost(), not hard gates",
+    "entry_engine.py: SL/TP derived from zone_context.structural_sl_*/structural_tp_* methods",
+    "exit_engine.py: min_profit_before_trail_pct ensures trailing only activates after covering commissions",
+    "main.py: BasketProfitState.drawdown_detected_at implements 15-minute confirmation timer",
+    "main.py: _check_basket_profit_guard() waits for drawdown_confirm_sec before closing positions"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_smc_zones_and_entry.py"
+  ],
+  "success_rate": {
+    "backend": "41/41 (100%) for SMC feature tests; 193/246 (78%) overall due to old tests testing deprecated logic"
+  },
+  "seed_data_creation": "None - all tests use synthetic/mocked data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The entry engine was completely refactored to use SMC (Smart Money Concepts) based scoring instead of breakout/pullback detection. Key features: (1) StructureZoneAnalyzer detects FVG and Order Blocks from HTF klines, (2) ZoneContext provides structural SL/TP and zone proximity checks, (3) EntryEngine._smc_long_score/_smc_short_score compute scores based on price proximity to zones, (4) Transformer/orderflow are soft boosters not hard gates, (5) 15-minute basket profit guard timer via BasketProfitState.drawdown_detected_at. Old tests in test_generic_market_quality.py, test_entry_engine_and_level_derivation.py, etc. should be removed or updated as they test deprecated logic.",
+  "rca_of_the_issue": "N/A - This is a verification test run, not bug investigation. The 53 failing tests are from previous iterations that tested OLD entry logic (breakout/pullback/continuation detection) which has been replaced by SMC-based entry (FVG + Order Block zones)."
+}

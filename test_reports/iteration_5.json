@@ -1,0 +1,63 @@
+{
+  "summary": "Verified profit_drawdown_guard feature with +3% arming rule. All 101 tests pass (17 backend_test.py + 84 pytest). The +3% arming rule is correctly applied to all positions (bot and manual), trailing activation enforced at >=+3% from entry for longs (<=−3% for shorts), profit guard arms at +3% and closes on 25% retrace from peak, manual positions preserve existing TP and skip early_exit, and no regressions in basket profit guard/portfolio_tp/emergency fixes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "+3% arming rule: trailing_activation_price enforced at entry*1.03 for long positions",
+    "+3% arming rule: trailing_activation_price enforced at entry*0.97 for short positions",
+    "+3% arming rule: higher existing activation preserved for long positions",
+    "+3% arming rule: lower existing activation preserved for short positions",
+    "profit_drawdown_guard: guard not armed below +3% profit",
+    "profit_drawdown_guard: guard arms exactly at +3% profit",
+    "profit_drawdown_guard: tracks peak profit as price increases",
+    "profit_drawdown_guard: triggers close on 25% retrace from peak profit",
+    "profit_drawdown_guard: does not trigger if profit still rising",
+    "profit_drawdown_guard: works for short positions",
+    "Manual positions: external_tp_locked=True when TP set on exchange",
+    "Manual positions: skip early_exit (allow_early_exit=False)",
+    "Bot positions: can early_exit when no movement",
+    "profit_drawdown_guard applied to bot positions",
+    "profit_drawdown_guard applied to manual/adopted positions",
+    "No regression: basket_profit_guard still enabled and closes at 20% drawdown",
+    "No regression: portfolio_tp still disabled by default",
+    "No regression: Position has profit_guard_armed, profit_peak_price, profit_peak_pct fields",
+    "No regression: controls_dict includes profit_guard_armed and profit_peak_pct",
+    "Config: profit_drawdown_guard.enabled=true, activation_profit_pct=3.0, retrace_from_peak_pct=25.0",
+    "All 17 backend_test.py tests pass",
+    "All 63 previous pytest tests pass",
+    "All 21 new profit_drawdown_guard pytest tests pass"
+  ],
+  "test_report_links": [
+    "/app/backend_test.py",
+    "/app/backend/tests/test_p0_fixes.py",
+    "/app/backend/tests/test_trading_bot_features.py",
+    "/app/backend/tests/test_profit_drawdown_guard.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_apply_profit_drawdown_profile() correctly enforces trailing_activation_price >= entry*1.03 for longs and <= entry*0.97 for shorts",
+    "_check_profit_drawdown_guard() correctly arms at +3% profit and triggers close when current_profit_pct <= peak*(1-retrace_pct) with profit>0",
+    "_apply_profit_drawdown_profile() called for both bot entries (via _execute_entry) and manual position adoption (via _sync_exchange_position)",
+    "Position dataclass has profit_guard_armed, profit_peak_price, profit_peak_pct fields for tracking",
+    "ExitEngine.check_exit() respects allow_early_exit parameter - manual positions pass False, bot positions pass True",
+    "Manual positions with exchange-set TP have external_tp_locked=True and partial_tp_price=0 to skip partial TP logic"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_profit_drawdown_guard.py"
+  ],
+  "success_rate": {
+    "backend": "100% (101/101 tests passed - 17 backend_test.py + 84 pytest)"
+  },
+  "seed_data_creation": "None - all tests use mocked data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All profit_drawdown_guard features verified: (1) +3% arming rule applied to all positions via _apply_profit_drawdown_profile(), (2) trailing_activation_price enforced at entry*1.03 for longs and entry*0.97 for shorts, (3) profit guard arms at +3% profit, tracks peak, and closes on 25% retrace from peak, (4) manual/adopted positions preserve existing TP via external_tp_locked and skip early_exit via allow_early_exit=False, (5) no regressions in basket_profit_guard (20% drawdown), portfolio_tp (disabled), and emergency fixes. No live network testing performed per instructions - code-level logic only."
+}
