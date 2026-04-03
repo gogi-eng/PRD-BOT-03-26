@@ -264,10 +264,21 @@ class TradingBot:
         self.entry_min_orderflow_imbalance = float(
             self.cfg.get("entry", "min_orderflow_imbalance", default=1.20)
         )
-        # Config can be ratio-style (e.g. 1.20) while runtime imbalance is normalized [0..1].
-        self.entry_min_orderflow_imbalance_norm = max(
-            0.0, min(1.0, abs(self.entry_min_orderflow_imbalance - 1.0))
-        )
+        # Config can be ratio-style (e.g. 1.20) while runtime imbalance is normalized [-1..1].
+        # Convert ratio -> normalized: n = (r - 1) / (r + 1), so 1.20 -> ~0.091.
+        if self.entry_min_orderflow_imbalance > 1.0:
+            self.entry_min_orderflow_imbalance_norm = max(
+                0.0,
+                min(
+                    1.0,
+                    (self.entry_min_orderflow_imbalance - 1.0)
+                    / (self.entry_min_orderflow_imbalance + 1.0),
+                ),
+            )
+        else:
+            self.entry_min_orderflow_imbalance_norm = max(
+                0.0, min(1.0, self.entry_min_orderflow_imbalance)
+            )
         self.entry_min_smc_score = float(
             self.cfg.get("entry", "min_smc_score", default=0.76)
         )
@@ -634,7 +645,14 @@ class TradingBot:
                     elif not can_trade:
                         logger.info(f"Trading blocked: {reason}")
                 else:
-                    logger.info("Bot paused or emergency")
+                    guard_allows, guard_reason = self.risk_guard.can_trade()
+                    logger.info(
+                        "Bot paused: controls_enabled=%s emergency=%s guard_allows_trade=%s guard_reason='%s'",
+                        self.controls.enabled,
+                        self.controls.emergency,
+                        guard_allows,
+                        guard_reason or "",
+                    )
 
                 self.controls.set_positions(self.position_manager.to_controls_dict())
                 sleep_sec = self._get_cycle_sleep_sec()
@@ -1254,6 +1272,7 @@ class TradingBot:
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
 
+        signal = None
         scalp_result = self.scalp_strategy.analyze(symbol, klines)
         if scalp_result:
             scalp_side = str(scalp_result.get("signal", "")).upper()
@@ -1310,11 +1329,12 @@ class TradingBot:
         except Exception:
             pass
 
-        signal = self.entry_engine.generate_signal(
-            symbol, klines, current_price, market, regime, transformer, orderflow, liq,
-            atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
-            htf_4h_trend=htf_4h_trend,
-        )
+        if signal is None:
+            signal = self.entry_engine.generate_signal(
+                symbol, klines, current_price, market, regime, transformer, orderflow, liq,
+                atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
+                htf_4h_trend=htf_4h_trend,
+            )
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
