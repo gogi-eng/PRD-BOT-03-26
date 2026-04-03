@@ -136,6 +136,18 @@ class EntryEngine:
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
         self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
         self.entry_threshold = cfg.get("entry", "entry_threshold", default=self.ENTRY_THRESHOLD)
+        self.require_sweep = cfg.get("entry", "require_sweep", default=False)
+        self.require_4h_trend = cfg.get("entry", "require_4h_trend", default=False)
+        self.min_volatility_pct = float(cfg.get("entry", "min_volatility_pct", default=0.0))
+        # Config may store legacy ratio threshold (e.g. 1.20) while runtime uses
+        # normalized imbalance in [-1, +1]. Convert ratio → normalized:
+        # n = (r - 1) / (r + 1). Example: 1.20 -> ~0.091.
+        of_cfg = float(cfg.get("entry", "min_orderflow_imbalance", default=0.0))
+        if of_cfg > 1.0:
+            self.min_orderflow_imbalance = (of_cfg - 1.0) / (of_cfg + 1.0)
+        else:
+            self.min_orderflow_imbalance = max(of_cfg, 0.0)
+        self.min_smc_score = float(cfg.get("entry", "min_smc_score", default=0.0))
         self.trained_model_enabled = cfg.get("entry", "trained_model_enabled", default=False)
         self.trained_model_min_prob = cfg.get("entry", "trained_model_min_prob", default=0.55)
         self.trained_model_blend = cfg.get("entry", "trained_model_blend", default=0.35)
@@ -264,6 +276,16 @@ class EntryEngine:
             signal.metadata["reject_reason"] = "market_blocked"
             return signal
 
+        if self.require_4h_trend and int(htf_4h_trend) == 0:
+            signal.metadata["reject_reason"] = "require_4h_trend_neutral"
+            return signal
+
+        if self.min_volatility_pct > 0 and float(getattr(market_analysis, "atr_pct", 0.0) or 0.0) < self.min_volatility_pct:
+            signal.metadata["reject_reason"] = (
+                f"volatility_too_low ({float(getattr(market_analysis, 'atr_pct', 0.0) or 0.0):.3f}% < {self.min_volatility_pct:.3f}%)"
+            )
+            return signal
+
         if atr_value <= 0:
             atr_value = current_price * 0.008
 
@@ -388,6 +410,18 @@ class EntryEngine:
         composite = round(composite, 4)
 
         all_reasons = trend_reasons + of_reasons + ai_reasons
+
+        if self.min_orderflow_imbalance > 0 and abs(float(norm_imb)) < self.min_orderflow_imbalance:
+            signal.metadata = {
+                "reject_reason": (
+                    f"orderflow_imbalance_too_low ({abs(float(norm_imb)):.3f} < {self.min_orderflow_imbalance:.3f})"
+                ),
+                "composite_score": composite,
+                "trend_score": round(trend_score, 3),
+                "orderflow_score": round(orderflow_score, 3),
+                "ai_score": round(ai_score, 3),
+            }
+            return signal
 
         # Determine side from strongest signals
         bull_signals = (1 if htf_4h_trend > 0 else 0) + (1 if norm_imb > 0.05 else 0) + \
@@ -800,4 +834,17 @@ class EntryEngine:
             "entry_range_high": round(entry_range_high, 8),
             "signal_grade": signal.grade,
         }
+
+        if self.require_sweep and not signal.metadata.get("has_sweep", False):
+            signal.should_enter = False
+            signal.metadata["reject_reason"] = "require_sweep_missing"
+            return signal
+
+        if self.min_smc_score > 0 and float(signal.metadata.get("smc_score", 0.0) or 0.0) < self.min_smc_score:
+            signal.should_enter = False
+            signal.metadata["reject_reason"] = (
+                f"smc_score_too_low ({float(signal.metadata.get('smc_score', 0.0) or 0.0):.3f} < {self.min_smc_score:.3f})"
+            )
+            return signal
+
         return signal

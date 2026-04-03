@@ -260,6 +260,26 @@ class TradingBot:
         self.quality_gate_reject_no_zone_entries = self.cfg.get(
             "quality_gate", "reject_no_zone_entries", default=False
         )
+        # Additional entry hard-gates (trade quality protection)
+        self.entry_min_orderflow_imbalance = float(
+            self.cfg.get("entry", "min_orderflow_imbalance", default=1.20)
+        )
+        # Config can be ratio-style (e.g. 1.20) while runtime imbalance is normalized [0..1].
+        self.entry_min_orderflow_imbalance_norm = max(
+            0.0, min(1.0, abs(self.entry_min_orderflow_imbalance - 1.0))
+        )
+        self.entry_min_smc_score = float(
+            self.cfg.get("entry", "min_smc_score", default=0.76)
+        )
+        self.entry_min_volatility_pct = float(
+            self.cfg.get("entry", "min_volatility_pct", default=0.08)
+        )
+        self.entry_require_sweep = bool(
+            self.cfg.get("entry", "require_sweep", default=True)
+        )
+        self.entry_require_4h_trend = bool(
+            self.cfg.get("entry", "require_4h_trend", default=True)
+        )
         self.correlation_filter_enabled = self.cfg.get("correlation", "enabled", default=True)
         self.correlation_filter = CorrelationFilter(
             threshold=float(self.cfg.get("correlation", "threshold", default=0.75)),
@@ -494,6 +514,15 @@ class TradingBot:
             f"(min_conf={self.quality_gate_min_confidence:.2f}, "
             f"min_edge={self.quality_gate_min_expected_edge:.2f}, "
             f"reject_no_zone={self.quality_gate_reject_no_zone_entries})"
+        )
+        logger.info(
+            "Entry hard-gates: "
+            f"smc>={self.entry_min_smc_score:.2f} | "
+            f"|imb|>={self.entry_min_orderflow_imbalance_norm:.2f} "
+            f"(cfg={self.entry_min_orderflow_imbalance:.2f}) | "
+            f"atr%>={self.entry_min_volatility_pct:.2f} | "
+            f"require_sweep={self.entry_require_sweep} | "
+            f"require_4h_trend={self.entry_require_4h_trend}"
         )
         if self.signal_only:
             logger.info(
@@ -1246,7 +1275,9 @@ class TradingBot:
                     f"SCALP SIGNAL {symbol}: {scalp_signal.side} conf={scalp_signal.confidence:.0%} "
                     f"RR={scalp_signal.rr_ratio:.1f} reason={scalp_signal.reasons[-1]}"
                 )
-                return scalp_signal
+                # SCALP is no longer an unconditional fast-path.
+                # It must pass the same quality hard-gates as regular signals.
+                signal = scalp_signal
 
         # Real orderbook-based heatmap (replaces synthetic fallback)
         heatmap_orderbook = await self.client.get_orderbook(symbol, limit=200)
@@ -1287,6 +1318,33 @@ class TradingBot:
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
+
+        # =====================================================
+        # ENTRY HARD-GATES (for both regular and SCALP signals)
+        # =====================================================
+        confidence = float(signal.confidence or 0.0)
+        smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
+        norm_imb = abs(float(signal.metadata.get("normalized_imbalance", 0.0) or 0.0))
+        atr_pct = float(signal.metadata.get("atr_pct", 0.0) or 0.0)
+        has_sweep = bool(signal.metadata.get("has_sweep", False))
+        has_bos = bool(signal.metadata.get("has_bos", False))
+
+        if smc_score + 1e-9 < self.entry_min_smc_score:
+            return reject(f"entry_hardgate_low_smc ({smc_score:.3f} < {self.entry_min_smc_score:.3f})")
+        if norm_imb + 1e-9 < self.entry_min_orderflow_imbalance_norm:
+            return reject(
+                f"entry_hardgate_weak_orderflow ({norm_imb:.3f} < {self.entry_min_orderflow_imbalance_norm:.3f})"
+            )
+        if atr_pct + 1e-9 < self.entry_min_volatility_pct:
+            return reject(
+                f"entry_hardgate_low_volatility ({atr_pct:.3f}% < {self.entry_min_volatility_pct:.3f}%)"
+            )
+        if self.entry_require_sweep and (not has_sweep):
+            return reject("entry_hardgate_missing_sweep")
+        if not has_bos and confidence < 0.90:
+            return reject("entry_hardgate_missing_bos")
+        if self.entry_require_4h_trend and htf_4h_trend == 0:
+            return reject("entry_hardgate_flat_4h")
 
         # =====================================================
         # ORDERBOOK DIRECTION GUARD:
