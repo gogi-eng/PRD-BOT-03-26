@@ -158,10 +158,23 @@ class EntryEngine:
         self.ema_trend_filter = cfg.get("entry", "ema_trend_filter", default=True)
         self.ema_fast_period = cfg.get("entry", "ema_fast_period", default=20)
         self.ema_slow_period = cfg.get("entry", "ema_slow_period", default=50)
+        self.ema_guard_min_diff_pct = float(
+            cfg.get("entry", "ema_guard_min_diff_pct", default=0.15)
+        )
         self.momentum_filter = cfg.get("entry", "momentum_filter", default=True)
         self.momentum_lookback = cfg.get("entry", "momentum_lookback", default=5)
+        self.momentum_guard_min_pct = float(
+            cfg.get("entry", "momentum_guard_min_pct", default=0.10)
+        )
         self.volume_filter = cfg.get("entry", "volume_filter", default=True)
         self.volume_lookback = cfg.get("entry", "volume_lookback", default=20)
+        self.volume_guard_min_ratio = float(
+            cfg.get("entry", "volume_guard_min_ratio", default=0.50)
+        )
+        # Allow high-conviction setups to bypass micro guard conflicts.
+        self.guard_confidence_bypass = float(
+            cfg.get("entry", "guard_confidence_bypass", default=0.82)
+        )
 
         if self.trained_model_enabled:
             self._load_trained_model()
@@ -529,8 +542,8 @@ class EntryEngine:
             ema_s = ema_slow[-1]
             if not np.isnan(ema_f) and not np.isnan(ema_s):
                 ema_diff_pct = abs(ema_f - ema_s) / ema_s * 100 if ema_s > 0 else 0
-                # Skip guard if EMAs are within 0.15% — flat/undecided market
-                if ema_diff_pct >= 0.15:
+                # Skip guard in flat EMA spread or for high-conviction setups.
+                if ema_diff_pct >= self.ema_guard_min_diff_pct and composite < self.guard_confidence_bypass:
                     if is_long and ema_f < ema_s:
                         signal.metadata = {
                             "reject_reason": f"ema_trend_guard (BUY but EMA{self.ema_fast_period}={ema_f:.2f} < EMA{self.ema_slow_period}={ema_s:.2f}, diff={ema_diff_pct:.2f}%)",
@@ -553,17 +566,17 @@ class EntryEngine:
         if self.momentum_filter and len(klines) >= self.momentum_lookback + 1:
             closes_m, _ = self._extract_closes_and_volumes(klines)
             momentum = closes_m[-1] - closes_m[-self.momentum_lookback]
-            # Ignore micro-momentum (noise) — must exceed 0.1% of price
+            # Ignore micro-momentum noise below configured threshold.
             price_ref = closes_m[-1] if closes_m[-1] > 0 else 1
             momentum_pct = abs(momentum) / price_ref * 100
-            if momentum_pct > 0.1 and is_long and momentum < 0:
+            if momentum_pct > self.momentum_guard_min_pct and is_long and momentum < 0 and composite < self.guard_confidence_bypass:
                 signal.metadata = {
                     "reject_reason": f"momentum_guard (BUY but momentum={momentum:.4f} ({momentum_pct:.2f}%) over {self.momentum_lookback} bars)",
                     "composite_score": composite,
                     "side": side,
                 }
                 return signal
-            if momentum_pct > 0.1 and not is_long and momentum > 0:
+            if momentum_pct > self.momentum_guard_min_pct and not is_long and momentum > 0 and composite < self.guard_confidence_bypass:
                 signal.metadata = {
                     "reject_reason": f"momentum_guard (SELL but momentum={momentum:+.4f} ({momentum_pct:.2f}%) over {self.momentum_lookback} bars)",
                     "composite_score": composite,
@@ -579,7 +592,7 @@ class EntryEngine:
             _, vols = self._extract_closes_and_volumes(klines)
             avg_vol = np.mean(vols[-self.volume_lookback - 1:-1])  # avg of prev N candles
             cur_vol = vols[-1]
-            if avg_vol > 0 and cur_vol < avg_vol * 0.5:
+            if avg_vol > 0 and cur_vol < avg_vol * self.volume_guard_min_ratio and composite < self.guard_confidence_bypass:
                 signal.metadata = {
                     "reject_reason": f"volume_guard (vol={cur_vol:.0f} < avg{self.volume_lookback}={avg_vol:.0f})",
                     "composite_score": composite,

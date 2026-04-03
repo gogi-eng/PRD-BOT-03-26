@@ -79,10 +79,14 @@ entry:
   ema_trend_filter: true
   ema_fast_period: 20
   ema_slow_period: 50
+  ema_guard_min_diff_pct: 0.25
   momentum_filter: true
   momentum_lookback: 5
+  momentum_guard_min_pct: 0.15
   volume_filter: true
   volume_lookback: 20
+  volume_guard_min_ratio: 0.35
+  guard_confidence_bypass: 0.82
 
 market_structure:
   swing_lookback: 2

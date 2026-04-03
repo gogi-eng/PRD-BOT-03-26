@@ -1049,9 +1049,13 @@ class TradingBot:
                 mark_reject(f"symbol_quality_{quality_reason}")
                 continue
 
-            allowed, _ = self.risk_guard.can_trade(symbol)
+            allowed, risk_reason = self.risk_guard.can_trade(symbol)
             if not allowed:
-                mark_reject("risk_blocked")
+                if risk_reason:
+                    reason_key = str(risk_reason).strip().lower().replace(" ", "_")
+                    mark_reject(f"risk_blocked_{reason_key}")
+                else:
+                    mark_reject("risk_blocked")
                 continue
             try:
                 signal = await self._analyze_symbol(symbol)
