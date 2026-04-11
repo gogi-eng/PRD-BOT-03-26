@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-MAIN_PATH = Path(__file__).resolve().parents[2] / "bot" / "main.py"
+ROOT = Path(__file__).resolve().parents[2]
+HELPERS_PATH = ROOT / "bot" / "mixins" / "helpers_mixin.py"
+POSITION_PATH = ROOT / "bot" / "mixins" / "position_loop_mixin.py"
 
 
 def test_manage_positions_counts_only_closed_candles_for_bars_since_entry():
-    source = MAIN_PATH.read_text(encoding="utf-8")
+    source = HELPERS_PATH.read_text(encoding="utf-8") + "\n" + POSITION_PATH.read_text(encoding="utf-8")
     assert "def _last_closed_kline_ts(klines: list) -> int:" in source
     assert "latest_closed_ts = self._last_closed_kline_ts(klines)" in source
     assert "prev_ts = int(getattr(pos, \"last_counted_kline_ts\", 0) or 0)" in source

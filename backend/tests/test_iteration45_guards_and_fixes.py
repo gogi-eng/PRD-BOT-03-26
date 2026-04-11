@@ -718,7 +718,7 @@ class TestCodeVerification:
     def test_main_py_has_htf_atr_floor(self):
         """Verify main.py has HTF ATR floor logic in position monitoring"""
         main_path = BOT_DIR / "main.py"
-        content = main_path.read_text()
+        content = main_path.read_text(encoding="utf-8")
         
         # Check for the HTF ATR floor pattern
         assert "htf_atr_val = self.atr.get_atr" in content, "HTF ATR calculation not found"
@@ -729,7 +729,7 @@ class TestCodeVerification:
     def test_main_py_has_no_zone_bypass_with_structure(self):
         """Verify main.py has no-zone bypass requiring BOS or sweep"""
         main_path = BOT_DIR / "main.py"
-        content = main_path.read_text()
+        content = main_path.read_text(encoding="utf-8")
         
         # Check for the no-zone bypass pattern
         assert "has_bos or has_sweep" in content, "BOS or sweep check not found in no-zone bypass"

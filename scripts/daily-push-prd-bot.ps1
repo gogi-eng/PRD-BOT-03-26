@@ -3,7 +3,7 @@
   Commits the current PRD-SCALP tree and pushes to GitHub as a dated branch:
   dd.MM.yy_ScalpBot (example: 11.04.26_ScalpBot).
 
-  Run once per day (e.g. Task Scheduler at 23:45) so each day gets its own branch
+  Run once per day (e.g. Task Scheduler at 23:59) so each day gets its own branch
   with that day's snapshot. Same-day reruns add commits on the same branch.
 
   Requires: git, and credentials for https://github.com/gogi-eng/PRD-BOT-03-26.git

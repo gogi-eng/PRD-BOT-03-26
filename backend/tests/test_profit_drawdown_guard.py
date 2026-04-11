@@ -30,6 +30,7 @@ class TestProfitDrawdownGuardConfig:
         assert cfg.get("profit_drawdown_guard", "enabled") is True
         assert cfg.get("profit_drawdown_guard", "activation_profit_pct") == 3.0
         assert cfg.get("profit_drawdown_guard", "retrace_from_peak_pct") == 25.0
+        assert cfg.get("profit_drawdown_guard", "retrace_confirm_sec") == 90.0
 
     def test_trading_bot_has_profit_drawdown_guard_params(self):
         """TradingBot should initialize profit_drawdown_guard parameters."""
@@ -39,6 +40,7 @@ class TestProfitDrawdownGuardConfig:
         assert bot.profit_drawdown_guard_enabled is True
         assert bot.profit_drawdown_activation_pct == 3.0
         assert bot.profit_drawdown_retrace_pct == 25.0
+        assert bot.profit_drawdown_retrace_confirm_sec == 90.0
 
 
 class TestProfitDrawdownGuardArmingRule:
@@ -237,6 +239,7 @@ class TestProfitDrawdownGuardActivationAndRetrace:
 
         bot = TradingBot()
         bot.tg = None
+        bot.profit_drawdown_retrace_confirm_sec = 0.0  # instant trigger for this test
         pos = Position(
             symbol="TRUMPUSDT",
             side="BUY",
@@ -259,6 +262,44 @@ class TestProfitDrawdownGuardActivationAndRetrace:
             retrace_price = 4.19 * 1.059  # ~5.9% profit, below 6% threshold
             trigger, reason = await bot._check_profit_drawdown_guard(pos, retrace_price)
             assert trigger, f"Should trigger exit on retrace. Got reason: {reason}"
+            assert "profit_drawdown_guard" in reason
+
+        asyncio.run(scenario())
+
+    def test_guard_retrace_waits_confirm_sec(self, monkeypatch):
+        """With retrace_confirm_sec > 0, exit only after zone is held that long."""
+        from engine.position_manager import Position
+        from main import TradingBot
+
+        bot = TradingBot()
+        bot.tg = None
+        bot.profit_drawdown_retrace_confirm_sec = 90.0
+        pos = Position(
+            symbol="TRUMPUSDT",
+            side="BUY",
+            entry_price=4.19,
+            qty=100,
+            stop_loss=4.00,
+            take_profit=4.80,
+        )
+        bot._apply_profit_drawdown_profile(pos)
+
+        t0 = 1_000_000.0
+        monkeypatch.setattr("main.time.time", lambda: t0)
+
+        async def scenario():
+            await bot._check_profit_drawdown_guard(pos, 4.19 * 1.03)
+            await bot._check_profit_drawdown_guard(pos, 4.19 * 1.08)
+            retrace_price = 4.19 * 1.059
+            trigger, _ = await bot._check_profit_drawdown_guard(pos, retrace_price)
+            assert not trigger
+            assert pos.profit_drawdown_below_trigger_since == t0
+            monkeypatch.setattr("main.time.time", lambda: t0 + 30.0)
+            trigger, _ = await bot._check_profit_drawdown_guard(pos, retrace_price)
+            assert not trigger
+            monkeypatch.setattr("main.time.time", lambda: t0 + 90.0)
+            trigger, reason = await bot._check_profit_drawdown_guard(pos, retrace_price)
+            assert trigger
             assert "profit_drawdown_guard" in reason
 
         asyncio.run(scenario())

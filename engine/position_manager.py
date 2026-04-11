@@ -42,6 +42,8 @@ class Position:
     profit_guard_armed: bool = False
     profit_peak_price: float = 0.0
     profit_peak_pct: float = 0.0
+    # First time.time() when unrealized profit entered retrace-exit zone (confirm delay).
+    profit_drawdown_below_trigger_since: float = 0.0
 
     @property
     def is_long(self) -> bool:
