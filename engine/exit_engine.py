@@ -7,13 +7,16 @@ TP: TP1 = previous_high, TP2 = liquidity_cluster, TP3 = trailing
 
 Trailing logic:
   1R profit → SL moves to breakeven
-  2R profit → SL moves to last swing low (for longs) / swing high (for shorts)
+  From trailing_structural_r_threshold R: swing low/high anchor (optional ATR buffer under/above level)
+  buffer=0: legacy max(swing, distance) long / min(swing, distance) short (short still needs swing < breakeven for legacy branch)
   After that: classic distance-based trailing
 """
 from __future__ import annotations
 import logging
-import numpy as np
+from datetime import datetime, timezone
 from typing import Optional, Tuple
+
+import numpy as np
 from enum import Enum
 
 logger = logging.getLogger("EXIT_ENGINE")
@@ -38,12 +41,15 @@ class ExitEngine:
         hard_sl_atr_mult: float = 1.8,
         early_exit_bars: int = 12,
         early_exit_min_profit_atr: float = 0.35,
+        early_exit_min_hold_minutes: float = 0.0,
         trailing_activation_atr: float = 0.8,
         trailing_distance_atr: float = 1.2,
         trailing_min_distance_pct: float = 0.0,
         trailing_min_distance_from_price_pct: Optional[float] = None,
         tp_cap_atr_mult: float = 8.0,
         min_profit_before_trail_pct: float = 0.5,
+        trailing_structural_r_threshold: float = 2.0,
+        trailing_swing_buffer_atr_mult: float = 0.0,
         sl_buffer_atr_mult: float = 0.2,
         fee_rate: float = 0.0006,
         ema_trend_exit_buffer_pct: float = 0.0,
@@ -60,6 +66,7 @@ class ExitEngine:
         self.hard_sl_atr_mult = hard_sl_atr_mult
         self.early_exit_bars = early_exit_bars
         self.early_exit_min_profit_atr = early_exit_min_profit_atr
+        self.early_exit_min_hold_minutes = max(0.0, float(early_exit_min_hold_minutes))
         self.trailing_activation_atr = trailing_activation_atr
         self.trailing_distance_atr = trailing_distance_atr
         if trailing_min_distance_from_price_pct is not None:
@@ -67,6 +74,8 @@ class ExitEngine:
         self.trailing_min_distance_pct = max(0.0, float(trailing_min_distance_pct))
         self.tp_cap_atr_mult = tp_cap_atr_mult
         self.min_profit_before_trail_pct = min_profit_before_trail_pct
+        self.trailing_structural_r_threshold = max(0.0, float(trailing_structural_r_threshold))
+        self.trailing_swing_buffer_atr_mult = max(0.0, float(trailing_swing_buffer_atr_mult))
         self.sl_buffer_atr_mult = sl_buffer_atr_mult
         self.fee_rate = fee_rate
         self.breakeven_fee_mult = 2.5  # round-trip fee buffer (open + close + slippage margin)
@@ -193,13 +202,24 @@ class ExitEngine:
         if not is_long and current_price >= position.stop_loss:
             return True, ExitReason.HARD_SL, f"SL hit at {position.stop_loss:.4f}"
 
-        # 3. EARLY EXIT — dead trades after N bars
+        # 3. EARLY EXIT — dead trades after N bars (optional min wall-clock age)
         # early_exit_bars <= 0 means feature disabled
+        hold_ok = True
+        if self.early_exit_min_hold_minutes > 0:
+            et = getattr(position, "entry_time", None)
+            if isinstance(et, datetime):
+                now = datetime.now(timezone.utc)
+                if et.tzinfo is None:
+                    et = et.replace(tzinfo=timezone.utc)
+                age_min = (now - et).total_seconds() / 60.0
+                hold_ok = age_min >= self.early_exit_min_hold_minutes
+
         if (
             allow_early_exit
             and self.early_exit_bars > 0
             and position.bars_since_entry >= self.early_exit_bars
             and not position.trailing_active
+            and hold_ok
         ):
             min_profit = atr_value * self.early_exit_min_profit_atr
             # Ensure min_profit covers at least trading fees (entry + exit)
@@ -222,11 +242,18 @@ class ExitEngine:
 
         return False, None, ""
 
-    def update_trailing(self, position, current_price: float, last_swing_low: float = 0.0, last_swing_high: float = 0.0) -> bool:
+    def update_trailing(
+        self,
+        position,
+        current_price: float,
+        last_swing_low: float = 0.0,
+        last_swing_high: float = 0.0,
+        atr_value: float = 0.0,
+    ) -> bool:
         """
         R-based trailing:
           1R → SL to breakeven
-          2R → SL to last swing low (long) / swing high (short)
+          From trailing_structural_r_threshold R → anchor to swing low/high (with optional ATR buffer)
           After: distance-based trailing
         """
         entry = position.entry_price
@@ -301,11 +328,21 @@ class ExitEngine:
             # Distance-based trailing
             distance_stop = max(breakeven_with_fee, position.best_price - effective_distance)
 
-            if r_multiple >= 2.0 and last_swing_low > 0 and last_swing_low > breakeven_with_fee:
-                # 2R: max of (swing low, distance trail)
-                new_stop = max(last_swing_low, distance_stop)
+            atr_use = atr_value if atr_value > 0 else 0.0
+            buf = atr_use * self.trailing_swing_buffer_atr_mult
+
+            if r_multiple >= self.trailing_structural_r_threshold and last_swing_low > 0 and last_swing_low > breakeven_with_fee:
+                if self.trailing_swing_buffer_atr_mult > 0 and buf > 0:
+                    # Stop slightly *below* support (swing low)
+                    swing_anchor = last_swing_low - buf
+                    if swing_anchor > breakeven_with_fee:
+                        new_stop = max(breakeven_with_fee, min(distance_stop, swing_anchor))
+                    else:
+                        new_stop = distance_stop
+                else:
+                    # Legacy: do not trail tighter than last swing
+                    new_stop = max(last_swing_low, distance_stop)
             elif r_multiple >= 1.0:
-                # 1R: breakeven+fee minimum, then distance-based
                 new_stop = distance_stop
             else:
                 new_stop = position.stop_loss
@@ -330,8 +367,18 @@ class ExitEngine:
             effective_distance = max(position.trailing_distance, min_dist_from_price)
             distance_stop = min(breakeven_with_fee, position.best_price + effective_distance)
 
-            if r_multiple >= 2.0 and last_swing_high > 0 and last_swing_high < breakeven_with_fee:
-                new_stop = min(last_swing_high, distance_stop)
+            atr_use = atr_value if atr_value > 0 else 0.0
+            buf = atr_use * self.trailing_swing_buffer_atr_mult
+
+            if r_multiple >= self.trailing_structural_r_threshold and last_swing_high > 0:
+                if self.trailing_swing_buffer_atr_mult > 0 and buf > 0:
+                    # Stop slightly *above* resistance (swing high)
+                    swing_anchor = last_swing_high + buf
+                    new_stop = max(distance_stop, swing_anchor)
+                elif last_swing_high < breakeven_with_fee:
+                    new_stop = min(last_swing_high, distance_stop)
+                else:
+                    new_stop = distance_stop
             elif r_multiple >= 1.0:
                 new_stop = distance_stop
             else:

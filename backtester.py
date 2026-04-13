@@ -5,9 +5,11 @@ BACKTESTING ENGINE — Historical strategy evaluation.
 Fetches historical klines from Bybit, runs the SMC v5 entry engine,
 simulates trades, and calculates performance metrics.
 
-Usage:
-    python -m bot.backtester --symbol BTCUSDT --days 30
-    python -m bot.backtester --all-whitelist --days 14
+Usage (from repository root, same folder as this file):
+    python backtester.py --symbol BTCUSDT --days 30
+    python backtester.py --all-whitelist --days 60 --interval 15
+
+Requires a full checkout: directories ``analysis/``, ``core/``, ``engine/``, ``exchange/`` next to ``backtester.py``.
 """
 from __future__ import annotations
 
@@ -25,6 +27,18 @@ from typing import Dict, List, Optional
 BOT_DIR = Path(__file__).parent.resolve()
 if str(BOT_DIR) not in sys.path:
     sys.path.insert(0, str(BOT_DIR))
+
+# Fail fast if deploy is incomplete (common on VPS partial copies).
+for _pkg in ("analysis", "core", "engine", "exchange"):
+    _init = BOT_DIR / _pkg / "__init__.py"
+    if not _init.is_file():
+        print(
+            f"ERROR: missing package '{_pkg}' at {_init}\n"
+            f"backtester.py must live in the repo root with full source (git clone/pull PRD-SCALP).\n"
+            f"Current BOT_DIR={BOT_DIR}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 from analysis.market_analyzer import MarketAnalyzer, MarketAnalysis
 from analysis.market_regime_ai import MarketRegimeAI

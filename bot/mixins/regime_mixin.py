@@ -21,6 +21,10 @@ class TradingBotRegimeMixin:
         self.position_active_sleep_sec = int(tf.get("position_active_sleep_sec", self.position_active_sleep_sec))
         self.klines_limit = max(int(tf.get("klines_limit", self.klines_limit)), self.feature_window)
         self.exit_engine.early_exit_bars = int(tf.get("early_exit_bars", self.exit_engine.early_exit_bars))
+        self.exit_engine.early_exit_min_hold_minutes = max(
+            0.0,
+            float(tf.get("early_exit_min_hold_minutes", self.exit_engine.early_exit_min_hold_minutes)),
+        )
         self.exit_engine.trailing_activation_atr = float(tf.get("trailing_activation_atr", self.exit_engine.trailing_activation_atr))
         self.exit_engine.trailing_distance_atr = float(tf.get("trailing_distance_atr", self.exit_engine.trailing_distance_atr))
         self.exit_engine.hard_sl_atr_mult = float(tf.get("hard_sl_atr_mult", self.exit_engine.hard_sl_atr_mult))

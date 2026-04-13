@@ -8,7 +8,12 @@ Key fixes:
 4) Best checkpoint selected by precision on class "win"
 
 Usage:
+    # 1) From repo root, collect enough trades (need >=20 labeled win/loss rows):
+    python backtester.py --all-whitelist --days 45 --interval 15
+    # 2) Train (writes transformer_weights.pt next to this script):
     python train_transformer.py --data training_data.json --epochs 220
+
+    training_data.json is created by backtester in the current working directory (use repo root for both).
 """
 from __future__ import annotations
 
@@ -326,12 +331,22 @@ def train(
     seed: int,
     augment_wins_factor: int,
     augment_noise_std: float,
+    min_trades: int = 20,
 ) -> bool:
     set_seed(seed)
 
     features, labels = load_dataset(data_path)
-    if len(features) < 20:
-        logger.error(f"Not enough labeled trades: {len(features)}")
+    if len(features) < min_trades:
+        logger.error(
+            f"Not enough labeled trades: {len(features)} (need at least {min_trades}). "
+            "Each row must have result \"win\" or \"loss\" (from backtest exits)."
+        )
+        logger.info(
+            "Collect more data from repo root, e.g.:\n"
+            "  python backtester.py --all-whitelist --days 60 --interval 15\n"
+            "Or single symbol:  python backtester.py --symbol ETHUSDT --days 90 --interval 15\n"
+            "Then:  python train_transformer.py --data training_data.json"
+        )
         return False
 
     wins = sum(1 for y in labels if y > 0.5)
@@ -515,11 +530,21 @@ def main():
     parser.add_argument("--augment-wins-factor", type=int, default=2)
     parser.add_argument("--augment-noise-std", type=float, default=0.03)
     parser.add_argument("--output", type=str, default=str(BOT_DIR / "transformer_weights.pt"))
+    parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=20,
+        help="Minimum labeled trades (win+loss) required; below this training aborts.",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.data):
         logger.error(f"Training data not found: {args.data}")
-        logger.info("Run backtester first and export training_data.json")
+        logger.info(
+            "Run backtest from the same directory where you want training_data.json (usually repo root):\n"
+            "  python backtester.py --symbol BTCUSDT --days 30 --interval 15\n"
+            "Or: python train_transformer.py --data /full/path/to/training_data.json"
+        )
         sys.exit(1)
 
     ok = train(
@@ -533,6 +558,7 @@ def main():
         seed=args.seed,
         augment_wins_factor=max(1, args.augment_wins_factor),
         augment_noise_std=max(0.0, args.augment_noise_std),
+        min_trades=max(4, args.min_trades),
     )
     if not ok:
         sys.exit(1)

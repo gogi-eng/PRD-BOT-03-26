@@ -65,6 +65,10 @@ class TradingBotLifecycleMixin:
                 f"{'ON' if self.signal_feedback.enabled else 'OFF'} "
                 f"(pending timeout={self.signal_feedback.max_pending_hours}h)"
             )
+            logger.info(
+                f"SIGNAL-ONLY output: Telegram + feedback only if confidence > "
+                f"{self.signal_only_min_confidence:.0%} (bot.signal_only_min_confidence)"
+            )
         logger.info(
             f"Correlation filter: {'ON' if self.correlation_filter_enabled else 'OFF'} "
             f"(thr={self.correlation_filter.threshold:.2f})"

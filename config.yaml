@@ -16,6 +16,8 @@ bot:
   feature_window: 128
   liquidation_stream_symbols: 15
   signal_only: false
+  # В режиме signal-only: отправка в Telegram и регистрация в feedback только если confidence строго выше этого порога (0.90 = >90%).
+  signal_only_min_confidence: 0.89
   signal_cooldown_sec: 5400
 
 # ========================================
@@ -80,7 +82,7 @@ entry:
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
-  trained_model_weights_path: "transformer_weights.pt"
+  trained_model_weights_path: "bot/transformer_weights.pt"
   min_liq_depth: 0.0
   min_smc_score: 0.55
   min_volatility_pct: 0.007
@@ -147,11 +149,19 @@ exit:
   hard_sl_atr_mult: 2.5
   early_exit_bars: 45
   early_exit_min_profit_atr: 0.35
-  trailing_activation_atr: 1.5
-  trailing_distance_atr: 2.0
-  trailing_min_distance_atr: 1.0
+  # Не закрывать early_exit по «тихому» рынку раньше N минут реального времени (защита от мгновенного выноса комиссиями).
+  early_exit_min_hold_minutes: 25
+  # Медленнее включается трейлинг и шире дистанция от экстремума (меньше «дёрганья» на пампах).
+  trailing_activation_atr: 2.2
+  trailing_distance_atr: 2.8
+  # Минимум дистанции трейла как % от цены (доп. пол в движке; расширяет эффективный trail).
+  trailing_min_distance_pct: 1.0
+  # С какого R учитывать последний swing как поддержку/сопротивление (раньше было жёстко 2R).
+  trailing_structural_r_threshold: 1.75
+  # Лонг: стоп чуть ниже swing low; шорт: чуть выше swing high (в долях ATR).
+  trailing_swing_buffer_atr_mult: 0.4
   tp_cap_atr_mult: 10.0
-  min_profit_before_trail_pct: 0.65
+  min_profit_before_trail_pct: 0.85
   sl_buffer_atr_mult: 0.5
   fee_rate: 0.001
   ema_trend_exit: true
@@ -276,9 +286,9 @@ profit_drawdown_guard:
 manual_management:
   rl_enabled: false
   preserve_existing_tp: true
-  trailing_activation_atr: 1.8
-  trailing_distance_atr: 2.2
-  trailing_min_distance_pct: 1.6
+  trailing_activation_atr: 2.2
+  trailing_distance_atr: 2.8
+  trailing_min_distance_pct: 1.8
   notify_on_adopt: true
   notify_on_partial_tp: true
   notify_on_sl_move: true
@@ -382,8 +392,8 @@ tf_presets:
       scan_interval_sec: 60
       klines_limit: 180
       early_exit_bars: 20
-      trailing_activation_atr: 0.7
-      trailing_distance_atr: 1.2
+      trailing_activation_atr: 1.4
+      trailing_distance_atr: 2.4
       volatility_floor_atr_pct: 0.007
       hard_sl_atr_mult: 2.5
     5m:

@@ -20,6 +20,7 @@ import sys
 import os
 from pathlib import Path
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # Add bot directory to path
@@ -48,6 +49,7 @@ class MockPosition:
     side: str = "BUY"
     origin: str = "bot"
     protective_liq_level: float = 0.0
+    entry_time: Optional[datetime] = None
 
 
 # ============================================================================
@@ -457,6 +459,37 @@ class TestRegressionExitEngine:
             assert reason != ExitReason.EARLY_EXIT, \
                 f"Early exit should NOT trigger at bars={pos.bars_since_entry} < 90"
         print(f"✓ Early exit NOT triggered at bars={pos.bars_since_entry} < 90")
+
+    def test_early_exit_respects_min_hold_minutes(self):
+        """With early_exit_min_hold_minutes, dead-trade exit waits for wall-clock age."""
+        from engine.exit_engine import ExitEngine, ExitReason
+
+        engine = ExitEngine(
+            early_exit_bars=2,
+            early_exit_min_profit_atr=10.0,
+            fee_rate=0.001,
+            early_exit_min_hold_minutes=60.0,
+        )
+        now = datetime.now(timezone.utc)
+        pos_fresh = MockPosition(
+            entry_price=100.0,
+            is_long=True,
+            bars_since_entry=100,
+            stop_loss=90.0,
+            entry_time=now,
+        )
+        should_exit, reason, _ = engine.check_exit(pos_fresh, 100.0, 1.0, allow_early_exit=True)
+        assert not should_exit or reason != ExitReason.EARLY_EXIT
+
+        pos_old = MockPosition(
+            entry_price=100.0,
+            is_long=True,
+            bars_since_entry=100,
+            stop_loss=90.0,
+            entry_time=now - timedelta(minutes=61),
+        )
+        should_exit2, reason2, _ = engine.check_exit(pos_old, 100.0, 1.0, allow_early_exit=True)
+        assert should_exit2 and reason2 == ExitReason.EARLY_EXIT
 
     def test_early_exit_not_triggered_when_profit_exceeds_min(self):
         """Early exit should NOT trigger when profit > min_profit."""

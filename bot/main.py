@@ -1,10 +1,9 @@
 """AUTO-GENERATED aggregate of TradingBot sources for static tests; do not edit.
 Real entry: repo root ``main.py``, implementation: ``bot/trading_bot.py`` + ``bot/mixins/``.
 """
-# === bot\trading_bot.py ===
-"""TradingBot orchestrator — composed from mixins (legacy main.TradingBot)."""
 from __future__ import annotations
 
+# === bot\trading_bot.py ===
 from bot.state import BasketProfitState
 from bot.trading_bot_imports import *  # noqa: F403
 
@@ -151,10 +150,22 @@ class TradingBot(
             hard_sl_atr_mult=self.cfg.get("exit", "hard_sl_atr_mult", default=1.8),
             early_exit_bars=self.cfg.get("exit", "early_exit_bars", default=12),
             early_exit_min_profit_atr=self.cfg.get("exit", "early_exit_min_profit_atr", default=0.35),
+            early_exit_min_hold_minutes=float(
+                self.cfg.get("exit", "early_exit_min_hold_minutes", default=0.0)
+            ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
+            trailing_min_distance_from_price_pct=float(
+                self.cfg.get("exit", "trailing_min_distance_pct", default=0.0)
+            ),
             tp_cap_atr_mult=self.cfg.get("exit", "tp_cap_atr_mult", default=8.0),
             min_profit_before_trail_pct=self.cfg.get("exit", "min_profit_before_trail_pct", default=0.5),
+            trailing_structural_r_threshold=float(
+                self.cfg.get("exit", "trailing_structural_r_threshold", default=2.0)
+            ),
+            trailing_swing_buffer_atr_mult=float(
+                self.cfg.get("exit", "trailing_swing_buffer_atr_mult", default=0.0)
+            ),
             sl_buffer_atr_mult=self.cfg.get("exit", "sl_buffer_atr_mult", default=0.2),
             fee_rate=float(self.cfg.get("exit", "fee_rate", default=0.0006)),
             ema_exit_buffer_pct=float(self.cfg.get("exit", "ema_exit_buffer_pct", default=0.0)),
@@ -213,6 +224,9 @@ class TradingBot(
         self.signal_only = self.cfg.get("bot", "signal_only", default=False)
         self.controls.signal_only = self.signal_only
         self.signal_cooldown_sec = int(self.cfg.get("bot", "signal_cooldown_sec", default=3600) or 0)
+        self.signal_only_min_confidence = float(
+            self.cfg.get("bot", "signal_only_min_confidence", default=0.90)
+        )
         # Optional faster entry-scan interval during active scalp hours.
         self.scan_interval_active_hours_sec = int(
             self.cfg.get("bot", "scan_interval_active_hours_sec", default=self.scan_interval_sec)
@@ -567,9 +581,6 @@ class TradingBot(
 
 
 # === bot\mixins\analyze_entry_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotAnalyzeEntryMixin:
@@ -1300,9 +1311,6 @@ class TradingBotAnalyzeEntryMixin:
 
 
 # === bot\mixins\closes_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotClosesMixin:
@@ -1416,9 +1424,6 @@ class TradingBotClosesMixin:
 
 
 # === bot\mixins\correlation_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotCorrelationMixin:
@@ -1459,9 +1464,6 @@ class TradingBotCorrelationMixin:
 
 
 # === bot\mixins\entry_exec_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotEntryExecMixin:
@@ -1547,6 +1549,10 @@ class TradingBotEntryExecMixin:
             total_tp_price=signal.take_profit,
         )
         klines = await self.client.get_klines(symbol, self.candle_interval, 50)
+        latest_closed_ts = self._last_closed_kline_ts(klines)
+        if latest_closed_ts > 0:
+            pos.last_counted_kline_ts = latest_closed_ts
+            pos.bars_since_entry = 0
         atr_val = self.atr.get_atr(symbol, klines)
         self.exit_engine.initialize_position(pos, atr_val, protective_liq_level=pos.protective_liq_level)
         self._apply_profit_drawdown_profile(pos)
@@ -1679,9 +1685,6 @@ class TradingBotEntryExecMixin:
 
 
 # === bot\mixins\exchange_closed_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotExchangeClosedMixin:
@@ -1773,9 +1776,6 @@ class TradingBotExchangeClosedMixin:
 
 
 # === bot\mixins\feedback_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotFeedbackMixin:
@@ -1908,9 +1908,6 @@ class TradingBotFeedbackMixin:
 
 
 # === bot\mixins\guards_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotGuardsMixin:
@@ -2061,9 +2058,6 @@ class TradingBotGuardsMixin:
 
 
 # === bot\mixins\helpers_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotHelpersMixin:
@@ -2147,9 +2141,6 @@ class TradingBotHelpersMixin:
 
 
 # === bot\mixins\lifecycle_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotLifecycleMixin:
@@ -2213,6 +2204,10 @@ class TradingBotLifecycleMixin:
                 "Signal feedback loop: "
                 f"{'ON' if self.signal_feedback.enabled else 'OFF'} "
                 f"(pending timeout={self.signal_feedback.max_pending_hours}h)"
+            )
+            logger.info(
+                f"SIGNAL-ONLY output: Telegram + feedback only if confidence > "
+                f"{self.signal_only_min_confidence:.0%} (bot.signal_only_min_confidence)"
             )
         logger.info(
             f"Correlation filter: {'ON' if self.correlation_filter_enabled else 'OFF'} "
@@ -2421,9 +2416,6 @@ class TradingBotLifecycleMixin:
 
 
 # === bot\mixins\liquidation_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotLiquidationMixin:
@@ -2602,9 +2594,6 @@ class TradingBotLiquidationMixin:
 
 
 # === bot\mixins\notify_symbols_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotNotifySymbolsMixin:
@@ -2669,9 +2658,6 @@ class TradingBotNotifySymbolsMixin:
 
 
 # === bot\mixins\position_loop_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotPositionLoopMixin:
@@ -2912,7 +2898,9 @@ class TradingBotPositionLoopMixin:
             structure = self.market_structure_engine.analyze(klines, atr_val)
             last_swing_low = structure.swing_lows[-1].price if structure.swing_lows else 0.0
             last_swing_high = structure.swing_highs[-1].price if structure.swing_highs else 0.0
-            self.exit_engine.update_trailing(pos, current_price, last_swing_low, last_swing_high)
+            self.exit_engine.update_trailing(
+                pos, current_price, last_swing_low, last_swing_high, atr_val
+            )
             # Keep exchange stop-loss in sync with trailing stop for ALL positions.
             # Without this, local trailing can move while exchange SL remains stale.
             if pos.trailing_active and pos.trailing_stop > 0:
@@ -3097,9 +3085,6 @@ class TradingBotPositionLoopMixin:
 
 
 # === bot\mixins\regime_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotRegimeMixin:
@@ -3120,6 +3105,10 @@ class TradingBotRegimeMixin:
         self.position_active_sleep_sec = int(tf.get("position_active_sleep_sec", self.position_active_sleep_sec))
         self.klines_limit = max(int(tf.get("klines_limit", self.klines_limit)), self.feature_window)
         self.exit_engine.early_exit_bars = int(tf.get("early_exit_bars", self.exit_engine.early_exit_bars))
+        self.exit_engine.early_exit_min_hold_minutes = max(
+            0.0,
+            float(tf.get("early_exit_min_hold_minutes", self.exit_engine.early_exit_min_hold_minutes)),
+        )
         self.exit_engine.trailing_activation_atr = float(tf.get("trailing_activation_atr", self.exit_engine.trailing_activation_atr))
         self.exit_engine.trailing_distance_atr = float(tf.get("trailing_distance_atr", self.exit_engine.trailing_distance_atr))
         self.exit_engine.hard_sl_atr_mult = float(tf.get("hard_sl_atr_mult", self.exit_engine.hard_sl_atr_mult))
@@ -3234,9 +3223,6 @@ class TradingBotRegimeMixin:
 
 
 # === bot\mixins\scanning_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotScanningMixin:
@@ -3328,10 +3314,17 @@ class TradingBotScanningMixin:
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
 
         if self.signal_only:
-            # Signal-only mode: send to Telegram, no execution
+            # Signal-only mode: send to Telegram, no execution (only if confidence above threshold)
             for item in ranked:
                 signal = item["signal"]
                 symbol = item["symbol"]
+                conf_val = float(signal.confidence or 0.0)
+                if conf_val <= self.signal_only_min_confidence:
+                    logger.info(
+                        f"SIGNAL-ONLY SKIP {symbol}: confidence={conf_val:.0%} "
+                        f"(need >{self.signal_only_min_confidence:.0%})"
+                    )
+                    continue
                 side = signal.side
                 direction = "LONG" if side == "BUY" else "SHORT"
                 sl = signal.stop_loss
@@ -3393,9 +3386,6 @@ class TradingBotScanningMixin:
 
 
 # === bot\mixins\sync_manual_mixin.py ===
-"""Auto-split from main.TradingBot — see package bot.trading_bot."""
-from __future__ import annotations
-
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotSyncManualMixin:

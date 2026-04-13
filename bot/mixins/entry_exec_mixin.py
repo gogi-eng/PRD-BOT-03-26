@@ -86,6 +86,10 @@ class TradingBotEntryExecMixin:
             total_tp_price=signal.take_profit,
         )
         klines = await self.client.get_klines(symbol, self.candle_interval, 50)
+        latest_closed_ts = self._last_closed_kline_ts(klines)
+        if latest_closed_ts > 0:
+            pos.last_counted_kline_ts = latest_closed_ts
+            pos.bars_since_entry = 0
         atr_val = self.atr.get_atr(symbol, klines)
         self.exit_engine.initialize_position(pos, atr_val, protective_liq_level=pos.protective_liq_level)
         self._apply_profit_drawdown_profile(pos)

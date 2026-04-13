@@ -1,6 +1,25 @@
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _strip_docstring_and_future_import(source: str) -> str:
+    """Remove module docstring and ``from __future__ import annotations`` so chunks can be concatenated."""
+    text = source.lstrip("\ufeff")
+    tree = ast.parse(text)
+    lines = text.splitlines(True)
+    cut_line_idx = 0  # 0-based: first line to keep
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            if isinstance(node.value.value, str):
+                cut_line_idx = node.end_lineno
+                continue
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+            cut_line_idx = node.end_lineno
+            continue
+        break
+    return "".join(lines[cut_line_idx:]).lstrip("\n")
 
 
 def write_bot_main_shim_for_tests() -> None:
@@ -9,11 +28,12 @@ def write_bot_main_shim_for_tests() -> None:
         '"""AUTO-GENERATED aggregate of TradingBot sources for static tests; do not edit.\n'
         "Real entry: repo root ``main.py``, implementation: ``bot/trading_bot.py`` + ``bot/mixins/``.\n"
         '"""\n'
+        "from __future__ import annotations\n\n",
     ]
     mix = sorted((ROOT / "bot" / "mixins").glob("*.py"))
     for p in [ROOT / "bot" / "trading_bot.py", *mix]:
         parts.append(f"# === {p.relative_to(ROOT)} ===\n")
-        parts.append(p.read_text(encoding="utf-8"))
+        parts.append(_strip_docstring_and_future_import(p.read_text(encoding="utf-8")))
         parts.append("\n\n")
     (ROOT / "bot" / "main.py").write_text("".join(parts), encoding="utf-8")
 

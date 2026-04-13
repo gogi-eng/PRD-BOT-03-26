@@ -92,10 +92,17 @@ class TradingBotScanningMixin:
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
 
         if self.signal_only:
-            # Signal-only mode: send to Telegram, no execution
+            # Signal-only mode: send to Telegram, no execution (only if confidence above threshold)
             for item in ranked:
                 signal = item["signal"]
                 symbol = item["symbol"]
+                conf_val = float(signal.confidence or 0.0)
+                if conf_val <= self.signal_only_min_confidence:
+                    logger.info(
+                        f"SIGNAL-ONLY SKIP {symbol}: confidence={conf_val:.0%} "
+                        f"(need >{self.signal_only_min_confidence:.0%})"
+                    )
+                    continue
                 side = signal.side
                 direction = "LONG" if side == "BUY" else "SHORT"
                 sl = signal.stop_loss

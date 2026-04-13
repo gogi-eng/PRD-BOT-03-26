@@ -241,7 +241,9 @@ class TradingBotPositionLoopMixin:
             structure = self.market_structure_engine.analyze(klines, atr_val)
             last_swing_low = structure.swing_lows[-1].price if structure.swing_lows else 0.0
             last_swing_high = structure.swing_highs[-1].price if structure.swing_highs else 0.0
-            self.exit_engine.update_trailing(pos, current_price, last_swing_low, last_swing_high)
+            self.exit_engine.update_trailing(
+                pos, current_price, last_swing_low, last_swing_high, atr_val
+            )
             # Keep exchange stop-loss in sync with trailing stop for ALL positions.
             # Without this, local trailing can move while exchange SL remains stale.
             if pos.trailing_active and pos.trailing_stop > 0:
