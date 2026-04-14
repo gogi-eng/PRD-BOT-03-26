@@ -19,6 +19,10 @@ bot:
   # В режиме signal-only: отправка в Telegram и регистрация в feedback только если confidence строго выше этого порога (0.90 = >90%).
   signal_only_min_confidence: 0.90
   signal_cooldown_sec: 5400
+  # Per-stage timeout inside trading cycle (network/API bound awaits).
+  runtime_stage_timeout_sec: 25
+  # Timeout for heavier stages (position management / entry scan).
+  runtime_scan_timeout_sec: 120
 
 # ========================================
 # SCALP SESSION MODE (Asian + hot hours)
@@ -172,7 +176,8 @@ exit:
   ema_trend_exit_confirm_bars: 3
   ema_exit_require_ema_slope: true
   ema_trend_exit_require_ema_slope: true
-  ema_exit_min_adverse_from_entry_pct: 0.45
+  # Slightly higher threshold to ignore tiny +/-0.5% noise around entry.
+  ema_exit_min_adverse_from_entry_pct: 0.60
 
 risk:
   max_daily_loss_pct: 10.0
@@ -410,8 +415,8 @@ tf_presets:
       scan_interval_sec: 120
       klines_limit: 120
       early_exit_bars: 45
-      trailing_activation_atr: 1.5
-      trailing_distance_atr: 2.0
+      trailing_activation_atr: 2.0
+      trailing_distance_atr: 2.6
       volatility_floor_atr_pct: 0.007
       hard_sl_atr_mult: 2.5
     15m:

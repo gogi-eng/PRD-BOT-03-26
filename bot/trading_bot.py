@@ -212,6 +212,13 @@ class TradingBot(
         self.cycle_sleep = self.cfg.get("bot", "cycle_sleep_sec", default=45)
         self.scan_interval_sec = int(self.cfg.get("bot", "scan_interval_sec", default=self.cycle_sleep))
         self.position_active_sleep_sec = int(self.cfg.get("bot", "position_active_sleep_sec", default=15))
+        # Runtime safety timeouts to avoid "silent hangs" on network-bound awaits.
+        self.runtime_stage_timeout_sec = float(
+            self.cfg.get("bot", "runtime_stage_timeout_sec", default=60)
+        )
+        self.runtime_scan_timeout_sec = float(
+            self.cfg.get("bot", "runtime_scan_timeout_sec", default=180)
+        )
         self._last_scan_ts = 0.0
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)

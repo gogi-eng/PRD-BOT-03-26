@@ -119,12 +119,18 @@ class TradingBotLifecycleMixin:
         )
         tg_started = False
         try:
+            logger.info("[STARTUP] Validating API credentials...")
             ok, err = self.security.validate_bybit_keys()
             if not ok:
                 logger.error(f"Bybit keys: {err}")
                 return
 
-            balance = await self.client.get_balance()
+            logger.info("[STARTUP] Fetching account balance...")
+            try:
+                balance = await asyncio.wait_for(self.client.get_balance(), timeout=30)
+            except asyncio.TimeoutError:
+                logger.error("[STARTUP] get_balance timeout after 30s. Check VPS network/API reachability.")
+                return
             bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
             if bybit_perm_code in {10005, 33004}:
                 logger.error(
@@ -145,34 +151,59 @@ class TradingBotLifecycleMixin:
             logger.info(f"Balance: ${balance:.2f}")
 
             if self.tg:
-                asyncio.create_task(self.tg.start_async())
-                tg_started = True
-                await asyncio.sleep(2)
-                await self.tg.send_message(
-                    f"<b>Бот v9.0 запущен</b>\n"
-                    f"Баланс: <code>${balance:.2f}</code>\n"
-                    f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
-                    f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
-                )
+                logger.info("[STARTUP] Starting Telegram polling...")
+                try:
+                    await asyncio.wait_for(self.tg.start_async(), timeout=45)
+                except asyncio.TimeoutError:
+                    logger.error("[STARTUP] Telegram polling start timeout after 45s. Continuing without Telegram.")
+                    self.tg = None
+                except Exception as exc:
+                    logger.error(f"[STARTUP] Telegram start failed: {exc}")
+                    self.tg = None
+                if self.tg:
+                    tg_started = True
+                    logger.info("[STARTUP] Sending startup message to Telegram...")
+                    try:
+                        await asyncio.wait_for(
+                            self.tg.send_message(
+                                f"<b>Бот v9.0 запущен</b>\n"
+                                f"Баланс: <code>${balance:.2f}</code>\n"
+                                f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
+                                f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
+                            ),
+                            timeout=20,
+                        )
+                    except Exception as exc:
+                        logger.warning(f"[STARTUP] Telegram startup message failed: {exc}")
 
             self._running = True
             cycle = 0
             while self._running and not self._stop_event.is_set():
                 try:
+                    stage_timeout = max(10.0, float(getattr(self, "runtime_stage_timeout_sec", 60.0)))
+                    scan_timeout = max(stage_timeout, float(getattr(self, "runtime_scan_timeout_sec", 180.0)))
                     cycle += 1
                     logger.info(f"\n{'=' * 36} CYCLE {cycle} {'=' * 36}")
-                    balance = await self.client.get_balance()
+                    logger.info(f"[CYCLE {cycle}] stage=balance")
+                    balance = await asyncio.wait_for(self.client.get_balance(), timeout=stage_timeout)
                     if balance > 0:
                         self.controls.set_balance(balance)
                         if self.risk_guard.initial_balance <= 0:
                             self.risk_guard.initial_balance = balance
                         self.profit_lock.set_initial_balance(balance)
 
-                    exchange_positions = await self.client.get_positions()
+                    logger.info(f"[CYCLE {cycle}] stage=positions")
+                    exchange_positions = await asyncio.wait_for(
+                        self.client.get_positions(), timeout=stage_timeout
+                    )
                     exchange_symbols = [item["symbol"] for item in exchange_positions]
-                    symbols = await self.get_trade_symbols()
+                    logger.info(f"[CYCLE {cycle}] stage=symbols")
+                    symbols = await asyncio.wait_for(self.get_trade_symbols(), timeout=stage_timeout)
                     subscribed = self._unique_symbols(exchange_symbols + self.position_manager.symbols() + symbols)[: self.max_stream_symbols]
-                    await self.client.set_liquidation_symbols(subscribed)
+                    logger.info(f"[CYCLE {cycle}] stage=liq_stream symbols={len(subscribed)}")
+                    await asyncio.wait_for(
+                        self.client.set_liquidation_symbols(subscribed), timeout=stage_timeout
+                    )
 
                     await self._maybe_apply_regime_preset()
 
@@ -180,7 +211,10 @@ class TradingBotLifecycleMixin:
                         await self._process_signal_feedback_loop()
 
                     if not self.signal_only:
-                        total_unrealized = await self._manage_positions(exchange_positions)
+                        logger.info(f"[CYCLE {cycle}] stage=manage_positions")
+                        total_unrealized = await asyncio.wait_for(
+                            self._manage_positions(exchange_positions), timeout=scan_timeout
+                        )
 
                         if self.basket_profit_guard_enabled and self.position_manager.count() >= self.basket_profit_min_positions:
                             await self._check_basket_profit_guard(total_unrealized)
@@ -200,7 +234,10 @@ class TradingBotLifecycleMixin:
                         can_trade, reason = self.risk_guard.can_trade()
                         if can_trade and (self.signal_only or self.position_manager.count() < self.controls.max_positions):
                             if self._should_scan_entries_now():
-                                await self._scan_entries(symbols)
+                                logger.info(f"[CYCLE {cycle}] stage=scan_entries symbols={len(symbols)}")
+                                await asyncio.wait_for(
+                                    self._scan_entries(symbols), timeout=scan_timeout
+                                )
                         elif not can_trade:
                             logger.info(f"Trading blocked: {reason}")
                     else:
@@ -219,6 +256,9 @@ class TradingBotLifecycleMixin:
                     await asyncio.sleep(sleep_sec)
                 except asyncio.CancelledError:
                     break
+                except asyncio.TimeoutError as exc:
+                    logger.error(f"Cycle {cycle} timeout: {exc}")
+                    await asyncio.sleep(5)
                 except Exception as exc:
                     logger.error(f"Cycle error: {exc}", exc_info=True)
                     await asyncio.sleep(20)
