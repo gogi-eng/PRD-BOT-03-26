@@ -674,7 +674,8 @@ class TradingBotAnalyzeEntryMixin:
             smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
             has_real_zone = entry_zone not in ("no_zone", "")
             strong_signal = (
-                not is_scalp_signal
+                (not is_scalp_signal)
+                and
                 confidence >= self.quality_gate_strong_signal_min_confidence
                 and smc_score >= self.quality_gate_strong_signal_min_smc
                 and has_real_zone
