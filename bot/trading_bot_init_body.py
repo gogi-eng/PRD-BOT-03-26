@@ -241,6 +241,12 @@
         self.quality_gate_reject_no_zone_entries = self.cfg.get(
             "quality_gate", "reject_no_zone_entries", default=False
         )
+        self.quality_gate_strong_signal_min_confidence = float(
+            self.cfg.get("quality_gate", "strong_signal_min_confidence", default=0.85)
+        )
+        self.quality_gate_strong_signal_min_smc = float(
+            self.cfg.get("quality_gate", "strong_signal_min_smc", default=0.85)
+        )
         # Additional entry hard-gates (trade quality protection)
         self.entry_min_orderflow_imbalance = float(
             self.cfg.get("entry", "min_orderflow_imbalance", default=1.20)
@@ -362,8 +368,12 @@
                 float(
                     self.cfg.get(
                         "scalp",
-                        "quality_gate_bypass_confidence",
-                        default=self.quality_gate_min_confidence,
+                        "quality_min_confidence",
+                        default=self.cfg.get(
+                            "scalp",
+                            "quality_gate_bypass_confidence",
+                            default=self.quality_gate_min_confidence,
+                        ),
                     )
                 ),
             ),
@@ -371,8 +381,12 @@
         self.scalp_quality_min_expected_edge = float(
             self.cfg.get(
                 "scalp",
-                "quality_gate_min_expected_edge",
-                default=self.quality_gate_min_expected_edge,
+                "quality_min_expected_edge",
+                default=self.cfg.get(
+                    "scalp",
+                    "quality_gate_min_expected_edge",
+                    default=self.quality_gate_min_expected_edge,
+                ),
             )
         )
         self.scalp_mtf_single_tf_min_confidence = max(

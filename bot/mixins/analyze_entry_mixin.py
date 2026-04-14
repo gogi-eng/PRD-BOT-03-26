@@ -176,14 +176,12 @@ class TradingBotAnalyzeEntryMixin:
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
-        # Get funding rate
+        # Get funding rate (one symbol — avoid get_tickers() full list per scanned coin)
         funding_rate = 0.0
         try:
-            tickers = await self.client.get_tickers()
-            for t in tickers:
-                if t.get("symbol") == symbol:
-                    funding_rate = float(t.get("fundingRate", 0) or 0)
-                    break
+            t = await self.client.get_ticker(symbol)
+            if t:
+                funding_rate = float(t.get("fundingRate", 0) or 0)
         except Exception:
             pass
 
@@ -647,7 +645,11 @@ class TradingBotAnalyzeEntryMixin:
             has_sweep = bool(signal.metadata.get("has_sweep", False))
             # Require at least 1 structural confirmation (BOS or sweep)
             # even for high-confidence signals. Pure AI + trend = unreliable.
-            if confidence >= 0.85 and smc_score >= 0.85 and (has_bos or has_sweep):
+            if (
+                confidence >= self.quality_gate_strong_signal_min_confidence
+                and smc_score >= self.quality_gate_strong_signal_min_smc
+                and (has_bos or has_sweep)
+            ):
                 logger.info(
                     f"[QUALITY_GATE] {symbol} no_zone BYPASSED (conf={confidence:.2f} smc={smc_score:.2f} bos={has_bos} sweep={has_sweep})"
                 )
@@ -670,7 +672,11 @@ class TradingBotAnalyzeEntryMixin:
             # Strong signal with real zone bypasses regime/atr/orderflow checks
             smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
             has_real_zone = entry_zone not in ("no_zone", "")
-            strong_signal = confidence >= 0.85 and smc_score >= 0.85 and has_real_zone
+            strong_signal = (
+                confidence >= self.quality_gate_strong_signal_min_confidence
+                and smc_score >= self.quality_gate_strong_signal_min_smc
+                and has_real_zone
+            )
 
             if not strong_signal:
                 if not self.quality_gate_allow_chop and regime == "chop":

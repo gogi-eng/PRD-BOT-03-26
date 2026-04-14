@@ -226,6 +226,17 @@ class BybitClient:
             return result["list"]
         return []
 
+    async def get_ticker(self, symbol: str) -> Optional[Dict]:
+        """Single-symbol ticker (lightweight vs downloading all category tickers)."""
+        result = await self._request(
+            "GET", "/v5/market/tickers", {"category": self.category, "symbol": symbol}
+        )
+        if result and result.get("list"):
+            lst = result["list"]
+            if lst:
+                return lst[0]
+        return None
+
     async def get_orderbook(self, symbol: str, limit: int = 50) -> Dict:
         result = await self._request("GET", "/v5/market/orderbook", {"category": self.category, "symbol": symbol, "limit": limit})
         if result:

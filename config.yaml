@@ -17,7 +17,7 @@ bot:
   liquidation_stream_symbols: 15
   signal_only: false
   # В режиме signal-only: отправка в Telegram и регистрация в feedback только если confidence строго выше этого порога (0.90 = >90%).
-  signal_only_min_confidence: 0.89
+  signal_only_min_confidence: 0.90
   signal_cooldown_sec: 5400
 
 # ========================================
@@ -42,11 +42,11 @@ scalp:
   orderflow_hardgate_floor: 0.05
   skip_orderbook_direction_guard: true
   skip_impulse_retest_guard: true
-  impulse_retest_bypass_confidence: 0.68
-  quality_gate_bypass_confidence: 0.68
-  quality_min_confidence: 0.60
+  impulse_retest_bypass_confidence: 0.90
+  quality_gate_bypass_confidence: 0.90
+  quality_min_confidence: 0.90
   quality_min_expected_edge: 0.40
-  mtf_single_tf_min_confidence: 0.64
+  mtf_single_tf_min_confidence: 0.90
 
 trading:
   position_size_mode: "margin_cap"  # margin_cap | risk_based
@@ -78,7 +78,8 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  entry_threshold: 0.28
+  # Минимальный composite / confidence для входа (0.90 = не ниже 90%).
+  entry_threshold: 0.90
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
@@ -109,18 +110,18 @@ entry:
   sell_volume_guard_min_ratio: 0.16
   counter_flow_guard_mult: 2.3
   direction_tiebreaker_prob_gap: 0.06
-  guard_confidence_bypass: 0.78
+  guard_confidence_bypass: 0.90
   anti_peak_guard_enabled: true
   anti_peak_lookback: 24
   anti_peak_atr_buffer_mult: 0.35
   # Below this composite, block entries very close to local high/low (raise = stricter peak filter).
-  peak_confidence_bypass: 0.72
+  peak_confidence_bypass: 0.90
   impulse_retest_confirm_enabled: true
-  missing_bos_min_confidence: 0.62
+  missing_bos_min_confidence: 0.90
   impulse_min_body_atr: 0.45
   retest_max_body_ratio: 0.85
   confirm_min_body_ratio: 0.35
-  impulse_confirm_confidence_bypass: 0.82
+  impulse_confirm_confidence_bypass: 0.90
 
 market_structure:
   swing_lookback: 2
@@ -208,7 +209,8 @@ market:
 
 ai:
   enabled: true
-  min_confidence: 55
+  # Согласовано с порогом входа 90%: после бленда (signal+AI)/2 оба «плеча» должны быть высокими.
+  min_confidence: 90
   fail_open: true
   require_direction_match: true
   uniformity_guard_enabled: true
@@ -325,20 +327,23 @@ feedback_loop:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.58
+  min_confidence: 0.90
+  # Порог «сильного сигнала» для обходов chop / no_zone (должен совпадать с мин. входом).
+  strong_signal_min_confidence: 0.90
+  strong_signal_min_smc: 0.90
   min_expected_edge: 0.40
   anti_flat_min_adx: 14.5
   anti_flat_min_atr_pct: 0.08
   anti_flat_min_abs_imbalance: 0.06
   anti_flat_allow_chop: false
   chop_bypass_enabled: true
-  chop_bypass_min_confidence: 0.78
+  chop_bypass_min_confidence: 0.90
   chop_bypass_min_abs_imbalance: 0.12
   chop_bypass_require_zone: true
   anti_flat_require_htf_trend: false
-  countertrend_min_confidence: 0.88
+  countertrend_min_confidence: 0.90
   countertrend_min_abs_imbalance: 0.24
-  no_zone_min_confidence: 0.80
+  no_zone_min_confidence: 0.90
   reject_no_zone_entries: false
 
 symbol_quality:
@@ -363,7 +368,7 @@ correlation:
 mtf_zone_confirmation:
   enabled: true
   require_any_zone: false
-  min_confidence_if_single_tf: 0.72
+  min_confidence_if_single_tf: 0.90
 
 adaptive_regime_presets:
   enabled: true

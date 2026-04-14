@@ -70,6 +70,8 @@ from strategy import ScalpSessionStrategy
 from tg.controller import TelegramController
 from utils import ATRCalculator
 
+from bot.state import BasketProfitState
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("BOT")
 logging.getLogger("httpx").setLevel(logging.WARNING)

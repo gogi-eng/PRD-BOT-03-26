@@ -95,7 +95,7 @@ class ScalpSessionStrategy:
             and vol_ratio >= self.min_volume_ratio
         ):
             self._last_signal_idx[symbol] = current_idx
-            confidence = min(0.95, 0.45 + (impulse_pct / 3.0) + ((vol_ratio - 1.0) / 4.0))
+            confidence = min(0.93, 0.45 + (impulse_pct / 3.0) + ((vol_ratio - 1.0) / 4.0))
             return {
                 "signal": "BUY",
                 "confidence": round(confidence, 2),
@@ -113,7 +113,7 @@ class ScalpSessionStrategy:
             and vol_ratio >= self.min_volume_ratio
         ):
             self._last_signal_idx[symbol] = current_idx
-            confidence = min(0.95, 0.45 + (abs(impulse_pct) / 3.0) + ((vol_ratio - 1.0) / 4.0))
+            confidence = min(0.93, 0.45 + (abs(impulse_pct) / 3.0) + ((vol_ratio - 1.0) / 4.0))
             return {
                 "signal": "SELL",
                 "confidence": round(confidence, 2),

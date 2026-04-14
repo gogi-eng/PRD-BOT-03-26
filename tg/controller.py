@@ -39,7 +39,16 @@ class TelegramController:
         self._signal_feedback = None
         self._bot_instance = None
 
-        self.app: Application = ApplicationBuilder().token(token).build()
+        # Дольше таймауты: с VPS до Telegram часто 20s+ по умолчанию → "Timed out" на send_message.
+        self.app: Application = (
+            ApplicationBuilder()
+            .token(token)
+            .connect_timeout(45.0)
+            .read_timeout(45.0)
+            .write_timeout(45.0)
+            .pool_timeout(45.0)
+            .build()
+        )
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("menu", self.cmd_start))
         self.app.add_handler(CommandHandler("help", self.cmd_help))
