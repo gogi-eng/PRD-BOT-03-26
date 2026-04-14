@@ -220,6 +220,11 @@ class TradingBot(
             self.cfg.get("bot", "runtime_scan_timeout_sec", default=180)
         )
         self._last_scan_ts = 0.0
+        # Skip re-analyzing the same symbol too often to reduce Bybit API load.
+        self.min_symbol_rescan_sec = float(
+            self.cfg.get("bot", "min_symbol_rescan_sec", default=90)
+        )
+        self._last_symbol_scan_ts: dict[str, float] = {}
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
 

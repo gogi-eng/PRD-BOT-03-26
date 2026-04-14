@@ -119,7 +119,9 @@ class TradingBotAnalyzeEntryMixin:
         # Market Structure: swings, BOS, sweeps, momentum
         structure = self.market_structure_engine.analyze(klines, atr_val)
 
-        orderbook = await self.client.get_orderbook(symbol, limit=25)
+        # Reuse one deep orderbook snapshot for both orderflow and heatmap
+        # to reduce API pressure on Bybit.
+        orderbook = await self.client.get_orderbook(symbol, limit=200)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
 
@@ -150,8 +152,7 @@ class TradingBotAnalyzeEntryMixin:
                 signal = scalp_signal
 
         # Real orderbook-based heatmap (replaces synthetic fallback)
-        heatmap_orderbook = await self.client.get_orderbook(symbol, limit=200)
-        heatmap = self.liquidity_heatmap.build_heatmap(heatmap_orderbook)
+        heatmap = self.liquidity_heatmap.build_heatmap(orderbook)
         magnet_dir, magnet_target = self.liquidity_heatmap.get_liquidity_magnet(current_price, heatmap)
 
         liq = self._resolve_liquidation_context(symbol, current_price, klines)
@@ -673,6 +674,7 @@ class TradingBotAnalyzeEntryMixin:
             smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
             has_real_zone = entry_zone not in ("no_zone", "")
             strong_signal = (
+                not is_scalp_signal
                 confidence >= self.quality_gate_strong_signal_min_confidence
                 and smc_score >= self.quality_gate_strong_signal_min_smc
                 and has_real_zone

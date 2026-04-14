@@ -15,6 +15,13 @@ class TradingBotScanningMixin:
             if self.position_manager.has(symbol):
                 mark_reject("already_in_position")
                 continue
+            now_ts = time.monotonic()
+            min_symbol_rescan_sec = max(0.0, float(getattr(self, "min_symbol_rescan_sec", 0.0) or 0.0))
+            if min_symbol_rescan_sec > 0:
+                last_scanned_at = float(getattr(self, "_last_symbol_scan_ts", {}).get(symbol, 0.0) or 0.0)
+                if last_scanned_at > 0 and (now_ts - last_scanned_at) < min_symbol_rescan_sec:
+                    mark_reject("symbol_rescan_throttle")
+                    continue
 
             exchange_closed_wait = self._exchange_closed_reentry_remaining(symbol)
             if exchange_closed_wait > 0:
@@ -38,6 +45,7 @@ class TradingBotScanningMixin:
                     mark_reject("risk_blocked")
                 continue
             try:
+                self._last_symbol_scan_ts[symbol] = now_ts
                 signal = await self._analyze_symbol(symbol)
                 if signal.should_enter:
                     cooldown_left = self._same_side_cooldown_remaining(symbol, signal.side)

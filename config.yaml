@@ -10,6 +10,8 @@ bot:
   htf_4h_interval: "240"
   cycle_sleep_sec: 120
   scan_interval_sec: 60
+  # Минимальная пауза перед повторным анализом того же символа (снижает нагрузку на Bybit API).
+  min_symbol_rescan_sec: 90
   scan_interval_active_hours_sec: 20
   position_active_sleep_sec: 15
   klines_limit: 180
@@ -82,8 +84,8 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  # Минимальный composite / confidence для входа (0.90 = не ниже 90%).
-  entry_threshold: 0.90
+  # Минимальный composite / confidence для входа (0.88 = не ниже 88%).
+  entry_threshold: 0.88
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15

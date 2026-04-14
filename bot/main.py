@@ -216,6 +216,11 @@ class TradingBot(
         self.scan_interval_sec = int(self.cfg.get("bot", "scan_interval_sec", default=self.cycle_sleep))
         self.position_active_sleep_sec = int(self.cfg.get("bot", "position_active_sleep_sec", default=15))
         self._last_scan_ts = 0.0
+        # Skip re-analyzing the same symbol too often to reduce Bybit API load.
+        self.min_symbol_rescan_sec = float(
+            self.cfg.get("bot", "min_symbol_rescan_sec", default=90)
+        )
+        self._last_symbol_scan_ts: dict[str, float] = {}
         self.feature_window = self.cfg.get("bot", "feature_window", default=128)
         self.klines_limit = max(self.cfg.get("bot", "klines_limit", default=180), self.feature_window)
 
@@ -713,7 +718,9 @@ class TradingBotAnalyzeEntryMixin:
         # Market Structure: swings, BOS, sweeps, momentum
         structure = self.market_structure_engine.analyze(klines, atr_val)
 
-        orderbook = await self.client.get_orderbook(symbol, limit=25)
+        # Reuse one deep orderbook snapshot for both orderflow and heatmap
+        # to reduce API pressure on Bybit.
+        orderbook = await self.client.get_orderbook(symbol, limit=200)
         trades = await self.client.get_recent_trades(symbol, limit=120)
         orderflow = self.orderflow_analyzer.analyze(orderbook, trades)
 
@@ -744,8 +751,7 @@ class TradingBotAnalyzeEntryMixin:
                 signal = scalp_signal
 
         # Real orderbook-based heatmap (replaces synthetic fallback)
-        heatmap_orderbook = await self.client.get_orderbook(symbol, limit=200)
-        heatmap = self.liquidity_heatmap.build_heatmap(heatmap_orderbook)
+        heatmap = self.liquidity_heatmap.build_heatmap(orderbook)
         magnet_dir, magnet_target = self.liquidity_heatmap.get_liquidity_magnet(current_price, heatmap)
 
         liq = self._resolve_liquidation_context(symbol, current_price, klines)
@@ -1267,6 +1273,7 @@ class TradingBotAnalyzeEntryMixin:
             smc_score = float(signal.metadata.get("smc_score", 0.0) or 0.0)
             has_real_zone = entry_zone not in ("no_zone", "")
             strong_signal = (
+                not is_scalp_signal
                 confidence >= self.quality_gate_strong_signal_min_confidence
                 and smc_score >= self.quality_gate_strong_signal_min_smc
                 and has_real_zone
