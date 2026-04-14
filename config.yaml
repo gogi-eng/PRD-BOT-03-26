@@ -9,10 +9,10 @@ bot:
   htf_interval: "60"
   htf_4h_interval: "240"
   cycle_sleep_sec: 120
-  scan_interval_sec: 60
+  scan_interval_sec: 120
   # Минимальная пауза перед повторным анализом того же символа (снижает нагрузку на Bybit API).
   min_symbol_rescan_sec: 90
-  scan_interval_active_hours_sec: 20
+  scan_interval_active_hours_sec: 60
   position_active_sleep_sec: 15
   klines_limit: 180
   feature_window: 128
@@ -24,7 +24,7 @@ bot:
   # Per-stage timeout inside trading cycle (network/API bound awaits).
   runtime_stage_timeout_sec: 25
   # Timeout for heavier stages (position management / entry scan).
-  runtime_scan_timeout_sec: 120
+  runtime_scan_timeout_sec: 240
 
 # ========================================
 # SCALP SESSION MODE (Asian + hot hours)

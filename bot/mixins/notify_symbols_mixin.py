@@ -22,7 +22,8 @@ class TradingBotNotifySymbolsMixin:
             tickers = await self.client.get_tickers()
         except Exception as exc:
             logger.error(f"Failed to get tickers: {exc}")
-            return self.whitelist[:25] if self.whitelist else []
+            limit = max(1, int(getattr(self, "trade_symbols", 25) or 25))
+            return self.whitelist[:limit] if self.whitelist else []
 
         ranked = []
         for ticker in tickers:
@@ -58,7 +59,8 @@ class TradingBotNotifySymbolsMixin:
                 unique.append(s)
                 seen.add(s)
 
-        result = unique[:25]
+        limit = max(1, int(getattr(self, "trade_symbols", 25) or 25))
+        result = unique[:limit]
         wl_in = [s for s in self.whitelist if s in result]
         logger.info(f"Symbol scanner: {len(ranked)} eligible → top {len(result)} (whitelist: {wl_in})")
         return result
