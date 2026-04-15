@@ -203,7 +203,7 @@ risk:
 market:
   min_24h_volume_usdt: 25000000
   max_symbols: 50
-  trade_symbols: 12
+  trade_symbols: 15
   whitelist_enabled: true
   whitelist_only: false
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
