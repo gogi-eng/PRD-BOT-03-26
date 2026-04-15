@@ -70,8 +70,8 @@ trading:
 entry:
   transformer_threshold: 0.60
   max_liq_distance_pct: 1.30
-  # Normalized imbalance [-1..1]; lowered to reduce over-filtering in chop sessions.
-  min_orderflow_imbalance: 0.10
+  # Normalized imbalance [-1..1]; slight relax for better fill rate.
+  min_orderflow_imbalance: 0.09
   min_rr_ratio: 3.0
   min_target_profit_pct: 1.5
   require_structural_tp: true
@@ -84,8 +84,8 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.08
   max_funding_rate: 0.05
-  # Минимальный composite / confidence для входа (0.85 = не ниже 85%).
-  entry_threshold: 0.85
+  # Минимальный composite / confidence для входа (0.84 = не ниже 84%).
+  entry_threshold: 0.84
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
