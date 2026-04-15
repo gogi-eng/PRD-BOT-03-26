@@ -273,6 +273,28 @@ class EntryEngine:
     def _clamp(value: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, value))
 
+    @staticmethod
+    def _strict_float(value: object, metric_name: str) -> float:
+        """Strict numeric coercion for runtime metrics (fail-closed on bad types)."""
+        if isinstance(value, bool):
+            raise ValueError(f"{metric_name}: bool is not a valid numeric metric")
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            result = float(value)
+        elif isinstance(value, str):
+            raw = value.strip().replace(",", ".")
+            if raw == "":
+                raise ValueError(f"{metric_name}: empty string")
+            result = float(raw)
+        else:
+            raise ValueError(f"{metric_name}: unsupported type {type(value).__name__}")
+        if not math.isfinite(result):
+            raise ValueError(f"{metric_name}: non-finite value {result}")
+        return result
+
+    @classmethod
+    def _strict_int(cls, value: object, metric_name: str) -> int:
+        return int(cls._strict_float(value, metric_name))
+
     def _predict_trained_win_prob(
         self,
         composite_score: float,
@@ -309,15 +331,62 @@ class EntryEngine:
     ) -> EntrySignal:
         signal = EntrySignal(entry_price=current_price)
 
-        # Coerce trend / flow scalars — config or callers may pass strings; mixed types raise TypeError on compare.
+        # Strict runtime type coercion for all externally sourced scalar metrics.
+        # If any metric is malformed (e.g. "abc"), fail-closed with explicit reject reason.
         try:
-            htf_4h_trend = int(float(htf_4h_trend))
-        except (TypeError, ValueError):
-            htf_4h_trend = 0
-        try:
-            norm_imb = float(getattr(orderflow_snapshot, "normalized_imbalance", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            norm_imb = 0.0
+            current_price = self._strict_float(current_price, "current_price")
+            signal.entry_price = current_price
+            atr_value = self._strict_float(atr_value, "atr_value")
+            funding_rate = self._strict_float(funding_rate, "funding_rate")
+            htf_4h_trend = self._strict_int(htf_4h_trend, "htf_4h_trend")
+            norm_imb = self._strict_float(
+                getattr(orderflow_snapshot, "normalized_imbalance", 0.0),
+                "orderflow.normalized_imbalance",
+            )
+            of_buy_vol = self._strict_float(
+                getattr(orderflow_snapshot, "buy_volume", 0.0),
+                "orderflow.buy_volume",
+            )
+            of_sell_vol = self._strict_float(
+                getattr(orderflow_snapshot, "sell_volume", 0.0),
+                "orderflow.sell_volume",
+            )
+            spread_pct = self._strict_float(
+                getattr(orderflow_snapshot, "spread_pct", 0.0),
+                "orderflow.spread_pct",
+            )
+            transformer_prob_up = self._strict_float(
+                getattr(transformer_prediction, "prob_up", 0.0),
+                "transformer.prob_up",
+            )
+            transformer_prob_down = self._strict_float(
+                getattr(transformer_prediction, "prob_down", 0.0),
+                "transformer.prob_down",
+            )
+            transformer_prob_flat = self._strict_float(
+                getattr(transformer_prediction, "prob_flat", 0.0),
+                "transformer.prob_flat",
+            )
+            liq_target_level = self._strict_float(
+                getattr(liq_analysis, "target_level", 0.0),
+                "liq.target_level",
+            )
+            liq_signal = self._strict_float(
+                getattr(liq_analysis, "signal", 0.0),
+                "liq.signal",
+            )
+            liq_distance_pct = self._strict_float(
+                getattr(liq_analysis, "distance_to_target_pct", 0.0),
+                "liq.distance_to_target_pct",
+            )
+            market_atr_pct = self._strict_float(
+                getattr(market_analysis, "atr_pct", 0.0),
+                "market.atr_pct",
+            )
+        except (TypeError, ValueError) as exc:
+            signal.metadata["reject_reason"] = "invalid_metric_type"
+            signal.metadata["metric_error"] = str(exc)
+            return signal
 
         if not market_analysis.can_trade:
             signal.metadata["reject_reason"] = "market_blocked"
@@ -327,9 +396,9 @@ class EntryEngine:
             signal.metadata["reject_reason"] = "require_4h_trend_neutral"
             return signal
 
-        if self.min_volatility_pct > 0 and float(getattr(market_analysis, "atr_pct", 0.0) or 0.0) < self.min_volatility_pct:
+        if self.min_volatility_pct > 0 and market_atr_pct < self.min_volatility_pct:
             signal.metadata["reject_reason"] = (
-                f"volatility_too_low ({float(getattr(market_analysis, 'atr_pct', 0.0) or 0.0):.3f}% < {self.min_volatility_pct:.3f}%)"
+                f"volatility_too_low ({market_atr_pct:.3f}% < {self.min_volatility_pct:.3f}%)"
             )
             return signal
 
@@ -339,7 +408,6 @@ class EntryEngine:
         # =====================================================
         # HARD PRE-CHECK: spread & funding (execution safety)
         # =====================================================
-        spread_pct = orderflow_snapshot.spread_pct if hasattr(orderflow_snapshot, 'spread_pct') else 0.0
         if self.max_spread_pct > 0 and spread_pct > self.max_spread_pct:
             signal.metadata["reject_reason"] = f"spread_too_wide ({spread_pct:.3f}%)"
             return signal
@@ -436,13 +504,13 @@ class EntryEngine:
 
         if htf_4h_trend > 0 or (htf_4h_trend == 0 and norm_imb > 0):
             # Looking for bullish AI signal
-            ai_score = transformer_prediction.prob_up
-            ai_reasons.append(f"AI_up={transformer_prediction.prob_up:.2f}")
+            ai_score = transformer_prob_up
+            ai_reasons.append(f"AI_up={transformer_prob_up:.2f}")
         elif htf_4h_trend < 0 or (htf_4h_trend == 0 and norm_imb < 0):
-            ai_score = transformer_prediction.prob_down
-            ai_reasons.append(f"AI_down={transformer_prediction.prob_down:.2f}")
+            ai_score = transformer_prob_down
+            ai_reasons.append(f"AI_down={transformer_prob_down:.2f}")
         else:
-            ai_score = max(transformer_prediction.prob_up, transformer_prediction.prob_down)
+            ai_score = max(transformer_prob_up, transformer_prob_down)
             ai_reasons.append(f"AI_max={ai_score:.2f}")
 
         # =====================================================
@@ -471,9 +539,9 @@ class EntryEngine:
 
         # Determine side from strongest signals
         bull_signals = (1 if htf_4h_trend > 0 else 0) + (1 if norm_imb > 0.05 else 0) + \
-                       (1 if transformer_prediction.prob_up > transformer_prediction.prob_down else 0)
+                       (1 if transformer_prob_up > transformer_prob_down else 0)
         bear_signals = (1 if htf_4h_trend < 0 else 0) + (1 if norm_imb < -0.05 else 0) + \
-                       (1 if transformer_prediction.prob_down > transformer_prediction.prob_up else 0)
+                       (1 if transformer_prob_down > transformer_prob_up else 0)
 
         if bull_signals > bear_signals:
             is_long = True
@@ -482,11 +550,9 @@ class EntryEngine:
         elif htf_4h_trend != 0:
             is_long = htf_4h_trend > 0
         else:
-            prob_gap = abs(
-                float(transformer_prediction.prob_up) - float(transformer_prediction.prob_down)
-            )
+            prob_gap = abs(transformer_prob_up - transformer_prob_down)
             if prob_gap >= max(0.0, float(self.direction_tiebreaker_prob_gap)):
-                is_long = float(transformer_prediction.prob_up) > float(transformer_prediction.prob_down)
+                is_long = transformer_prob_up > transformer_prob_down
             else:
                 signal.metadata = {
                     "reject_reason": f"no_direction_consensus (score={composite})",
@@ -578,8 +644,6 @@ class EntryEngine:
         # COUNTER-FLOW GUARD: reject if recent trades contradict signal
         # If signal is SELL but aggressive buying in last 30 trades (absorption)
         # =====================================================
-        of_buy_vol = getattr(orderflow_snapshot, 'buy_volume', 0)
-        of_sell_vol = getattr(orderflow_snapshot, 'sell_volume', 0)
         counter_flow_mult = max(1.0, float(self.counter_flow_guard_mult))
         if is_long and of_sell_vol > 0 and of_sell_vol > of_buy_vol * counter_flow_mult:
             # Want to BUY but heavy selling — counter-flow
@@ -762,8 +826,8 @@ class EntryEngine:
                 tp2 = max(struct_tp2, tp1)
             else:
                 tp2 = tp1 + atr_value * 2.0
-            if liq_analysis.target_level > current_price and liq_analysis.signal > 0:
-                tp2 = max(tp2, liq_analysis.target_level)
+            if liq_target_level > current_price and liq_signal > 0:
+                tp2 = max(tp2, liq_target_level)
         else:
             if has_structure and getattr(structure, 'sweep_high', 0) > 0:
                 sl = structure.sweep_high + atr_value * self.sl_buffer_atr_mult
@@ -787,8 +851,8 @@ class EntryEngine:
                 tp2 = min(struct_tp2, tp1)
             else:
                 tp2 = tp1 - atr_value * 2.0
-            if liq_analysis.target_level > 0 and liq_analysis.target_level < current_price and liq_analysis.signal < 0:
-                tp2 = min(tp2, liq_analysis.target_level)
+            if liq_target_level > 0 and liq_target_level < current_price and liq_signal < 0:
+                tp2 = min(tp2, liq_target_level)
 
         if self.require_structural_tp and not tp_confirmed_by_structure:
             signal.metadata = {
@@ -914,13 +978,13 @@ class EntryEngine:
             "normalized_imbalance": norm_imb,
             "target_level": tp2,
             "protective_liq_level": round(sl, 8),
-            "transformer_prob_up": transformer_prediction.prob_up,
-            "transformer_prob_down": transformer_prediction.prob_down,
-            "transformer_prob_flat": transformer_prediction.prob_flat,
+            "transformer_prob_up": transformer_prob_up,
+            "transformer_prob_down": transformer_prob_down,
+            "transformer_prob_flat": transformer_prob_flat,
             "regime": regime_prediction.regime.value,
             "spread_pct": spread_pct,
-            "liq_distance_pct": liq_analysis.distance_to_target_pct,
-            "liq_signal": liq_analysis.signal,
+            "liq_distance_pct": liq_distance_pct,
+            "liq_signal": liq_signal,
             "liq_magnet": liq_analysis.magnet_direction,
             "tp1_level": tp1,
             "tp2_level": tp2,
