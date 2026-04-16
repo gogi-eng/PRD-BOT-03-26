@@ -176,7 +176,7 @@ class TradingBotSyncManualMixin:
         pos.profit_drawdown_below_trigger_since = 0.0
 
 
-    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float) -> tuple[bool, str]:
+    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float, klines: Optional[list] = None) -> tuple[bool, str]:
         if not self.profit_drawdown_guard_enabled or current_price <= 0 or pos.entry_price <= 0:
             return False, ""
 
@@ -216,6 +216,25 @@ class TradingBotSyncManualMixin:
         if current_profit_pct > trigger_profit_pct or current_profit_pct <= 0:
             pos.profit_drawdown_below_trigger_since = 0.0
             return False, ""
+
+        if (
+            self.profit_drawdown_require_trend_break
+            and klines
+            and len(klines) >= max(self.profit_drawdown_trend_ema_slow + 2, 55)
+        ):
+            closes = np.array([float(k.get("close", 0.0) or 0.0) for k in klines], dtype=float)
+            ema_fast = self.entry_engine._compute_ema(closes, max(2, self.profit_drawdown_trend_ema_fast))
+            ema_slow = self.entry_engine._compute_ema(closes, max(3, self.profit_drawdown_trend_ema_slow))
+            ef = float(ema_fast[-1]) if len(ema_fast) else current_price
+            es = float(ema_slow[-1]) if len(ema_slow) else current_price
+            if np.isfinite(ef) and np.isfinite(es):
+                trend_intact = (
+                    (pos.is_long and current_price >= ef and ef >= es)
+                    or ((not pos.is_long) and current_price <= ef and ef <= es)
+                )
+                if trend_intact:
+                    pos.profit_drawdown_below_trigger_since = 0.0
+                    return False, ""
 
         if self.profit_drawdown_retrace_confirm_sec <= 1e-9:
             return True, reason

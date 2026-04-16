@@ -540,6 +540,15 @@
         self.profit_drawdown_retrace_confirm_sec = float(
             self.cfg.get("profit_drawdown_guard", "retrace_confirm_sec", default=0.0)
         )
+        self.profit_drawdown_require_trend_break = bool(
+            self.cfg.get("profit_drawdown_guard", "require_trend_break", default=True)
+        )
+        self.profit_drawdown_trend_ema_fast = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_fast", default=20)
+        )
+        self.profit_drawdown_trend_ema_slow = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_slow", default=50)
+        )
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
         self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
