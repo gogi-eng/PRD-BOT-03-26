@@ -293,10 +293,10 @@ basket_profit_guard:
 
 profit_drawdown_guard:
   enabled: true
-  activation_profit_pct: 3.0
-  retrace_from_peak_pct: 25.0
+  activation_profit_pct: 5.0
+  retrace_from_peak_pct: 45.0
   # Секунды удержания в зоне отката от пика перед закрытием (снимает выход на одном фитиле, пока тренд живёт).
-  retrace_confirm_sec: 90
+  retrace_confirm_sec: 180
   # Не закрывать profit_drawdown_guard, пока локальный EMA-тренд (fast/slow) еще в сторону позиции.
   require_trend_break: true
   trend_ema_fast: 20
