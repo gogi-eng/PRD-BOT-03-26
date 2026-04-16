@@ -11,8 +11,8 @@
 import os
 from datetime import datetime
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_FILE = "PROJECT_DUMP.txt"
+PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot")
+OUTPUT_FILE = "BOT_DUMP.txt"
 
 # Папки которые пропускаем
 EXCLUDE_DIRS = {
