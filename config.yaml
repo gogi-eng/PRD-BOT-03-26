@@ -82,10 +82,10 @@ entry:
   entry_range_atr_mult: 0.22
   allowed_regimes: ["trend", "breakout"]
   zone_proximity_pct: 0.4
-  max_spread_pct: 0.08
+  max_spread_pct: 0.10
   max_funding_rate: 0.05
   # Минимальный composite / confidence для входа (0.84 = не ниже 84%).
-  entry_threshold: 0.84
+  entry_threshold: 0.80
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
@@ -112,8 +112,8 @@ entry:
   volume_filter: true
   volume_lookback: 20
   volume_guard_min_ratio: 0.26
-  buy_volume_guard_min_ratio: 0.15
-  sell_volume_guard_min_ratio: 0.14
+  buy_volume_guard_min_ratio: 0.12
+  sell_volume_guard_min_ratio: 0.12
   counter_flow_guard_mult: 2.3
   direction_tiebreaker_prob_gap: 0.06
   guard_confidence_bypass: 0.90
