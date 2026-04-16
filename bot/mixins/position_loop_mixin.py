@@ -229,7 +229,7 @@ class TradingBotPositionLoopMixin:
                 if not pos:
                     continue
 
-            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price)
+            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price, klines)
             if guard_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=guard_reason, position_idx=pos.position_idx)
                 if close_result.get("success"):
