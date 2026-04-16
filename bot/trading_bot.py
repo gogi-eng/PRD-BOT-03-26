@@ -598,6 +598,21 @@ class TradingBot(
         self.profit_drawdown_trend_ema_slow = int(
             self.cfg.get("profit_drawdown_guard", "trend_ema_slow", default=50)
         )
+        self.profit_drawdown_pullback_analysis_enabled = bool(
+            self.cfg.get("profit_drawdown_guard", "pullback_analysis_enabled", default=True)
+        )
+        self.profit_drawdown_pullback_lookback_bars = int(
+            self.cfg.get("profit_drawdown_guard", "pullback_lookback_bars", default=60)
+        )
+        self.profit_drawdown_pullback_min_adverse_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_min_adverse_pct", default=2.5)
+        )
+        self.profit_drawdown_pullback_cancel_recovery_ratio = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_cancel_recovery_ratio", default=0.35)
+        )
+        self.profit_drawdown_pullback_max_range_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_max_range_pct", default=9.0)
+        )
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
         self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
