@@ -44,6 +44,7 @@ class ExitEngine:
         early_exit_min_hold_minutes: float = 0.0,
         early_exit_session_utc_hours: Optional[list[int]] = None,
         early_exit_session_min_profit_atr_boost: float = 0.0,
+        early_exit_allow_loss_close: bool = False,
         trailing_activation_atr: float = 0.8,
         trailing_distance_atr: float = 1.2,
         trailing_min_distance_pct: float = 0.0,
@@ -75,6 +76,7 @@ class ExitEngine:
         self.early_exit_session_min_profit_atr_boost = max(
             0.0, float(early_exit_session_min_profit_atr_boost)
         )
+        self.early_exit_allow_loss_close = bool(early_exit_allow_loss_close)
         self.trailing_activation_atr = trailing_activation_atr
         self.trailing_distance_atr = trailing_distance_atr
         if trailing_min_distance_from_price_pct is not None:
@@ -242,6 +244,8 @@ class ExitEngine:
             min_profit = max(min_profit, fee_per_unit)
             favorable_profit = self._favorable_profit_per_unit(position, entry, is_long)
             effective_profit = max(profit, favorable_profit)
+            if (not self.early_exit_allow_loss_close) and profit <= 0:
+                return False, None, ""
             if effective_profit < min_profit:
                 reason_code = "early_exit_low_progress"
                 age_str = f"{age_min:.2f}" if age_min is not None else "n/a"
