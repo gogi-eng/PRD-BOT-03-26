@@ -236,6 +236,42 @@ class TradingBotSyncManualMixin:
                     pos.profit_drawdown_below_trigger_since = 0.0
                     return False, ""
 
+        # Full-symbol pullback analysis: if market shows a healthy pullback/recovery
+        # (accumulation after adverse spike), cancel forced drawdown close.
+        if (
+            self.profit_drawdown_pullback_analysis_enabled
+            and klines
+            and len(klines) >= max(20, self.profit_drawdown_pullback_lookback_bars)
+        ):
+            lb = max(20, self.profit_drawdown_pullback_lookback_bars)
+            closes = np.array(
+                [float(k.get("close", 0.0) or 0.0) for k in klines[-lb:]],
+                dtype=float,
+            )
+            if len(closes) >= 5:
+                hi = float(np.max(closes))
+                lo = float(np.min(closes))
+                if hi > 0 and lo > 0 and hi > lo:
+                    range_pct = (hi - lo) / hi * 100.0
+                    recovery_ratio = (current_price - lo) / max(hi - lo, 1e-9)
+                    adverse_pct = (
+                        (hi - current_price) / hi * 100.0
+                        if pos.is_long
+                        else (current_price - lo) / lo * 100.0
+                    )
+                    accumulation_cancel = (
+                        adverse_pct >= self.profit_drawdown_pullback_min_adverse_pct
+                        and recovery_ratio >= self.profit_drawdown_pullback_cancel_recovery_ratio
+                        and range_pct <= self.profit_drawdown_pullback_max_range_pct
+                    )
+                    if accumulation_cancel:
+                        pos.profit_drawdown_below_trigger_since = 0.0
+                        logger.info(
+                            f"[PROFIT_GUARD] {pos.symbol} close cancelled by pullback analysis: "
+                            f"adverse={adverse_pct:.2f}% recovery={recovery_ratio:.2f} range={range_pct:.2f}%"
+                        )
+                        return False, ""
+
         if self.profit_drawdown_retrace_confirm_sec <= 1e-9:
             return True, reason
 
