@@ -150,6 +150,13 @@ class TradingBot(
             early_exit_min_hold_minutes=float(
                 self.cfg.get("exit", "early_exit_min_hold_minutes", default=0.0)
             ),
+            early_exit_session_utc_hours=list(
+                self.cfg.get("exit", "early_exit_session_utc_hours", default=[])
+                or []
+            ),
+            early_exit_session_min_profit_atr_boost=float(
+                self.cfg.get("exit", "early_exit_session_min_profit_atr_boost", default=0.0)
+            ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
             trailing_min_distance_from_price_pct=float(

@@ -286,10 +286,13 @@ class TradingBotPositionLoopMixin:
             if should_exit and reason == ExitReason.EARLY_EXIT:
                 # Parse numeric thresholds from exit details for actionable diagnostics.
                 required_profit = effective_profit = raw_profit = best_profit = fee_floor = "n/a"
+                reason_code = age_min = "n/a"
                 parsed = re.search(
                     r"Profit\s+([+-]?\d+(?:\.\d+)?)\s*/\s*best\s+([+-]?\d+(?:\.\d+)?)\s*<\s*required\s+([+-]?\d+(?:\.\d+)?)\s*\(incl fees\s+([+-]?\d+(?:\.\d+)?)\)",
                     details or "",
                 )
+                parsed_code = re.search(r"\bcode=([a-zA-Z0-9_]+)\b", details or "")
+                parsed_age = re.search(r"\bage_min=([0-9.]+|n/a)\b", details or "")
                 if parsed:
                     raw_profit = parsed.group(1)
                     best_profit = parsed.group(2)
@@ -299,6 +302,10 @@ class TradingBotPositionLoopMixin:
                         effective_profit = f"{max(float(raw_profit), float(best_profit)):.4f}"
                     except Exception:
                         effective_profit = "n/a"
+                if parsed_code:
+                    reason_code = parsed_code.group(1)
+                if parsed_age:
+                    age_min = parsed_age.group(1)
                 logger.info(
                     f"[EARLY_EXIT] {symbol} {pos.side} "
                     f"price={current_price:.4f} entry={pos.entry_price:.4f} "
@@ -306,6 +313,7 @@ class TradingBotPositionLoopMixin:
                     f"raw_profit={raw_profit} best_profit={best_profit} "
                     f"effective_profit={effective_profit} required_profit={required_profit} "
                     f"fee_floor={fee_floor} "
+                    f"reason_code={reason_code} age_min={age_min} "
                     f"detail={details}"
                 )
             # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions

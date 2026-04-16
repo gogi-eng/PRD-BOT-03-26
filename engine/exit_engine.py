@@ -42,6 +42,8 @@ class ExitEngine:
         early_exit_bars: int = 12,
         early_exit_min_profit_atr: float = 0.35,
         early_exit_min_hold_minutes: float = 0.0,
+        early_exit_session_utc_hours: Optional[list[int]] = None,
+        early_exit_session_min_profit_atr_boost: float = 0.0,
         trailing_activation_atr: float = 0.8,
         trailing_distance_atr: float = 1.2,
         trailing_min_distance_pct: float = 0.0,
@@ -67,6 +69,12 @@ class ExitEngine:
         self.early_exit_bars = early_exit_bars
         self.early_exit_min_profit_atr = early_exit_min_profit_atr
         self.early_exit_min_hold_minutes = max(0.0, float(early_exit_min_hold_minutes))
+        self.early_exit_session_utc_hours = {
+            int(h) % 24 for h in (early_exit_session_utc_hours or []) if str(h).strip() != ""
+        }
+        self.early_exit_session_min_profit_atr_boost = max(
+            0.0, float(early_exit_session_min_profit_atr_boost)
+        )
         self.trailing_activation_atr = trailing_activation_atr
         self.trailing_distance_atr = trailing_distance_atr
         if trailing_min_distance_from_price_pct is not None:
@@ -205,13 +213,14 @@ class ExitEngine:
         # 3. EARLY EXIT — dead trades after N bars (optional min wall-clock age)
         # early_exit_bars <= 0 means feature disabled
         hold_ok = True
+        age_min: Optional[float] = None
+        now_utc = datetime.now(timezone.utc)
         if self.early_exit_min_hold_minutes > 0:
             et = getattr(position, "entry_time", None)
             if isinstance(et, datetime):
-                now = datetime.now(timezone.utc)
                 if et.tzinfo is None:
                     et = et.replace(tzinfo=timezone.utc)
-                age_min = (now - et).total_seconds() / 60.0
+                age_min = (now_utc - et).total_seconds() / 60.0
                 hold_ok = age_min >= self.early_exit_min_hold_minutes
 
         if (
@@ -221,17 +230,34 @@ class ExitEngine:
             and not position.trailing_active
             and hold_ok
         ):
-            min_profit = atr_value * self.early_exit_min_profit_atr
+            min_profit_atr = self.early_exit_min_profit_atr
+            if (
+                self.early_exit_session_utc_hours
+                and now_utc.hour in self.early_exit_session_utc_hours
+            ):
+                min_profit_atr += self.early_exit_session_min_profit_atr_boost
+            min_profit = atr_value * min_profit_atr
             # Ensure min_profit covers at least trading fees (entry + exit)
             fee_per_unit = entry * self.fee_rate + current_price * self.fee_rate
             min_profit = max(min_profit, fee_per_unit)
             favorable_profit = self._favorable_profit_per_unit(position, entry, is_long)
             effective_profit = max(profit, favorable_profit)
             if effective_profit < min_profit:
+                reason_code = "early_exit_low_progress"
+                age_str = f"{age_min:.2f}" if age_min is not None else "n/a"
                 return True, ExitReason.EARLY_EXIT, (
                     f"No movement after {position.bars_since_entry} bars. "
                     f"Profit {profit:.4f} / best {favorable_profit:.4f} < required {min_profit:.4f} "
                     f"(incl fees {fee_per_unit:.4f})"
+                    f" | code={reason_code}"
+                    f" bars={position.bars_since_entry}"
+                    f" age_min={age_str}"
+                    f" effective_profit={effective_profit:.4f}"
+                    f" min_profit={min_profit:.4f}"
+                    f" fee_floor={fee_per_unit:.4f}"
+                    f" min_profit_atr={min_profit_atr:.3f}"
+                    f" session_boost_atr={self.early_exit_session_min_profit_atr_boost:.3f}"
+                    f" utc_hour={now_utc.hour}"
                 )
 
         # 4. TP CAP
