@@ -82,10 +82,10 @@ entry:
   entry_range_atr_mult: 0.22
   allowed_regimes: ["trend", "breakout"]
   zone_proximity_pct: 0.4
-  max_spread_pct: 0.10
+  max_spread_pct: 0.11
   max_funding_rate: 0.05
-  # Минимальный composite / confidence для входа (0.84 = не ниже 84%).
-  entry_threshold: 0.80
+  # Минимальный composite / confidence для входа (0.78 = не ниже 78%).
+  entry_threshold: 0.78
   trained_model_enabled: true
   trained_model_min_prob: 0.52
   trained_model_blend: 0.15
@@ -112,8 +112,8 @@ entry:
   volume_filter: true
   volume_lookback: 20
   volume_guard_min_ratio: 0.26
-  buy_volume_guard_min_ratio: 0.12
-  sell_volume_guard_min_ratio: 0.12
+  buy_volume_guard_min_ratio: 0.11
+  sell_volume_guard_min_ratio: 0.11
   counter_flow_guard_mult: 2.3
   direction_tiebreaker_prob_gap: 0.06
   guard_confidence_bypass: 0.90
@@ -158,6 +158,9 @@ exit:
   early_exit_min_profit_atr: 0.35
   # Не закрывать early_exit по «тихому» рынку раньше N минут реального времени (защита от мгновенного выноса комиссиями).
   early_exit_min_hold_minutes: 25
+  # В указанные UTC-часы повысить требуемый min_profit_atr для early_exit (меньше ложных срезов в шумной сессии).
+  early_exit_session_utc_hours: [3, 4, 5, 6, 7, 8, 9]
+  early_exit_session_min_profit_atr_boost: 0.5
   # Медленнее включается трейлинг и шире дистанция от экстремума (меньше «дёрганья» на пампах).
   trailing_activation_atr: 2.2
   trailing_distance_atr: 2.8
