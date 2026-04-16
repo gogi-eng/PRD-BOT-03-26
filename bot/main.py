@@ -2299,6 +2299,13 @@ class TradingBotLifecycleMixin:
                 logger.error(f"Bybit keys: {err}")
                 return
 
+            if self.tg:
+                asyncio.create_task(self.tg.start_async())
+                tg_started = True
+                await asyncio.sleep(2)
+
+            startup_balance_ok = True
+            startup_balance_error = ""
             balance = await self.client.get_balance()
             bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
             if bybit_perm_code in {10005, 33004}:
@@ -2309,26 +2316,33 @@ class TradingBotLifecycleMixin:
                 )
                 return
             if balance <= 0:
-                logger.error(
+                startup_balance_ok = False
+                startup_balance_error = (
                     "Failed to read positive balance. "
                     "Check Bybit API key/secret permissions and expiration."
                 )
-                return
-            self.controls.set_balance(balance)
-            self.risk_guard.initial_balance = balance
-            self.profit_lock.set_initial_balance(balance)
-            logger.info(f"Balance: ${balance:.2f}")
+                logger.error(startup_balance_error)
+
+            if startup_balance_ok:
+                self.controls.set_balance(balance)
+                self.risk_guard.initial_balance = balance
+                self.profit_lock.set_initial_balance(balance)
+                logger.info(f"Balance: ${balance:.2f}")
+            else:
+                self.signal_only = True
+                self.controls.signal_only = True
+                logger.warning("[STARTUP] Balance unavailable -> forcing SIGNAL-ONLY mode.")
 
             if self.tg:
-                asyncio.create_task(self.tg.start_async())
-                tg_started = True
-                await asyncio.sleep(2)
-                await self.tg.send_message(
+                startup_text = (
                     f"<b>Бот v9.0 запущен</b>\n"
                     f"Баланс: <code>${balance:.2f}</code>\n"
                     f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
                     f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
                 )
+                if not startup_balance_ok and startup_balance_error:
+                    startup_text += f"\n⚠️ Balance warning: <code>{startup_balance_error}</code>"
+                await self.tg.send_message(startup_text)
 
             self._running = True
             cycle = 0
