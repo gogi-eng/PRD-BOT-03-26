@@ -173,11 +173,12 @@ exit:
   fee_rate: 0.001
   ema_trend_exit: true
   ema_exit_period: 20
-  ema_exit_buffer_pct: 0.15
-  ema_exit_confirm_bars: 3
-  ema_trend_exit_confirm_bars: 3
-  ema_exit_require_ema_slope: true
-  ema_trend_exit_require_ema_slope: true
+  # Шире зона от EMA и больше подтверждающих баров — меньше ложных trend_exit на шуме; slope off = терпение к просадке.
+  ema_exit_buffer_pct: 0.35
+  ema_exit_confirm_bars: 5
+  ema_trend_exit_confirm_bars: 5
+  ema_exit_require_ema_slope: false
+  ema_trend_exit_require_ema_slope: false
   # Slightly higher threshold to ignore tiny +/-0.5% noise around entry.
   ema_exit_min_adverse_from_entry_pct: 0.60
 
