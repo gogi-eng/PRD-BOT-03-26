@@ -125,31 +125,6 @@ class TradingBotLifecycleMixin:
                 logger.error(f"Bybit keys: {err}")
                 return
 
-            logger.info("[STARTUP] Fetching account balance...")
-            try:
-                balance = await asyncio.wait_for(self.client.get_balance(), timeout=30)
-            except asyncio.TimeoutError:
-                logger.error("[STARTUP] get_balance timeout after 30s. Check VPS network/API reachability.")
-                return
-            bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
-            if bybit_perm_code in {10005, 33004}:
-                logger.error(
-                    "Bybit auth/permission failure detected at startup "
-                    f"(code={bybit_perm_code}). "
-                    "Stop bot and fix API key permissions/expiration."
-                )
-                return
-            if balance <= 0:
-                logger.error(
-                    "Failed to read positive balance. "
-                    "Check Bybit API key/secret permissions and expiration."
-                )
-                return
-            self.controls.set_balance(balance)
-            self.risk_guard.initial_balance = balance
-            self.profit_lock.set_initial_balance(balance)
-            logger.info(f"Balance: ${balance:.2f}")
-
             if self.tg:
                 logger.info("[STARTUP] Starting Telegram polling...")
                 try:
@@ -162,19 +137,59 @@ class TradingBotLifecycleMixin:
                     self.tg = None
                 if self.tg:
                     tg_started = True
-                    logger.info("[STARTUP] Sending startup message to Telegram...")
-                    try:
-                        await asyncio.wait_for(
-                            self.tg.send_message(
-                                f"<b>Бот v9.0 запущен</b>\n"
-                                f"Баланс: <code>${balance:.2f}</code>\n"
-                                f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
-                                f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
-                            ),
-                            timeout=20,
-                        )
-                    except Exception as exc:
-                        logger.warning(f"[STARTUP] Telegram startup message failed: {exc}")
+
+            logger.info("[STARTUP] Fetching account balance...")
+            startup_balance_ok = True
+            startup_balance_error = ""
+            try:
+                balance = await asyncio.wait_for(self.client.get_balance(), timeout=30)
+            except asyncio.TimeoutError:
+                startup_balance_ok = False
+                startup_balance_error = "get_balance timeout after 30s. Check VPS network/API reachability."
+                logger.error(f"[STARTUP] {startup_balance_error}")
+                balance = 0.0
+            bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
+            if bybit_perm_code in {10005, 33004}:
+                logger.error(
+                    "Bybit auth/permission failure detected at startup "
+                    f"(code={bybit_perm_code}). "
+                    "Stop bot and fix API key permissions/expiration."
+                )
+                return
+            if balance <= 0:
+                startup_balance_ok = False
+                startup_balance_error = (
+                    "Failed to read positive balance. "
+                    "Check Bybit API key/secret permissions and expiration."
+                )
+                logger.error(startup_balance_error)
+
+            if startup_balance_ok:
+                self.controls.set_balance(balance)
+                self.risk_guard.initial_balance = balance
+                self.profit_lock.set_initial_balance(balance)
+                logger.info(f"Balance: ${balance:.2f}")
+            else:
+                # Keep bot alive for monitoring/Telegram even if balance API is unhealthy.
+                # Force signal-only to avoid live orders with unknown balance state.
+                self.signal_only = True
+                self.controls.signal_only = True
+                logger.warning("[STARTUP] Balance unavailable -> forcing SIGNAL-ONLY mode.")
+
+            if self.tg and tg_started:
+                logger.info("[STARTUP] Sending startup message to Telegram...")
+                try:
+                    startup_text = (
+                        f"<b>Бот v9.0 запущен</b>\n"
+                        f"Баланс: <code>${balance:.2f}</code>\n"
+                        f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
+                        f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
+                    )
+                    if not startup_balance_ok and startup_balance_error:
+                        startup_text += f"\n⚠️ Balance warning: <code>{startup_balance_error}</code>"
+                    await asyncio.wait_for(self.tg.send_message(startup_text), timeout=20)
+                except Exception as exc:
+                    logger.warning(f"[STARTUP] Telegram startup message failed: {exc}")
 
             self._running = True
             cycle = 0
