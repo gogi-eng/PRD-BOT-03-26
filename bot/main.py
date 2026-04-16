@@ -3005,8 +3005,13 @@ class TradingBotPositionLoopMixin:
                 )
                 should_exit = False
 
-            # EMA TREND EXIT — close if price reverses against EMA(20)
-            if not should_exit and self.ema_trend_exit_enabled:
+            # EMA TREND EXIT — close if price reverses against EMA(20).
+            # While trailing is active, skip: 1m EMA noise otherwise exits winners before the trail can.
+            if (
+                not should_exit
+                and self.ema_trend_exit_enabled
+                and not getattr(pos, "trailing_active", False)
+            ):
                 should_exit, reason, details = self.exit_engine.check_ema_trend_exit(
                     pos, klines, ema_period=self.ema_exit_period
                 )
