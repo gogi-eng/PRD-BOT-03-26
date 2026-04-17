@@ -140,6 +140,18 @@
             ema_trend_exit_require_slope=bool(
                 self.cfg.get("exit", "ema_trend_exit_require_ema_slope", default=True)
             ),
+            ema_trend_exit_recovery_cancel_enabled=bool(
+                self.cfg.get("exit", "ema_trend_exit_recovery_cancel_enabled", default=True)
+            ),
+            ema_trend_exit_recovery_lookback_bars=int(
+                self.cfg.get("exit", "ema_trend_exit_recovery_lookback_bars", default=6)
+            ),
+            ema_trend_exit_recovery_min_ratio=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_ratio", default=0.45)
+            ),
+            ema_trend_exit_recovery_min_adverse_pct=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_adverse_pct", default=0.35)
+            ),
             ema_exit_min_move_from_entry_pct=float(
                 self.cfg.get("exit", "ema_exit_min_adverse_from_entry_pct", default=0.0)
             ),

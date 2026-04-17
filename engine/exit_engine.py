@@ -59,6 +59,10 @@ class ExitEngine:
         ema_exit_buffer_pct: Optional[float] = None,
         ema_trend_exit_confirm_bars: int = 1,
         ema_trend_exit_require_slope: bool = True,
+        ema_trend_exit_recovery_cancel_enabled: bool = True,
+        ema_trend_exit_recovery_lookback_bars: int = 6,
+        ema_trend_exit_recovery_min_ratio: float = 0.45,
+        ema_trend_exit_recovery_min_adverse_pct: float = 0.35,
         ema_exit_confirm_bars: Optional[int] = None,
         ema_exit_require_ema_slope: Optional[bool] = None,
         ema_trend_exit_min_move_from_entry_pct: float = 0.0,
@@ -111,6 +115,16 @@ class ExitEngine:
         self.ema_trend_exit_buffer_pct = max(0.0, float(ema_trend_exit_buffer_pct))
         self.ema_trend_exit_confirm_bars = max(1, int(ema_trend_exit_confirm_bars))
         self.ema_trend_exit_require_slope = bool(ema_trend_exit_require_slope)
+        self.ema_trend_exit_recovery_cancel_enabled = bool(ema_trend_exit_recovery_cancel_enabled)
+        self.ema_trend_exit_recovery_lookback_bars = max(
+            3, int(ema_trend_exit_recovery_lookback_bars)
+        )
+        self.ema_trend_exit_recovery_min_ratio = max(
+            0.0, min(1.0, float(ema_trend_exit_recovery_min_ratio))
+        )
+        self.ema_trend_exit_recovery_min_adverse_pct = max(
+            0.0, float(ema_trend_exit_recovery_min_adverse_pct)
+        )
         # Prevent immediate churn closes around entry price.
         self.ema_trend_exit_min_move_from_entry_pct = max(
             0.0, float(ema_trend_exit_min_move_from_entry_pct)
@@ -490,6 +504,31 @@ class ExitEngine:
             move_from_entry_pct = abs(current_price - entry_price) / entry_price * 100.0
             if move_from_entry_pct < min_move_pct:
                 return False, None, ""
+
+        # Cancel trend-exit on fresh recovery bounce (avoid selling the rebound candle).
+        if self.ema_trend_exit_recovery_cancel_enabled and len(closes) >= self.ema_trend_exit_recovery_lookback_bars:
+            w = closes[-self.ema_trend_exit_recovery_lookback_bars:]
+            hi = float(np.max(w))
+            lo = float(np.min(w))
+            span = max(1e-12, hi - lo)
+            if is_long:
+                adverse_pct = ((hi - current_price) / hi * 100.0) if hi > 0 else 0.0
+                recovery_ratio = (current_price - lo) / span
+                if (
+                    adverse_pct >= self.ema_trend_exit_recovery_min_adverse_pct
+                    and recovery_ratio >= self.ema_trend_exit_recovery_min_ratio
+                    and closes[-1] > closes[-2]
+                ):
+                    return False, None, ""
+            else:
+                adverse_pct = ((current_price - lo) / lo * 100.0) if lo > 0 else 0.0
+                recovery_ratio = (hi - current_price) / span
+                if (
+                    adverse_pct >= self.ema_trend_exit_recovery_min_adverse_pct
+                    and recovery_ratio >= self.ema_trend_exit_recovery_min_ratio
+                    and closes[-1] < closes[-2]
+                ):
+                    return False, None, ""
         buffer_mult = self.ema_trend_exit_buffer_pct / 100.0
         if is_long:
             confirmed = True
