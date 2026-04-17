@@ -86,9 +86,9 @@ entry:
   max_funding_rate: 0.05
   # Минимальный composite / confidence для входа (0.78 = не ниже 78%).
   entry_threshold: 0.78
-  trained_model_enabled: true
+  trained_model_enabled: false
   trained_model_min_prob: 0.52
-  trained_model_blend: 0.15
+  trained_model_blend: 0.00
   trained_model_weights_path: "bot/transformer_weights.pt"
   min_liq_depth: 0.0
   min_smc_score: 0.55
