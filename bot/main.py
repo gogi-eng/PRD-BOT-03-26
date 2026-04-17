@@ -2345,7 +2345,21 @@ class TradingBotLifecycleMixin:
 
             startup_balance_ok = True
             startup_balance_error = ""
-            balance = await self.client.get_balance()
+            balance = 0.0
+            for attempt in range(1, 4):
+                try:
+                    balance = await self.client.get_balance()
+                    if balance > 0:
+                        break
+                    startup_balance_error = (
+                        "Failed to read positive balance. "
+                        "Check Bybit API key/secret permissions and expiration."
+                    )
+                except Exception as exc:
+                    startup_balance_error = f"get_balance error: {exc}"
+                    logger.error(f"[STARTUP] {startup_balance_error} (attempt {attempt}/3)")
+                if attempt < 3:
+                    await asyncio.sleep(2.0)
             bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
             if bybit_perm_code in {10005, 33004}:
                 logger.error(
@@ -2356,10 +2370,11 @@ class TradingBotLifecycleMixin:
                 return
             if balance <= 0:
                 startup_balance_ok = False
-                startup_balance_error = (
-                    "Failed to read positive balance. "
-                    "Check Bybit API key/secret permissions and expiration."
-                )
+                if not startup_balance_error:
+                    startup_balance_error = (
+                        "Failed to read positive balance. "
+                        "Check Bybit API key/secret permissions and expiration."
+                    )
                 logger.error(startup_balance_error)
 
             if startup_balance_ok:
@@ -2373,9 +2388,10 @@ class TradingBotLifecycleMixin:
                 logger.warning("[STARTUP] Balance unavailable -> forcing SIGNAL-ONLY mode.")
 
             if self.tg:
+                balance_display = f"${balance:.2f}" if startup_balance_ok else "N/A"
                 startup_text = (
                     f"<b>Бот v9.0 запущен</b>\n"
-                    f"Баланс: <code>${balance:.2f}</code>\n"
+                    f"Баланс: <code>{balance_display}</code>\n"
                     f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
                     f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
                 )
