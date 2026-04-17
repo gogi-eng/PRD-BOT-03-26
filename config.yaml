@@ -154,10 +154,10 @@ atr:
 
 exit:
   hard_sl_atr_mult: 2.5
-  early_exit_bars: 45
+  early_exit_bars: 72
   early_exit_min_profit_atr: 0.35
   # Не закрывать early_exit по «тихому» рынку раньше N минут реального времени (защита от мгновенного выноса комиссиями).
-  early_exit_min_hold_minutes: 25
+  early_exit_min_hold_minutes: 90
   # В указанные UTC-часы повысить требуемый min_profit_atr для early_exit (меньше ложных срезов в шумной сессии).
   early_exit_session_utc_hours: [3, 4, 5, 6, 7, 8, 9]
   early_exit_session_min_profit_atr_boost: 0.5
@@ -179,8 +179,8 @@ exit:
   ema_trend_exit: true
   ema_exit_period: 20
   # Шире зона от EMA и больше подтверждающих баров — меньше ложных trend_exit на шуме.
-  ema_exit_buffer_pct: 0.35
-  ema_exit_confirm_bars: 5
+  ema_exit_buffer_pct: 0.45
+  ema_exit_confirm_bars: 8
   ema_trend_exit_confirm_bars: 5
   ema_exit_require_ema_slope: true
   ema_trend_exit_require_ema_slope: true
@@ -190,7 +190,7 @@ exit:
   ema_trend_exit_recovery_min_ratio: 0.45
   ema_trend_exit_recovery_min_adverse_pct: 0.35
   # Slightly higher threshold to ignore tiny +/-0.5% noise around entry.
-  ema_exit_min_adverse_from_entry_pct: 0.60
+  ema_exit_min_adverse_from_entry_pct: 1.20
 
 risk:
   max_daily_loss_pct: 10.0
