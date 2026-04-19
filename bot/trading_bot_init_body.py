@@ -91,6 +91,17 @@
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
+        from engine.bpr_ranker import BPRLinearRanker
+
+        _bpr_cfg = self.cfg.get("bpr_ranker", default={}) or {}
+        self.bpr_ranker = BPRLinearRanker(
+            enabled=bool(_bpr_cfg.get("enabled", True)),
+            weights_path=str(_bpr_cfg.get("weights_path", "bpr_weights.json")),
+            blend_weight=float(_bpr_cfg.get("blend_weight", 0.35)),
+            top1_when_multiple=bool(_bpr_cfg.get("top1_when_multiple", True)),
+            telegram_top_n=int(_bpr_cfg.get("telegram_top_n", 0)),
+            bot_dir=_bd,
+        )
         self.allocator = MultiSymbolCapitalAllocator()
         self.position_manager = PositionManager()
         self.rl_agent = RLPositionAgent(

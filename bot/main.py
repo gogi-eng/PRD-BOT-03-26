@@ -3678,7 +3678,22 @@ class TradingBotSyncManualMixin:
         pos.profit_peak_price = pos.entry_price
         pos.profit_peak_pct = 0.0
         pos.profit_drawdown_below_trigger_since = 0.0
-
+        act = float(self.profit_drawdown_activation_pct)
+        if act <= 0 or pos.entry_price <= 0:
+            return
+        # Align trailing activation with profit-guard arming threshold (+/- activation % from entry).
+        if pos.is_long:
+            min_act = pos.entry_price * (1.0 + act / 100.0)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = min_act
+            else:
+                pos.trailing_activation_price = max(pos.trailing_activation_price, min_act)
+        else:
+            max_act = pos.entry_price * (1.0 - act / 100.0)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = max_act
+            else:
+                pos.trailing_activation_price = min(pos.trailing_activation_price, max_act)
 
     async def _check_profit_drawdown_guard(self, pos: Position, current_price: float, klines: Optional[list] = None) -> tuple[bool, str]:
         if not self.profit_drawdown_guard_enabled or current_price <= 0 or pos.entry_price <= 0:

@@ -10,13 +10,22 @@ Test profit_drawdown_guard feature:
 """
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
-BOT_DIR = Path("/app/bot").resolve()
-if str(BOT_DIR) not in sys.path:
-    sys.path.insert(0, str(BOT_DIR))
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CONFIG_YAML = _REPO_ROOT / "config.yaml"
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+
+def _long_price_for_net_activation(bot, entry: float, activation_pct: float = 3.0) -> float:
+    """Price move (long) so that _calc_pnl_pct >= activation_pct after fee deduction."""
+    fee_part = float(bot.fee_rate) * 2 * 100
+    gross_needed = activation_pct + fee_part + 1e-9
+    return entry * (1.0 + gross_needed / 100.0)
 
 
 class TestProfitDrawdownGuardConfig:
@@ -26,7 +35,7 @@ class TestProfitDrawdownGuardConfig:
         """Config should have profit_drawdown_guard section."""
         from core.config import BotConfig
 
-        cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
+        cfg = BotConfig.load(str(_CONFIG_YAML))
         assert cfg.get("profit_drawdown_guard", "enabled") is True
         assert cfg.get("profit_drawdown_guard", "activation_profit_pct") == 3.0
         assert cfg.get("profit_drawdown_guard", "retrace_from_peak_pct") == 25.0
@@ -187,8 +196,8 @@ class TestProfitDrawdownGuardActivationAndRetrace:
         bot._apply_profit_drawdown_profile(pos)
 
         async def scenario():
-            # Price at +3.01%
-            price_3pct = 4.19 * 1.0301  # ~4.316
+            # Gross move must clear fee drag so net PnL >= activation (see _calc_pnl_pct).
+            price_3pct = _long_price_for_net_activation(bot, 4.19, bot.profit_drawdown_activation_pct)
             trigger, _ = await bot._check_profit_drawdown_guard(pos, price_3pct)
             assert not trigger, "Should not trigger exit, just arm"
             assert pos.profit_guard_armed, "Guard should be armed at +3%"
@@ -214,21 +223,22 @@ class TestProfitDrawdownGuardActivationAndRetrace:
         bot._apply_profit_drawdown_profile(pos)
 
         async def scenario():
-            # Arm at +3%
-            await bot._check_profit_drawdown_guard(pos, 4.19 * 1.03)
+            # Arm at +3% net
+            await bot._check_profit_drawdown_guard(pos, _long_price_for_net_activation(bot, 4.19))
             assert pos.profit_guard_armed
 
             # Price rises to +5%
             price_5pct = 4.19 * 1.05  # 4.3995
             trigger, _ = await bot._check_profit_drawdown_guard(pos, price_5pct)
             assert not trigger
-            assert pos.profit_peak_pct >= 4.9
+            # Net PnL is below raw % due to fee deduction in _calc_pnl_pct.
+            assert pos.profit_peak_pct >= 4.75
 
             # Price rises to +7%
             price_7pct = 4.19 * 1.07  # 4.4833
             trigger, _ = await bot._check_profit_drawdown_guard(pos, price_7pct)
             assert not trigger
-            assert pos.profit_peak_pct >= 6.9
+            assert pos.profit_peak_pct >= 6.75
 
         asyncio.run(scenario())
 
@@ -251,8 +261,8 @@ class TestProfitDrawdownGuardActivationAndRetrace:
         bot._apply_profit_drawdown_profile(pos)
 
         async def scenario():
-            # Arm at +3% then rise to +8%
-            await bot._check_profit_drawdown_guard(pos, 4.19 * 1.03)
+            # Arm at +3% net then rise to +8%
+            await bot._check_profit_drawdown_guard(pos, _long_price_for_net_activation(bot, 4.19))
             await bot._check_profit_drawdown_guard(pos, 4.19 * 1.08)
             peak_pct = pos.profit_peak_pct  # ~8%
 
@@ -285,19 +295,19 @@ class TestProfitDrawdownGuardActivationAndRetrace:
         bot._apply_profit_drawdown_profile(pos)
 
         t0 = 1_000_000.0
-        monkeypatch.setattr("main.time.time", lambda: t0)
+        monkeypatch.setattr(time, "time", lambda: t0)
 
         async def scenario():
-            await bot._check_profit_drawdown_guard(pos, 4.19 * 1.03)
+            await bot._check_profit_drawdown_guard(pos, _long_price_for_net_activation(bot, 4.19))
             await bot._check_profit_drawdown_guard(pos, 4.19 * 1.08)
             retrace_price = 4.19 * 1.059
             trigger, _ = await bot._check_profit_drawdown_guard(pos, retrace_price)
             assert not trigger
             assert pos.profit_drawdown_below_trigger_since == t0
-            monkeypatch.setattr("main.time.time", lambda: t0 + 30.0)
+            monkeypatch.setattr(time, "time", lambda: t0 + 30.0)
             trigger, _ = await bot._check_profit_drawdown_guard(pos, retrace_price)
             assert not trigger
-            monkeypatch.setattr("main.time.time", lambda: t0 + 90.0)
+            monkeypatch.setattr(time, "time", lambda: t0 + 90.0)
             trigger, reason = await bot._check_profit_drawdown_guard(pos, retrace_price)
             assert trigger
             assert "profit_drawdown_guard" in reason
@@ -323,7 +333,7 @@ class TestProfitDrawdownGuardActivationAndRetrace:
 
         async def scenario():
             # Arm and keep rising
-            await bot._check_profit_drawdown_guard(pos, 4.19 * 1.03)
+            await bot._check_profit_drawdown_guard(pos, _long_price_for_net_activation(bot, 4.19))
             trigger, _ = await bot._check_profit_drawdown_guard(pos, 4.19 * 1.04)
             assert not trigger
             trigger, _ = await bot._check_profit_drawdown_guard(pos, 4.19 * 1.05)
@@ -531,7 +541,7 @@ class TestNoRegressions:
         """basket_profit_guard should be enabled with 15-min timer."""
         from core.config import BotConfig
 
-        cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
+        cfg = BotConfig.load(str(_CONFIG_YAML))
         assert cfg.get("basket_profit_guard", "enabled") is True
         assert cfg.get("basket_profit_guard", "drawdown_confirm_sec") == 900
 
@@ -539,7 +549,7 @@ class TestNoRegressions:
         """portfolio_tp should remain disabled by default."""
         from core.config import BotConfig
 
-        cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
+        cfg = BotConfig.load(str(_CONFIG_YAML))
         assert cfg.get("portfolio_tp", "enabled") is False
 
     def test_position_has_profit_guard_fields(self):

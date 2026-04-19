@@ -50,9 +50,9 @@ scalp:
   skip_impulse_retest_guard: true
   impulse_retest_bypass_confidence: 0.90
   quality_gate_bypass_confidence: 0.90
-  quality_min_confidence: 0.90
+  quality_min_confidence: 0.86
   quality_min_expected_edge: 0.40
-  mtf_single_tf_min_confidence: 0.90
+  mtf_single_tf_min_confidence: 0.86
 
 trading:
   position_size_mode: "margin_cap"  # margin_cap | risk_based
@@ -71,7 +71,7 @@ entry:
   transformer_threshold: 0.60
   max_liq_distance_pct: 1.30
   # Normalized imbalance [-1..1]; slight relax for better fill rate.
-  min_orderflow_imbalance: 0.08
+  min_orderflow_imbalance: 0.07
   min_rr_ratio: 3.0
   min_target_profit_pct: 1.5
   require_structural_tp: true
@@ -84,8 +84,10 @@ entry:
   zone_proximity_pct: 0.4
   max_spread_pct: 0.11
   max_funding_rate: 0.05
-  # Минимальный composite / confidence для входа (0.78 = не ниже 78%).
-  entry_threshold: 0.78
+  # Минимальный composite / confidence для входа (ослаблено для большего потока).
+  entry_threshold: 0.72
+  # Мягкий пол: между soft и hard composite проходят в пайплайн (для BPR-ранжирования в цикле).
+  entry_threshold_soft: 0.60
   trained_model_enabled: false
   trained_model_min_prob: 0.52
   trained_model_blend: 0.00
@@ -102,7 +104,7 @@ entry:
   ema_fast_period: 20
   ema_slow_period: 50
   # EMA guard only when fast/slow differ by at least this % (skip borderline ~0.8% disagreements).
-  ema_guard_min_diff_pct: 0.85
+  ema_guard_min_diff_pct: 0.80
   momentum_filter: true
   momentum_lookback: 5
   momentum_guard_min_pct: 0.15
@@ -355,23 +357,23 @@ feedback_loop:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.90
+  min_confidence: 0.86
   # Порог «сильного сигнала» для обходов chop / no_zone (должен совпадать с мин. входом).
-  strong_signal_min_confidence: 0.90
-  strong_signal_min_smc: 0.90
+  strong_signal_min_confidence: 0.86
+  strong_signal_min_smc: 0.86
   min_expected_edge: 0.40
   anti_flat_min_adx: 12.5
   anti_flat_min_atr_pct: 0.08
   anti_flat_min_abs_imbalance: 0.06
   anti_flat_allow_chop: false
   chop_bypass_enabled: true
-  chop_bypass_min_confidence: 0.90
+  chop_bypass_min_confidence: 0.86
   chop_bypass_min_abs_imbalance: 0.12
   chop_bypass_require_zone: true
   anti_flat_require_htf_trend: false
-  countertrend_min_confidence: 0.90
+  countertrend_min_confidence: 0.86
   countertrend_min_abs_imbalance: 0.24
-  no_zone_min_confidence: 0.90
+  no_zone_min_confidence: 0.86
   reject_no_zone_entries: false
 
 symbol_quality:
@@ -396,7 +398,16 @@ correlation:
 mtf_zone_confirmation:
   enabled: true
   require_any_zone: false
-  min_confidence_if_single_tf: 0.90
+  min_confidence_if_single_tf: 0.86
+
+# BPR-style linear ranker: blends into allocator signal_strength; optional Telegram top-N;
+# when ≥2 candidates, keep only top-1 by BPR score (see top1_when_multiple).
+bpr_ranker:
+  enabled: true
+  weights_path: "bpr_weights.json"
+  blend_weight: 0.38
+  top1_when_multiple: true
+  telegram_top_n: 3
 
 adaptive_regime_presets:
   enabled: true
