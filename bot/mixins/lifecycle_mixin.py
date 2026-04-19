@@ -13,6 +13,19 @@ class TradingBotLifecycleMixin:
             f"Entry threshold={self.entry_engine.entry_threshold:.2f} | "
             f"same-side cooldown={self.signal_cooldown_sec}s"
         )
+        _soft_th = getattr(self.entry_engine, "entry_threshold_soft", None)
+        if _soft_th is not None:
+            logger.info(
+                f"Entry soft floor={float(_soft_th):.2f} (signals between soft and hard pass for ranking)"
+            )
+        _bpr = getattr(self, "bpr_ranker", None)
+        if _bpr is not None and _bpr.enabled:
+            logger.info(
+                f"BPR ranker: ON blend={_bpr.blend_weight:.2f} top1_if_multi={_bpr.top1_when_multiple} "
+                f"telegram_top={_bpr.telegram_top_n}"
+            )
+        else:
+            logger.info("BPR ranker: OFF")
         if getattr(self.entry_engine, "_trained_model", None) is not None:
             logger.info(
                 "Trained model gate: ON "

@@ -136,6 +136,15 @@ class EntryEngine:
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
         self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
         self.entry_threshold = cfg.get("entry", "entry_threshold", default=self.ENTRY_THRESHOLD)
+        _soft = cfg.get("entry", "entry_threshold_soft", default=None)
+        self.entry_threshold_soft: float | None = None
+        if _soft is not None:
+            try:
+                sf = float(_soft)
+                if 0.0 < sf < float(self.entry_threshold):
+                    self.entry_threshold_soft = sf
+            except (TypeError, ValueError):
+                self.entry_threshold_soft = None
         self.require_sweep = cfg.get("entry", "require_sweep", default=False)
         self.require_4h_trend = cfg.get("entry", "require_4h_trend", default=False)
         self.min_volatility_pct = float(cfg.get("entry", "min_volatility_pct", default=0.0))
@@ -751,18 +760,39 @@ class EntryEngine:
                 return signal
 
         # =====================================================
-        # THRESHOLD CHECK
+        # THRESHOLD CHECK (optional soft band for BPR / relaxed cycle ranking)
         # =====================================================
         if composite < self.entry_threshold:
-            signal.metadata = {
-                "reject_reason": f"score_below_threshold ({composite:.3f} < {self.entry_threshold})",
-                "composite_score": composite,
-                "trend_score": round(trend_score, 3),
-                "orderflow_score": round(orderflow_score, 3),
-                "ai_score": round(ai_score, 3),
-                "details": " | ".join(all_reasons),
-            }
-            return signal
+            if (
+                self.entry_threshold_soft is not None
+                and composite + 1e-9 >= float(self.entry_threshold_soft)
+            ):
+                md = dict(signal.metadata) if isinstance(signal.metadata, dict) else {}
+                md.update(
+                    {
+                        "reject_reason": "",
+                        "composite_score": composite,
+                        "trend_score": round(trend_score, 3),
+                        "orderflow_score": round(orderflow_score, 3),
+                        "ai_score": round(ai_score, 3),
+                        "details": " | ".join(all_reasons),
+                        "entry_soft_pass": True,
+                        "entry_soft_band": (
+                            f"{float(self.entry_threshold_soft):.3f}≤score<{float(self.entry_threshold):.3f}"
+                        ),
+                    }
+                )
+                signal.metadata = md
+            else:
+                signal.metadata = {
+                    "reject_reason": f"score_below_threshold ({composite:.3f} < {self.entry_threshold})",
+                    "composite_score": composite,
+                    "trend_score": round(trend_score, 3),
+                    "orderflow_score": round(orderflow_score, 3),
+                    "ai_score": round(ai_score, 3),
+                    "details": " | ".join(all_reasons),
+                }
+                return signal
 
         # =====================================================
         # ZONE CHECK — need a valid FVG/OB for SL/TP levels
@@ -969,6 +999,10 @@ class EntryEngine:
         )
         all_reasons.append(f"grade={signal.grade}")
 
+        _prev_md = signal.metadata if isinstance(signal.metadata, dict) else {}
+        _soft_pass = bool(_prev_md.get("entry_soft_pass"))
+        _soft_band = str(_prev_md.get("entry_soft_band", "") or "")
+
         signal.metadata = {
             "composite_score": composite,
             "smc_score": composite,
@@ -1002,6 +1036,8 @@ class EntryEngine:
             "entry_range_low": round(entry_range_low, 8),
             "entry_range_high": round(entry_range_high, 8),
             "signal_grade": signal.grade,
+            "entry_soft_pass": _soft_pass,
+            "entry_soft_band": _soft_band,
         }
 
         if self.require_sweep and not signal.metadata.get("has_sweep", False):

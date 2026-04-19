@@ -94,10 +94,40 @@ class TradingBotScanningMixin:
                 mark_reject("exception")
             await asyncio.sleep(0.8)
 
+        bpr = getattr(self, "bpr_ranker", None)
+        if bpr is not None and bpr.enabled and candidates:
+            bpr.annotate_candidates(candidates)
+
         ranked = self.allocator.allocate(candidates)
+
+        if bpr is not None and bpr.enabled:
+            ranked = bpr.maybe_take_top1(ranked)
+
         self.controls.set_candidates(ranked)
         summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
+
+        if bpr is not None and bpr.enabled and candidates and bpr.telegram_top_n > 0 and getattr(self, "tg", None):
+            topn = sorted(
+                candidates,
+                key=lambda c: float(c.get("bpr_score", 0.0) or 0.0),
+                reverse=True,
+            )[: bpr.telegram_top_n]
+            lines = ["<b>BPR rank (cycle)</b>"]
+            for i, c in enumerate(topn, 1):
+                sig = c["signal"]
+                bs = float(c.get("bpr_score", 0.0) or 0.0)
+                conf = float(getattr(sig, "confidence", 0.0) or 0.0)
+                side = str(getattr(sig, "side", "") or "")
+                soft = bool((sig.metadata or {}).get("entry_soft_pass"))
+                lines.append(
+                    f"{i}. <code>{c['symbol']}</code> BPR={bs:.3f} conf={conf:.2f} {side}"
+                    + (" <i>(soft)</i>" if soft else "")
+                )
+            try:
+                await self.tg.send_message("\n".join(lines))
+            except Exception as exc:
+                logger.warning(f"BPR telegram notify failed: {exc}")
 
         if self.signal_only:
             # Signal-only mode: send to Telegram, no execution (only if confidence above threshold)
