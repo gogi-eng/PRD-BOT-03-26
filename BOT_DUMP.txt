@@ -1,6 +1,6 @@
 ================================================================================
 📦 PROJECT DUMP - BYBIT TRADING BOT
-📅 Дата: 2026-04-15 21:13:26
+📅 Дата: 2026-04-16 10:36:23
 📁 Корень: C:\Users\Labuh\.vscode\PRD-SCALP\bot
 ================================================================================
 
@@ -48,7 +48,7 @@ __all__ = ["TradingBot", "BasketProfitState"]
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: main.py
-   SIZE: 189.3 KB
+   SIZE: 189.5 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """AUTO-GENERATED aggregate of TradingBot sources for static tests; do not edit.
@@ -3058,8 +3058,13 @@ class TradingBotPositionLoopMixin:
                 )
                 should_exit = False
 
-            # EMA TREND EXIT — close if price reverses against EMA(20)
-            if not should_exit and self.ema_trend_exit_enabled:
+            # EMA TREND EXIT — close if price reverses against EMA(20).
+            # While trailing is active, skip: 1m EMA noise otherwise exits winners before the trail can.
+            if (
+                not should_exit
+                and self.ema_trend_exit_enabled
+                and not getattr(pos, "trailing_active", False)
+            ):
                 should_exit, reason, details = self.exit_engine.check_ema_trend_exit(
                     pos, klines, ema_period=self.ema_exit_period
                 )
@@ -7232,7 +7237,7 @@ class TradingBotNotifySymbolsMixin:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\position_loop_mixin.py
-   SIZE: 26.1 KB
+   SIZE: 26.3 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -7555,8 +7560,13 @@ class TradingBotPositionLoopMixin:
                 )
                 should_exit = False
 
-            # EMA TREND EXIT — close if price reverses against EMA(20)
-            if not should_exit and self.ema_trend_exit_enabled:
+            # EMA TREND EXIT — close if price reverses against EMA(20).
+            # While trailing is active, skip: 1m EMA noise otherwise exits winners before the trail can.
+            if (
+                not should_exit
+                and self.ema_trend_exit_enabled
+                and not getattr(pos, "trailing_active", False)
+            ):
                 should_exit, reason, details = self.exit_engine.check_ema_trend_exit(
                     pos, klines, ema_period=self.ema_exit_period
                 )
