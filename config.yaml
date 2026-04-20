@@ -162,7 +162,7 @@ exit:
   early_exit_min_hold_minutes: 90
   # В указанные UTC-часы повысить требуемый min_profit_atr для early_exit (меньше ложных срезов в шумной сессии).
   early_exit_session_utc_hours: [3, 4, 5, 6, 7, 8, 9]
-  early_exit_session_min_profit_atr_boost: 0.5
+  early_exit_session_min_profit_atr_boost: 0.2
   # Запретить early_exit закрывать позицию, пока текущий PnL <= 0.
   early_exit_allow_loss_close: false
   # Медленнее включается трейлинг и шире дистанция от экстремума (меньше «дёрганья» на пампах).
