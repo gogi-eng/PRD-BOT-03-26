@@ -2,6 +2,7 @@
 Real entry: repo root ``main.py``, implementation: ``bot/trading_bot.py`` + ``bot/mixins/``.
 """
 from __future__ import annotations
+from typing import Optional
 
 # === bot\trading_bot.py ===
 from bot.state import BasketProfitState
@@ -136,6 +137,17 @@ class TradingBot(
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
+        from engine.bpr_ranker import BPRLinearRanker
+
+        _bpr_cfg = self.cfg.get("bpr_ranker", default={}) or {}
+        self.bpr_ranker = BPRLinearRanker(
+            enabled=bool(_bpr_cfg.get("enabled", True)),
+            weights_path=str(_bpr_cfg.get("weights_path", "bpr_weights.json")),
+            blend_weight=float(_bpr_cfg.get("blend_weight", 0.35)),
+            top1_when_multiple=bool(_bpr_cfg.get("top1_when_multiple", True)),
+            telegram_top_n=int(_bpr_cfg.get("telegram_top_n", 0)),
+            bot_dir=_bd,
+        )
         self.allocator = MultiSymbolCapitalAllocator()
         self.position_manager = PositionManager()
         self.rl_agent = RLPositionAgent(
@@ -3375,6 +3387,13 @@ class TradingBotScanningMixin:
             if self.position_manager.has(symbol):
                 mark_reject("already_in_position")
                 continue
+            now_ts = time.monotonic()
+            min_symbol_rescan_sec = max(0.0, float(getattr(self, "min_symbol_rescan_sec", 0.0) or 0.0))
+            if min_symbol_rescan_sec > 0:
+                last_scanned_at = float(getattr(self, "_last_symbol_scan_ts", {}).get(symbol, 0.0) or 0.0)
+                if last_scanned_at > 0 and (now_ts - last_scanned_at) < min_symbol_rescan_sec:
+                    mark_reject("symbol_rescan_throttle")
+                    continue
 
             exchange_closed_wait = self._exchange_closed_reentry_remaining(symbol)
             if exchange_closed_wait > 0:
@@ -3398,6 +3417,7 @@ class TradingBotScanningMixin:
                     mark_reject("risk_blocked")
                 continue
             try:
+                self._last_symbol_scan_ts[symbol] = now_ts
                 signal = await self._analyze_symbol(symbol)
                 if signal.should_enter:
                     cooldown_left = self._same_side_cooldown_remaining(symbol, signal.side)
@@ -3446,10 +3466,39 @@ class TradingBotScanningMixin:
                 mark_reject("exception")
             await asyncio.sleep(0.8)
 
+        bpr = getattr(self, "bpr_ranker", None)
+        if bpr is not None and bpr.enabled and candidates:
+            bpr.annotate_candidates(candidates)
+
         ranked = self.allocator.allocate(candidates)
+
+        if bpr is not None and bpr.enabled:
+            ranked = bpr.maybe_take_top1(ranked)
         self.controls.set_candidates(ranked)
         summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
+
+        if bpr is not None and bpr.enabled and candidates and bpr.telegram_top_n > 0 and getattr(self, "tg", None):
+            topn = sorted(
+                candidates,
+                key=lambda c: float(c.get("bpr_score", 0.0) or 0.0),
+                reverse=True,
+            )[: bpr.telegram_top_n]
+            lines = ["<b>BPR rank (cycle)</b>"]
+            for i, c in enumerate(topn, 1):
+                sig = c["signal"]
+                bs = float(c.get("bpr_score", 0.0) or 0.0)
+                conf = float(getattr(sig, "confidence", 0.0) or 0.0)
+                side = str(getattr(sig, "side", "") or "")
+                soft = bool((sig.metadata or {}).get("entry_soft_pass"))
+                lines.append(
+                    f"{i}. <code>{c['symbol']}</code> BPR={bs:.3f} conf={conf:.2f} {side}"
+                    + (" <i>(soft)</i>" if soft else "")
+                )
+            try:
+                await self.tg.send_message("\n".join(lines))
+            except Exception as exc:
+                logger.warning(f"BPR telegram notify failed: {exc}")
 
         if self.signal_only:
             # Signal-only mode: send to Telegram, no execution (only if confidence above threshold)
