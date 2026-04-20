@@ -7,6 +7,17 @@ class TradingBotScanningMixin:
     async def _scan_entries(self, symbols: list):
         candidates = []
         reject_counts: dict[str, int] = {}
+        blocked_hours = set(getattr(self, "block_entry_utc_hours", set()) or set())
+        current_utc_hour = datetime.now(timezone.utc).hour
+        if blocked_hours and current_utc_hour in blocked_hours:
+            logger.warning(
+                f"ENTRY SCAN BLOCKED: utc_hour={current_utc_hour} in block_entry_utc_hours={sorted(blocked_hours)}"
+            )
+            logger.info(
+                f"SCAN SUMMARY: symbols={len(symbols)} candidates=0 rejects[blocked_utc_hour={len(symbols)}]"
+            )
+            self.controls.set_candidates([])
+            return
 
         def mark_reject(reason: str):
             reject_counts[reason] = reject_counts.get(reason, 0) + 1

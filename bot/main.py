@@ -163,6 +163,9 @@ class TradingBot(
             early_exit_allow_loss_close=bool(
                 self.cfg.get("exit", "early_exit_allow_loss_close", default=False)
             ),
+            early_exit_validator_enabled=bool(
+                self.cfg.get("exit", "early_exit_validator_enabled", default=True)
+            ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
             trailing_min_distance_from_price_pct=float(
@@ -541,6 +544,11 @@ class TradingBot(
         self.whitelist = self.cfg.get("market", "whitelist_symbols", default=[])
         self.blacklist = self.cfg.get("trading", "blacklist_symbols", default=[])
         self.blacklist_substrings = self.cfg.get("market", "blacklist_substrings", default=[])
+        self.block_entry_utc_hours = {
+            int(h) % 24
+            for h in (self.cfg.get("trading", "block_entry_utc_hours", default=[]) or [])
+            if str(h).strip() != ""
+        }
         self.min_position_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         self.position_size_mode = str(
             self.cfg.get("trading", "position_size_mode", default="risk")
@@ -3348,6 +3356,17 @@ class TradingBotScanningMixin:
     async def _scan_entries(self, symbols: list):
         candidates = []
         reject_counts: dict[str, int] = {}
+        blocked_hours = set(getattr(self, "block_entry_utc_hours", set()) or set())
+        current_utc_hour = datetime.now(timezone.utc).hour
+        if blocked_hours and current_utc_hour in blocked_hours:
+            logger.warning(
+                f"ENTRY SCAN BLOCKED: utc_hour={current_utc_hour} in block_entry_utc_hours={sorted(blocked_hours)}"
+            )
+            logger.info(
+                f"SCAN SUMMARY: symbols={len(symbols)} candidates=0 rejects[blocked_utc_hour={len(symbols)}]"
+            )
+            self.controls.set_candidates([])
+            return
 
         def mark_reject(reason: str):
             reject_counts[reason] = reject_counts.get(reason, 0) + 1

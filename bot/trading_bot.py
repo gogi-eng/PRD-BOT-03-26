@@ -160,6 +160,9 @@ class TradingBot(
             early_exit_allow_loss_close=bool(
                 self.cfg.get("exit", "early_exit_allow_loss_close", default=False)
             ),
+            early_exit_validator_enabled=bool(
+                self.cfg.get("exit", "early_exit_validator_enabled", default=True)
+            ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
             trailing_min_distance_from_price_pct=float(
@@ -545,6 +548,11 @@ class TradingBot(
         self.whitelist = self.cfg.get("market", "whitelist_symbols", default=[])
         self.blacklist = self.cfg.get("trading", "blacklist_symbols", default=[])
         self.blacklist_substrings = self.cfg.get("market", "blacklist_substrings", default=[])
+        self.block_entry_utc_hours = {
+            int(h) % 24
+            for h in (self.cfg.get("trading", "block_entry_utc_hours", default=[]) or [])
+            if str(h).strip() != ""
+        }
         self.min_position_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         self.position_size_mode = str(
             self.cfg.get("trading", "position_size_mode", default="risk")

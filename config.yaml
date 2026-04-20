@@ -59,13 +59,15 @@ trading:
   capital_weight_mode: "equal"      # score | equal
   leverage: 10
   margin_total_pct: 10.0
-  risk_per_trade_pct: 1.0
-  max_positions: 3
+  risk_per_trade_pct: 0.7
+  max_positions: 2
   min_position_usdt: 5.0
   trailing_stop_pct: 1.3
   tp_pct: 2.0
   sl_pct: 1.2
-  blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT"]
+  blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
+  # Полный запрет новых входов в самые убыточные часы по вашей статистике (UTC).
+  block_entry_utc_hours: [5, 6, 13]
 
 entry:
   transformer_threshold: 0.60
@@ -165,6 +167,8 @@ exit:
   early_exit_session_min_profit_atr_boost: 0.2
   # Запретить early_exit закрывать позицию, пока текущий PnL <= 0.
   early_exit_allow_loss_close: false
+  # Дополнительная проверка логичности/корректности досрочного закрытия перед исполнением.
+  early_exit_validator_enabled: true
   # Медленнее включается трейлинг и шире дистанция от экстремума (меньше «дёрганья» на пампах).
   trailing_activation_atr: 2.2
   trailing_distance_atr: 2.8
@@ -182,17 +186,17 @@ exit:
   ema_exit_period: 20
   # Шире зона от EMA и больше подтверждающих баров — меньше ложных trend_exit на шуме.
   ema_exit_buffer_pct: 0.45
-  ema_exit_confirm_bars: 8
-  ema_trend_exit_confirm_bars: 5
+  ema_exit_confirm_bars: 6
+  ema_trend_exit_confirm_bars: 4
   ema_exit_require_ema_slope: true
   ema_trend_exit_require_ema_slope: true
   # Защита от закрытия на разворотной свече после резкого отката (recovery bounce).
   ema_trend_exit_recovery_cancel_enabled: true
   ema_trend_exit_recovery_lookback_bars: 6
-  ema_trend_exit_recovery_min_ratio: 0.45
+  ema_trend_exit_recovery_min_ratio: 0.60
   ema_trend_exit_recovery_min_adverse_pct: 0.35
   # Slightly higher threshold to ignore tiny +/-0.5% noise around entry.
-  ema_exit_min_adverse_from_entry_pct: 1.20
+  ema_exit_min_adverse_from_entry_pct: 0.90
 
 risk:
   max_daily_loss_pct: 10.0
@@ -201,17 +205,17 @@ risk:
   max_consecutive_losses: 3
   cooldown_after_loss_sec: 900
   cooldown_after_stop_hours: 0.25
-  max_trades_per_symbol_24h: 6
+  max_trades_per_symbol_24h: 4
   reduce_after_losses: 2
-  reduction_factor: 0.35
+  reduction_factor: 0.30
   min_loss_usdt_for_cooldown: 0.35
   min_loss_usdt_for_consecutive: 0.15
   ignore_loss_cooldown_reasons: ["early_exit", "exchange_closed"]
   ignore_consecutive_loss_reasons: ["early_exit", "exchange_closed"]
   symbol_loss_streak_cooldown_enabled: true
-  symbol_loss_streak_threshold: 2
-  symbol_loss_streak_limit: 2
-  symbol_loss_streak_cooldown_sec: 28800
+  symbol_loss_streak_threshold: 1
+  symbol_loss_streak_limit: 1
+  symbol_loss_streak_cooldown_sec: 43200
 
 market:
   min_24h_volume_usdt: 25000000

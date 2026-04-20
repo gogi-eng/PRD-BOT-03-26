@@ -19,6 +19,8 @@ from typing import Optional, Tuple
 import numpy as np
 from enum import Enum
 
+from engine.early_exit_validator import EarlyExitValidator
+
 logger = logging.getLogger("EXIT_ENGINE")
 
 
@@ -45,6 +47,7 @@ class ExitEngine:
         early_exit_session_utc_hours: Optional[list[int]] = None,
         early_exit_session_min_profit_atr_boost: float = 0.0,
         early_exit_allow_loss_close: bool = False,
+        early_exit_validator_enabled: bool = True,
         trailing_activation_atr: float = 0.8,
         trailing_distance_atr: float = 1.2,
         trailing_min_distance_pct: float = 0.0,
@@ -81,6 +84,7 @@ class ExitEngine:
             0.0, float(early_exit_session_min_profit_atr_boost)
         )
         self.early_exit_allow_loss_close = bool(early_exit_allow_loss_close)
+        self.early_exit_validator = EarlyExitValidator(enabled=early_exit_validator_enabled)
         self.trailing_activation_atr = trailing_activation_atr
         self.trailing_distance_atr = trailing_distance_atr
         if trailing_min_distance_from_price_pct is not None:
@@ -259,6 +263,22 @@ class ExitEngine:
             favorable_profit = self._favorable_profit_per_unit(position, entry, is_long)
             effective_profit = max(profit, favorable_profit)
             if (not self.early_exit_allow_loss_close) and profit <= 0:
+                return False, None, ""
+            validation = self.early_exit_validator.validate(
+                bars_since_entry=int(getattr(position, "bars_since_entry", 0) or 0),
+                early_exit_bars=int(self.early_exit_bars),
+                trailing_active=bool(getattr(position, "trailing_active", False)),
+                hold_ok=bool(hold_ok),
+                profit=float(profit),
+                favorable_profit=float(favorable_profit),
+                effective_profit=float(effective_profit),
+                min_profit=float(min_profit),
+            )
+            if not validation.is_valid:
+                logger.info(
+                    "[EARLY_EXIT_VALIDATOR] blocked "
+                    f"code={validation.code} detail={validation.detail}"
+                )
                 return False, None, ""
             if effective_profit < min_profit:
                 reason_code = "early_exit_low_progress"
