@@ -67,7 +67,7 @@ trading:
   sl_pct: 1.2
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
   # Полный запрет новых входов в самые убыточные часы по вашей статистике (UTC).
-  block_entry_utc_hours: [5, 6, 13]
+  block_entry_utc_hours: [5, 6, 8, 12, 17, 21, 23]
 
 entry:
   transformer_threshold: 0.60
