@@ -68,6 +68,9 @@ class RiskGuard:
         symbol_loss_streak_limit: Optional[int] = None,
         symbol_loss_streak_cooldown_count: Optional[int] = None,
         symbol_loss_streak_cooldown_sec: int = 0,
+        trend_exit_reentry_cooldown_enabled: bool = False,
+        trend_exit_reentry_cooldown_sec: int = 0,
+        trend_exit_reentry_loss_only: bool = True,
     ):
         self.max_consecutive_losses = max_consecutive_losses
         self.max_daily_loss_pct = max_daily_loss_pct
@@ -98,6 +101,9 @@ class RiskGuard:
         # Backward-compatible alias used by older tests/configs.
         self.symbol_loss_streak_cooldown_count = self.symbol_loss_streak_threshold
         self.symbol_loss_streak_cooldown_sec = max(int(symbol_loss_streak_cooldown_sec), 0)
+        self.trend_exit_reentry_cooldown_enabled = bool(trend_exit_reentry_cooldown_enabled)
+        self.trend_exit_reentry_cooldown_sec = max(int(trend_exit_reentry_cooldown_sec), 0)
+        self.trend_exit_reentry_loss_only = bool(trend_exit_reentry_loss_only)
 
         self.status: GuardStatus = GuardStatus.ACTIVE
         self.stop_reason: str = ""
@@ -111,6 +117,7 @@ class RiskGuard:
         self._symbol_last_loss: Dict[str, datetime] = {}
         self._symbol_consecutive_losses: Dict[str, int] = {}
         self._symbol_streak_cooldown_until: Dict[str, datetime] = {}
+        self._symbol_trend_exit_cooldown_until: Dict[str, datetime] = {}
 
     def set_notify_callback(self, callback: Callable):
         self._notify_callback = callback
@@ -129,6 +136,11 @@ class RiskGuard:
             self._symbol_last_loss.clear()
             self._symbol_consecutive_losses.clear()
             self._symbol_streak_cooldown_until.clear()
+            # Keep trend-exit cooldowns across day boundary (12h window may overlap midnight).
+            now = datetime.now(timezone.utc)
+            self._symbol_trend_exit_cooldown_until = {
+                s: ts for s, ts in self._symbol_trend_exit_cooldown_until.items() if ts > now
+            }
             print(f"[RISK] New day: {today}")
 
     # === Trade recording ===
@@ -201,6 +213,16 @@ class RiskGuard:
                         self._symbol_streak_cooldown_until[symbol] = (
                             datetime.now(timezone.utc) + timedelta(seconds=self.symbol_loss_streak_cooldown_sec)
                         )
+                if (
+                    symbol
+                    and self.trend_exit_reentry_cooldown_enabled
+                    and self.trend_exit_reentry_cooldown_sec > 0
+                    and str(reason_key).startswith("trend_exit")
+                    and ((not self.trend_exit_reentry_loss_only) or pnl < 0)
+                ):
+                    self._symbol_trend_exit_cooldown_until[symbol] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=self.trend_exit_reentry_cooldown_sec)
+                    )
             if pnl > 0 and symbol:
                 self._symbol_streak_cooldown_until.pop(symbol, None)
 
@@ -293,6 +315,13 @@ class RiskGuard:
                 if remain > 0:
                     return False, f"Symbol streak cooldown {symbol}: {int(remain)}s"
                 self._symbol_streak_cooldown_until.pop(symbol, None)
+            if symbol and symbol in self._symbol_trend_exit_cooldown_until:
+                remain = (
+                    self._symbol_trend_exit_cooldown_until[symbol] - datetime.now(timezone.utc)
+                ).total_seconds()
+                if remain > 0:
+                    return False, f"Trend-exit cooldown {symbol}: {int(remain)}s"
+                self._symbol_trend_exit_cooldown_until.pop(symbol, None)
 
             # Limits check
             if self._consecutive_losses >= self.max_consecutive_losses:

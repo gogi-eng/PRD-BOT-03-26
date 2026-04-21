@@ -184,19 +184,19 @@ exit:
   fee_rate: 0.001
   ema_trend_exit: true
   ema_exit_period: 20
-  # Шире зона от EMA и больше подтверждающих баров — меньше ложных trend_exit на шуме.
+  # v2: быстрее фиксируем слом тренда, чтобы не тянуть глубокую просадку.
   ema_exit_buffer_pct: 0.45
-  ema_exit_confirm_bars: 6
-  ema_trend_exit_confirm_bars: 4
+  ema_exit_confirm_bars: 5
+  ema_trend_exit_confirm_bars: 3
   ema_exit_require_ema_slope: true
   ema_trend_exit_require_ema_slope: true
   # Защита от закрытия на разворотной свече после резкого отката (recovery bounce).
   ema_trend_exit_recovery_cancel_enabled: true
   ema_trend_exit_recovery_lookback_bars: 6
-  ema_trend_exit_recovery_min_ratio: 0.60
+  ema_trend_exit_recovery_min_ratio: 0.70
   ema_trend_exit_recovery_min_adverse_pct: 0.35
   # Slightly higher threshold to ignore tiny +/-0.5% noise around entry.
-  ema_exit_min_adverse_from_entry_pct: 0.90
+  ema_exit_min_adverse_from_entry_pct: 0.75
 
 risk:
   max_daily_loss_pct: 10.0
@@ -216,6 +216,10 @@ risk:
   symbol_loss_streak_threshold: 1
   symbol_loss_streak_limit: 1
   symbol_loss_streak_cooldown_sec: 43200
+  # v2: после убыточного trend_exit блокируем повторный вход по символу на 12 часов.
+  trend_exit_reentry_cooldown_enabled: true
+  trend_exit_reentry_cooldown_sec: 43200
+  trend_exit_reentry_loss_only: true
 
 market:
   min_24h_volume_usdt: 25000000
