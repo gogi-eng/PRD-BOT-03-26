@@ -52,6 +52,15 @@
             symbol_loss_streak_cooldown_sec=int(
                 self.cfg.get("risk", "symbol_loss_streak_cooldown_sec", default=21600)
             ),
+            trend_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_enabled", default=False)
+            ),
+            trend_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_sec", default=0)
+            ),
+            trend_exit_reentry_loss_only=bool(
+                self.cfg.get("risk", "trend_exit_reentry_loss_only", default=True)
+            ),
         )
         self.controls.set_guard(self.risk_guard)
 
