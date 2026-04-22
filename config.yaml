@@ -22,7 +22,7 @@ bot:
   signal_only_min_confidence: 0.90
   signal_cooldown_sec: 5400
   # Per-stage timeout inside trading cycle (network/API bound awaits).
-  runtime_stage_timeout_sec: 25
+  runtime_stage_timeout_sec: 60
   # Timeout for heavier stages (position management / entry scan).
   runtime_scan_timeout_sec: 240
 
