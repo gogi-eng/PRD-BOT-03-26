@@ -66,8 +66,9 @@ trading:
   tp_pct: 2.0
   sl_pct: 1.2
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
-  # Полный запрет новых входов в самые убыточные часы по вашей статистике (UTC).
-  block_entry_utc_hours: [5, 6, 8, 12, 17, 21, 23]
+  # Мягкий профиль блокировки убыточных часов (UTC) для PRD-SCALP.
+  # Жёсткий профиль (для PRD-LONG): [5, 6, 7, 8, 12, 13, 19, 21, 23]
+  block_entry_utc_hours: [5, 6, 8, 12, 13, 21, 23]
 
 entry:
   transformer_threshold: 0.60
