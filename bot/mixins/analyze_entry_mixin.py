@@ -177,20 +177,31 @@ class TradingBotAnalyzeEntryMixin:
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
-        # Get funding rate (one symbol — avoid get_tickers() full list per scanned coin)
+        # Get funding + 24h change (single-symbol ticker; used for funding gate + mover cap).
         funding_rate = 0.0
+        abs_change_24h_dec = None
         try:
             t = await self.client.get_ticker(symbol)
             if t:
                 funding_rate = float(t.get("fundingRate", 0) or 0)
+                raw_pct = t.get("price24hPcnt")
+                if raw_pct is not None and raw_pct != "":
+                    abs_change_24h_dec = float(raw_pct)
         except Exception:
             pass
+
+        fail_funding, funding_reason = self.entry_engine.funding_pre_fails(
+            funding_rate, abs_change_24h_dec
+        )
+        if fail_funding:
+            return reject(funding_reason)
 
         if signal is None:
             signal = self.entry_engine.generate_signal(
                 symbol, klines, current_price, market, regime, transformer, orderflow, liq,
                 atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
                 htf_4h_trend=htf_4h_trend,
+                abs_change_24h_dec=abs_change_24h_dec,
             )
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")

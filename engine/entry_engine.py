@@ -134,7 +134,14 @@ class EntryEngine:
         self.entry_range_atr_mult = cfg.get("entry", "entry_range_atr_mult", default=0.22)
         self.zone_proximity_pct = cfg.get("entry", "zone_proximity_pct", default=0.4)
         self.max_spread_pct = cfg.get("entry", "max_spread_pct", default=0.08)
-        self.max_funding_rate = cfg.get("entry", "max_funding_rate", default=0.05)
+        self.max_funding_rate = float(cfg.get("entry", "max_funding_rate", default=0.05) or 0.0)
+        # Tighter cap when |Bybit price24hPcnt| is large (decimal, e.g. 0.25 = +25% / -25%).
+        self.max_funding_rate_for_mover = float(
+            cfg.get("entry", "max_funding_rate_for_mover", default=0.0) or 0.0
+        )
+        self.funding_tight_if_abs_24h_change_pct = float(
+            cfg.get("entry", "funding_tight_if_abs_24h_change_pct", default=0.0) or 0.0
+        )
         self.entry_threshold = cfg.get("entry", "entry_threshold", default=self.ENTRY_THRESHOLD)
         _soft = cfg.get("entry", "entry_threshold_soft", default=None)
         self.entry_threshold_soft: float | None = None
@@ -331,12 +338,42 @@ class EntryEngine:
             prob = torch.sigmoid(self._trained_model(x)).item()
         return self._clamp(float(prob), 0.0, 1.0)
 
+    def effective_funding_cap(self, abs_change_24h_dec: float | None) -> float | None:
+        """Maximum allowed |funding_rate| (decimal). None disables the funding gate."""
+        if self.max_funding_rate <= 0:
+            return None
+        cap = float(self.max_funding_rate)
+        mover_cap = float(self.max_funding_rate_for_mover or 0.0)
+        th = float(self.funding_tight_if_abs_24h_change_pct or 0.0)
+        if mover_cap > 0 and th > 0 and abs_change_24h_dec is not None:
+            try:
+                abs_pct = abs(float(abs_change_24h_dec)) * 100.0
+            except (TypeError, ValueError):
+                abs_pct = 0.0
+            if abs_pct >= th:
+                cap = min(cap, mover_cap)
+        return cap
+
+    def funding_pre_fails(self, funding_rate: float, abs_change_24h_dec: float | None) -> tuple[bool, str]:
+        """Returns (True, reason) when funding exceeds the effective cap (used before scalp + main entry)."""
+        cap = self.effective_funding_cap(abs_change_24h_dec)
+        if cap is None:
+            return False, ""
+        try:
+            fr = float(funding_rate or 0.0)
+        except (TypeError, ValueError):
+            fr = 0.0
+        if abs(fr) > float(cap):
+            return True, f"funding_rate_high ({fr:.6f} cap={float(cap):.6f})"
+        return False, ""
+
     def generate_signal(
         self, symbol: str, klines: List[Dict], current_price: float,
         market_analysis, regime_prediction, transformer_prediction,
         orderflow_snapshot, liq_analysis, atr_value: float = 0.0,
         zone_context=None, structure=None, funding_rate: float = 0.0,
         htf_4h_trend: int = 0,
+        abs_change_24h_dec: float | None = None,
     ) -> EntrySignal:
         signal = EntrySignal(entry_price=current_price)
 
@@ -420,8 +457,16 @@ class EntryEngine:
         if self.max_spread_pct > 0 and spread_pct > self.max_spread_pct:
             signal.metadata["reject_reason"] = f"spread_too_wide ({spread_pct:.3f}%)"
             return signal
-        if self.max_funding_rate > 0 and abs(funding_rate) > self.max_funding_rate:
-            signal.metadata["reject_reason"] = f"funding_rate_high ({funding_rate:.4f})"
+        if abs_change_24h_dec is not None:
+            try:
+                abs_change_24h_dec = float(abs_change_24h_dec)
+            except (TypeError, ValueError):
+                abs_change_24h_dec = None
+        cap = self.effective_funding_cap(abs_change_24h_dec)
+        if cap is not None and abs(funding_rate) > float(cap):
+            signal.metadata["reject_reason"] = (
+                f"funding_rate_high ({funding_rate:.6f} cap={float(cap):.6f})"
+            )
             return signal
 
         # =====================================================
