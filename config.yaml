@@ -225,6 +225,9 @@ risk:
   trend_exit_reentry_cooldown_enabled: true
   trend_exit_reentry_cooldown_sec: 43200
   trend_exit_reentry_loss_only: true
+  # Anti-whipsaw: после любого early_exit блокируем повторный вход по символу на 60 минут.
+  early_exit_reentry_cooldown_enabled: true
+  early_exit_reentry_cooldown_sec: 3600
 
 market:
   min_24h_volume_usdt: 25000000

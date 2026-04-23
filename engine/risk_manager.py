@@ -71,6 +71,8 @@ class RiskGuard:
         trend_exit_reentry_cooldown_enabled: bool = False,
         trend_exit_reentry_cooldown_sec: int = 0,
         trend_exit_reentry_loss_only: bool = True,
+        early_exit_reentry_cooldown_enabled: bool = False,
+        early_exit_reentry_cooldown_sec: int = 0,
     ):
         self.max_consecutive_losses = max_consecutive_losses
         self.max_daily_loss_pct = max_daily_loss_pct
@@ -104,6 +106,8 @@ class RiskGuard:
         self.trend_exit_reentry_cooldown_enabled = bool(trend_exit_reentry_cooldown_enabled)
         self.trend_exit_reentry_cooldown_sec = max(int(trend_exit_reentry_cooldown_sec), 0)
         self.trend_exit_reentry_loss_only = bool(trend_exit_reentry_loss_only)
+        self.early_exit_reentry_cooldown_enabled = bool(early_exit_reentry_cooldown_enabled)
+        self.early_exit_reentry_cooldown_sec = max(int(early_exit_reentry_cooldown_sec), 0)
 
         self.status: GuardStatus = GuardStatus.ACTIVE
         self.stop_reason: str = ""
@@ -118,6 +122,7 @@ class RiskGuard:
         self._symbol_consecutive_losses: Dict[str, int] = {}
         self._symbol_streak_cooldown_until: Dict[str, datetime] = {}
         self._symbol_trend_exit_cooldown_until: Dict[str, datetime] = {}
+        self._symbol_early_exit_cooldown_until: Dict[str, datetime] = {}
 
     def set_notify_callback(self, callback: Callable):
         self._notify_callback = callback
@@ -140,6 +145,10 @@ class RiskGuard:
             now = datetime.now(timezone.utc)
             self._symbol_trend_exit_cooldown_until = {
                 s: ts for s, ts in self._symbol_trend_exit_cooldown_until.items() if ts > now
+            }
+            # Keep early-exit cooldowns across day boundary as well.
+            self._symbol_early_exit_cooldown_until = {
+                s: ts for s, ts in self._symbol_early_exit_cooldown_until.items() if ts > now
             }
             print(f"[RISK] New day: {today}")
 
@@ -222,6 +231,15 @@ class RiskGuard:
                 ):
                     self._symbol_trend_exit_cooldown_until[symbol] = (
                         datetime.now(timezone.utc) + timedelta(seconds=self.trend_exit_reentry_cooldown_sec)
+                    )
+                if (
+                    symbol
+                    and self.early_exit_reentry_cooldown_enabled
+                    and self.early_exit_reentry_cooldown_sec > 0
+                    and str(reason_key).startswith("early_exit")
+                ):
+                    self._symbol_early_exit_cooldown_until[symbol] = (
+                        datetime.now(timezone.utc) + timedelta(seconds=self.early_exit_reentry_cooldown_sec)
                     )
             if pnl > 0 and symbol:
                 self._symbol_streak_cooldown_until.pop(symbol, None)
@@ -322,6 +340,13 @@ class RiskGuard:
                 if remain > 0:
                     return False, f"Trend-exit cooldown {symbol}: {int(remain)}s"
                 self._symbol_trend_exit_cooldown_until.pop(symbol, None)
+            if symbol and symbol in self._symbol_early_exit_cooldown_until:
+                remain = (
+                    self._symbol_early_exit_cooldown_until[symbol] - datetime.now(timezone.utc)
+                ).total_seconds()
+                if remain > 0:
+                    return False, f"Early-exit cooldown {symbol}: {int(remain)}s"
+                self._symbol_early_exit_cooldown_until.pop(symbol, None)
 
             # Limits check
             if self._consecutive_losses >= self.max_consecutive_losses:
