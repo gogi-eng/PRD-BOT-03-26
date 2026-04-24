@@ -229,6 +229,12 @@ risk:
   early_exit_reentry_cooldown_enabled: true
   early_exit_reentry_cooldown_sec: 3600
 
+session_flatten:
+  enabled: true
+  # Close all open positions before historically dangerous session-transition hours (UTC).
+  utc_hours: [6, 8, 9, 12, 13, 19, 21]
+  lead_minutes: 10
+
 market:
   min_24h_volume_usdt: 25000000
   max_symbols: 50

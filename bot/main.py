@@ -626,6 +626,16 @@ class TradingBot(
         self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
         self.basket_drawdown_confirm_sec = self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
+        self.session_flatten_enabled = bool(
+            self.cfg.get("session_flatten", "enabled", default=False)
+        )
+        self.session_flatten_utc_hours = sorted(
+            {int(x) % 24 for x in self.cfg.get("session_flatten", "utc_hours", default=[])}
+        )
+        self.session_flatten_lead_minutes = max(
+            1, int(self.cfg.get("session_flatten", "lead_minutes", default=10))
+        )
+        self._session_flatten_last_key = ""
         self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
         self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
         self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
