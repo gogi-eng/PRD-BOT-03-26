@@ -249,6 +249,7 @@ class TradingBotLifecycleMixin:
                         await self._process_signal_feedback_loop()
 
                     if not self.signal_only:
+                        await self._maybe_session_flatten()
                         logger.info(f"[CYCLE {cycle}] stage=manage_positions")
                         total_unrealized = await asyncio.wait_for(
                             self._manage_positions(exchange_positions), timeout=scan_timeout

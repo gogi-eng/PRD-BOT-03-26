@@ -4,6 +4,72 @@ from __future__ import annotations
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotGuardsMixin:
+    async def _maybe_session_flatten(self):
+        """Close all open positions shortly before configured UTC session hours."""
+        if not getattr(self, "session_flatten_enabled", False):
+            return
+        target_hours = list(getattr(self, "session_flatten_utc_hours", []) or [])
+        if not target_hours:
+            return
+        if self.position_manager.count() <= 0:
+            return
+
+        now = datetime.now(timezone.utc)
+        lead_min = max(1, int(getattr(self, "session_flatten_lead_minutes", 10)))
+        trigger_key = ""
+        trigger_hour = None
+        for hour in target_hours:
+            target_dt = now.replace(hour=int(hour), minute=0, second=0, microsecond=0)
+            if target_dt <= now:
+                target_dt = target_dt + timedelta(days=1)
+            minutes_to_target = (target_dt - now).total_seconds() / 60.0
+            if 0 < minutes_to_target <= lead_min:
+                trigger_key = target_dt.strftime("%Y-%m-%d-%H")
+                trigger_hour = int(hour)
+                break
+
+        if not trigger_key:
+            return
+        if trigger_key == getattr(self, "_session_flatten_last_key", ""):
+            return
+
+        self._session_flatten_last_key = trigger_key
+        msg = (
+            f"SESSION FLATTEN: closing all positions {lead_min}m before UTC hour={trigger_hour:02d}. "
+            f"open_positions={self.position_manager.count()}"
+        )
+        logger.warning(msg)
+        if self.tg:
+            try:
+                await self.tg.send_message(
+                    f"<b>SESSION FLATTEN</b>\n\n"
+                    f"Закрываю все позиции перед риск-окном UTC <code>{trigger_hour:02d}:00</code>.\n"
+                    f"Lead: <code>{lead_min} мин</code>\n"
+                    f"Открытых позиций: <code>{self.position_manager.count()}</code>"
+                )
+            except Exception:
+                pass
+
+        for symbol in list(self.position_manager.symbols()):
+            pos = self.position_manager.get(symbol)
+            if not pos:
+                continue
+            try:
+                current_price = await self.client.get_price(symbol)
+                close_result = await self.execution_engine.execute_close(
+                    symbol,
+                    pos.side,
+                    reason="session_flatten_preopen",
+                    position_idx=pos.position_idx,
+                )
+                if close_result.get("success"):
+                    pnl = self._calc_pnl(pos, current_price, pos.qty)
+                    await self._finalize_full_close(
+                        symbol, pos, current_price, pnl, "session_flatten_preopen"
+                    )
+            except Exception as exc:
+                logger.warning(f"SESSION FLATTEN close failed for {symbol}: {exc}")
+
     async def _check_portfolio_take_profit(self, total_unrealized: float):
         if not self.portfolio_tp_enabled or total_unrealized <= 0 or self.position_manager.count() < 2:
             return
