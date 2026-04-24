@@ -189,19 +189,19 @@ exit:
   fee_rate: 0.001
   ema_trend_exit: true
   ema_exit_period: 20
-  # v2: быстрее фиксируем слом тренда, чтобы не тянуть глубокую просадку.
-  ema_exit_buffer_pct: 0.65
+  # v3 anti-whipsaw: сильнее игнорируем шум/микро-откаты перед trend_exit.
+  ema_exit_buffer_pct: 0.80
   ema_exit_confirm_bars: 5
-  ema_trend_exit_confirm_bars: 5
+  ema_trend_exit_confirm_bars: 7
   ema_exit_require_ema_slope: true
   ema_trend_exit_require_ema_slope: true
   # Защита от закрытия на разворотной свече после резкого отката (recovery bounce).
   ema_trend_exit_recovery_cancel_enabled: true
-  ema_trend_exit_recovery_lookback_bars: 6
-  ema_trend_exit_recovery_min_ratio: 0.70
-  ema_trend_exit_recovery_min_adverse_pct: 0.35
+  ema_trend_exit_recovery_lookback_bars: 8
+  ema_trend_exit_recovery_min_ratio: 0.80
+  ema_trend_exit_recovery_min_adverse_pct: 0.55
   # Slightly higher threshold to ignore tiny +/-0.5% noise around entry.
-  ema_exit_min_adverse_from_entry_pct: 1.20
+  ema_exit_min_adverse_from_entry_pct: 1.60
 
 risk:
   max_daily_loss_pct: 10.0
