@@ -1,5 +1,13 @@
 timezone_offset: 3
 
+# --- Время в конфиге (ревизия) ---
+# - trading.block_entry_utc_hours, session_flatten.utc_hours, exit.early_exit_session_utc_hours — в UTC.
+# - scalp.*_hours_local, strategy_presets.auto_impulse_local_hours — локальные часы (UTC+timezone_offset, у вас +3 = МСК).
+# - block_entry: полный запрет entry-scan в этот час UTC.
+# - session_flatten: закрытие всех позиций за lead_minutes до начала перечисленного UTC-часа (не путать с block_entry).
+#   Часы 9 и 19 сняты с block_entry по запросу; из flatten убраны те же, чтобы не выкидывать из сделок прямо перед «разрешённым» окном.
+# - strategy_presets: при enabled=true режет порог/OF/block поверх базы; auto смотрит auto_impulse_local_hours (= часы pump∪dump из scalp, отсортировано).
+
 bybit:
   testnet: false
   category: linear
@@ -38,15 +46,17 @@ strategy_presets:
   mode: auto
   notify_telegram: false
   auto_timezone_offset: 3
-  # Local hours (UTC+3) where we use "impulse" overlay; outside these → "defensive"
-  auto_impulse_local_hours: [3, 4, 5, 7, 11, 14, 18, 13, 19, 20, 21]
+  # = union(scalp.pump_hours_local, scalp.dump_hours_local), sorted (без дублей)
+  auto_impulse_local_hours: [3, 4, 5, 7, 11, 13, 14, 18, 19, 20, 21]
   impulse:
     entry_threshold: 0.66
     min_orderflow_imbalance: 0.055
+    # чуть мягче block, чем defensive (нет 13 UTC — больше попыток входа)
     block_entry_utc_hours: [5, 6, 8, 12, 21, 23]
   defensive:
     entry_threshold: 0.72
     min_orderflow_imbalance: 0.07
+    # совпадает с trading.block_entry_utc_hours
     block_entry_utc_hours: [5, 6, 8, 12, 13, 21, 23]
 
 # ========================================
@@ -89,8 +99,8 @@ trading:
   tp_pct: 2.0
   sl_pct: 1.2
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
-  # Мягкий профиль блокировки убыточных часов (UTC) для PRD-SCALP.
-  # Жёсткий профиль (для PRD-LONG): [5, 6, 7, 8, 12, 13, 19, 21, 23]
+  # Стартовые (UTC) «плохие» часы. 9 и 19 убраны (больше окон); 12/13 — перекрёсток сессий, оставлены.
+  # Для субаккаунта/лонг можно сузить список отдельной копией config.
   block_entry_utc_hours: [5, 6, 8, 12, 13, 21, 23]
 
 entry:
@@ -254,8 +264,8 @@ risk:
 
 session_flatten:
   enabled: true
-  # Close all open positions before historically dangerous session-transition hours (UTC).
-  utc_hours: [6, 8, 9, 12, 13, 19, 21]
+  # UTC-час, перед которым (lead_minutes) закрыть всё. 9/19 убраны вместе с block_entry, чтобы не дублировать политику.
+  utc_hours: [6, 8, 12, 13, 21]
   lead_minutes: 10
 
 market:
