@@ -4,8 +4,7 @@ timezone_offset: 3
 # - trading.block_entry_utc_hours, session_flatten.utc_hours, exit.early_exit_session_utc_hours — в UTC.
 # - scalp.*_hours_local, strategy_presets.auto_impulse_local_hours — локальные часы (UTC+timezone_offset, у вас +3 = МСК).
 # - block_entry: полный запрет entry-scan в этот час UTC.
-# - session_flatten: закрытие всех позиций за lead_minutes до начала перечисленного UTC-часа (не путать с block_entry).
-#   Часы 9 и 19 сняты с block_entry по запросу; из flatten убраны те же, чтобы не выкидывать из сделок прямо перед «разрешённым» окном.
+# - session_flatten: опционально — то же, но пакетное закрытие; по умолчанию выкл. (см. session_flatten.enabled).
 # - strategy_presets: при enabled=true режет порог/OF/block поверх базы; auto смотрит auto_impulse_local_hours (= часы pump∪dump из scalp, отсортировано).
 
 bybit:
@@ -263,8 +262,9 @@ risk:
   early_exit_reentry_cooldown_sec: 3600
 
 session_flatten:
-  enabled: true
-  # UTC-час, перед которым (lead_minutes) закрыть всё. 9/19 убраны вместе с block_entry, чтобы не дублировать политику.
+  # Принудительное закрытие перед сессиями: выключено — оставьте false и пользуйтесь block_entry / трейлингом / гвардами.
+  enabled: false
+  # При enabled: true — UTC-час, перед которым (lead_minutes) закрыть всё. Список оставлен для справки.
   utc_hours: [6, 8, 12, 13, 21]
   lead_minutes: 10
 
@@ -346,12 +346,19 @@ portfolio_tp:
 basket_profit_guard:
   enabled: true
   min_positions: 3
+  # История PnL за окно (сек); держите шире, чем горизонт «пик→сейчас» (например 15 мин), иначе пик увидеть нельзя.
   monitor_window_sec: 900
   symbol_pnl_drop_pct: 40.0
   total_drawdown_pct_after_symbol_drop: 15.0
   min_symbol_peak_profit_usdt: 0.5
   min_total_profit_usdt: 1.0
+  # Подтверждение просадки PnL по символу: в обычное время (сек).
   drawdown_confirm_sec: 900
+  # Укороченное подтверждение только в локальные «скальп»-часы (pump|dump, как в strategy_presets.auto_impulse_local_hours).
+  fast_drawdown_confirm_sec: 300
+  fast_drawdown_confirm_local_hours: [3, 4, 5, 7, 11, 13, 14, 18, 19, 20, 21]
+  # Пусто/не указывать = взять timezone_offset из корня config (у вас +3).
+  # fast_drawdown_confirm_timezone_offset: 3
 
 profit_drawdown_guard:
   enabled: true

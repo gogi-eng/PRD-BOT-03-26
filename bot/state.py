@@ -12,6 +12,8 @@ class BasketProfitState:
     total_history: dict = None
     symbol_pnl_history: dict = None
     drawdown_detected_at: float = 0.0
+    # Фиксировано при старте таймера (сек) — граница fast vs base-часа не сокращает/не растягивает уже запущенное ожидание.
+    drawdown_confirm_lock_sec: float = 0.0
 
     def __post_init__(self):
         if self.total_history is None:

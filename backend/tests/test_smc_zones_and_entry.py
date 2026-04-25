@@ -5,7 +5,7 @@ Comprehensive tests for SMC (Smart Money Concepts) features:
 - ZoneContext: structural SL/TP placement, zone proximity methods, confluence
 - EntryEngine: SMC-based signal generation
 - ExitEngine: trailing activation and exit conditions
-- BasketProfitState: 15-minute confirmation timer for basket guard
+- BasketProfitState: drawdown confirmation timer for basket guard (config minutes)
 - Config verification: RL disabled, zone_proximity_pct, drawdown_confirm_sec
 """
 
@@ -861,7 +861,7 @@ class TestExitEngine:
 
 
 class TestBasketProfitGuard:
-    """Tests for the 15-minute basket profit guard timer"""
+    """Tests for the basket profit guard drawdown confirm timer (config: 5 min)"""
     
     def test_basket_profit_state_has_drawdown_field(self):
         """Test BasketProfitState has drawdown_detected_at field"""
@@ -883,30 +883,30 @@ class TestBasketProfitGuard:
         
         # The timer starts at detection time, not immediate close
         elapsed = 0  # Just detected
-        confirm_sec = 900  # 15 minutes
+        confirm_sec = 300  # 5 minutes (basket_profit_guard.drawdown_confirm_sec)
         
         should_close = elapsed >= confirm_sec
         assert should_close is False, "Should NOT close immediately when drawdown first detected"
         print("TEST PASSED: Basket guard does not close immediately on drawdown detection")
     
-    def test_basket_guard_closes_after_15_minutes(self):
-        """Test that basket guard DOES close after drawdown persists for 15 minutes"""
+    def test_basket_guard_closes_after_5_minutes(self):
+        """Test that basket guard DOES close after drawdown persists for confirm window"""
         from main import BasketProfitState
         
         state = BasketProfitState()
-        confirm_sec = 900  # 15 minutes
+        confirm_sec = 300  # 5 minutes
         
-        # Simulate drawdown detected 16 minutes ago
-        state.drawdown_detected_at = time.time() - 960  # 16 minutes ago
+        # Simulate drawdown detected 6+ minutes ago
+        state.drawdown_detected_at = time.time() - 400  # > 5 min ago
         
         elapsed = time.time() - state.drawdown_detected_at
         should_close = elapsed >= confirm_sec
         
-        assert should_close is True, "Should close after 15 minutes of persistent drawdown"
-        print(f"TEST PASSED: Basket guard closes after 15min (elapsed={elapsed:.0f}s)")
+        assert should_close is True, "Should close after drawdown confirm window"
+        print(f"TEST PASSED: Basket guard closes after confirm (elapsed={elapsed:.0f}s)")
     
     def test_basket_guard_timer_reset(self):
-        """Test that timer resets if drawdown resolves before 15 minutes"""
+        """Test that timer resets if drawdown resolves before confirm window"""
         from main import BasketProfitState
         
         state = BasketProfitState()
@@ -949,11 +949,13 @@ class TestConfigVerification:
         print(f"TEST PASSED: min_profit_before_trail_pct = {min_profit}%")
     
     def test_drawdown_confirm_sec_exists(self, config):
-        """Test that drawdown_confirm_sec is configured for 15-minute timer"""
+        """Test that base + fast basket drawdown confirm are configured (5m in scalp hours only)."""
         drawdown_confirm = config.get("basket_profit_guard", "drawdown_confirm_sec", default=None)
+        fast_confirm = config.get("basket_profit_guard", "fast_drawdown_confirm_sec", default=None)
         assert drawdown_confirm is not None, "drawdown_confirm_sec should be configured"
-        assert drawdown_confirm == 900, f"drawdown_confirm_sec should be 900 (15 min), got {drawdown_confirm}"
-        print(f"TEST PASSED: drawdown_confirm_sec = {drawdown_confirm} (15 minutes)")
+        assert drawdown_confirm == 900, f"drawdown_confirm_sec should be 900 (15 min default), got {drawdown_confirm}"
+        assert fast_confirm == 300, f"fast_drawdown_confirm_sec should be 300, got {fast_confirm}"
+        print(f"TEST PASSED: base={drawdown_confirm}s, fast={fast_confirm}s in fast hours")
     
     def test_all_required_config_keys(self, config):
         """Test all required config keys are present"""
