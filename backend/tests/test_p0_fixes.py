@@ -299,16 +299,20 @@ class TestBasketProfitGuard:
         drawdown = cfg.get("basket_profit_guard", "total_drawdown_pct_after_symbol_drop", default=15.0)
         assert 10.0 <= drawdown <= 25.0, f"Expected ~15%, got {drawdown}"
 
-    def test_basket_profit_guard_has_15min_timer(self):
-        """drawdown_confirm_sec should be 900s (15 minutes)."""
+    def test_basket_profit_guard_fast_and_base_timers(self):
+        """Base confirm 15m; 5m only in fast_drawdown_confirm_local_hours (see config)."""
         from core.config import BotConfig
 
         cfg = BotConfig.load(str(BOT_DIR / "config.yaml"))
-        confirm_sec = cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=0)
-        assert confirm_sec == 900, f"Expected 900, got {confirm_sec}"
+        base = cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=0)
+        fast = cfg.get("basket_profit_guard", "fast_drawdown_confirm_sec", default=0)
+        hours = cfg.get("basket_profit_guard", "fast_drawdown_confirm_local_hours", default=[]) or []
+        assert base == 900, f"Expected base 900, got {base}"
+        assert fast == 300, f"Expected fast 300, got {fast}"
+        assert len(hours) > 0, "fast_drawdown_confirm_local_hours should be non-empty when using 5m windows"
 
     def test_basket_profit_guard_closes_basket_on_drawdown(self):
-        """Should NOT close immediately — must wait for 15-min timer."""
+        """Should NOT close immediately — must wait for drawdown confirm timer."""
         from engine.position_manager import Position
         from main import TradingBot
         import time

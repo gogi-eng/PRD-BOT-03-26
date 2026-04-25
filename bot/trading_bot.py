@@ -651,7 +651,18 @@ class TradingBot(
         self.basket_profit_total_drawdown_pct = self.cfg.get("basket_profit_guard", "total_drawdown_pct_after_symbol_drop", default=15.0)
         self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
-        self.basket_drawdown_confirm_sec = self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
+        self.basket_drawdown_confirm_sec = float(
+            self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
+        )
+        self.basket_fast_drawdown_confirm_sec = float(
+            self.cfg.get("basket_profit_guard", "fast_drawdown_confirm_sec", default=self.basket_drawdown_confirm_sec)
+        )
+        _fast_hours = self.cfg.get("basket_profit_guard", "fast_drawdown_confirm_local_hours", default=[]) or []
+        self.basket_fast_drawdown_confirm_local_hours = frozenset(int(x) % 24 for x in _fast_hours)
+        _b_tz = self.cfg.get("basket_profit_guard", "fast_drawdown_confirm_timezone_offset", default=None)
+        self.basket_fast_drawdown_confirm_tz_offset = (
+            int(_b_tz) if _b_tz is not None else int(self.cfg.get("timezone_offset", default=0) or 0)
+        )
         self.session_flatten_enabled = bool(
             self.cfg.get("session_flatten", "enabled", default=False)
         )

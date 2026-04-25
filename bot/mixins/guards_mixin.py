@@ -4,6 +4,22 @@ from __future__ import annotations
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotGuardsMixin:
+    def _basket_effective_drawdown_confirm_sec(self) -> float:
+        """Секунды подтверждения basket guard: вне fast-часов base, в окне fast (локальные часы, UTC+offset)."""
+        base = float(getattr(self, "basket_drawdown_confirm_sec", 900.0) or 900.0)
+        fast = float(
+            getattr(self, "basket_fast_drawdown_confirm_sec", base) or base
+        )
+        hours = frozenset(getattr(self, "basket_fast_drawdown_confirm_local_hours", frozenset()) or frozenset())
+        if not hours:
+            return base
+        off = int(getattr(self, "basket_fast_drawdown_confirm_tz_offset", 0) or 0)
+        utc_h = datetime.now(timezone.utc).hour
+        local_h = (utc_h + off) % 24
+        if int(local_h) in hours:
+            return fast
+        return base
+
     async def _maybe_session_flatten(self):
         """Close all open positions shortly before configured UTC session hours."""
         if not getattr(self, "session_flatten_enabled", False):
@@ -116,34 +132,43 @@ class TradingBotGuardsMixin:
 
         if total_unrealized < self.basket_profit_min_total_usdt:
             self.basket_profit_state.drawdown_detected_at = 0.0
+            self.basket_profit_state.drawdown_confirm_lock_sec = 0.0
             return
 
         falling_symbol, symbol_drop_pct = self._find_falling_symbol(now)
         if not falling_symbol:
             self.basket_profit_state.drawdown_detected_at = 0.0
+            self.basket_profit_state.drawdown_confirm_lock_sec = 0.0
             return
 
-        # --- 15-minute confirmation timer ---
+        if self.basket_profit_state.drawdown_detected_at > 0 and self.basket_profit_state.drawdown_confirm_lock_sec <= 0:
+            self.basket_profit_state.drawdown_confirm_lock_sec = self._basket_effective_drawdown_confirm_sec()
+
         if self.basket_profit_state.drawdown_detected_at <= 0:
+            confirm_for_wait = self._basket_effective_drawdown_confirm_sec()
             self.basket_profit_state.drawdown_detected_at = now
-            logger.info(f"BASKET GUARD: drawdown detected on {falling_symbol} ({symbol_drop_pct:.1f}%), starting {self.basket_drawdown_confirm_sec}s confirmation timer")
+            self.basket_profit_state.drawdown_confirm_lock_sec = confirm_for_wait
+            logger.info(
+                f"BASKET GUARD: drawdown detected on {falling_symbol} ({symbol_drop_pct:.1f}%), starting {confirm_for_wait}s confirmation timer"
+            )
             if self.tg:
                 await self.tg.send_message(
                     f"<b>BASKET GUARD: ТАЙМЕР ЗАПУЩЕН</b>\n\n"
                     f"Символ: <code>{falling_symbol}</code>\n"
                     f"Падение PnL: <code>{symbol_drop_pct:.1f}%</code>\n"
-                    f"Ждём {int(self.basket_drawdown_confirm_sec / 60)} мин. для подтверждения."
+                    f"Ждём {max(1, int(confirm_for_wait // 60))} мин. для подтверждения."
                 )
             return
 
+        lock_sec = self.basket_profit_state.drawdown_confirm_lock_sec or self._basket_effective_drawdown_confirm_sec()
         elapsed = now - self.basket_profit_state.drawdown_detected_at
-        if elapsed < self.basket_drawdown_confirm_sec:
-            remaining = self.basket_drawdown_confirm_sec - elapsed
+        if elapsed < lock_sec:
+            remaining = lock_sec - elapsed
             logger.info(f"BASKET GUARD: waiting for confirmation, {remaining:.0f}s remaining")
             return
 
         # Timer expired and drawdown persists — close falling symbol
-        logger.info(f"BASKET GUARD: {self.basket_drawdown_confirm_sec}s confirmed, closing {falling_symbol}")
+        logger.info(f"BASKET GUARD: {lock_sec:.0f}s confirmed, closing {falling_symbol}")
         pos = self.position_manager.get(falling_symbol)
         if pos:
             current_price = await self.client.get_price(falling_symbol)
@@ -155,12 +180,13 @@ class TradingBotGuardsMixin:
                     await self.tg.send_message(
                         f"<b>BASKET GUARD: ПОДТВЕРЖДЕНО</b>\n\n"
                         f"Символ: <code>{falling_symbol}</code>\n"
-                        f"Падение PnL за {int(self.basket_drawdown_confirm_sec / 60)}м: <code>{symbol_drop_pct:.1f}%</code>\n"
+                        f"Падение PnL за {max(1, int(lock_sec // 60))}м: <code>{symbol_drop_pct:.1f}%</code>\n"
                         f"Закрыт падающий символ."
                     )
                 self.basket_profit_state.symbol_pnl_history.pop(falling_symbol, None)
 
         self.basket_profit_state.drawdown_detected_at = 0.0
+        self.basket_profit_state.drawdown_confirm_lock_sec = 0.0
 
         remaining_positions = self.position_manager.all_positions()
         if len(remaining_positions) < 2:

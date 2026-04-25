@@ -332,6 +332,7 @@ class TestNoRegressions:
         assert trading_bot.basket_profit_guard_enabled is True
         assert trading_bot.basket_profit_min_positions == 3
         assert trading_bot.basket_drawdown_confirm_sec == 900.0
+        assert trading_bot.basket_fast_drawdown_confirm_sec == 300.0
 
     def test_manual_position_logic_intact(self, trading_bot):
         """Manual position management should still work."""
