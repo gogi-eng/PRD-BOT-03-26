@@ -50,9 +50,9 @@ scalp:
   skip_impulse_retest_guard: true
   impulse_retest_bypass_confidence: 0.90
   quality_gate_bypass_confidence: 0.90
-  quality_min_confidence: 0.86
+  quality_min_confidence: 0.84
   quality_min_expected_edge: 0.40
-  mtf_single_tf_min_confidence: 0.86
+  mtf_single_tf_min_confidence: 0.84
 
 trading:
   position_size_mode: "margin_cap"  # margin_cap | risk_based
@@ -68,13 +68,13 @@ trading:
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
   # Мягкий профиль блокировки убыточных часов (UTC) для PRD-SCALP.
   # Жёсткий профиль (для PRD-LONG): [5, 6, 7, 8, 12, 13, 19, 21, 23]
-  block_entry_utc_hours: [5, 6, 8, 9, 12, 13, 19, 21, 23]
+  block_entry_utc_hours: [5, 6, 8, 12, 13, 21, 23]
 
 entry:
   transformer_threshold: 0.60
   max_liq_distance_pct: 1.30
   # Normalized imbalance [-1..1]; slight relax for better fill rate.
-  min_orderflow_imbalance: 0.07
+  min_orderflow_imbalance: 0.065
   min_rr_ratio: 3.0
   min_target_profit_pct: 1.5
   require_structural_tp: true
@@ -89,10 +89,10 @@ entry:
   # Bybit fundingRate is decimal per interval (e.g. 0.012 = ~1.2%). Old 0.05 rarely filtered pumps.
   max_funding_rate: 0.012
   # If |24h change| >= this percent (from price24hPcnt), apply stricter funding cap (mover / squeeze).
-  funding_tight_if_abs_24h_change_pct: 12.0
-  max_funding_rate_for_mover: 0.008
+  funding_tight_if_abs_24h_change_pct: 16.0
+  max_funding_rate_for_mover: 0.009
   # Минимальный composite / confidence для входа (ослаблено для большего потока).
-  entry_threshold: 0.72
+  entry_threshold: 0.70
   # Мягкий пол: между soft и hard composite проходят в пайплайн (для BPR-ранжирования в цикле).
   entry_threshold_soft: 0.60
   trained_model_enabled: false
