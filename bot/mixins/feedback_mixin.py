@@ -30,7 +30,23 @@ class TradingBotFeedbackMixin:
                 )
 
         if self.signal_feedback.should_run_daily_retrain():
-            await self._run_feedback_daily_retrain()
+            if not bool(getattr(self, "feedback_retrain_in_process", True)):
+                logger.info(
+                    "[FEEDBACK] Daily in-process retrain skipped (retrain_in_process=false). "
+                    "Run: bash scripts/run_feedback_retrain.sh from repo root (e.g. via cron)."
+                )
+                if self.tg:
+                    try:
+                        await self.tg.send_message(
+                            "<b>FEEDBACK RETRAIN (off-line)</b>\n"
+                            "In-process training disabled. Use cron, e.g.:\n"
+                            "<code>0 2 * * * cd /path/to/PRD-SCALP && bash scripts/run_feedback_retrain.sh</code>"
+                        )
+                    except Exception as exc:
+                        logger.warning(f"[FEEDBACK] retrain-skip Telegram failed: {exc}")
+                self.signal_feedback.mark_retrain_attempt(False)
+            else:
+                await self._run_feedback_daily_retrain()
 
 
     async def _run_feedback_daily_retrain(self):

@@ -25,6 +25,29 @@ bot:
   runtime_stage_timeout_sec: 60
   # Timeout for heavier stages (position management / entry scan).
   runtime_scan_timeout_sec: 240
+  # Log + optional Telegram: top-3 scan reject buckets every N seconds (default 4h).
+  reject_stats_report_interval_sec: 14400
+  reject_stats_telegram: true
+
+# ========================================
+# STRATEGY PRESETS (impulse day vs defensive SMC) — optional overlays on entryThreshold / orderflow / block hours
+# Set enabled: true to activate. mode: auto uses local hours (UTC+auto_timezone_offset).
+# ========================================
+strategy_presets:
+  enabled: false
+  mode: auto
+  notify_telegram: false
+  auto_timezone_offset: 3
+  # Local hours (UTC+3) where we use "impulse" overlay; outside these → "defensive"
+  auto_impulse_local_hours: [3, 4, 5, 7, 11, 14, 18, 13, 19, 20, 21]
+  impulse:
+    entry_threshold: 0.66
+    min_orderflow_imbalance: 0.055
+    block_entry_utc_hours: [5, 6, 8, 12, 21, 23]
+  defensive:
+    entry_threshold: 0.72
+    min_orderflow_imbalance: 0.07
+    block_entry_utc_hours: [5, 6, 8, 12, 13, 21, 23]
 
 # ========================================
 # SCALP SESSION MODE (Asian + hot hours)
@@ -238,7 +261,7 @@ session_flatten:
 market:
   min_24h_volume_usdt: 25000000
   max_symbols: 50
-  trade_symbols: 15
+  trade_symbols: 25
   whitelist_enabled: true
   whitelist_only: false
   whitelist_symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT", "BNBUSDT"]
@@ -355,6 +378,8 @@ profit_lock:
 
 feedback_loop:
   enabled: true
+  # true = daily retrain runs inside the bot (async to_thread). false = only cron: scripts/run_feedback_retrain.sh
+  retrain_in_process: true
   notify_labeling: true
   max_pending_hours: 12
   dataset_path: "signal_only_feedback_data.json"

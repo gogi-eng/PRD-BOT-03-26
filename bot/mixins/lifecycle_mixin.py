@@ -244,6 +244,7 @@ class TradingBotLifecycleMixin:
                     )
 
                     await self._maybe_apply_regime_preset()
+                    await self._apply_strategy_presets()
 
                     if self.signal_only and self.signal_feedback.enabled:
                         await self._process_signal_feedback_loop()
