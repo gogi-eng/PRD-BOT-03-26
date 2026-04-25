@@ -261,6 +261,9 @@
         self.feedback_train_seed = int(self.cfg.get("feedback_loop", "train_seed", default=42))
         self.feedback_augment_wins_factor = int(self.cfg.get("feedback_loop", "augment_wins_factor", default=2))
         self.feedback_augment_noise_std = float(self.cfg.get("feedback_loop", "augment_noise_std", default=0.03))
+        self.feedback_retrain_in_process = bool(
+            self.cfg.get("feedback_loop", "retrain_in_process", default=True)
+        )
         self.quality_gate_enabled = self.cfg.get("quality_gate", "enabled", default=True)
         self.quality_gate_min_confidence = float(self.cfg.get("quality_gate", "min_confidence", default=0.68))
         self.quality_gate_min_expected_edge = float(
@@ -530,6 +533,24 @@
             for h in (self.cfg.get("trading", "block_entry_utc_hours", default=[]) or [])
             if str(h).strip() != ""
         }
+        _raw_of = float(self.cfg.get("entry", "min_orderflow_imbalance", default=0.0) or 0.0)
+        self._base_min_orderflow_cfg = _raw_of
+        self._base_entry_threshold = float(self.entry_engine.entry_threshold)
+        self._base_block_entry_utc_hours = set(self.block_entry_utc_hours)
+        self.strategy_presets_enabled = bool(self.cfg.get("strategy_presets", "enabled", default=False))
+        self.strategy_presets_mode = str(
+            self.cfg.get("strategy_presets", "mode", default="defensive")
+        ).strip().lower()
+        self.strategy_presets_notify_telegram = bool(
+            self.cfg.get("strategy_presets", "notify_telegram", default=False)
+        )
+        self._active_strategy_preset_label = None
+        self.reject_stats_report_interval_sec = int(
+            self.cfg.get("bot", "reject_stats_report_interval_sec", default=14_400)
+        )
+        self.reject_stats_telegram = bool(self.cfg.get("bot", "reject_stats_telegram", default=True))
+        self._scan_reject_stats_acc: dict[str, int] = {}
+        self._reject_stats_last_report_ts = 0.0
         self.min_position_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         self.position_size_mode = str(
             self.cfg.get("trading", "position_size_mode", default="risk")

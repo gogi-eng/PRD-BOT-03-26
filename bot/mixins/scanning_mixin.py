@@ -16,6 +16,8 @@ class TradingBotScanningMixin:
             logger.info(
                 f"SCAN SUMMARY: symbols={len(symbols)} candidates=0 rejects[blocked_utc_hour={len(symbols)}]"
             )
+            self._scan_reject_stats_merge({"blocked_utc_hour": len(symbols)})
+            await self._maybe_report_scan_reject_stats()
             self.controls.set_candidates([])
             return
 
@@ -117,6 +119,8 @@ class TradingBotScanningMixin:
         self.controls.set_candidates(ranked)
         summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
+        self._scan_reject_stats_merge(reject_counts)
+        await self._maybe_report_scan_reject_stats()
 
         if bpr is not None and bpr.enabled and candidates and bpr.telegram_top_n > 0 and getattr(self, "tg", None):
             topn = sorted(
@@ -210,3 +214,49 @@ class TradingBotScanningMixin:
                         )
         for item in executable:
             await self._execute_entry(item["symbol"], item["signal"], item.get("capital_weight", 1.0))
+
+    @staticmethod
+    def _reject_stat_bucket(reason: str) -> str:
+        """Coalesce long reasons (strip detail after '(') for top-N reporting."""
+        s = str(reason).strip()
+        if "(" in s:
+            s = s.split("(", 1)[0].strip()
+        return s[:100] or "unknown"
+
+    def _scan_reject_stats_merge(self, reject_counts: dict) -> None:
+        if not reject_counts:
+            return
+        if not hasattr(self, "_scan_reject_stats_acc") or getattr(self, "_scan_reject_stats_acc", None) is None:
+            self._scan_reject_stats_acc = {}
+        for raw_key, n in reject_counts.items():
+            key = self._reject_stat_bucket(raw_key)
+            self._scan_reject_stats_acc[key] = self._scan_reject_stats_acc.get(key, 0) + int(n)
+
+    async def _maybe_report_scan_reject_stats(self) -> None:
+        interval = max(60, int(getattr(self, "reject_stats_report_interval_sec", 14_400) or 14_400))
+        now = time.monotonic()
+        last = float(getattr(self, "_reject_stats_last_report_ts", 0.0) or 0.0)
+        if last <= 0.0:
+            self._reject_stats_last_report_ts = now
+            return
+        if (now - last) < float(interval):
+            return
+        acc = getattr(self, "_scan_reject_stats_acc", None) or {}
+        if not acc:
+            self._reject_stats_last_report_ts = now
+            return
+        top3 = sorted(acc.items(), key=lambda x: -x[1])[:3]
+        line = " | ".join(f"{k}={v}" for k, v in top3)
+        logger.info(
+            f"[REJECT STATS] top3 over ~{int(now - last)}s (bucketed keys): {line}"
+        )
+        if bool(getattr(self, "reject_stats_telegram", False)) and self.tg:
+            try:
+                hrs = max(1, int(interval) // 3600)
+                await self.tg.send_message(
+                    f"<b>REJECT TOP-3</b> (≈{hrs}h window, bucketed)\n<code>{line}</code>"
+                )
+            except Exception as exc:
+                logger.warning(f"[REJECT STATS] Telegram failed: {exc}")
+        self._scan_reject_stats_acc = {}
+        self._reject_stats_last_report_ts = now
