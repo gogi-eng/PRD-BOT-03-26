@@ -127,6 +127,7 @@
             max_panic_loss_pct=self.cfg.get("rl", "max_panic_loss_pct", default=0.6),
             min_reduce_profit_pct=self.cfg.get("rl", "min_reduce_profit_pct", default=0.8),
         )
+        self.execution_ai = ExecutionAI.from_mapping(self.cfg.get("execution_ai", default={}) or {})
         self.exit_engine = ExitEngine(
             hard_sl_atr_mult=self.cfg.get("exit", "hard_sl_atr_mult", default=1.8),
             early_exit_bars=self.cfg.get("exit", "early_exit_bars", default=12),

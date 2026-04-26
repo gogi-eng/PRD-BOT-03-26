@@ -58,6 +58,7 @@ from core.security import SecureStore
 from engine.ai_decision import AIDecisionEngine
 from engine.capital_allocator import MultiSymbolCapitalAllocator
 from engine.entry_engine import EntryEngine, EntrySignal
+from engine.execution_ai import ExecutionAI
 from engine.execution_engine import ExecutionEngine
 from engine.exit_engine import ExitEngine, ExitReason
 from engine.position_manager import Position, PositionManager

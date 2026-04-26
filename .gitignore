@@ -22,6 +22,8 @@ build/
 bot.log
 
 # Model weights (large binaries)
+models/*.pkl
+models/*.meta.json
 *.pt
 *.pth
 *.onnx

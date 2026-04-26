@@ -6,7 +6,10 @@ from bot.trading_bot_imports import *  # noqa: F401,F403
 class TradingBotEntryExecMixin:
     async def _execute_entry(self, symbol: str, signal: EntrySignal, capital_weight: float):
         # Pre-execution momentum guard: check last 3 candles for strong opposite momentum
-        recent_klines = await self.client.get_klines(symbol, self.candle_interval, 5)
+        kline_fetch = 5
+        if getattr(self, "execution_ai", None) and self.execution_ai.enabled:
+            kline_fetch = max(kline_fetch, int(self.execution_ai.kline_lookback_vol))
+        recent_klines = await self.client.get_klines(symbol, self.candle_interval, kline_fetch)
         if recent_klines and len(recent_klines) >= 3:
             last_3 = recent_klines[-3:]
             atr_check = self.atr.get_atr(symbol, recent_klines)
@@ -29,6 +32,25 @@ class TradingBotEntryExecMixin:
                         f"(body={total_body:.4f} vs ATR={atr_check:.4f})"
                     )
                     return
+
+        exec_verdict = None
+        if getattr(self, "execution_ai", None) and self.execution_ai.enabled:
+            ob_lim = max(5, int(self.execution_ai.depth_levels_for_liquidity))
+            orderbook_e = await self.client.get_orderbook(symbol, limit=min(200, ob_lim))
+            exec_verdict = self.execution_ai.evaluate(
+                signal.side,
+                recent_klines,
+                orderbook_e,
+                float(signal.confidence or 0.0),
+            )
+            if not exec_verdict.allow_entry:
+                logger.warning(f"[EXEC AI] {symbol} blocked: {exec_verdict.skip_reason}")
+                return
+            logger.info(
+                f"[EXEC AI] {symbol} ok timing={exec_verdict.timing} boost={exec_verdict.signal_boost:.2f} "
+                f"eff_conf={exec_verdict.effective_confidence:.3f} spread={exec_verdict.spread_pct:.4f}% "
+                f"volσ={exec_verdict.vol_std:.5f} hint={exec_verdict.order_style_hint}"
+            )
 
         balance = self.controls.get_balance()
         leverage = self.controls.leverage
@@ -59,19 +81,79 @@ class TradingBotEntryExecMixin:
             f"qty={qty:.6f} notional=${notional:.2f} margin_used=${margin_used:.2f} "
             f"margin_cap=${margin_cap:.2f} bal=${balance:.2f} lev={leverage}x weight={capital_weight:.3f}"
         )
+        if getattr(self, "execution_ai", None) and self.execution_ai.enabled and exec_verdict is not None:
+            qty *= self.execution_ai.size_multiplier_from_boost(exec_verdict.signal_boost)
+
         if qty * signal.entry_price < self.min_position_usdt:
             logger.info(f"Position too small for {symbol}: ${qty * signal.entry_price:.2f}")
             return
 
-        result = await self.execution_engine.execute_entry(
-            symbol=symbol,
-            side=signal.side,
-            qty=qty,
-            stop_loss=signal.stop_loss,
-            take_profit=signal.take_profit,
-            leverage=leverage,
-            reason=" | ".join(signal.reasons[:3]),
+        scale_fr = (
+            self.execution_ai.scale_entry_fractions()
+            if getattr(self, "execution_ai", None) and self.execution_ai.enabled
+            else [1.0]
         )
+        if len(scale_fr) <= 1:
+            result = await self.execution_engine.execute_entry(
+                symbol=symbol,
+                side=signal.side,
+                qty=qty,
+                stop_loss=signal.stop_loss,
+                take_profit=signal.take_profit,
+                leverage=leverage,
+                reason=" | ".join(signal.reasons[:3]),
+            )
+        else:
+            q_parts = [qty * f for f in scale_fr]
+            s_parts = sum(q_parts)
+            if s_parts > 0 and abs(s_parts - qty) > 1e-12:
+                q_parts[-1] += qty - s_parts
+            result = {"success": False, "executed_qty": 0.0, "avg_price": 0.0}
+            total_ex = 0.0
+            w_px = 0.0
+            for i, part in enumerate(q_parts):
+                if part <= 0:
+                    continue
+                if i == 0:
+                    result = await self.execution_engine.execute_entry(
+                        symbol=symbol,
+                        side=signal.side,
+                        qty=part,
+                        stop_loss=signal.stop_loss,
+                        take_profit=signal.take_profit,
+                        leverage=leverage,
+                        reason=" | ".join(signal.reasons[:3]) + f" | exec_ai_scale_{i+1}/{len(q_parts)}",
+                    )
+                else:
+                    await asyncio.sleep(self.execution_ai.leg_delay_sec)
+                    result = await self.execution_engine.execute_add(
+                        symbol, signal.side, part, leverage, reason=f"exec_ai_scale_{i+1}/{len(q_parts)}"
+                    )
+                if not result.get("success"):
+                    if i == 0:
+                        break
+                    logger.warning(
+                        f"[EXEC AI SCALE] {symbol} leg {i+1}/{len(q_parts)} failed: {result.get('error', '?')} "
+                        f"(keeping partial fill total={total_ex:.6f})"
+                    )
+                    break
+                eq = float(result.get("executed_qty", part) or 0.0)
+                ap = float(result.get("avg_price", 0.0) or 0.0)
+                if ap <= 0:
+                    ap = float(signal.entry_price)
+                total_ex += eq
+                w_px += ap * eq
+            if total_ex > 0:
+                result = {
+                    "success": True,
+                    "orderId": result.get("orderId", ""),
+                    "error": "",
+                    "executed_qty": total_ex,
+                    "avg_price": w_px / total_ex,
+                }
+            else:
+                result = result if result else {"success": False, "error": "scale_entry_no_fill"}
+
         if not result.get("success"):
             err = str(result.get("error") or result.get("retMsg") or "unknown")
             logger.warning(f"[ENTRY FAILED] {symbol} {signal.side}: {err}")
