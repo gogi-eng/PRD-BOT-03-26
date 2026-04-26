@@ -443,6 +443,10 @@ class TradingBotAnalyzeEntryMixin:
                 f"(score={advisor_decision.score:.2f})"
             )
 
+        h_reason = self._hybrid_voter_check_signal(symbol, signal, market, orderflow)
+        if h_reason:
+            return reject(h_reason)
+
         logger.info(
             f"SIGNAL {symbol}: {signal.side} conf={signal.confidence:.0%} "
             f"smc={signal.metadata.get('smc_score', 0):.2f} "

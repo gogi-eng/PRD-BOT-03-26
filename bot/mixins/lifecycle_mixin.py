@@ -245,6 +245,8 @@ class TradingBotLifecycleMixin:
 
                     await self._maybe_apply_regime_preset()
                     await self._apply_strategy_presets()
+                    st_to = max(10.0, float(getattr(self, "runtime_stage_timeout_sec", 60.0) or 60.0))
+                    await self._meta_stack_cycle_update(cycle, st_to)
 
                     if self.signal_only and self.signal_feedback.enabled:
                         await self._process_signal_feedback_loop()
@@ -272,7 +274,11 @@ class TradingBotLifecycleMixin:
 
                     if self.controls.enabled and not self.controls.emergency:
                         can_trade, reason = self.risk_guard.can_trade()
-                        if can_trade and (self.signal_only or self.position_manager.count() < self.controls.max_positions):
+                        if (
+                            can_trade
+                            and (self.signal_only or self.position_manager.count() < self.controls.max_positions)
+                            and self._meta_stack_allows_entry_scan()
+                        ):
                             if self._should_scan_entries_now():
                                 logger.info(f"[CYCLE {cycle}] stage=scan_entries symbols={len(symbols)}")
                                 await asyncio.wait_for(
