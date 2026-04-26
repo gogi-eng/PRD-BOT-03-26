@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 AI Trade Analyzer — фильтр сигналов через LLM.
-Использует Gemini 3 Flash через Emergent Universal Key.
+Режимы: Gemini 3 Flash (Emergent) или локальный Gemma через Ollama (см. +Gemma.txt, config ai.backend).
 """
 from __future__ import annotations
 import os
 import asyncio
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 from collections import deque
 from dotenv import load_dotenv
@@ -48,9 +48,36 @@ CONFIDENCE: [0-100]%
 REASON: [brief explanation, 1-2 sentences]
 RISK: [LOW/MEDIUM/HIGH]"""
 
-    def __init__(self):
+    def __init__(self, cfg: Optional[Any] = None):
+        self._cfg = cfg
+        self._ollama = None
+        self._backend = "emergent"
         self.api_key = os.getenv("EMERGENT_LLM_KEY", "")
-        self.enabled = EMERGENT_AVAILABLE and bool(self.api_key)
+
+        try:
+            from bot.ai.gemma_engine import GemmaOllama
+        except ImportError:
+            GemmaOllama = None  # type: ignore
+
+        d = (cfg.raw if cfg is not None and hasattr(cfg, "raw") else None) or (
+            cfg if isinstance(cfg, dict) else {}
+        )
+        if not isinstance(d, dict):
+            d = {}
+        ab = d.get("ai") or {}
+        self._backend = str(ab.get("backend", "emergent") or "emergent").strip().lower()
+
+        if self._backend == "ollama" and GemmaOllama is not None:
+            self._ollama = GemmaOllama.from_config(cfg)
+
+        ai_on = bool(ab.get("enabled", True))
+        if not ai_on:
+            self.enabled = False
+        elif self._backend == "ollama":
+            self.enabled = self._ollama is not None
+        else:
+            self.enabled = EMERGENT_AVAILABLE and bool(self.api_key)
+
         self.min_confidence = 52
         self.fail_open = True
         self.require_direction_match = True
@@ -62,7 +89,10 @@ RISK: [LOW/MEDIUM/HIGH]"""
         self._cache_ttl = 600
 
         if self.enabled:
-            print("[AI] AI analyzer initialized (Gemini 3 Flash)")
+            if self._backend == "ollama":
+                print("[AI] AI analyzer: Ollama Gemma (local, see +Gemma.txt)")
+            else:
+                print("[AI] AI analyzer initialized (Gemini 3 Flash)")
         else:
             print("[AI] AI disabled - running without AI filter")
 
@@ -166,6 +196,46 @@ RISK: [LOW/MEDIUM/HIGH]"""
             return False
         return (max(confs) - min(confs)) <= int(self.uniformity_conf_spread_max)
 
+    async def _analyze_with_ollama(
+        self, symbol: str, analysis_data: Dict, cache_key: str, now: datetime
+    ) -> Dict:
+        """Локальная Gemma (Ollama /api/generate)."""
+        assert self._ollama is not None
+        proposed = str(analysis_data.get("proposed_signal", "NEUTRAL")).upper()
+        gdata = {
+            "symbol": symbol,
+            "side": proposed,
+            "proposed_signal": proposed,
+            "confidence": int(float(analysis_data.get("confluence_score", 0) or 0) * 100),
+            "trend": str(analysis_data.get("trend", "neutral")),
+            "atr": float(analysis_data.get("atr_pct", 0) or 0),
+            "adx": float(analysis_data.get("adx", 0) or 0),
+            "volume": float(analysis_data.get("volume", 0) or 0),
+            "imbalance": float(analysis_data.get("orderflow", 0) or 0),
+        }
+        gem = await asyncio.to_thread(self._ollama.analyze_trade, gdata)
+        approve = bool(gem.get("approve", False))
+        gconf = int(gem.get("confidence", 0))
+        reason = str(gem.get("reason", ""))[:220]
+        decision = proposed if (approve and proposed in ("BUY", "SELL")) else "WAIT"
+        result: Dict = {
+            "decision": decision,
+            "confidence": gconf,
+            "reason": f"[Gemma/ollama] {reason}",
+            "risk": "MEDIUM" if approve else "HIGH",
+        }
+        result["should_trade"] = bool(
+            approve
+            and proposed in ("BUY", "SELL")
+            and gconf >= int(self.min_confidence)
+        )
+        if result.get("decision") in ("BUY", "SELL") and result.get("should_trade"):
+            self._record_ai_output(str(result["decision"]), gconf)
+        self._cache[cache_key] = {"time": now, "result": result}
+        st = "ENTER" if result["should_trade"] else "SKIP"
+        print(f"[AI/Gemma] {symbol}: approve={approve} conf={gconf} - {st}")
+        return result
+
     async def analyze(self, symbol: str, analysis_data: Dict) -> Dict:
         """
         Анализирует данные и возвращает AI-рекомендацию.
@@ -193,6 +263,28 @@ RISK: [LOW/MEDIUM/HIGH]"""
             cached = self._cache[cache_key]
             if (now - cached["time"]).total_seconds() < self._cache_ttl:
                 return cached["result"]
+
+        if self._backend == "ollama" and self._ollama is not None:
+            try:
+                return await self._analyze_with_ollama(symbol, analysis_data, cache_key, now)
+            except Exception as e:
+                print(f"[AI/Gemma] error: {e}")
+                if self.fail_open:
+                    proposed = analysis_data.get("proposed_signal", "NEUTRAL")
+                    return {
+                        "decision": proposed,
+                        "confidence": 50,
+                        "reason": f"Gemma error fail_open: {str(e)[:40]}",
+                        "risk": "HIGH",
+                        "should_trade": proposed in ["BUY", "SELL"],
+                    }
+                return {
+                    "decision": "WAIT",
+                    "confidence": 0,
+                    "reason": f"Gemma error: {str(e)[:40]}",
+                    "risk": "HIGH",
+                    "should_trade": False,
+                }
 
         try:
             prompt = self._format_data(symbol, analysis_data)

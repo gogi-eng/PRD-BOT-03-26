@@ -135,7 +135,7 @@ class TradingBot(
             bos_volume_mult=self.cfg.get("market_structure", "bos_volume_mult", default=1.5),
             spread_expansion_mult=self.cfg.get("market_structure", "spread_expansion_mult", default=1.5),
         )
-        self.ai_analyzer = AITradeAnalyzer()
+        self.ai_analyzer = AITradeAnalyzer(self.cfg)
         self.ai_analyzer.min_confidence = self.cfg.get("ai", "min_confidence", default=60)
         self.ai_analyzer.fail_open = self.cfg.get("ai", "fail_open", default=True)
         self.ai_analyzer.require_direction_match = self.cfg.get("ai", "require_direction_match", default=True)
