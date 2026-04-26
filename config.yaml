@@ -284,13 +284,23 @@ market:
 
 ai:
   enabled: true
-  # Согласовано с порогом входа 90%: после бленда (signal+AI)/2 оба «плеча» должны быть высокими.
-  min_confidence: 90
+  # emergent = Gemini (EMERGENT_LLM_KEY) | ollama = локальная Gemma (+Gemma.txt: ollama pull)
+  backend: ollama
+  # Для ollama 60–75 реалистично; 90 оставляйте для облачного Gemini.
+  min_confidence: 68
   fail_open: true
   require_direction_match: true
   uniformity_guard_enabled: true
   uniformity_window: 8
   uniformity_conf_spread_max: 3
+
+# Локальная Gemma через Ollama (бесплатно на своём ПК/VPS). Не отключает Quality Gate.
+gemma:
+  enabled: true
+  model: "gemma2:2b"
+  host: "http://127.0.0.1:11434"
+  timeout_sec: 12
+  fail_open: true
 
 ai_claude:
   enabled: false
