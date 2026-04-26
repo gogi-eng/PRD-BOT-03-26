@@ -37,6 +37,34 @@ bot:
   reject_stats_telegram: true
 
 # ========================================
+# RL training (Stable-Baselines3) on MetaTradingEnv — оффлайн, не в торговом цикле
+# Запуск: pip install -r requirements-rl.txt && python scripts/train_rl_sb3.py
+# ========================================
+rl_sb3:
+  enabled: false
+  algorithm: PPO
+  policy: MlpPolicy
+  total_timesteps: 50000
+  n_envs: 1
+  learning_rate: 0.0003
+  gamma: 0.99
+  n_steps: 2048
+  batch_size: 64
+  save_path: models/rl_meta_sb3_ppo
+  tensorboard_log: logs/sb3_rl
+  klines:
+    source: synthetic
+    symbol: BTCUSDT
+    interval: "5"
+    limit: 2500
+    file_path: ""
+  env:
+    sequence_length: 128
+    max_episode_steps: 512
+    fee_per_turnover: 0.0006
+    drawdown_penalty_coef: 0.5
+
+# ========================================
 # STRATEGY PRESETS (impulse day vs defensive SMC) — optional overlays on entryThreshold / orderflow / block hours
 # Set enabled: true to activate. mode: auto uses local hours (UTC+auto_timezone_offset).
 # ========================================
@@ -192,6 +220,31 @@ heatmap:
 atr:
   period: 14
   min_atr_pct: 0.20
+
+# Pre-trade execution layer (spread / vol / book / anti-FOMO / timing). Off by default.
+# Включается только при enabled: true — иначе поведение бота не меняется.
+execution_ai:
+  enabled: true
+  spread_max_pct: 0.08
+  volatility_limit: 0.02
+  kline_lookback_vol: 48
+  pullback_momentum_bars: 5
+  imbalance_boost_high: 1.1
+  imbalance_boost_low: 0.9
+  imbalance_high_ratio: 1.2
+  imbalance_low_ratio: 0.8
+  anti_fomo_sigma_mult: 3.0
+  min_top_depth_volume: 0
+  depth_levels_for_liquidity: 25
+  min_confidence_after_boost: 0.0
+  apply_boost_to_size: false
+  size_boost_min: 0.85
+  size_boost_max: 1.15
+  scaled_entry: false
+  scale_fractions: [0.5, 0.3, 0.2]
+  leg_delay_sec: 1.2
+  skip_on_wait_pullback: true
+  market_order_spread_pct: 0.02
 
 exit:
   hard_sl_atr_mult: 2.5
