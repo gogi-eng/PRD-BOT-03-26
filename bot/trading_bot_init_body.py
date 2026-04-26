@@ -670,6 +670,8 @@
         self.pyramid_add1_min_r = self.cfg.get("pyramid", "add1_min_r", default=0.5)
         self.pyramid_add2_min_r = self.cfg.get("pyramid", "add2_min_r", default=1.2)
 
+        # Meta-Controller + RL + Hybrid
+        self._init_meta_stack()
         # Apply TF preset overrides (LAST, to override all individual settings)
         self._apply_tf_preset()
 

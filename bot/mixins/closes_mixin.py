@@ -13,6 +13,11 @@ class TradingBotClosesMixin:
         close_meta = self._pop_exchange_close_meta(symbol)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
         self.controls.add_trade(pnl, symbol, pos.side, reason)
+        bal = self.controls.get_balance()
+        if getattr(self, "meta_controller_enabled", False) or getattr(self, "rl_meta_enabled", False):
+            self._meta_stack_update_pnl(pnl)
+        if getattr(self, "rl_meta_enabled", False):
+            self._meta_stack_remember_rl(symbol, pnl, bal)
         self._save_trade(
             symbol,
             pos.side,
@@ -45,6 +50,8 @@ class TradingBotClosesMixin:
         pnl = self._calc_pnl(pos, exit_price, qty)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
         self.controls.add_trade(pnl, symbol, pos.side, reason)
+        if getattr(self, "meta_controller_enabled", False) or getattr(self, "rl_meta_enabled", False):
+            self._meta_stack_update_pnl(pnl)
         self._save_trade(symbol, pos.side, qty, pos.entry_price, exit_price, pnl, reason, origin=pos.origin)
         self.position_manager.reduce(symbol, qty)
         logger.info(f"REDUCED {symbol}: qty={qty:.6f} pnl=${pnl:.2f} reason={reason}")

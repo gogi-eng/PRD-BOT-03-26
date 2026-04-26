@@ -32,9 +32,18 @@ class TradingBotEntryExecMixin:
 
         balance = self.controls.get_balance()
         leverage = self.controls.leverage
+        risk_pct = float(self.controls.risk_per_trade_pct) * max(
+            0.0, float(getattr(self, "_meta_stack_risk_mult", 1.0) or 0.0)
+        )
+        if (getattr(self, "meta_controller_enabled", False) or getattr(self, "rl_meta_enabled", False)) and risk_pct <= 0.0:
+            logger.warning(
+                f"[META/RL] {symbol} entry skipped: effective risk% <= 0 (meta_risk_mult="
+                f"{getattr(self, '_meta_stack_risk_mult', 0.0):.3f})"
+            )
+            return
         qty = self.risk_guard.calculate_position_size(
             balance=balance,
-            risk_pct=self.controls.risk_per_trade_pct,
+            risk_pct=risk_pct,
             entry=signal.entry_price,
             stop_loss=signal.stop_loss,
             leverage=leverage,
@@ -67,6 +76,8 @@ class TradingBotEntryExecMixin:
             err = str(result.get("error") or result.get("retMsg") or "unknown")
             logger.warning(f"[ENTRY FAILED] {symbol} {signal.side}: {err}")
             return
+        if getattr(self, "rl_meta_enabled", False):
+            self._register_rl_entry_state(symbol)
 
         executed_price = result.get("avg_price", 0.0) or signal.entry_price
         pos = Position(

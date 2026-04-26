@@ -334,6 +334,39 @@ rl:
   max_panic_loss_pct: 0.6
   min_reduce_profit_pct: 0.8
 
+# +Gemma.txt: Meta-Controller / RL meta / Hybrid voting (по умолчанию выкл. — не ломает прод)
+meta_controller:
+  enabled: false
+  # Пусто = взять adaptive_regime_presets.benchmark_symbol (обычно BTCUSDT)
+  benchmark_symbol: ""
+  kline_interval: "60"
+  klines_lookback: 120
+  chaos_volatility: 0.02
+  trend_strength: 0.001
+  max_entry_drawdown_abs: 0.10
+  safe_drawdown_abs: 0.05
+
+rl_meta:
+  enabled: false
+  # На 1GB VPS оставьте false — DQN требует torch
+  use_torch: false
+  lr: 0.0005
+  gamma: 0.9
+  block_scan_on_no_trade: true
+  # 0 = не вызывать train в цикле; положите 5..20 если torch включён
+  train_every_n_closes: 0
+
+hybrid_voter:
+  enabled: false
+  threshold: 0.2
+  # порог += dynamic_threshold_vol_scale * vol_бенчмарка
+  dynamic_threshold_vol_scale: 0.0
+  require_side_match: true
+  weights:
+    xgb: 0.4
+    gemma: 0.3
+    ta: 0.3
+
 position_sync:
   adopt_all_positions: true
   preserve_existing_sl_tp: true

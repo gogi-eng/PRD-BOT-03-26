@@ -8,6 +8,7 @@ from bot.mixins.helpers_mixin import TradingBotHelpersMixin
 from bot.mixins.regime_mixin import TradingBotRegimeMixin
 from bot.mixins.strategy_presets_mixin import TradingBotStrategyPresetsMixin
 from bot.mixins.notify_symbols_mixin import TradingBotNotifySymbolsMixin
+from bot.mixins.meta_stack_mixin import TradingBotMetaStackMixin
 from bot.mixins.lifecycle_mixin import TradingBotLifecycleMixin
 from bot.mixins.position_loop_mixin import TradingBotPositionLoopMixin
 from bot.mixins.scanning_mixin import TradingBotScanningMixin
@@ -27,6 +28,7 @@ class TradingBot(
     TradingBotRegimeMixin,
     TradingBotStrategyPresetsMixin,
     TradingBotNotifySymbolsMixin,
+    TradingBotMetaStackMixin,
     TradingBotLifecycleMixin,
     TradingBotPositionLoopMixin,
     TradingBotScanningMixin,
@@ -721,6 +723,8 @@ class TradingBot(
         self.pyramid_add1_min_r = self.cfg.get("pyramid", "add1_min_r", default=0.5)
         self.pyramid_add2_min_r = self.cfg.get("pyramid", "add2_min_r", default=1.2)
 
+        # Meta-Controller + RL + Hybrid (после cfg; до TF — чтобы пресеты оставались «поверх»)
+        self._init_meta_stack()
         # Apply TF preset overrides (LAST, to override all individual settings)
         self._apply_tf_preset()
 
