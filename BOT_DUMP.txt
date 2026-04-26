@@ -1,6 +1,6 @@
 ================================================================================
 📦 PROJECT DUMP - BYBIT TRADING BOT
-📅 Дата: 2026-04-16 10:36:23
+📅 Дата: 2026-04-25 21:05:44
 📁 Корень: C:\Users\Labuh\.vscode\PRD-SCALP\bot
 ================================================================================
 
@@ -48,13 +48,14 @@ __all__ = ["TradingBot", "BasketProfitState"]
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: main.py
-   SIZE: 189.5 KB
+   SIZE: 202.1 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """AUTO-GENERATED aggregate of TradingBot sources for static tests; do not edit.
 Real entry: repo root ``main.py``, implementation: ``bot/trading_bot.py`` + ``bot/mixins/``.
 """
 from __future__ import annotations
+from typing import Optional
 
 # === bot\trading_bot.py ===
 from bot.state import BasketProfitState
@@ -150,6 +151,21 @@ class TradingBot(
             symbol_loss_streak_cooldown_sec=int(
                 self.cfg.get("risk", "symbol_loss_streak_cooldown_sec", default=21600)
             ),
+            trend_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_enabled", default=False)
+            ),
+            trend_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_sec", default=0)
+            ),
+            trend_exit_reentry_loss_only=bool(
+                self.cfg.get("risk", "trend_exit_reentry_loss_only", default=True)
+            ),
+            early_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "early_exit_reentry_cooldown_enabled", default=False)
+            ),
+            early_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "early_exit_reentry_cooldown_sec", default=0)
+            ),
         )
         self.controls.set_guard(self.risk_guard)
 
@@ -189,6 +205,17 @@ class TradingBot(
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
+        from engine.bpr_ranker import BPRLinearRanker
+
+        _bpr_cfg = self.cfg.get("bpr_ranker", default={}) or {}
+        self.bpr_ranker = BPRLinearRanker(
+            enabled=bool(_bpr_cfg.get("enabled", True)),
+            weights_path=str(_bpr_cfg.get("weights_path", "bpr_weights.json")),
+            blend_weight=float(_bpr_cfg.get("blend_weight", 0.35)),
+            top1_when_multiple=bool(_bpr_cfg.get("top1_when_multiple", True)),
+            telegram_top_n=int(_bpr_cfg.get("telegram_top_n", 0)),
+            bot_dir=_bd,
+        )
         self.allocator = MultiSymbolCapitalAllocator()
         self.position_manager = PositionManager()
         self.rl_agent = RLPositionAgent(
@@ -205,6 +232,19 @@ class TradingBot(
             early_exit_min_profit_atr=self.cfg.get("exit", "early_exit_min_profit_atr", default=0.35),
             early_exit_min_hold_minutes=float(
                 self.cfg.get("exit", "early_exit_min_hold_minutes", default=0.0)
+            ),
+            early_exit_session_utc_hours=list(
+                self.cfg.get("exit", "early_exit_session_utc_hours", default=[])
+                or []
+            ),
+            early_exit_session_min_profit_atr_boost=float(
+                self.cfg.get("exit", "early_exit_session_min_profit_atr_boost", default=0.0)
+            ),
+            early_exit_allow_loss_close=bool(
+                self.cfg.get("exit", "early_exit_allow_loss_close", default=False)
+            ),
+            early_exit_validator_enabled=bool(
+                self.cfg.get("exit", "early_exit_validator_enabled", default=True)
             ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
@@ -227,6 +267,18 @@ class TradingBot(
             ),
             ema_trend_exit_require_slope=bool(
                 self.cfg.get("exit", "ema_trend_exit_require_ema_slope", default=True)
+            ),
+            ema_trend_exit_recovery_cancel_enabled=bool(
+                self.cfg.get("exit", "ema_trend_exit_recovery_cancel_enabled", default=True)
+            ),
+            ema_trend_exit_recovery_lookback_bars=int(
+                self.cfg.get("exit", "ema_trend_exit_recovery_lookback_bars", default=6)
+            ),
+            ema_trend_exit_recovery_min_ratio=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_ratio", default=0.45)
+            ),
+            ema_trend_exit_recovery_min_adverse_pct=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_adverse_pct", default=0.35)
             ),
             ema_exit_min_move_from_entry_pct=float(
                 self.cfg.get("exit", "ema_exit_min_adverse_from_entry_pct", default=0.0)
@@ -572,6 +624,11 @@ class TradingBot(
         self.whitelist = self.cfg.get("market", "whitelist_symbols", default=[])
         self.blacklist = self.cfg.get("trading", "blacklist_symbols", default=[])
         self.blacklist_substrings = self.cfg.get("market", "blacklist_substrings", default=[])
+        self.block_entry_utc_hours = {
+            int(h) % 24
+            for h in (self.cfg.get("trading", "block_entry_utc_hours", default=[]) or [])
+            if str(h).strip() != ""
+        }
         self.min_position_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         self.position_size_mode = str(
             self.cfg.get("trading", "position_size_mode", default="risk")
@@ -622,11 +679,45 @@ class TradingBot(
         self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
         self.basket_drawdown_confirm_sec = self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
+        self.session_flatten_enabled = bool(
+            self.cfg.get("session_flatten", "enabled", default=False)
+        )
+        self.session_flatten_utc_hours = sorted(
+            {int(x) % 24 for x in self.cfg.get("session_flatten", "utc_hours", default=[])}
+        )
+        self.session_flatten_lead_minutes = max(
+            1, int(self.cfg.get("session_flatten", "lead_minutes", default=10))
+        )
+        self._session_flatten_last_key = ""
         self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
         self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
         self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
         self.profit_drawdown_retrace_confirm_sec = float(
             self.cfg.get("profit_drawdown_guard", "retrace_confirm_sec", default=0.0)
+        )
+        self.profit_drawdown_require_trend_break = bool(
+            self.cfg.get("profit_drawdown_guard", "require_trend_break", default=True)
+        )
+        self.profit_drawdown_trend_ema_fast = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_fast", default=20)
+        )
+        self.profit_drawdown_trend_ema_slow = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_slow", default=50)
+        )
+        self.profit_drawdown_pullback_analysis_enabled = bool(
+            self.cfg.get("profit_drawdown_guard", "pullback_analysis_enabled", default=True)
+        )
+        self.profit_drawdown_pullback_lookback_bars = int(
+            self.cfg.get("profit_drawdown_guard", "pullback_lookback_bars", default=60)
+        )
+        self.profit_drawdown_pullback_min_adverse_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_min_adverse_pct", default=2.5)
+        )
+        self.profit_drawdown_pullback_cancel_recovery_ratio = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_cancel_recovery_ratio", default=0.35)
+        )
+        self.profit_drawdown_pullback_max_range_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_max_range_pct", default=9.0)
         )
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
@@ -2345,7 +2436,28 @@ class TradingBotLifecycleMixin:
                 logger.error(f"Bybit keys: {err}")
                 return
 
-            balance = await self.client.get_balance()
+            if self.tg:
+                asyncio.create_task(self.tg.start_async())
+                tg_started = True
+                await asyncio.sleep(2)
+
+            startup_balance_ok = True
+            startup_balance_error = ""
+            balance = 0.0
+            for attempt in range(1, 4):
+                try:
+                    balance = await self.client.get_balance()
+                    if balance > 0:
+                        break
+                    startup_balance_error = (
+                        "Failed to read positive balance. "
+                        "Check Bybit API key/secret permissions and expiration."
+                    )
+                except Exception as exc:
+                    startup_balance_error = f"get_balance error: {exc}"
+                    logger.error(f"[STARTUP] {startup_balance_error} (attempt {attempt}/3)")
+                if attempt < 3:
+                    await asyncio.sleep(2.0)
             bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
             if bybit_perm_code in {10005, 33004}:
                 logger.error(
@@ -2355,26 +2467,35 @@ class TradingBotLifecycleMixin:
                 )
                 return
             if balance <= 0:
-                logger.error(
-                    "Failed to read positive balance. "
-                    "Check Bybit API key/secret permissions and expiration."
-                )
-                return
-            self.controls.set_balance(balance)
-            self.risk_guard.initial_balance = balance
-            self.profit_lock.set_initial_balance(balance)
-            logger.info(f"Balance: ${balance:.2f}")
+                startup_balance_ok = False
+                if not startup_balance_error:
+                    startup_balance_error = (
+                        "Failed to read positive balance. "
+                        "Check Bybit API key/secret permissions and expiration."
+                    )
+                logger.error(startup_balance_error)
+
+            if startup_balance_ok:
+                self.controls.set_balance(balance)
+                self.risk_guard.initial_balance = balance
+                self.profit_lock.set_initial_balance(balance)
+                logger.info(f"Balance: ${balance:.2f}")
+            else:
+                self.signal_only = True
+                self.controls.signal_only = True
+                logger.warning("[STARTUP] Balance unavailable -> forcing SIGNAL-ONLY mode.")
 
             if self.tg:
-                asyncio.create_task(self.tg.start_async())
-                tg_started = True
-                await asyncio.sleep(2)
-                await self.tg.send_message(
+                balance_display = f"${balance:.2f}" if startup_balance_ok else "N/A"
+                startup_text = (
                     f"<b>Бот v9.0 запущен</b>\n"
-                    f"Баланс: <code>${balance:.2f}</code>\n"
+                    f"Баланс: <code>{balance_display}</code>\n"
                     f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
                     f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
                 )
+                if not startup_balance_ok and startup_balance_error:
+                    startup_text += f"\n⚠️ Balance warning: <code>{startup_balance_error}</code>"
+                await self.tg.send_message(startup_text)
 
             self._running = True
             cycle = 0
@@ -2969,7 +3090,7 @@ class TradingBotPositionLoopMixin:
                 if not pos:
                     continue
 
-            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price)
+            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price, klines)
             if guard_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=guard_reason, position_idx=pos.position_idx)
                 if close_result.get("success"):
@@ -3026,10 +3147,13 @@ class TradingBotPositionLoopMixin:
             if should_exit and reason == ExitReason.EARLY_EXIT:
                 # Parse numeric thresholds from exit details for actionable diagnostics.
                 required_profit = effective_profit = raw_profit = best_profit = fee_floor = "n/a"
+                reason_code = age_min = "n/a"
                 parsed = re.search(
                     r"Profit\s+([+-]?\d+(?:\.\d+)?)\s*/\s*best\s+([+-]?\d+(?:\.\d+)?)\s*<\s*required\s+([+-]?\d+(?:\.\d+)?)\s*\(incl fees\s+([+-]?\d+(?:\.\d+)?)\)",
                     details or "",
                 )
+                parsed_code = re.search(r"\bcode=([a-zA-Z0-9_]+)\b", details or "")
+                parsed_age = re.search(r"\bage_min=([0-9.]+|n/a)\b", details or "")
                 if parsed:
                     raw_profit = parsed.group(1)
                     best_profit = parsed.group(2)
@@ -3039,6 +3163,10 @@ class TradingBotPositionLoopMixin:
                         effective_profit = f"{max(float(raw_profit), float(best_profit)):.4f}"
                     except Exception:
                         effective_profit = "n/a"
+                if parsed_code:
+                    reason_code = parsed_code.group(1)
+                if parsed_age:
+                    age_min = parsed_age.group(1)
                 logger.info(
                     f"[EARLY_EXIT] {symbol} {pos.side} "
                     f"price={current_price:.4f} entry={pos.entry_price:.4f} "
@@ -3046,6 +3174,7 @@ class TradingBotPositionLoopMixin:
                     f"raw_profit={raw_profit} best_profit={best_profit} "
                     f"effective_profit={effective_profit} required_profit={required_profit} "
                     f"fee_floor={fee_floor} "
+                    f"reason_code={reason_code} age_min={age_min} "
                     f"detail={details}"
                 )
             # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions
@@ -3317,6 +3446,17 @@ class TradingBotScanningMixin:
     async def _scan_entries(self, symbols: list):
         candidates = []
         reject_counts: dict[str, int] = {}
+        blocked_hours = set(getattr(self, "block_entry_utc_hours", set()) or set())
+        current_utc_hour = datetime.now(timezone.utc).hour
+        if blocked_hours and current_utc_hour in blocked_hours:
+            logger.warning(
+                f"ENTRY SCAN BLOCKED: utc_hour={current_utc_hour} in block_entry_utc_hours={sorted(blocked_hours)}"
+            )
+            logger.info(
+                f"SCAN SUMMARY: symbols={len(symbols)} candidates=0 rejects[blocked_utc_hour={len(symbols)}]"
+            )
+            self.controls.set_candidates([])
+            return
 
         def mark_reject(reason: str):
             reject_counts[reason] = reject_counts.get(reason, 0) + 1
@@ -3325,6 +3465,13 @@ class TradingBotScanningMixin:
             if self.position_manager.has(symbol):
                 mark_reject("already_in_position")
                 continue
+            now_ts = time.monotonic()
+            min_symbol_rescan_sec = max(0.0, float(getattr(self, "min_symbol_rescan_sec", 0.0) or 0.0))
+            if min_symbol_rescan_sec > 0:
+                last_scanned_at = float(getattr(self, "_last_symbol_scan_ts", {}).get(symbol, 0.0) or 0.0)
+                if last_scanned_at > 0 and (now_ts - last_scanned_at) < min_symbol_rescan_sec:
+                    mark_reject("symbol_rescan_throttle")
+                    continue
 
             exchange_closed_wait = self._exchange_closed_reentry_remaining(symbol)
             if exchange_closed_wait > 0:
@@ -3348,6 +3495,7 @@ class TradingBotScanningMixin:
                     mark_reject("risk_blocked")
                 continue
             try:
+                self._last_symbol_scan_ts[symbol] = now_ts
                 signal = await self._analyze_symbol(symbol)
                 if signal.should_enter:
                     cooldown_left = self._same_side_cooldown_remaining(symbol, signal.side)
@@ -3396,10 +3544,39 @@ class TradingBotScanningMixin:
                 mark_reject("exception")
             await asyncio.sleep(0.8)
 
+        bpr = getattr(self, "bpr_ranker", None)
+        if bpr is not None and bpr.enabled and candidates:
+            bpr.annotate_candidates(candidates)
+
         ranked = self.allocator.allocate(candidates)
+
+        if bpr is not None and bpr.enabled:
+            ranked = bpr.maybe_take_top1(ranked)
         self.controls.set_candidates(ranked)
         summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
+
+        if bpr is not None and bpr.enabled and candidates and bpr.telegram_top_n > 0 and getattr(self, "tg", None):
+            topn = sorted(
+                candidates,
+                key=lambda c: float(c.get("bpr_score", 0.0) or 0.0),
+                reverse=True,
+            )[: bpr.telegram_top_n]
+            lines = ["<b>BPR rank (cycle)</b>"]
+            for i, c in enumerate(topn, 1):
+                sig = c["signal"]
+                bs = float(c.get("bpr_score", 0.0) or 0.0)
+                conf = float(getattr(sig, "confidence", 0.0) or 0.0)
+                side = str(getattr(sig, "side", "") or "")
+                soft = bool((sig.metadata or {}).get("entry_soft_pass"))
+                lines.append(
+                    f"{i}. <code>{c['symbol']}</code> BPR={bs:.3f} conf={conf:.2f} {side}"
+                    + (" <i>(soft)</i>" if soft else "")
+                )
+            try:
+                await self.tg.send_message("\n".join(lines))
+            except Exception as exc:
+                logger.warning(f"BPR telegram notify failed: {exc}")
 
         if self.signal_only:
             # Signal-only mode: send to Telegram, no execution (only if confidence above threshold)
@@ -3647,9 +3824,24 @@ class TradingBotSyncManualMixin:
         pos.profit_peak_price = pos.entry_price
         pos.profit_peak_pct = 0.0
         pos.profit_drawdown_below_trigger_since = 0.0
+        act = float(self.profit_drawdown_activation_pct)
+        if act <= 0 or pos.entry_price <= 0:
+            return
+        # Align trailing activation with profit-guard arming threshold (+/- activation % from entry).
+        if pos.is_long:
+            min_act = pos.entry_price * (1.0 + act / 100.0)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = min_act
+            else:
+                pos.trailing_activation_price = max(pos.trailing_activation_price, min_act)
+        else:
+            max_act = pos.entry_price * (1.0 - act / 100.0)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = max_act
+            else:
+                pos.trailing_activation_price = min(pos.trailing_activation_price, max_act)
 
-
-    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float) -> tuple[bool, str]:
+    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float, klines: Optional[list] = None) -> tuple[bool, str]:
         if not self.profit_drawdown_guard_enabled or current_price <= 0 or pos.entry_price <= 0:
             return False, ""
 
@@ -3689,6 +3881,61 @@ class TradingBotSyncManualMixin:
         if current_profit_pct > trigger_profit_pct or current_profit_pct <= 0:
             pos.profit_drawdown_below_trigger_since = 0.0
             return False, ""
+
+        if (
+            self.profit_drawdown_require_trend_break
+            and klines
+            and len(klines) >= max(self.profit_drawdown_trend_ema_slow + 2, 55)
+        ):
+            closes = np.array([float(k.get("close", 0.0) or 0.0) for k in klines], dtype=float)
+            ema_fast = self.entry_engine._compute_ema(closes, max(2, self.profit_drawdown_trend_ema_fast))
+            ema_slow = self.entry_engine._compute_ema(closes, max(3, self.profit_drawdown_trend_ema_slow))
+            ef = float(ema_fast[-1]) if len(ema_fast) else current_price
+            es = float(ema_slow[-1]) if len(ema_slow) else current_price
+            if np.isfinite(ef) and np.isfinite(es):
+                trend_intact = (
+                    (pos.is_long and current_price >= ef and ef >= es)
+                    or ((not pos.is_long) and current_price <= ef and ef <= es)
+                )
+                if trend_intact:
+                    pos.profit_drawdown_below_trigger_since = 0.0
+                    return False, ""
+
+        # Full-symbol pullback analysis: if market shows a healthy pullback/recovery
+        # (accumulation after adverse spike), cancel forced drawdown close.
+        if (
+            self.profit_drawdown_pullback_analysis_enabled
+            and klines
+            and len(klines) >= max(20, self.profit_drawdown_pullback_lookback_bars)
+        ):
+            lb = max(20, self.profit_drawdown_pullback_lookback_bars)
+            closes = np.array(
+                [float(k.get("close", 0.0) or 0.0) for k in klines[-lb:]],
+                dtype=float,
+            )
+            if len(closes) >= 5:
+                hi = float(np.max(closes))
+                lo = float(np.min(closes))
+                if hi > 0 and lo > 0 and hi > lo:
+                    range_pct = (hi - lo) / hi * 100.0
+                    recovery_ratio = (current_price - lo) / max(hi - lo, 1e-9)
+                    adverse_pct = (
+                        (hi - current_price) / hi * 100.0
+                        if pos.is_long
+                        else (current_price - lo) / lo * 100.0
+                    )
+                    accumulation_cancel = (
+                        adverse_pct >= self.profit_drawdown_pullback_min_adverse_pct
+                        and recovery_ratio >= self.profit_drawdown_pullback_cancel_recovery_ratio
+                        and range_pct <= self.profit_drawdown_pullback_max_range_pct
+                    )
+                    if accumulation_cancel:
+                        pos.profit_drawdown_below_trigger_since = 0.0
+                        logger.info(
+                            f"[PROFIT_GUARD] {pos.symbol} close cancelled by pullback analysis: "
+                            f"adverse={adverse_pct:.2f}% recovery={recovery_ratio:.2f} range={range_pct:.2f}%"
+                        )
+                        return False, ""
 
         if self.profit_drawdown_retrace_confirm_sec <= 1e-9:
             return True, reason
@@ -3791,7 +4038,7 @@ class BasketProfitState:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: trading_bot.py
-   SIZE: 33.5 KB
+   SIZE: 38.0 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """TradingBot orchestrator — composed from mixins (legacy main.TradingBot)."""
@@ -3890,6 +4137,21 @@ class TradingBot(
             symbol_loss_streak_cooldown_sec=int(
                 self.cfg.get("risk", "symbol_loss_streak_cooldown_sec", default=21600)
             ),
+            trend_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_enabled", default=False)
+            ),
+            trend_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_sec", default=0)
+            ),
+            trend_exit_reentry_loss_only=bool(
+                self.cfg.get("risk", "trend_exit_reentry_loss_only", default=True)
+            ),
+            early_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "early_exit_reentry_cooldown_enabled", default=False)
+            ),
+            early_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "early_exit_reentry_cooldown_sec", default=0)
+            ),
         )
         self.controls.set_guard(self.risk_guard)
 
@@ -3929,6 +4191,17 @@ class TradingBot(
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
+        from engine.bpr_ranker import BPRLinearRanker
+
+        _bpr_cfg = self.cfg.get("bpr_ranker", default={}) or {}
+        self.bpr_ranker = BPRLinearRanker(
+            enabled=bool(_bpr_cfg.get("enabled", True)),
+            weights_path=str(_bpr_cfg.get("weights_path", "bpr_weights.json")),
+            blend_weight=float(_bpr_cfg.get("blend_weight", 0.35)),
+            top1_when_multiple=bool(_bpr_cfg.get("top1_when_multiple", True)),
+            telegram_top_n=int(_bpr_cfg.get("telegram_top_n", 0)),
+            bot_dir=_bd,
+        )
         self.allocator = MultiSymbolCapitalAllocator()
         self.position_manager = PositionManager()
         self.rl_agent = RLPositionAgent(
@@ -3945,6 +4218,19 @@ class TradingBot(
             early_exit_min_profit_atr=self.cfg.get("exit", "early_exit_min_profit_atr", default=0.35),
             early_exit_min_hold_minutes=float(
                 self.cfg.get("exit", "early_exit_min_hold_minutes", default=0.0)
+            ),
+            early_exit_session_utc_hours=list(
+                self.cfg.get("exit", "early_exit_session_utc_hours", default=[])
+                or []
+            ),
+            early_exit_session_min_profit_atr_boost=float(
+                self.cfg.get("exit", "early_exit_session_min_profit_atr_boost", default=0.0)
+            ),
+            early_exit_allow_loss_close=bool(
+                self.cfg.get("exit", "early_exit_allow_loss_close", default=False)
+            ),
+            early_exit_validator_enabled=bool(
+                self.cfg.get("exit", "early_exit_validator_enabled", default=True)
             ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
@@ -3967,6 +4253,18 @@ class TradingBot(
             ),
             ema_trend_exit_require_slope=bool(
                 self.cfg.get("exit", "ema_trend_exit_require_ema_slope", default=True)
+            ),
+            ema_trend_exit_recovery_cancel_enabled=bool(
+                self.cfg.get("exit", "ema_trend_exit_recovery_cancel_enabled", default=True)
+            ),
+            ema_trend_exit_recovery_lookback_bars=int(
+                self.cfg.get("exit", "ema_trend_exit_recovery_lookback_bars", default=6)
+            ),
+            ema_trend_exit_recovery_min_ratio=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_ratio", default=0.45)
+            ),
+            ema_trend_exit_recovery_min_adverse_pct=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_adverse_pct", default=0.35)
             ),
             ema_exit_min_move_from_entry_pct=float(
                 self.cfg.get("exit", "ema_exit_min_adverse_from_entry_pct", default=0.0)
@@ -4319,6 +4617,11 @@ class TradingBot(
         self.whitelist = self.cfg.get("market", "whitelist_symbols", default=[])
         self.blacklist = self.cfg.get("trading", "blacklist_symbols", default=[])
         self.blacklist_substrings = self.cfg.get("market", "blacklist_substrings", default=[])
+        self.block_entry_utc_hours = {
+            int(h) % 24
+            for h in (self.cfg.get("trading", "block_entry_utc_hours", default=[]) or [])
+            if str(h).strip() != ""
+        }
         self.min_position_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         self.position_size_mode = str(
             self.cfg.get("trading", "position_size_mode", default="risk")
@@ -4369,11 +4672,45 @@ class TradingBot(
         self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
         self.basket_drawdown_confirm_sec = self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
+        self.session_flatten_enabled = bool(
+            self.cfg.get("session_flatten", "enabled", default=False)
+        )
+        self.session_flatten_utc_hours = sorted(
+            {int(x) % 24 for x in self.cfg.get("session_flatten", "utc_hours", default=[])}
+        )
+        self.session_flatten_lead_minutes = max(
+            1, int(self.cfg.get("session_flatten", "lead_minutes", default=10))
+        )
+        self._session_flatten_last_key = ""
         self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
         self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
         self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
         self.profit_drawdown_retrace_confirm_sec = float(
             self.cfg.get("profit_drawdown_guard", "retrace_confirm_sec", default=0.0)
+        )
+        self.profit_drawdown_require_trend_break = bool(
+            self.cfg.get("profit_drawdown_guard", "require_trend_break", default=True)
+        )
+        self.profit_drawdown_trend_ema_fast = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_fast", default=20)
+        )
+        self.profit_drawdown_trend_ema_slow = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_slow", default=50)
+        )
+        self.profit_drawdown_pullback_analysis_enabled = bool(
+            self.cfg.get("profit_drawdown_guard", "pullback_analysis_enabled", default=True)
+        )
+        self.profit_drawdown_pullback_lookback_bars = int(
+            self.cfg.get("profit_drawdown_guard", "pullback_lookback_bars", default=60)
+        )
+        self.profit_drawdown_pullback_min_adverse_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_min_adverse_pct", default=2.5)
+        )
+        self.profit_drawdown_pullback_cancel_recovery_ratio = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_cancel_recovery_ratio", default=0.35)
+        )
+        self.profit_drawdown_pullback_max_range_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_max_range_pct", default=9.0)
         )
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
@@ -4414,9 +4751,10 @@ import re
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import numpy as np
 import yaml
 from dotenv import load_dotenv
 
@@ -4484,7 +4822,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: trading_bot_init_body.py
-   SIZE: 31.4 KB
+   SIZE: 35.9 KB
 ────────────────────────────────────────────────────────────────────────────────
 
     def __init__(self):
@@ -4541,6 +4879,21 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
             symbol_loss_streak_cooldown_sec=int(
                 self.cfg.get("risk", "symbol_loss_streak_cooldown_sec", default=21600)
             ),
+            trend_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_enabled", default=False)
+            ),
+            trend_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "trend_exit_reentry_cooldown_sec", default=0)
+            ),
+            trend_exit_reentry_loss_only=bool(
+                self.cfg.get("risk", "trend_exit_reentry_loss_only", default=True)
+            ),
+            early_exit_reentry_cooldown_enabled=bool(
+                self.cfg.get("risk", "early_exit_reentry_cooldown_enabled", default=False)
+            ),
+            early_exit_reentry_cooldown_sec=int(
+                self.cfg.get("risk", "early_exit_reentry_cooldown_sec", default=0)
+            ),
         )
         self.controls.set_guard(self.risk_guard)
 
@@ -4580,6 +4933,17 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
         self.atr = ATRCalculator(period=self.cfg.get("atr", "period", default=14))
 
         self.entry_engine = EntryEngine(self.cfg)
+        from engine.bpr_ranker import BPRLinearRanker
+
+        _bpr_cfg = self.cfg.get("bpr_ranker", default={}) or {}
+        self.bpr_ranker = BPRLinearRanker(
+            enabled=bool(_bpr_cfg.get("enabled", True)),
+            weights_path=str(_bpr_cfg.get("weights_path", "bpr_weights.json")),
+            blend_weight=float(_bpr_cfg.get("blend_weight", 0.35)),
+            top1_when_multiple=bool(_bpr_cfg.get("top1_when_multiple", True)),
+            telegram_top_n=int(_bpr_cfg.get("telegram_top_n", 0)),
+            bot_dir=_bd,
+        )
         self.allocator = MultiSymbolCapitalAllocator()
         self.position_manager = PositionManager()
         self.rl_agent = RLPositionAgent(
@@ -4596,6 +4960,19 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
             early_exit_min_profit_atr=self.cfg.get("exit", "early_exit_min_profit_atr", default=0.35),
             early_exit_min_hold_minutes=float(
                 self.cfg.get("exit", "early_exit_min_hold_minutes", default=0.0)
+            ),
+            early_exit_session_utc_hours=list(
+                self.cfg.get("exit", "early_exit_session_utc_hours", default=[])
+                or []
+            ),
+            early_exit_session_min_profit_atr_boost=float(
+                self.cfg.get("exit", "early_exit_session_min_profit_atr_boost", default=0.0)
+            ),
+            early_exit_allow_loss_close=bool(
+                self.cfg.get("exit", "early_exit_allow_loss_close", default=False)
+            ),
+            early_exit_validator_enabled=bool(
+                self.cfg.get("exit", "early_exit_validator_enabled", default=True)
             ),
             trailing_activation_atr=self.cfg.get("exit", "trailing_activation_atr", default=0.8),
             trailing_distance_atr=self.cfg.get("exit", "trailing_distance_atr", default=1.2),
@@ -4618,6 +4995,18 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
             ),
             ema_trend_exit_require_slope=bool(
                 self.cfg.get("exit", "ema_trend_exit_require_ema_slope", default=True)
+            ),
+            ema_trend_exit_recovery_cancel_enabled=bool(
+                self.cfg.get("exit", "ema_trend_exit_recovery_cancel_enabled", default=True)
+            ),
+            ema_trend_exit_recovery_lookback_bars=int(
+                self.cfg.get("exit", "ema_trend_exit_recovery_lookback_bars", default=6)
+            ),
+            ema_trend_exit_recovery_min_ratio=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_ratio", default=0.45)
+            ),
+            ema_trend_exit_recovery_min_adverse_pct=float(
+                self.cfg.get("exit", "ema_trend_exit_recovery_min_adverse_pct", default=0.35)
             ),
             ema_exit_min_move_from_entry_pct=float(
                 self.cfg.get("exit", "ema_exit_min_adverse_from_entry_pct", default=0.0)
@@ -4963,6 +5352,11 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
         self.whitelist = self.cfg.get("market", "whitelist_symbols", default=[])
         self.blacklist = self.cfg.get("trading", "blacklist_symbols", default=[])
         self.blacklist_substrings = self.cfg.get("market", "blacklist_substrings", default=[])
+        self.block_entry_utc_hours = {
+            int(h) % 24
+            for h in (self.cfg.get("trading", "block_entry_utc_hours", default=[]) or [])
+            if str(h).strip() != ""
+        }
         self.min_position_usdt = self.cfg.get("trading", "min_position_usdt", default=5.0)
         self.position_size_mode = str(
             self.cfg.get("trading", "position_size_mode", default="risk")
@@ -5013,11 +5407,45 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
         self.basket_profit_min_symbol_peak = self.cfg.get("basket_profit_guard", "min_symbol_peak_profit_usdt", default=0.5)
         self.basket_profit_min_total_usdt = self.cfg.get("basket_profit_guard", "min_total_profit_usdt", default=1.0)
         self.basket_drawdown_confirm_sec = self.cfg.get("basket_profit_guard", "drawdown_confirm_sec", default=900.0)
+        self.session_flatten_enabled = bool(
+            self.cfg.get("session_flatten", "enabled", default=False)
+        )
+        self.session_flatten_utc_hours = sorted(
+            {int(x) % 24 for x in self.cfg.get("session_flatten", "utc_hours", default=[])}
+        )
+        self.session_flatten_lead_minutes = max(
+            1, int(self.cfg.get("session_flatten", "lead_minutes", default=10))
+        )
+        self._session_flatten_last_key = ""
         self.profit_drawdown_guard_enabled = self.cfg.get("profit_drawdown_guard", "enabled", default=True)
         self.profit_drawdown_activation_pct = self.cfg.get("profit_drawdown_guard", "activation_profit_pct", default=3.0)
         self.profit_drawdown_retrace_pct = self.cfg.get("profit_drawdown_guard", "retrace_from_peak_pct", default=25.0)
         self.profit_drawdown_retrace_confirm_sec = float(
             self.cfg.get("profit_drawdown_guard", "retrace_confirm_sec", default=0.0)
+        )
+        self.profit_drawdown_require_trend_break = bool(
+            self.cfg.get("profit_drawdown_guard", "require_trend_break", default=True)
+        )
+        self.profit_drawdown_trend_ema_fast = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_fast", default=20)
+        )
+        self.profit_drawdown_trend_ema_slow = int(
+            self.cfg.get("profit_drawdown_guard", "trend_ema_slow", default=50)
+        )
+        self.profit_drawdown_pullback_analysis_enabled = bool(
+            self.cfg.get("profit_drawdown_guard", "pullback_analysis_enabled", default=True)
+        )
+        self.profit_drawdown_pullback_lookback_bars = int(
+            self.cfg.get("profit_drawdown_guard", "pullback_lookback_bars", default=60)
+        )
+        self.profit_drawdown_pullback_min_adverse_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_min_adverse_pct", default=2.5)
+        )
+        self.profit_drawdown_pullback_cancel_recovery_ratio = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_cancel_recovery_ratio", default=0.35)
+        )
+        self.profit_drawdown_pullback_max_range_pct = float(
+            self.cfg.get("profit_drawdown_guard", "pullback_max_range_pct", default=9.0)
         )
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
@@ -5043,7 +5471,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\analyze_entry_mixin.py
-   SIZE: 36.7 KB
+   SIZE: 37.1 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -5225,20 +5653,31 @@ class TradingBotAnalyzeEntryMixin:
         features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
         transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
-        # Get funding rate (one symbol — avoid get_tickers() full list per scanned coin)
+        # Get funding + 24h change (single-symbol ticker; used for funding gate + mover cap).
         funding_rate = 0.0
+        abs_change_24h_dec = None
         try:
             t = await self.client.get_ticker(symbol)
             if t:
                 funding_rate = float(t.get("fundingRate", 0) or 0)
+                raw_pct = t.get("price24hPcnt")
+                if raw_pct is not None and raw_pct != "":
+                    abs_change_24h_dec = float(raw_pct)
         except Exception:
             pass
+
+        fail_funding, funding_reason = self.entry_engine.funding_pre_fails(
+            funding_rate, abs_change_24h_dec
+        )
+        if fail_funding:
+            return reject(funding_reason)
 
         if signal is None:
             signal = self.entry_engine.generate_signal(
                 symbol, klines, current_price, market, regime, transformer, orderflow, liq,
                 atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
                 htf_4h_trend=htf_4h_trend,
+                abs_change_24h_dec=abs_change_24h_dec,
             )
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
@@ -6415,7 +6854,7 @@ class TradingBotFeedbackMixin:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\guards_mixin.py
-   SIZE: 7.9 KB
+   SIZE: 10.7 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -6424,6 +6863,72 @@ from __future__ import annotations
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotGuardsMixin:
+    async def _maybe_session_flatten(self):
+        """Close all open positions shortly before configured UTC session hours."""
+        if not getattr(self, "session_flatten_enabled", False):
+            return
+        target_hours = list(getattr(self, "session_flatten_utc_hours", []) or [])
+        if not target_hours:
+            return
+        if self.position_manager.count() <= 0:
+            return
+
+        now = datetime.now(timezone.utc)
+        lead_min = max(1, int(getattr(self, "session_flatten_lead_minutes", 10)))
+        trigger_key = ""
+        trigger_hour = None
+        for hour in target_hours:
+            target_dt = now.replace(hour=int(hour), minute=0, second=0, microsecond=0)
+            if target_dt <= now:
+                target_dt = target_dt + timedelta(days=1)
+            minutes_to_target = (target_dt - now).total_seconds() / 60.0
+            if 0 < minutes_to_target <= lead_min:
+                trigger_key = target_dt.strftime("%Y-%m-%d-%H")
+                trigger_hour = int(hour)
+                break
+
+        if not trigger_key:
+            return
+        if trigger_key == getattr(self, "_session_flatten_last_key", ""):
+            return
+
+        self._session_flatten_last_key = trigger_key
+        msg = (
+            f"SESSION FLATTEN: closing all positions {lead_min}m before UTC hour={trigger_hour:02d}. "
+            f"open_positions={self.position_manager.count()}"
+        )
+        logger.warning(msg)
+        if self.tg:
+            try:
+                await self.tg.send_message(
+                    f"<b>SESSION FLATTEN</b>\n\n"
+                    f"Закрываю все позиции перед риск-окном UTC <code>{trigger_hour:02d}:00</code>.\n"
+                    f"Lead: <code>{lead_min} мин</code>\n"
+                    f"Открытых позиций: <code>{self.position_manager.count()}</code>"
+                )
+            except Exception:
+                pass
+
+        for symbol in list(self.position_manager.symbols()):
+            pos = self.position_manager.get(symbol)
+            if not pos:
+                continue
+            try:
+                current_price = await self.client.get_price(symbol)
+                close_result = await self.execution_engine.execute_close(
+                    symbol,
+                    pos.side,
+                    reason="session_flatten_preopen",
+                    position_idx=pos.position_idx,
+                )
+                if close_result.get("success"):
+                    pnl = self._calc_pnl(pos, current_price, pos.qty)
+                    await self._finalize_full_close(
+                        symbol, pos, current_price, pnl, "session_flatten_preopen"
+                    )
+            except Exception as exc:
+                logger.warning(f"SESSION FLATTEN close failed for {symbol}: {exc}")
+
     async def _check_portfolio_take_profit(self, total_unrealized: float):
         if not self.portfolio_tp_enabled or total_unrealized <= 0 or self.position_manager.count() < 2:
             return
@@ -6660,7 +7165,7 @@ class TradingBotHelpersMixin:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\lifecycle_mixin.py
-   SIZE: 15.7 KB
+   SIZE: 17.7 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -6678,6 +7183,19 @@ class TradingBotLifecycleMixin:
             f"Entry threshold={self.entry_engine.entry_threshold:.2f} | "
             f"same-side cooldown={self.signal_cooldown_sec}s"
         )
+        _soft_th = getattr(self.entry_engine, "entry_threshold_soft", None)
+        if _soft_th is not None:
+            logger.info(
+                f"Entry soft floor={float(_soft_th):.2f} (signals between soft and hard pass for ranking)"
+            )
+        _bpr = getattr(self, "bpr_ranker", None)
+        if _bpr is not None and _bpr.enabled:
+            logger.info(
+                f"BPR ranker: ON blend={_bpr.blend_weight:.2f} top1_if_multi={_bpr.top1_when_multiple} "
+                f"telegram_top={_bpr.telegram_top_n}"
+            )
+        else:
+            logger.info("BPR ranker: OFF")
         if getattr(self.entry_engine, "_trained_model", None) is not None:
             logger.info(
                 "Trained model gate: ON "
@@ -6790,31 +7308,6 @@ class TradingBotLifecycleMixin:
                 logger.error(f"Bybit keys: {err}")
                 return
 
-            logger.info("[STARTUP] Fetching account balance...")
-            try:
-                balance = await asyncio.wait_for(self.client.get_balance(), timeout=30)
-            except asyncio.TimeoutError:
-                logger.error("[STARTUP] get_balance timeout after 30s. Check VPS network/API reachability.")
-                return
-            bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
-            if bybit_perm_code in {10005, 33004}:
-                logger.error(
-                    "Bybit auth/permission failure detected at startup "
-                    f"(code={bybit_perm_code}). "
-                    "Stop bot and fix API key permissions/expiration."
-                )
-                return
-            if balance <= 0:
-                logger.error(
-                    "Failed to read positive balance. "
-                    "Check Bybit API key/secret permissions and expiration."
-                )
-                return
-            self.controls.set_balance(balance)
-            self.risk_guard.initial_balance = balance
-            self.profit_lock.set_initial_balance(balance)
-            logger.info(f"Balance: ${balance:.2f}")
-
             if self.tg:
                 logger.info("[STARTUP] Starting Telegram polling...")
                 try:
@@ -6827,19 +7320,69 @@ class TradingBotLifecycleMixin:
                     self.tg = None
                 if self.tg:
                     tg_started = True
-                    logger.info("[STARTUP] Sending startup message to Telegram...")
-                    try:
-                        await asyncio.wait_for(
-                            self.tg.send_message(
-                                f"<b>Бот v9.0 запущен</b>\n"
-                                f"Баланс: <code>${balance:.2f}</code>\n"
-                                f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
-                                f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
-                            ),
-                            timeout=20,
-                        )
-                    except Exception as exc:
-                        logger.warning(f"[STARTUP] Telegram startup message failed: {exc}")
+
+            logger.info("[STARTUP] Fetching account balance...")
+            startup_balance_ok = True
+            startup_balance_error = ""
+            balance = 0.0
+            for attempt in range(1, 4):
+                try:
+                    balance = await asyncio.wait_for(self.client.get_balance(), timeout=30)
+                    if balance > 0:
+                        break
+                    startup_balance_error = (
+                        "Failed to read positive balance. "
+                        "Check Bybit API key/secret permissions and expiration."
+                    )
+                except asyncio.TimeoutError:
+                    startup_balance_error = "get_balance timeout after 30s. Check VPS network/API reachability."
+                    logger.error(f"[STARTUP] {startup_balance_error} (attempt {attempt}/3)")
+                if attempt < 3:
+                    await asyncio.sleep(2.0)
+            bybit_perm_code = int(getattr(self.client, "last_auth_error_code", 0) or 0)
+            if bybit_perm_code in {10005, 33004}:
+                logger.error(
+                    "Bybit auth/permission failure detected at startup "
+                    f"(code={bybit_perm_code}). "
+                    "Stop bot and fix API key permissions/expiration."
+                )
+                return
+            if balance <= 0:
+                startup_balance_ok = False
+                if not startup_balance_error:
+                    startup_balance_error = (
+                        "Failed to read positive balance. "
+                        "Check Bybit API key/secret permissions and expiration."
+                    )
+                logger.error(startup_balance_error)
+
+            if startup_balance_ok:
+                self.controls.set_balance(balance)
+                self.risk_guard.initial_balance = balance
+                self.profit_lock.set_initial_balance(balance)
+                logger.info(f"Balance: ${balance:.2f}")
+            else:
+                # Keep bot alive for monitoring/Telegram even if balance API is unhealthy.
+                # Force signal-only to avoid live orders with unknown balance state.
+                self.signal_only = True
+                self.controls.signal_only = True
+                logger.warning("[STARTUP] Balance unavailable -> forcing SIGNAL-ONLY mode.")
+
+            if self.tg and tg_started:
+                logger.info("[STARTUP] Sending startup message to Telegram...")
+                try:
+                    balance_display = f"${balance:.2f}" if startup_balance_ok else "N/A"
+                    startup_text = (
+                        f"<b>Бот v9.0 запущен</b>\n"
+                        f"Баланс: <code>{balance_display}</code>\n"
+                        f"Режим: {'СИГНАЛЫ' if self.signal_only else ('ТЕСТ' if self.controls.dry_run else 'LIVE')}\n"
+                        f"Стратегия: SMC v3 (Sweep→BOS→Retest OB/FVG) + AI + Pyramid"
+                    )
+                    if not startup_balance_ok and startup_balance_error:
+                        startup_text += f"\n⚠️ Balance warning: <code>{startup_balance_error}</code>"
+                    await asyncio.wait_for(self.tg.send_message(startup_text), timeout=20)
+                except Exception as exc:
+                    logger.warning(f"[STARTUP] Telegram startup message failed: {exc}")
 
             self._running = True
             cycle = 0
@@ -6876,6 +7419,7 @@ class TradingBotLifecycleMixin:
                         await self._process_signal_feedback_loop()
 
                     if not self.signal_only:
+                        await self._maybe_session_flatten()
                         logger.info(f"[CYCLE {cycle}] stage=manage_positions")
                         total_unrealized = await asyncio.wait_for(
                             self._manage_positions(exchange_positions), timeout=scan_timeout
@@ -7237,7 +7781,7 @@ class TradingBotNotifySymbolsMixin:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\position_loop_mixin.py
-   SIZE: 26.3 KB
+   SIZE: 26.8 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -7471,7 +8015,7 @@ class TradingBotPositionLoopMixin:
                 if not pos:
                     continue
 
-            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price)
+            guard_exit, guard_reason = await self._check_profit_drawdown_guard(pos, current_price, klines)
             if guard_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=guard_reason, position_idx=pos.position_idx)
                 if close_result.get("success"):
@@ -7528,10 +8072,13 @@ class TradingBotPositionLoopMixin:
             if should_exit and reason == ExitReason.EARLY_EXIT:
                 # Parse numeric thresholds from exit details for actionable diagnostics.
                 required_profit = effective_profit = raw_profit = best_profit = fee_floor = "n/a"
+                reason_code = age_min = "n/a"
                 parsed = re.search(
                     r"Profit\s+([+-]?\d+(?:\.\d+)?)\s*/\s*best\s+([+-]?\d+(?:\.\d+)?)\s*<\s*required\s+([+-]?\d+(?:\.\d+)?)\s*\(incl fees\s+([+-]?\d+(?:\.\d+)?)\)",
                     details or "",
                 )
+                parsed_code = re.search(r"\bcode=([a-zA-Z0-9_]+)\b", details or "")
+                parsed_age = re.search(r"\bage_min=([0-9.]+|n/a)\b", details or "")
                 if parsed:
                     raw_profit = parsed.group(1)
                     best_profit = parsed.group(2)
@@ -7541,6 +8088,10 @@ class TradingBotPositionLoopMixin:
                         effective_profit = f"{max(float(raw_profit), float(best_profit)):.4f}"
                     except Exception:
                         effective_profit = "n/a"
+                if parsed_code:
+                    reason_code = parsed_code.group(1)
+                if parsed_age:
+                    age_min = parsed_age.group(1)
                 logger.info(
                     f"[EARLY_EXIT] {symbol} {pos.side} "
                     f"price={current_price:.4f} entry={pos.entry_price:.4f} "
@@ -7548,6 +8099,7 @@ class TradingBotPositionLoopMixin:
                     f"raw_profit={raw_profit} best_profit={best_profit} "
                     f"effective_profit={effective_profit} required_profit={required_profit} "
                     f"fee_floor={fee_floor} "
+                    f"reason_code={reason_code} age_min={age_min} "
                     f"detail={details}"
                 )
             # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions
@@ -7819,7 +8371,7 @@ class TradingBotRegimeMixin:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\scanning_mixin.py
-   SIZE: 8.8 KB
+   SIZE: 10.7 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -7831,6 +8383,17 @@ class TradingBotScanningMixin:
     async def _scan_entries(self, symbols: list):
         candidates = []
         reject_counts: dict[str, int] = {}
+        blocked_hours = set(getattr(self, "block_entry_utc_hours", set()) or set())
+        current_utc_hour = datetime.now(timezone.utc).hour
+        if blocked_hours and current_utc_hour in blocked_hours:
+            logger.warning(
+                f"ENTRY SCAN BLOCKED: utc_hour={current_utc_hour} in block_entry_utc_hours={sorted(blocked_hours)}"
+            )
+            logger.info(
+                f"SCAN SUMMARY: symbols={len(symbols)} candidates=0 rejects[blocked_utc_hour={len(symbols)}]"
+            )
+            self.controls.set_candidates([])
+            return
 
         def mark_reject(reason: str):
             reject_counts[reason] = reject_counts.get(reason, 0) + 1
@@ -7918,10 +8481,40 @@ class TradingBotScanningMixin:
                 mark_reject("exception")
             await asyncio.sleep(0.8)
 
+        bpr = getattr(self, "bpr_ranker", None)
+        if bpr is not None and bpr.enabled and candidates:
+            bpr.annotate_candidates(candidates)
+
         ranked = self.allocator.allocate(candidates)
+
+        if bpr is not None and bpr.enabled:
+            ranked = bpr.maybe_take_top1(ranked)
+
         self.controls.set_candidates(ranked)
         summary = ", ".join(f"{key}={value}" for key, value in sorted(reject_counts.items())) or "none"
         logger.info(f"SCAN SUMMARY: symbols={len(symbols)} candidates={len(ranked)} rejects[{summary}]")
+
+        if bpr is not None and bpr.enabled and candidates and bpr.telegram_top_n > 0 and getattr(self, "tg", None):
+            topn = sorted(
+                candidates,
+                key=lambda c: float(c.get("bpr_score", 0.0) or 0.0),
+                reverse=True,
+            )[: bpr.telegram_top_n]
+            lines = ["<b>BPR rank (cycle)</b>"]
+            for i, c in enumerate(topn, 1):
+                sig = c["signal"]
+                bs = float(c.get("bpr_score", 0.0) or 0.0)
+                conf = float(getattr(sig, "confidence", 0.0) or 0.0)
+                side = str(getattr(sig, "side", "") or "")
+                soft = bool((sig.metadata or {}).get("entry_soft_pass"))
+                lines.append(
+                    f"{i}. <code>{c['symbol']}</code> BPR={bs:.3f} conf={conf:.2f} {side}"
+                    + (" <i>(soft)</i>" if soft else "")
+                )
+            try:
+                await self.tg.send_message("\n".join(lines))
+            except Exception as exc:
+                logger.warning(f"BPR telegram notify failed: {exc}")
 
         if self.signal_only:
             # Signal-only mode: send to Telegram, no execution (only if confidence above threshold)
@@ -7996,7 +8589,7 @@ class TradingBotScanningMixin:
 
 ────────────────────────────────────────────────────────────────────────────────
 📄 FILE: mixins\sync_manual_mixin.py
-   SIZE: 17.1 KB
+   SIZE: 20.7 KB
 ────────────────────────────────────────────────────────────────────────────────
 
 """Auto-split from main.TradingBot — see package bot.trading_bot."""
@@ -8175,9 +8768,23 @@ class TradingBotSyncManualMixin:
         pos.profit_peak_price = pos.entry_price
         pos.profit_peak_pct = 0.0
         pos.profit_drawdown_below_trigger_since = 0.0
+        act = float(self.profit_drawdown_activation_pct)
+        if act <= 0 or pos.entry_price <= 0:
+            return
+        if pos.is_long:
+            min_act = pos.entry_price * (1.0 + act / 100.0)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = min_act
+            else:
+                pos.trailing_activation_price = max(pos.trailing_activation_price, min_act)
+        else:
+            max_act = pos.entry_price * (1.0 - act / 100.0)
+            if pos.trailing_activation_price <= 0:
+                pos.trailing_activation_price = max_act
+            else:
+                pos.trailing_activation_price = min(pos.trailing_activation_price, max_act)
 
-
-    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float) -> tuple[bool, str]:
+    async def _check_profit_drawdown_guard(self, pos: Position, current_price: float, klines: Optional[list] = None) -> tuple[bool, str]:
         if not self.profit_drawdown_guard_enabled or current_price <= 0 or pos.entry_price <= 0:
             return False, ""
 
@@ -8217,6 +8824,61 @@ class TradingBotSyncManualMixin:
         if current_profit_pct > trigger_profit_pct or current_profit_pct <= 0:
             pos.profit_drawdown_below_trigger_since = 0.0
             return False, ""
+
+        if (
+            self.profit_drawdown_require_trend_break
+            and klines
+            and len(klines) >= max(self.profit_drawdown_trend_ema_slow + 2, 55)
+        ):
+            closes = np.array([float(k.get("close", 0.0) or 0.0) for k in klines], dtype=float)
+            ema_fast = self.entry_engine._compute_ema(closes, max(2, self.profit_drawdown_trend_ema_fast))
+            ema_slow = self.entry_engine._compute_ema(closes, max(3, self.profit_drawdown_trend_ema_slow))
+            ef = float(ema_fast[-1]) if len(ema_fast) else current_price
+            es = float(ema_slow[-1]) if len(ema_slow) else current_price
+            if np.isfinite(ef) and np.isfinite(es):
+                trend_intact = (
+                    (pos.is_long and current_price >= ef and ef >= es)
+                    or ((not pos.is_long) and current_price <= ef and ef <= es)
+                )
+                if trend_intact:
+                    pos.profit_drawdown_below_trigger_since = 0.0
+                    return False, ""
+
+        # Full-symbol pullback analysis: if market shows a healthy pullback/recovery
+        # (accumulation after adverse spike), cancel forced drawdown close.
+        if (
+            self.profit_drawdown_pullback_analysis_enabled
+            and klines
+            and len(klines) >= max(20, self.profit_drawdown_pullback_lookback_bars)
+        ):
+            lb = max(20, self.profit_drawdown_pullback_lookback_bars)
+            closes = np.array(
+                [float(k.get("close", 0.0) or 0.0) for k in klines[-lb:]],
+                dtype=float,
+            )
+            if len(closes) >= 5:
+                hi = float(np.max(closes))
+                lo = float(np.min(closes))
+                if hi > 0 and lo > 0 and hi > lo:
+                    range_pct = (hi - lo) / hi * 100.0
+                    recovery_ratio = (current_price - lo) / max(hi - lo, 1e-9)
+                    adverse_pct = (
+                        (hi - current_price) / hi * 100.0
+                        if pos.is_long
+                        else (current_price - lo) / lo * 100.0
+                    )
+                    accumulation_cancel = (
+                        adverse_pct >= self.profit_drawdown_pullback_min_adverse_pct
+                        and recovery_ratio >= self.profit_drawdown_pullback_cancel_recovery_ratio
+                        and range_pct <= self.profit_drawdown_pullback_max_range_pct
+                    )
+                    if accumulation_cancel:
+                        pos.profit_drawdown_below_trigger_since = 0.0
+                        logger.info(
+                            f"[PROFIT_GUARD] {pos.symbol} close cancelled by pullback analysis: "
+                            f"adverse={adverse_pct:.2f}% recovery={recovery_ratio:.2f} range={range_pct:.2f}%"
+                        )
+                        return False, ""
 
         if self.profit_drawdown_retrace_confirm_sec <= 1e-9:
             return True, reason
