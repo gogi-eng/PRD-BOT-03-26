@@ -1,0 +1,18 @@
+# Drop-in для записи stdout/stderr в bot.log (PRD-SCALP под systemd).
+#
+# Установка:
+#   sudo mkdir -p /etc/systemd/system/trading_bot.service.d
+#   sudo cp scripts/systemd/trading_bot_scalp_log_append.conf.example \
+#          /etc/systemd/system/trading_bot.service.d/99-log-append.conf
+#   # отредактируйте путь, если проект не в /root/PRD-SCALP
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart trading_bot.service
+#
+# ВАЖНО: не используйте одновременно с FileHandler на bot.log в коде —
+#        строки продублируются. Выберите что-то одно.
+#
+# Ротация: см. scripts/logrotate_prd_scalp_bot.example
+
+[Service]
+StandardOutput=append:/root/PRD-SCALP/bot.log
+StandardError=append:/root/PRD-SCALP/bot.log
