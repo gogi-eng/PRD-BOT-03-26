@@ -74,7 +74,42 @@ from utils import ATRCalculator
 
 from bot.state import BasketProfitState
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
+_LOG_FMT = logging.Formatter("%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
+
+
+def _configure_logging() -> None:
+    """Console (systemd/journal) + ``bot.log`` in project root — same lines to both."""
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    log_path = (resolve_bot_dir() / "bot.log").resolve()
+
+    def _has_stderr() -> bool:
+        for h in root.handlers:
+            if isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stderr:
+                return True
+        return False
+
+    def _has_bot_log_file() -> bool:
+        for h in root.handlers:
+            if isinstance(h, logging.FileHandler):
+                try:
+                    if Path(h.baseFilename).resolve() == log_path:
+                        return True
+                except (OSError, ValueError):
+                    pass
+        return False
+
+    if not _has_stderr():
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(_LOG_FMT)
+        root.addHandler(sh)
+    if not _has_bot_log_file():
+        fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setFormatter(_LOG_FMT)
+        root.addHandler(fh)
+
+
+_configure_logging()
 logger = logging.getLogger("BOT")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)

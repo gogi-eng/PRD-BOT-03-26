@@ -1,0 +1,21 @@
+# Пример ротации bot.log для PRD-SCALP.
+#
+# Установка:
+#   sudo cp scripts/logrotate_prd_scalp_bot.example /etc/logrotate.d/prd-scalp-bot
+#   sudo chmod 644 /etc/logrotate.d/prd-scalp-bot
+#
+# Проверка (без реальной ротации, только тест конфига):
+#   sudo logrotate -d /etc/logrotate.d/prd-scalp-bot
+#
+# copytruncate: бот не переоткрывает файл — копируем и обрезаем текущий.
+# При очень большом файле первый прогон может быть недолгим.
+
+/root/PRD-SCALP/bot.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
