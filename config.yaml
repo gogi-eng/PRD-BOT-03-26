@@ -391,7 +391,7 @@ rl:
 meta_controller:
   enabled: false
   # Пусто = взять adaptive_regime_presets.benchmark_symbol (обычно BTCUSDT)
-  benchmark_symbol: ""
+  benchmark_symbol: "BTCUSDT"
   kline_interval: "60"
   klines_lookback: 120
   chaos_volatility: 0.02
@@ -452,7 +452,7 @@ basket_profit_guard:
   drawdown_confirm_sec: 900
   # Укороченное подтверждение только в локальные «скальп»-часы (pump|dump, как в strategy_presets.auto_impulse_local_hours).
   fast_drawdown_confirm_sec: 300
-  fast_drawdown_confirm_local_hours: [3, 4, 5, 7, 11, 13, 14, 18, 19, 20, 21]
+  fast_drawdown_confirm_local_hours: [3, 4, 7, 13, 14, 18, 19, 21]
   # Пусто/не указывать = взять timezone_offset из корня config (у вас +3).
   # fast_drawdown_confirm_timezone_offset: 3
 
