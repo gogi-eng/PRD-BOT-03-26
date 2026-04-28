@@ -110,9 +110,10 @@ scalp:
   skip_impulse_retest_guard: true
   impulse_retest_bypass_confidence: 0.90
   quality_gate_bypass_confidence: 0.90
-  quality_min_confidence: 0.84
-  quality_min_expected_edge: 0.40
-  mtf_single_tf_min_confidence: 0.84
+  # LONG/субаккаунт: чуть мягче, чтобы чаще проходили кандидаты
+  quality_min_confidence: 0.78
+  quality_min_expected_edge: 0.36
+  mtf_single_tf_min_confidence: 0.78
 
 trading:
   position_size_mode: "margin_cap"  # margin_cap | risk_based
@@ -127,15 +128,15 @@ trading:
   sl_pct: 1.2
   blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
   # Стартовые (UTC) «плохие» часы. 9 и 19 убраны (больше окон); 12/13 — перекрёсток сессий, оставлены.
-  # Для субаккаунта/лонг можно сузить список отдельной копией config.
-  block_entry_utc_hours: [5, 6, 8, 12, 13, 21, 23]
+  # LONG: убраны 12/13 UTC — меньше «ENTRY SCAN BLOCKED» в активные сессии.
+  block_entry_utc_hours: [5, 6, 8, 21, 23]
 
 entry:
   transformer_threshold: 0.60
   max_liq_distance_pct: 1.30
   # Normalized imbalance [-1..1]; slight relax for better fill rate.
-  min_orderflow_imbalance: 0.065
-  min_rr_ratio: 3.0
+  min_orderflow_imbalance: 0.048
+  min_rr_ratio: 2.5
   min_target_profit_pct: 1.5
   require_structural_tp: true
   min_stop_distance_pct: 1.5
@@ -151,10 +152,12 @@ entry:
   # If |24h change| >= this percent (from price24hPcnt), apply stricter funding cap (mover / squeeze).
   funding_tight_if_abs_24h_change_pct: 16.0
   max_funding_rate_for_mover: 0.009
-  # Минимальный composite / confidence для входа (ослаблено для большего потока).
-  entry_threshold: 0.70
+  # Минимальный composite (LONG-2): ниже порога в логе было 0.518
+  entry_threshold: 0.53
   # Мягкий пол: между soft и hard composite проходят в пайплайн (для BPR-ранжирования в цикле).
-  entry_threshold_soft: 0.60
+  entry_threshold_soft: 0.50
+  # Подряд свечей в сторону сигнала в окне 7 — по умолчанию 5; 6 = чуть мягче
+  exhaustion_max_streak: 6
   trained_model_enabled: false
   trained_model_min_prob: 0.52
   trained_model_blend: 0.00
@@ -170,8 +173,8 @@ entry:
   ema_trend_filter: true
   ema_fast_period: 20
   ema_slow_period: 50
-  # EMA guard only when fast/slow differ by at least this % (skip borderline ~0.8% disagreements).
-  ema_guard_min_diff_pct: 0.80
+  # EMA guard only when fast/slow differ by at least this % (чуть мягче для LONG).
+  ema_guard_min_diff_pct: 0.65
   momentum_filter: true
   momentum_lookback: 5
   momentum_guard_min_pct: 0.15
@@ -180,19 +183,21 @@ entry:
   sell_momentum_guard_min_pct: 1.2
   volume_filter: true
   volume_lookback: 20
-  volume_guard_min_ratio: 0.26
-  buy_volume_guard_min_ratio: 0.10
-  sell_volume_guard_min_ratio: 0.10
-  counter_flow_guard_mult: 2.3
+  volume_guard_min_ratio: 0.12
+  buy_volume_guard_min_ratio: 0.06
+  sell_volume_guard_min_ratio: 0.06
+  # Выше — реже counter_flow_guard (SELL при сильном buy-объёме в ленте)
+  counter_flow_guard_mult: 6.0
   direction_tiebreaker_prob_gap: 0.06
-  guard_confidence_bypass: 0.90
+  # Ниже — EMA / volume / momentum гуарды реже режут средний composite
+  guard_confidence_bypass: 0.51
   anti_peak_guard_enabled: true
   anti_peak_lookback: 24
-  anti_peak_atr_buffer_mult: 0.35
-  # Below this composite, block entries very close to local high/low (raise = stricter peak filter).
-  peak_confidence_bypass: 0.90
+  anti_peak_atr_buffer_mult: 0.28
+  # Ниже порога composite проверяется peak_reversal; выше — пропуск (мягче для LONG)
+  peak_confidence_bypass: 0.52
   impulse_retest_confirm_enabled: true
-  missing_bos_min_confidence: 0.90
+  missing_bos_min_confidence: 0.76
   impulse_min_body_atr: 0.45
   retest_max_body_ratio: 0.85
   confirm_min_body_ratio: 0.35
@@ -224,7 +229,8 @@ atr:
 # Pre-trade execution layer (spread / vol / book / anti-FOMO / timing). Off by default.
 # Включается только при enabled: true — иначе поведение бота не меняется.
 execution_ai:
-  enabled: true
+  # LONG: выкл. — последний слой часто режет вход без явного сигнала в SCAN SUMMARY
+  enabled: false
   spread_max_pct: 0.08
   volatility_limit: 0.02
   kline_lookback_vol: 48
@@ -340,7 +346,8 @@ ai:
   # emergent = Gemini (EMERGENT_LLM_KEY) | ollama = локальная Gemma (+Gemma.txt: ollama pull)
   backend: ollama
   # Для ollama 60–75 реалистично; 90 оставляйте для облачного Gemini.
-  min_confidence: 68
+  # 50 = порог fail_open Gemma при ошибке/таймауте Ollama (иначе сделки режутся зря)
+  min_confidence: 50
   fail_open: true
   require_direction_match: true
   uniformity_guard_enabled: true
@@ -352,7 +359,7 @@ gemma:
   enabled: true
   model: "gemma2:2b"
   host: "http://127.0.0.1:11434"
-  timeout_sec: 12
+  timeout_sec: 22
   fail_open: true
 
 ai_claude:
@@ -517,23 +524,24 @@ feedback_loop:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.86
+  min_confidence: 0.80
   # Порог «сильного сигнала» для обходов chop / no_zone (должен совпадать с мин. входом).
-  strong_signal_min_confidence: 0.86
-  strong_signal_min_smc: 0.86
+  strong_signal_min_confidence: 0.80
+  strong_signal_min_smc: 0.80
   min_expected_edge: 0.40
-  anti_flat_min_adx: 12.5
-  anti_flat_min_atr_pct: 0.08
-  anti_flat_min_abs_imbalance: 0.06
-  anti_flat_allow_chop: false
+  anti_flat_min_adx: 10.0
+  anti_flat_min_atr_pct: 0.06
+  anti_flat_min_abs_imbalance: 0.05
+  # true = режим chop не требует chop_bypass (иначе массово quality_gate_chop_regime)
+  anti_flat_allow_chop: true
   chop_bypass_enabled: true
-  chop_bypass_min_confidence: 0.86
-  chop_bypass_min_abs_imbalance: 0.12
-  chop_bypass_require_zone: true
+  chop_bypass_min_confidence: 0.80
+  chop_bypass_min_abs_imbalance: 0.09
+  chop_bypass_require_zone: false
   anti_flat_require_htf_trend: false
-  countertrend_min_confidence: 0.86
-  countertrend_min_abs_imbalance: 0.24
-  no_zone_min_confidence: 0.86
+  countertrend_min_confidence: 0.80
+  countertrend_min_abs_imbalance: 0.20
+  no_zone_min_confidence: 0.80
   reject_no_zone_entries: false
 
 symbol_quality:
@@ -558,7 +566,7 @@ correlation:
 mtf_zone_confirmation:
   enabled: true
   require_any_zone: false
-  min_confidence_if_single_tf: 0.86
+  min_confidence_if_single_tf: 0.80
 
 # BPR-style linear ranker: blends into allocator signal_strength; optional Telegram top-N;
 # when ≥2 candidates, keep only top-1 by BPR score (see top1_when_multiple).
@@ -574,7 +582,8 @@ adaptive_regime_presets:
   switch_interval_sec: 900
   notify_on_switch: true
   benchmark_symbol: "BTCUSDT"
-  trend_strict_htf_mode: true
+  # false: меньше отсечек strict_htf_* в трендовом профиле (удобнее для LONG)
+  trend_strict_htf_mode: false
   trend_volatility_floor_atr_pct: 0.007
   trend_require_4h_trend: false
   range_strict_htf_mode: false
