@@ -171,6 +171,14 @@ class TradingBotGuardsMixin:
         logger.info(f"BASKET GUARD: {lock_sec:.0f}s confirmed, closing {falling_symbol}")
         pos = self.position_manager.get(falling_symbol)
         if pos:
+            if getattr(pos, "origin", "") == "manual":
+                logger.warning(
+                    f"BASKET GUARD: skip closing {falling_symbol} because origin=manual"
+                )
+                self.basket_profit_state.symbol_pnl_history.pop(falling_symbol, None)
+                self.basket_profit_state.drawdown_detected_at = 0.0
+                self.basket_profit_state.drawdown_confirm_lock_sec = 0.0
+                return
             current_price = await self.client.get_price(falling_symbol)
             close_result = await self.execution_engine.execute_close(falling_symbol, pos.side, reason="basket_symbol_fall", position_idx=pos.position_idx)
             if close_result.get("success"):

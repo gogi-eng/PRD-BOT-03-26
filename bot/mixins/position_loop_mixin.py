@@ -78,11 +78,33 @@ class TradingBotPositionLoopMixin:
                                 pnl = float(closed[0].get("closedPnl", 0) or 0)
                             exchange_close_records = recent_closed or closed
                             exchange_close_reason = self._classify_exchange_closed_reason(exchange_close_records)
+                            record = (exchange_close_records or [{}])[0] or {}
+                            exchange_exit_price = self._closed_record_exit_price(
+                                exchange_close_records,
+                                fallback_price=current_price,
+                            )
+                            exchange_close_reason = self._infer_exchange_closed_reason_from_levels(
+                                pos, exchange_exit_price, exchange_close_reason
+                            )
+                            logger.info(
+                                f"[EXCHANGE CLOSED DETAIL] {symbol} reason={exchange_close_reason} "
+                                f"side={pos.side} entry={pos.entry_price:.6f} exchange_exit={exchange_exit_price:.6f} "
+                                f"market_after_close={current_price:.6f} "
+                                f"tracked_SL={pos.stop_loss:.6f} tracked_TP={pos.take_profit:.6f} "
+                                f"best={pos.best_price:.6f} pnl={pnl:.6f} "
+                                f"closedPnl={record.get('closedPnl', '')} "
+                                f"avgExit={record.get('avgExitPrice', record.get('avgPrice', ''))} "
+                                f"execType={record.get('execType', '')} "
+                                f"stopOrderType={record.get('stopOrderType', '')} "
+                                f"closeType={record.get('closeType', '')} "
+                                f"createType={record.get('createType', '')} "
+                                f"orderType={record.get('orderType', '')}"
+                            )
                             self._set_exchange_close_meta(symbol, exchange_close_records)
                             await self._finalize_full_close(
                                 symbol,
                                 pos,
-                                current_price,
+                                exchange_exit_price,
                                 pnl,
                                 exchange_close_reason,
                                 already_removed=True,
@@ -241,12 +263,16 @@ class TradingBotPositionLoopMixin:
             structure = self.market_structure_engine.analyze(klines, atr_val)
             last_swing_low = structure.swing_lows[-1].price if structure.swing_lows else 0.0
             last_swing_high = structure.swing_highs[-1].price if structure.swing_highs else 0.0
-            self.exit_engine.update_trailing(
-                pos, current_price, last_swing_low, last_swing_high, atr_val
-            )
+            manual_trailing_allowed, manual_trailing_reason = self._manual_trailing_management_allowed(pos, current_price)
+            if manual_trailing_allowed:
+                self.exit_engine.update_trailing(
+                    pos, current_price, last_swing_low, last_swing_high, atr_val
+                )
+            elif pos.origin == "manual":
+                logger.info(f"[MANUAL SAFE] {symbol} trailing management paused: {manual_trailing_reason}")
             # Keep exchange stop-loss in sync with trailing stop for ALL positions.
             # Without this, local trailing can move while exchange SL remains stale.
-            if pos.trailing_active and pos.trailing_stop > 0:
+            if pos.trailing_active and pos.trailing_stop > 0 and manual_trailing_allowed:
                 updated = await self.execution_engine.update_sl(
                     symbol, pos.trailing_stop, position_idx=pos.position_idx
                 )
@@ -316,15 +342,13 @@ class TradingBotPositionLoopMixin:
                     f"reason_code={reason_code} age_min={age_min} "
                     f"detail={details}"
                 )
-            # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions
-            if should_exit and pos.origin == "manual" and reason not in (
-                ExitReason.TRAILING_EXIT, ExitReason.TP_CAP
-            ):
-                logger.info(
-                    f"[MANUAL SAFE] {symbol} exit blocked: {reason.value} — "
-                    f"only trailing_exit/tp_cap allowed for manual positions. {details}"
-                )
-                should_exit = False
+            if should_exit and pos.origin == "manual":
+                allowed, why = self._manual_exit_allowed(pos, current_price, reason)
+                if not allowed:
+                    logger.info(
+                        f"[MANUAL SAFE] {symbol} exit blocked: {reason.value} — {why}. {details}"
+                    )
+                    should_exit = False
 
             # EMA TREND EXIT — close if price reverses against EMA(20).
             # While trailing is active, skip: 1m EMA noise otherwise exits winners before the trail can.
@@ -352,7 +376,12 @@ class TradingBotPositionLoopMixin:
                     )
                     if fails >= 3:
                         error_msg = str(close_result.get("error", "")).lower()
-                        position_gone = "not found" in error_msg or "position" in error_msg
+                        position_gone = (
+                            "position not found" in error_msg
+                            or "not found" in error_msg
+                            or "position is zero" in error_msg
+                            or "position size is zero" in error_msg
+                        )
 
                         if position_gone:
                             # Position no longer exists on exchange (user closed it, or exchange SL/TP hit)
@@ -377,11 +406,18 @@ class TradingBotPositionLoopMixin:
                                     logger.info(f"[POSITION GONE] {symbol} estimated pnl: ${pnl:.4f}")
                                 exchange_close_records = recent_closed or closed
                                 exchange_close_reason = self._classify_exchange_closed_reason(exchange_close_records)
+                                exchange_exit_price = self._closed_record_exit_price(
+                                    exchange_close_records,
+                                    fallback_price=current_price,
+                                )
+                                exchange_close_reason = self._infer_exchange_closed_reason_from_levels(
+                                    removed, exchange_exit_price, exchange_close_reason
+                                )
                                 self._set_exchange_close_meta(symbol, exchange_close_records)
                                 await self._finalize_full_close(
                                     symbol,
                                     removed,
-                                    current_price,
+                                    exchange_exit_price,
                                     pnl,
                                     exchange_close_reason,
                                     already_removed=True,
