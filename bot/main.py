@@ -667,6 +667,17 @@ class TradingBot(
             self.cfg.get("profit_drawdown_guard", "pullback_max_range_pct", default=9.0)
         )
         self.manual_rl_enabled = self.cfg.get("manual_management", "rl_enabled", default=False)
+        self.manual_allow_bot_close = bool(self.cfg.get("manual_management", "allow_bot_close_manual", default=True))
+        self.manual_close_grace_minutes = float(self.cfg.get("manual_management", "close_grace_minutes", default=30.0))
+        self.manual_min_close_profit_pct = float(self.cfg.get("manual_management", "min_close_profit_pct", default=0.8))
+        self.manual_min_close_r = float(self.cfg.get("manual_management", "min_close_r", default=0.8))
+        self.manual_allow_trailing_exit = bool(self.cfg.get("manual_management", "allow_trailing_exit", default=True))
+        self.manual_allow_tp_cap = bool(self.cfg.get("manual_management", "allow_tp_cap", default=True))
+        self.manual_allow_hard_sl_close = bool(self.cfg.get("manual_management", "allow_hard_sl_close", default=False))
+        self.manual_allow_partial_tp = bool(self.cfg.get("manual_management", "allow_partial_tp", default=False))
+        self.manual_allow_profit_drawdown_close = bool(
+            self.cfg.get("manual_management", "allow_profit_drawdown_close", default=False)
+        )
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
         self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
         self.manual_trailing_distance_atr = self.cfg.get("manual_management", "trailing_distance_atr", default=2.4)
@@ -2106,6 +2117,13 @@ class TradingBotGuardsMixin:
         logger.info(f"BASKET GUARD: {self.basket_drawdown_confirm_sec}s confirmed, closing {falling_symbol}")
         pos = self.position_manager.get(falling_symbol)
         if pos:
+            if getattr(pos, "origin", "") == "manual":
+                logger.warning(
+                    f"BASKET GUARD: skip closing {falling_symbol} because origin=manual"
+                )
+                self.basket_profit_state.symbol_pnl_history.pop(falling_symbol, None)
+                self.basket_profit_state.drawdown_detected_at = 0.0
+                return
             current_price = await self.client.get_price(falling_symbol)
             close_result = await self.execution_engine.execute_close(falling_symbol, pos.side, reason="basket_symbol_fall", position_idx=pos.position_idx)
             if close_result.get("success"):
@@ -3049,12 +3067,16 @@ class TradingBotPositionLoopMixin:
             structure = self.market_structure_engine.analyze(klines, atr_val)
             last_swing_low = structure.swing_lows[-1].price if structure.swing_lows else 0.0
             last_swing_high = structure.swing_highs[-1].price if structure.swing_highs else 0.0
-            self.exit_engine.update_trailing(
-                pos, current_price, last_swing_low, last_swing_high, atr_val
-            )
+            manual_trailing_allowed, manual_trailing_reason = self._manual_trailing_management_allowed(pos, current_price)
+            if manual_trailing_allowed:
+                self.exit_engine.update_trailing(
+                    pos, current_price, last_swing_low, last_swing_high, atr_val
+                )
+            elif pos.origin == "manual":
+                logger.info(f"[MANUAL SAFE] {symbol} trailing management paused: {manual_trailing_reason}")
             # Keep exchange stop-loss in sync with trailing stop for ALL positions.
             # Without this, local trailing can move while exchange SL remains stale.
-            if pos.trailing_active and pos.trailing_stop > 0:
+            if pos.trailing_active and pos.trailing_stop > 0 and manual_trailing_allowed:
                 updated = await self.execution_engine.update_sl(
                     symbol, pos.trailing_stop, position_idx=pos.position_idx
                 )
@@ -3124,15 +3146,13 @@ class TradingBotPositionLoopMixin:
                     f"reason_code={reason_code} age_min={age_min} "
                     f"detail={details}"
                 )
-            # MANUAL SAFETY: only trailing_exit and tp_cap allowed for manual positions
-            if should_exit and pos.origin == "manual" and reason not in (
-                ExitReason.TRAILING_EXIT, ExitReason.TP_CAP
-            ):
-                logger.info(
-                    f"[MANUAL SAFE] {symbol} exit blocked: {reason.value} — "
-                    f"only trailing_exit/tp_cap allowed for manual positions. {details}"
-                )
-                should_exit = False
+            if should_exit and pos.origin == "manual":
+                allowed, why = self._manual_exit_allowed(pos, current_price, reason)
+                if not allowed:
+                    logger.info(
+                        f"[MANUAL SAFE] {symbol} exit blocked: {reason.value} — {why}. {details}"
+                    )
+                    should_exit = False
 
             # EMA TREND EXIT — close if price reverses against EMA(20).
             # While trailing is active, skip: 1m EMA noise otherwise exits winners before the trail can.
@@ -3788,8 +3808,67 @@ class TradingBotSyncManualMixin:
             else:
                 pos.trailing_activation_price = min(pos.trailing_activation_price, max_act)
 
+
+    def _manual_position_age_minutes(self, pos: Position) -> float:
+        entry_time = getattr(pos, "entry_time", None)
+        if not isinstance(entry_time, datetime):
+            return 0.0
+        if entry_time.tzinfo is None:
+            entry_time = entry_time.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - entry_time).total_seconds() / 60.0)
+
+
+    def _manual_position_r(self, pos: Position, current_price: float) -> float:
+        if pos.entry_price <= 0 or current_price <= 0:
+            return 0.0
+        risk = abs(pos.entry_price - pos.stop_loss) if pos.stop_loss > 0 else pos.entry_price * 0.01
+        if risk <= 0:
+            risk = pos.entry_price * 0.01
+        pnl_per_unit = current_price - pos.entry_price if pos.is_long else pos.entry_price - current_price
+        return pnl_per_unit / max(risk, 1e-12)
+
+
+    def _manual_profit_gate_ok(self, pos: Position, current_price: float) -> tuple[bool, str]:
+        age_min = self._manual_position_age_minutes(pos)
+        if age_min + 1e-9 < self.manual_close_grace_minutes:
+            return False, f"age={age_min:.1f}m < grace={self.manual_close_grace_minutes:.1f}m"
+
+        pnl_pct = self._calc_pnl_pct(pos, current_price)
+        r_mult = self._manual_position_r(pos, current_price)
+        if pnl_pct + 1e-9 < self.manual_min_close_profit_pct:
+            return False, f"pnl={pnl_pct:.2f}% < min={self.manual_min_close_profit_pct:.2f}%"
+        if r_mult + 1e-9 < self.manual_min_close_r:
+            return False, f"R={r_mult:.2f} < min={self.manual_min_close_r:.2f}"
+        return True, f"age={age_min:.1f}m pnl={pnl_pct:.2f}% R={r_mult:.2f}"
+
+
+    def _manual_trailing_management_allowed(self, pos: Position, current_price: float) -> tuple[bool, str]:
+        if pos.origin != "manual":
+            return True, ""
+        return self._manual_profit_gate_ok(pos, current_price)
+
+
+    def _manual_exit_allowed(self, pos: Position, current_price: float, reason: ExitReason | None) -> tuple[bool, str]:
+        if pos.origin != "manual":
+            return True, ""
+        if not self.manual_allow_bot_close:
+            return False, "bot close disabled for manual positions"
+
+        if reason == ExitReason.TRAILING_EXIT and not self.manual_allow_trailing_exit:
+            return False, "manual trailing_exit disabled"
+        if reason == ExitReason.TP_CAP and not self.manual_allow_tp_cap:
+            return False, "manual tp_cap disabled"
+        if reason == ExitReason.HARD_SL and not self.manual_allow_hard_sl_close:
+            return False, "manual hard_sl close disabled; exchange/user SL should manage risk"
+        if reason not in {ExitReason.TRAILING_EXIT, ExitReason.TP_CAP, ExitReason.HARD_SL}:
+            return False, f"manual close reason {getattr(reason, 'value', reason)} is not allowed"
+        return self._manual_profit_gate_ok(pos, current_price)
+
+
     async def _check_profit_drawdown_guard(self, pos: Position, current_price: float, klines: Optional[list] = None) -> tuple[bool, str]:
         if not self.profit_drawdown_guard_enabled or current_price <= 0 or pos.entry_price <= 0:
+            return False, ""
+        if pos.origin == "manual" and not self.manual_allow_profit_drawdown_close:
             return False, ""
 
         current_profit_pct = self._calc_pnl_pct(pos, current_price)
@@ -3914,11 +3993,18 @@ class TradingBotSyncManualMixin:
     async def _maybe_execute_partial_tp(self, pos: Position, current_price: float) -> bool:
         if not self.partial_tp_enabled or pos.partial_tp_done or pos.partial_tp_price <= 0 or pos.qty <= 0:
             return False
+        if pos.origin == "manual" and not self.manual_allow_partial_tp:
+            return False
         if pos.origin == "manual" and pos.external_tp_locked:
             return False
         hit = current_price >= pos.partial_tp_price if pos.is_long else current_price <= pos.partial_tp_price
         if not hit:
             return False
+        if pos.origin == "manual":
+            allowed, why = self._manual_profit_gate_ok(pos, current_price)
+            if not allowed:
+                logger.info(f"[MANUAL SAFE] {pos.symbol} partial TP blocked: {why}")
+                return False
         close_qty = pos.qty * max(0.1, min(pos.partial_close_fraction, 0.9))
         if close_qty * current_price < self.min_position_usdt:
             pos.partial_tp_done = True

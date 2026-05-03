@@ -119,14 +119,14 @@ trading:
   position_size_mode: "margin_cap"  # margin_cap | risk_based
   capital_weight_mode: "equal"      # score | equal
   leverage: 10
-  margin_total_pct: 10.0
-  risk_per_trade_pct: 0.7
-  max_positions: 4
+  margin_total_pct: 2.0
+  risk_per_trade_pct: 0.20
+  max_positions: 1
   min_position_usdt: 5.0
   trailing_stop_pct: 1.3
   tp_pct: 2.0
   sl_pct: 1.2
-  blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT"]
+  blacklist_symbols: ["WLFIUSDT", "AZTECUSDT", "MYXUSDT", "PNUTUSDT", "ORDIUSDT", "AAVEUSDT", "SOONUSDT", "MOVRUSDT", "MEGAUSDT", "BLENDUSDT", "XCNUSDT", "BTCUSDT", "FARTCOINUSDT", "ZECUSDT", "HYPEUSDT", "SUIUSDT", "ORCAUSDT"]
   # Стартовые (UTC) «плохие» часы. 9 и 19 убраны (больше окон); 12/13 — перекрёсток сессий, оставлены.
   # LONG: убраны 12/13 UTC — меньше «ENTRY SCAN BLOCKED» в активные сессии.
   block_entry_utc_hours: [5, 6, 8, 21, 23]
@@ -152,12 +152,14 @@ entry:
   # If |24h change| >= this percent (from price24hPcnt), apply stricter funding cap (mover / squeeze).
   funding_tight_if_abs_24h_change_pct: 16.0
   max_funding_rate_for_mover: 0.009
-  # Минимальный composite (LONG-2): ниже порога в логе было 0.518
-  entry_threshold: 0.53
+  # Минимальный composite. Повышено после серии убыточных входов PRD-SCALP.
+  entry_threshold: 0.62
   # Мягкий пол: между soft и hard composite проходят в пайплайн (для BPR-ранжирования в цикле).
-  entry_threshold_soft: 0.50
-  # Подряд свечей в сторону сигнала в окне 7 — по умолчанию 5; 6 = чуть мягче
-  exhaustion_max_streak: 6
+  entry_threshold_soft: 0.60
+  # SELL за последнее окно дал 0% winrate, поэтому шорты проходят только при более сильном composite.
+  sell_entry_threshold: 0.64
+  # Лог: exhaustion_guard (6/7 max) — +1 свеча терпимости перед отсечкой.
+  exhaustion_max_streak: 7
   trained_model_enabled: false
   trained_model_min_prob: 0.52
   trained_model_blend: 0.00
@@ -190,7 +192,7 @@ entry:
   counter_flow_guard_mult: 6.0
   direction_tiebreaker_prob_gap: 0.06
   # Ниже — EMA / volume / momentum гуарды реже режут средний composite
-  guard_confidence_bypass: 0.51
+  guard_confidence_bypass: 0.82
   anti_peak_guard_enabled: true
   anti_peak_lookback: 24
   anti_peak_atr_buffer_mult: 0.28
@@ -299,15 +301,20 @@ risk:
   max_daily_loss_usdt: 10
   max_trades_per_day: 50
   max_consecutive_losses: 3
-  cooldown_after_loss_sec: 900
-  cooldown_after_stop_hours: 0.25
-  max_trades_per_symbol_24h: 4
+  cooldown_after_loss_sec: 3600
+  cooldown_after_stop_hours: 4
+  # Динамический лимит повторных входов по символу за 24ч:
+  # после убыточного закрытия — максимум 1, после прибыльного — максимум 2.
+  max_trades_per_symbol_24h: 2
+  max_trades_per_symbol_after_loss_24h: 1
+  max_trades_per_symbol_after_win_24h: 2
   reduce_after_losses: 2
   reduction_factor: 0.30
-  min_loss_usdt_for_cooldown: 0.35
-  min_loss_usdt_for_consecutive: 0.15
-  ignore_loss_cooldown_reasons: ["early_exit", "exchange_closed"]
-  ignore_consecutive_loss_reasons: ["early_exit", "exchange_closed"]
+  min_loss_usdt_for_cooldown: 0.10
+  min_loss_usdt_for_consecutive: 0.10
+  # exchange_closed часто оказался реальным SL/ликвидацией позиции на бирже, поэтому больше не исключаем его из штрафов.
+  ignore_loss_cooldown_reasons: ["early_exit"]
+  ignore_consecutive_loss_reasons: ["early_exit"]
   symbol_loss_streak_cooldown_enabled: true
   symbol_loss_streak_threshold: 1
   symbol_loss_streak_limit: 1
@@ -482,10 +489,20 @@ profit_drawdown_guard:
 
 manual_management:
   rl_enabled: false
+  # Ручные позиции подхватываем, но не закрываем от шума сразу после усыновления.
+  allow_bot_close_manual: true
+  close_grace_minutes: 30
+  min_close_profit_pct: 0.80
+  min_close_r: 0.80
+  allow_trailing_exit: true
+  allow_tp_cap: true
+  allow_hard_sl_close: false
+  allow_partial_tp: false
+  allow_profit_drawdown_close: false
   preserve_existing_tp: true
-  trailing_activation_atr: 2.2
-  trailing_distance_atr: 2.8
-  trailing_min_distance_pct: 1.8
+  trailing_activation_atr: 3.0
+  trailing_distance_atr: 3.5
+  trailing_min_distance_pct: 2.2
   notify_on_adopt: true
   notify_on_partial_tp: true
   notify_on_sl_move: true
@@ -527,11 +544,11 @@ quality_gate:
   min_confidence: 0.80
   # Порог «сильного сигнала» для обходов chop / no_zone (должен совпадать с мин. входом).
   strong_signal_min_confidence: 0.80
-  strong_signal_min_smc: 0.80
-  min_expected_edge: 0.40
-  anti_flat_min_adx: 10.0
-  anti_flat_min_atr_pct: 0.06
-  anti_flat_min_abs_imbalance: 0.05
+  strong_signal_min_smc: 0.88
+  min_expected_edge: 0.56
+  anti_flat_min_adx: 14.0
+  anti_flat_min_atr_pct: 0.08
+  anti_flat_min_abs_imbalance: 0.07
   # true = режим chop не требует chop_bypass (иначе массово quality_gate_chop_regime)
   anti_flat_allow_chop: true
   chop_bypass_enabled: true
@@ -539,10 +556,10 @@ quality_gate:
   chop_bypass_min_abs_imbalance: 0.09
   chop_bypass_require_zone: false
   anti_flat_require_htf_trend: false
-  countertrend_min_confidence: 0.80
-  countertrend_min_abs_imbalance: 0.20
+  countertrend_min_confidence: 0.82
+  countertrend_min_abs_imbalance: 0.30
   no_zone_min_confidence: 0.80
-  reject_no_zone_entries: false
+  reject_no_zone_entries: true
 
 symbol_quality:
   # Off: feedback-based filter was blocking symbols with history (see rejects symbol_quality_low_quality).
