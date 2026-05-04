@@ -299,6 +299,7 @@ class TradingBot(
         )
         self._last_signal_ts: dict[tuple[str, str], float] = {}
         self.signal_feedback = SignalFeedbackLoop(_bd, self.cfg)
+        self.adaptive_recommendations = AdaptiveRecommendationEngine(_bd, self.cfg)
         # Connect signal_feedback to Telegram controller (must be after signal_feedback creation)
         if self.tg:
             self.tg.set_profit_lock(self.profit_lock)
