@@ -360,6 +360,14 @@ class TradingBotPositionLoopMixin:
                 should_exit, reason, details = self.exit_engine.check_ema_trend_exit(
                     pos, klines, ema_period=self.ema_exit_period
                 )
+                if should_exit and pos.origin == "manual":
+                    allowed, why = self._manual_exit_allowed(pos, current_price, reason)
+                    if not allowed:
+                        logger.info(
+                            f"[MANUAL SAFE] {symbol} EMA trend exit blocked: "
+                            f"{reason.value} — {why}. {details}"
+                        )
+                        should_exit = False
 
             if should_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)
