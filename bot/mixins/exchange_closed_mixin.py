@@ -48,6 +48,57 @@ class TradingBotExchangeClosedMixin:
         self._last_exchange_close_meta[symbol] = meta
 
 
+    @staticmethod
+    def _closed_record_exit_price(closed_records: list | None, fallback_price: float = 0.0) -> float:
+        """Best known real exchange exit price from Bybit closedPnl records."""
+        if closed_records:
+            record = closed_records[0] or {}
+            for key in ("avgExitPrice", "avgExit", "execPrice", "price", "avgPrice"):
+                raw = record.get(key)
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    return value
+        return float(fallback_price or 0.0)
+
+
+    @staticmethod
+    def _infer_exchange_closed_reason_from_levels(pos, exchange_exit_price: float, classified_reason: str) -> str:
+        """Fallback classifier when Bybit closedPnl lacks stopOrderType/closeType details.
+
+        In unified accounts Bybit may return closedPnl with empty stopOrderType even
+        when the exchange-side SL/TP closed the position. Compare the real exit with
+        tracked levels so risk cooldowns and reports see stop-loss/take-profit outcomes.
+        """
+        if classified_reason != "exchange_closed":
+            return classified_reason
+        if not pos or exchange_exit_price <= 0:
+            return classified_reason
+
+        levels: list[tuple[str, float]] = []
+        stop_loss = float(getattr(pos, "stop_loss", 0.0) or 0.0)
+        take_profit = float(getattr(pos, "take_profit", 0.0) or 0.0)
+        if stop_loss > 0:
+            levels.append(("exchange_closed_stop_loss", stop_loss))
+        if take_profit > 0:
+            levels.append(("exchange_closed_take_profit", take_profit))
+        if not levels:
+            return classified_reason
+
+        # Allow a small tolerance for tick rounding and mark/last-price trigger gaps.
+        tolerance = max(exchange_exit_price * 0.003, 1e-12)
+        nearest_reason = classified_reason
+        nearest_distance = float("inf")
+        for reason, level in levels:
+            distance = abs(exchange_exit_price - level)
+            if distance < nearest_distance:
+                nearest_distance = distance
+                nearest_reason = reason
+        return nearest_reason if nearest_distance <= tolerance else classified_reason
+
+
     def _pop_exchange_close_meta(self, symbol: str) -> dict:
         if not symbol:
             return {}

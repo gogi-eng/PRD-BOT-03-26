@@ -1,0 +1,716 @@
+{
+  "generated_at_utc": "2026-05-02T22:10:01.507565+00:00",
+  "repo_dir": "/root/PRD-SCALP",
+  "lookback_hours": 24.0,
+  "trades": {
+    "all_time": {
+      "trades": 222,
+      "pnl": -96.69,
+      "wins": 90,
+      "losses": 129,
+      "winrate": 40.54,
+      "avg_pnl": -0.4355
+    },
+    "last_24h_all": {
+      "trades": 13,
+      "pnl": 13.39,
+      "wins": 4,
+      "losses": 9,
+      "winrate": 30.77,
+      "avg_pnl": 1.03
+    },
+    "last_24h_bot": {
+      "trades": 8,
+      "pnl": -7.17,
+      "wins": 1,
+      "losses": 7,
+      "winrate": 12.5,
+      "avg_pnl": -0.8962
+    },
+    "bot_by_reason": [
+      {
+        "name": "trend_exit",
+        "trades": 3,
+        "pnl": -6.75,
+        "wins": 0,
+        "losses": 3,
+        "winrate": 0.0
+      },
+      {
+        "name": "early_exit",
+        "trades": 4,
+        "pnl": -0.55,
+        "wins": 0,
+        "losses": 4,
+        "winrate": 0.0
+      },
+      {
+        "name": "basket_symbol_fall",
+        "trades": 1,
+        "pnl": 0.13,
+        "wins": 1,
+        "losses": 0,
+        "winrate": 100.0
+      }
+    ],
+    "bot_by_symbol": [
+      {
+        "name": "PENGUUSDT",
+        "trades": 1,
+        "pnl": -3.51,
+        "wins": 0,
+        "losses": 1,
+        "winrate": 0.0
+      },
+      {
+        "name": "BIOUSDT",
+        "trades": 1,
+        "pnl": -2.06,
+        "wins": 0,
+        "losses": 1,
+        "winrate": 0.0
+      },
+      {
+        "name": "ORCAUSDT",
+        "trades": 1,
+        "pnl": -1.18,
+        "wins": 0,
+        "losses": 1,
+        "winrate": 0.0
+      },
+      {
+        "name": "ADAUSDT",
+        "trades": 1,
+        "pnl": -0.17,
+        "wins": 0,
+        "losses": 1,
+        "winrate": 0.0
+      },
+      {
+        "name": "SOLUSDT",
+        "trades": 1,
+        "pnl": -0.12,
+        "wins": 0,
+        "losses": 1,
+        "winrate": 0.0
+      },
+      {
+        "name": "BTCUSDT",
+        "trades": 1,
+        "pnl": -0.08,
+        "wins": 0,
+        "losses": 1,
+        "winrate": 0.0
+      },
+      {
+        "name": "XRPUSDT",
+        "trades": 2,
+        "pnl": -0.05,
+        "wins": 1,
+        "losses": 1,
+        "winrate": 50.0
+      }
+    ],
+    "bot_by_side": [
+      {
+        "name": "BUY",
+        "trades": 5,
+        "pnl": -5.69,
+        "wins": 1,
+        "losses": 4,
+        "winrate": 20.0
+      },
+      {
+        "name": "SELL",
+        "trades": 3,
+        "pnl": -1.48,
+        "wins": 0,
+        "losses": 3,
+        "winrate": 0.0
+      }
+    ],
+    "last_trades": [
+      {
+        "time": "2026-05-01T10:59:20.673864+00:00",
+        "symbol": "DOGEUSDT",
+        "side": "BUY",
+        "qty": 2594.0,
+        "entry": 0.10744,
+        "exit": 0.10826,
+        "pnl": 1.57,
+        "pnl_pct": 0.56,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "basket_total_drawdown",
+        "origin": "manual"
+      },
+      {
+        "time": "2026-05-01T10:59:21.583837+00:00",
+        "symbol": "BEATUSDT",
+        "side": "BUY",
+        "qty": 922.0,
+        "entry": 0.54209,
+        "exit": 0.5445,
+        "pnl": 1.22,
+        "pnl_pct": 0.24,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "basket_total_drawdown",
+        "origin": "manual"
+      },
+      {
+        "time": "2026-05-01T13:50:05.824524+00:00",
+        "symbol": "ORCAUSDT",
+        "side": "BUY",
+        "qty": 53.6,
+        "entry": 1.9392,
+        "exit": 2.0045,
+        "pnl": 3.55,
+        "pnl_pct": 3.42,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "manual",
+        "exchange_close_meta": {
+          "closedPnl": "3.55356296",
+          "avgEntryPrice": "1.9392",
+          "avgExitPrice": "2.0045",
+          "qty": "53.6",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777643306804",
+          "createdTime": "1777635690368"
+        }
+      },
+      {
+        "time": "2026-05-01T14:50:24.508671+00:00",
+        "symbol": "BRUSDT",
+        "side": "BUY",
+        "qty": 543.0,
+        "entry": 0.19409,
+        "exit": 0.1879,
+        "pnl": -3.57,
+        "pnl_pct": -3.39,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "trend_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-01T15:54:26.001958+00:00",
+        "symbol": "SOLUSDT",
+        "side": "SELL",
+        "qty": 1.2,
+        "entry": 83.92,
+        "exit": 84.54,
+        "pnl": -0.95,
+        "pnl_pct": -0.94,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "manual",
+        "exchange_close_meta": {
+          "closedPnl": "-0.946152",
+          "avgEntryPrice": "83.92",
+          "avgExitPrice": "84.54",
+          "qty": "1.2",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777649864170",
+          "createdTime": "1777636938355"
+        }
+      },
+      {
+        "time": "2026-05-01T17:33:40.702491+00:00",
+        "symbol": "ZECUSDT",
+        "side": "BUY",
+        "qty": 0.28,
+        "entry": 361.32,
+        "exit": 379.62,
+        "pnl": 4.98,
+        "pnl_pct": 4.92,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "bot",
+        "exchange_close_meta": {
+          "closedPnl": "4.98128534",
+          "avgEntryPrice": "361.32",
+          "avgExitPrice": "379.62",
+          "qty": "0.28",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777656150247",
+          "createdTime": "1777655670863"
+        }
+      },
+      {
+        "time": "2026-05-01T20:53:18.703735+00:00",
+        "symbol": "ADAUSDT",
+        "side": "BUY",
+        "qty": 416.0,
+        "entry": 0.2494,
+        "exit": 0.2479,
+        "pnl": -0.83,
+        "pnl_pct": -0.8,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "hard_sl",
+        "origin": "manual"
+      },
+      {
+        "time": "2026-05-01T23:09:42.256457+00:00",
+        "symbol": "DOGEUSDT",
+        "side": "BUY",
+        "qty": 956.0,
+        "entry": 0.10876,
+        "exit": 0.10783,
+        "pnl": -1.1,
+        "pnl_pct": -1.05,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "trend_exit",
+        "origin": "manual"
+      },
+      {
+        "time": "2026-05-01T23:34:15.174437+00:00",
+        "symbol": "SOLUSDT",
+        "side": "SELL",
+        "qty": 1.2,
+        "entry": 83.67,
+        "exit": 83.6,
+        "pnl": -0.12,
+        "pnl_pct": -0.12,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "early_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T01:39:23.268783+00:00",
+        "symbol": "APEUSDT",
+        "side": "BUY",
+        "qty": 620.8,
+        "entry": 0.17022,
+        "exit": 0.17556,
+        "pnl": 3.19,
+        "pnl_pct": 3.02,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "manual",
+        "exchange_close_meta": {
+          "closedPnl": "3.18922703",
+          "avgEntryPrice": "0.17022",
+          "avgExitPrice": "0.17556",
+          "qty": "620.8",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777685832895",
+          "createdTime": "1777657860661"
+        }
+      },
+      {
+        "time": "2026-05-02T01:46:33.828720+00:00",
+        "symbol": "XRPUSDT",
+        "side": "SELL",
+        "qty": 75.7,
+        "entry": 1.385,
+        "exit": 1.3846,
+        "pnl": -0.18,
+        "pnl_pct": -0.17,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "early_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T01:52:43.047073+00:00",
+        "symbol": "ORCAUSDT",
+        "side": "SELL",
+        "qty": 53.1,
+        "entry": 1.9876,
+        "exit": 2.0059,
+        "pnl": -1.18,
+        "pnl_pct": -1.12,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "trend_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T03:15:05.637455+00:00",
+        "symbol": "BIOUSDT",
+        "side": "BUY",
+        "qty": 2467.0,
+        "entry": 0.04283,
+        "exit": 0.04208,
+        "pnl": -2.06,
+        "pnl_pct": -1.95,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "trend_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T03:40:03.383071+00:00",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "qty": 0.001,
+        "entry": 78311.3,
+        "exit": 78392.4,
+        "pnl": -0.08,
+        "pnl_pct": -0.1,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "early_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T03:57:57.549013+00:00",
+        "symbol": "ADAUSDT",
+        "side": "BUY",
+        "qty": 426.0,
+        "entry": 0.248,
+        "exit": 0.2481,
+        "pnl": -0.17,
+        "pnl_pct": -0.16,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "early_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T12:06:56.676306+00:00",
+        "symbol": "TRUMPUSDT",
+        "side": "SELL",
+        "qty": 46.1,
+        "entry": 2.275,
+        "exit": 2.298,
+        "pnl": -1.26,
+        "pnl_pct": -1.2,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "manual",
+        "exchange_close_meta": {
+          "closedPnl": "-1.2581853",
+          "avgEntryPrice": "2.275",
+          "avgExitPrice": "2.298",
+          "qty": "46.1",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777723537898",
+          "createdTime": "1777692741936"
+        }
+      },
+      {
+        "time": "2026-05-02T15:32:58.370834+00:00",
+        "symbol": "UBUSDT",
+        "side": "BUY",
+        "qty": 3770.0,
+        "entry": 0.15918,
+        "exit": 0.16202755,
+        "pnl": 9.4,
+        "pnl_pct": 1.57,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "manual",
+        "exchange_close_meta": {
+          "closedPnl": "9.40325225",
+          "avgEntryPrice": "0.15918",
+          "avgExitPrice": "0.16202755",
+          "qty": "3770",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777735861026",
+          "createdTime": "1777731873449"
+        }
+      },
+      {
+        "time": "2026-05-02T16:36:36.186443+00:00",
+        "symbol": "XRPUSDT",
+        "side": "BUY",
+        "qty": 75.2,
+        "entry": 1.386,
+        "exit": 1.3905,
+        "pnl": 0.13,
+        "pnl_pct": 0.12,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "basket_symbol_fall",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T18:03:20.531491+00:00",
+        "symbol": "PENGUUSDT",
+        "side": "BUY",
+        "qty": 21500.0,
+        "entry": 0.0100405,
+        "exit": 0.009897,
+        "pnl": -3.51,
+        "pnl_pct": -1.63,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "trend_exit",
+        "origin": "bot"
+      },
+      {
+        "time": "2026-05-02T21:13:59.537152+00:00",
+        "symbol": "TAOUSDT",
+        "side": "BUY",
+        "qty": 0.768,
+        "entry": 272.875,
+        "exit": 286.82,
+        "pnl": 10.33,
+        "pnl_pct": 4.93,
+        "strategy": "ai_fund_entry_engine",
+        "reason": "exchange_closed",
+        "origin": "manual",
+        "exchange_close_meta": {
+          "closedPnl": "10.33033691",
+          "avgEntryPrice": "272.875",
+          "avgExitPrice": "286.82",
+          "qty": "0.768",
+          "execType": "Trade",
+          "stopOrderType": "",
+          "orderType": "Market",
+          "createType": "",
+          "closeType": "",
+          "orderFilter": "",
+          "orderLinkId": "",
+          "updatedTime": "1777756358437",
+          "createdTime": "1777750380362"
+        }
+      }
+    ]
+  },
+  "log": {
+    "scan_summaries_count": 22,
+    "signals_count": 1,
+    "reject_lines_count": 23,
+    "close_lines_count": 1,
+    "errors_count": 3,
+    "top_rejects": [
+      [
+        "blocked_utc_hour",
+        378
+      ],
+      [
+        "orderflow_direction_mismatch",
+        5
+      ],
+      [
+        "score_below_threshold",
+        3
+      ],
+      [
+        "already_in_position",
+        2
+      ],
+      [
+        "ema_trend_guard",
+        1
+      ],
+      [
+        "exhaustion_guard",
+        1
+      ],
+      [
+        "momentum_guard",
+        1
+      ],
+      [
+        "mtf_zone_missing",
+        1
+      ],
+      [
+        "risk_blocked_max_trades_for_trumpusdt:_1/1",
+        1
+      ],
+      [
+        "risk_blocked_symbol_streak_cooldown_penguusdt:_72093s",
+        1
+      ],
+      [
+        "smc_score_too_low",
+        1
+      ]
+    ],
+    "recent_scan_summaries": [
+      "21:52:22 [BOT] SCAN SUMMARY: symbols=18 candidates=0 rejects[blocked_utc_hour=18]",
+      "21:54:37 [BOT] SCAN SUMMARY: symbols=18 candidates=0 rejects[blocked_utc_hour=18]",
+      "21:56:53 [BOT] SCAN SUMMARY: symbols=18 candidates=0 rejects[blocked_utc_hour=18]",
+      "21:59:06 [BOT] SCAN SUMMARY: symbols=18 candidates=0 rejects[blocked_utc_hour=18]",
+      "22:01:53 [BOT] SCAN SUMMARY: symbols=18 candidates=1 rejects[already_in_position=2, ema_trend_guard (SELL but EMA20=386.70 > EMA50=384.01, diff=0.70%)=1, exhaustion_guard (7/7 max same-dir streak)=1, momentum_guard (BUY but momentum=-0.0016 (2.73%) over 5 bars, threshold=2.00%)=1, mtf_zone_missing=1, orderflow_direction_mismatch (BUY but imb=-0.138 < +0.055)=1, orderflow_direction_mismatch (BUY but imb=-0.251 < +0.055)=1, orderflow_direction_mismatch (BUY but imb=-0.294 < +0.055)=1, orderflow_direction_mismatch (BUY but imb=-0.361 < +0.055)=1, orderflow_direction_mismatch (BUY but imb=-0.623 < +0.055)=1, risk_blocked_max_trades_for_trumpusdt:_1/1=1, risk_blocked_symbol_streak_cooldown_penguusdt:_72093s=1, score_below_threshold (0.308 < 0.6)=1, score_below_threshold (0.478 < 0.6)=1, score_below_threshold (0.541 < 0.6)=1, smc_score_too_low (0.573 < 0.600)=1]"
+    ],
+    "recent_signals": [
+      "22:01:49 [BOT] SIGNAL SUIUSDT: BUY conf=84% smc=0.83 zone=fvg_bullish bos=none sweep=none 4H=BULL RR=3.0"
+    ],
+    "recent_closes": [
+      "21:13:59 [BOT] CLOSED TAOUSDT: pnl=$10.33 reason=exchange_closed"
+    ],
+    "recent_errors": [
+      "21:12:46 [BOT] [EXIT FAILED] TAOUSDT execute_close failed (1/3): reason=trailing_exit error=Position not found",
+      "21:13:23 [BOT] [EXIT FAILED] TAOUSDT execute_close failed (2/3): reason=trailing_exit error=Position not found",
+      "21:13:59 [BOT] [EXIT FAILED] TAOUSDT execute_close failed (3/3): reason=trailing_exit error=Position not found"
+    ],
+    "recent_adaptive_recommendations": [],
+    "open_position_trail_snapshot": [
+      {
+        "symbol": "SUIUSDT",
+        "r": -0.09,
+        "trail_active": "False",
+        "sl": 0.9157,
+        "raw": "22:07:59 [BOT] [TRAIL] SUIUSDT price=0.9284 entry=0.9296 best=0.9296 R=-0.09 trail_active=False trail_stop=0.0000 activation=0.9854 SL=0.9157 bars=60"
+      },
+      {
+        "symbol": "ETHUSDT",
+        "r": 2.81,
+        "trail_active": "False",
+        "sl": 2296.54,
+        "raw": "22:08:32 [BOT] [TRAIL] ETHUSDT price=2324.0000 entry=2303.7500 best=2337.6300 R=2.81 trail_active=False trail_stop=0.0000 activation=2441.9750 SL=2296.5400 bars=12720"
+      },
+      {
+        "symbol": "XRPUSDT",
+        "r": 0.62,
+        "trail_active": "False",
+        "sl": 1.387,
+        "raw": "22:08:33 [BOT] [TRAIL] XRPUSDT price=1.3930 entry=1.3907 best=1.3987 R=0.62 trail_active=False trail_stop=0.0000 activation=1.4741 SL=1.3870 bars=2760"
+      },
+      {
+        "symbol": "SUIUSDT",
+        "r": -0.08,
+        "trail_active": "False",
+        "sl": 0.9157,
+        "raw": "22:08:34 [BOT] [TRAIL] SUIUSDT price=0.9285 entry=0.9296 best=0.9296 R=-0.08 trail_active=False trail_stop=0.0000 activation=0.9854 SL=0.9157 bars=60"
+      },
+      {
+        "symbol": "ETHUSDT",
+        "r": 2.81,
+        "trail_active": "False",
+        "sl": 2296.54,
+        "raw": "22:09:06 [BOT] [TRAIL] ETHUSDT price=2324.0200 entry=2303.7500 best=2337.6300 R=2.81 trail_active=False trail_stop=0.0000 activation=2441.9750 SL=2296.5400 bars=12720"
+      },
+      {
+        "symbol": "XRPUSDT",
+        "r": 0.7,
+        "trail_active": "False",
+        "sl": 1.387,
+        "raw": "22:09:07 [BOT] [TRAIL] XRPUSDT price=1.3933 entry=1.3907 best=1.3987 R=0.70 trail_active=False trail_stop=0.0000 activation=1.4741 SL=1.3870 bars=2760"
+      },
+      {
+        "symbol": "SUIUSDT",
+        "r": -0.06,
+        "trail_active": "False",
+        "sl": 0.9157,
+        "raw": "22:09:09 [BOT] [TRAIL] SUIUSDT price=0.9287 entry=0.9296 best=0.9296 R=-0.06 trail_active=False trail_stop=0.0000 activation=0.9854 SL=0.9157 bars=60"
+      },
+      {
+        "symbol": "ETHUSDT",
+        "r": 2.97,
+        "trail_active": "False",
+        "sl": 2296.54,
+        "raw": "22:09:41 [BOT] [TRAIL] ETHUSDT price=2325.1300 entry=2303.7500 best=2337.6300 R=2.97 trail_active=False trail_stop=0.0000 activation=2441.9750 SL=2296.5400 bars=12720"
+      },
+      {
+        "symbol": "XRPUSDT",
+        "r": 0.7,
+        "trail_active": "False",
+        "sl": 1.387,
+        "raw": "22:09:42 [BOT] [TRAIL] XRPUSDT price=1.3933 entry=1.3907 best=1.3987 R=0.70 trail_active=False trail_stop=0.0000 activation=1.4741 SL=1.3870 bars=2760"
+      },
+      {
+        "symbol": "SUIUSDT",
+        "r": -0.06,
+        "trail_active": "False",
+        "sl": 0.9157,
+        "raw": "22:09:43 [BOT] [TRAIL] SUIUSDT price=0.9287 entry=0.9296 best=0.9296 R=-0.06 trail_active=False trail_stop=0.0000 activation=0.9854 SL=0.9157 bars=60"
+      }
+    ]
+  },
+  "config": {
+    "trading": {
+      "max_positions": 3,
+      "margin_total_pct": 4.0,
+      "risk_per_trade_pct": 0.35,
+      "blacklist_symbols": [
+        "WLFIUSDT",
+        "AZTECUSDT",
+        "MYXUSDT",
+        "ORDIUSDT",
+        "SOONUSDT",
+        "MOVRUSDT",
+        "MEGAUSDT",
+        "BLENDUSDT",
+        "XCNUSDT"
+      ]
+    },
+    "entry": {
+      "entry_threshold": 0.58,
+      "entry_threshold_soft": 0.56,
+      "min_orderflow_imbalance": 0.035,
+      "min_rr_ratio": 3.0,
+      "min_smc_score": 0.6,
+      "missing_bos_min_confidence": 0.72
+    },
+    "quality_gate": {
+      "enabled": true,
+      "min_confidence": 0.7,
+      "strong_signal_min_confidence": 0.76,
+      "strong_signal_min_smc": 0.86,
+      "min_expected_edge": 0.5,
+      "anti_flat_min_adx": 14.0,
+      "anti_flat_min_atr_pct": 0.08,
+      "anti_flat_min_abs_imbalance": 0.07,
+      "anti_flat_allow_chop": true,
+      "chop_bypass_enabled": true,
+      "chop_bypass_min_confidence": 0.72,
+      "chop_bypass_min_abs_imbalance": 0.12,
+      "chop_bypass_require_zone": true,
+      "anti_flat_require_htf_trend": false,
+      "countertrend_min_confidence": 0.78,
+      "countertrend_min_abs_imbalance": 0.25,
+      "no_zone_min_confidence": 0.74,
+      "reject_no_zone_entries": true
+    },
+    "risk": {
+      "max_daily_loss_usdt": 10,
+      "max_trades_per_day": 40,
+      "max_trades_per_symbol_24h": 2,
+      "max_trades_per_symbol_after_loss_24h": 1,
+      "max_trades_per_symbol_after_win_24h": 2,
+      "cooldown_after_stop_hours": 4
+    },
+    "adaptive_recommendations": {
+      "enabled": true,
+      "telegram_enabled": true,
+      "interval_sec": 900,
+      "repeat_unchanged_sec": 21600,
+      "lookback_hours": 24,
+      "bot_only": true,
+      "min_trades": 3,
+      "max_symbols": 6,
+      "trade_history_path": "trade_history.json",
+      "state_path": "adaptive_recommendations_state.json"
+    }
+  },
+  "recommendations": [
+    "Сохранить strict-mode: bot PnL отрицательный и winrate ниже 45%.",
+    "Главная проблема окна: trend_exit PnL=-6.75.",
+    "Проверить blacklist/cooldown для: PENGUUSDT, BIOUSDT, ORCAUSDT, ADAUSDT, SOLUSDT, BTCUSDT.",
+    "Основные отказы сканера: blocked_utc_hour=378, orderflow_direction_mismatch=5, score_below_threshold=3, already_in_position=2, ema_trend_guard=1."
+  ]
+}
