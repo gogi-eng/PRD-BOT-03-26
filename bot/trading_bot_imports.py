@@ -56,6 +56,7 @@ from core.main_refactor_helpers import (
 )
 from core.security import SecureStore
 from engine.ai_decision import AIDecisionEngine
+from engine.adaptive_recommendations import AdaptiveRecommendationEngine
 from engine.capital_allocator import MultiSymbolCapitalAllocator
 from engine.entry_engine import EntryEngine, EntrySignal
 from engine.execution_ai import ExecutionAI

@@ -120,6 +120,13 @@ class TradingBotLifecycleMixin:
             f"Symbol quality filter: {'ON' if self.symbol_quality_filter.enabled else 'OFF'}"
         )
         logger.info(
+            "Adaptive recommendations: "
+            f"{'ON' if self.adaptive_recommendations.enabled else 'OFF'} "
+            f"(window={self.adaptive_recommendations.lookback_hours:.0f}h, "
+            f"interval={self.adaptive_recommendations.interval_sec}s, "
+            f"auto_apply={'ON' if self.adaptive_recommendations.auto_apply_enabled else 'OFF'})"
+        )
+        logger.info(
             f"Local advisor: {'ON' if self.advisor.enabled else 'OFF'} "
             f"(mode={self.advisor.mode})"
         )
@@ -250,6 +257,9 @@ class TradingBotLifecycleMixin:
 
                     if self.signal_only and self.signal_feedback.enabled:
                         await self._process_signal_feedback_loop()
+
+                    await self.adaptive_recommendations.maybe_emit(self.tg)
+                    await self.adaptive_recommendations.maybe_apply_runtime_tuning(self, self.tg)
 
                     if not self.signal_only:
                         await self._maybe_session_flatten()

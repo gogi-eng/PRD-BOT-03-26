@@ -539,6 +539,33 @@ feedback_loop:
   augment_wins_factor: 2
   augment_noise_std: 0.03
 
+adaptive_recommendations:
+  enabled: true
+  telegram_enabled: true
+  interval_sec: 900
+  repeat_unchanged_sec: 21600
+  lookback_hours: 24
+  bot_only: true
+  min_trades: 3
+  max_symbols: 6
+  # Runtime auto-tuning: бот сам применяет защитные параметры в памяти процесса,
+  # но НЕ переписывает config.yaml. При плохой статистике ужесточает входы/выходы
+  # и снижает риск; при улучшении возвращается к базовым значениям конфига.
+  auto_apply_enabled: true
+  auto_apply_interval_sec: 900
+  auto_apply_min_trades: 6
+  auto_apply_notify: true
+  # Перед применением runtime-правок бот спрашивает OpenRouter AI.
+  # Если AI не одобрил или API недоступен — параметры не меняются.
+  ai_approval_enabled: true
+  # Можно указать несколько OpenRouter-моделей. Правки применятся только если все одобрят.
+  ai_approval_models: []
+  ai_approval_model: ""
+  ai_approval_timeout_sec: 25
+  ai_approval_min_confidence: 70
+  trade_history_path: "trade_history.json"
+  state_path: "adaptive_recommendations_state.json"
+
 quality_gate:
   enabled: true
   min_confidence: 0.80
