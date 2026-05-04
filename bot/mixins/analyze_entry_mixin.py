@@ -389,6 +389,14 @@ class TradingBotAnalyzeEntryMixin:
             "atr_pct": market.atr_pct,
         })
 
+        manual_match = self.manual_trade_learner.apply_to_signal(symbol, signal)
+        if manual_match:
+            logger.info(
+                f"[MANUAL LEARN] {symbol} {signal.side} boost "
+                f"score={manual_match.score:.2f} conf+={manual_match.confidence_boost:.2f}: "
+                f"{manual_match.reason}"
+            )
+
         # AI is MANDATORY — not advisory
         if self.ai_analyzer.enabled and self.controls.ai_enabled:
             ai_result = await self.ai_analyzer.analyze(symbol, self._build_ai_payload(current_price, market, signal))

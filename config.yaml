@@ -566,6 +566,26 @@ adaptive_recommendations:
   trade_history_path: "trade_history.json"
   state_path: "adaptive_recommendations_state.json"
 
+manual_trade_learning:
+  enabled: true
+  trade_history_path: "trade_history.json"
+  state_path: "manual_trade_learning_state.json"
+  # Учимся только на свежих прибыльных ручных сделках, чтобы старый рынок не портил текущую логику.
+  lookback_days: 30
+  min_manual_winners: 2
+  min_pnl_usdt: 0.5
+  min_pnl_pct: 0.4
+  # Совпадение с ручными победителями даёт небольшой бонус автосигналу,
+  # но не отменяет hard-gates, risk guard, SL/TP и AI-проверку.
+  min_match_score: 0.55
+  max_confidence_boost: 0.05
+  max_capital_score_mult: 1.10
+  symbol_weight: 0.45
+  side_weight: 0.25
+  hour_weight: 0.20
+  profit_weight: 0.10
+  cache_ttl_sec: 300
+
 quality_gate:
   enabled: true
   min_confidence: 0.80

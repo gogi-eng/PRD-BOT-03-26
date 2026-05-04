@@ -62,6 +62,7 @@ from engine.entry_engine import EntryEngine, EntrySignal
 from engine.execution_ai import ExecutionAI
 from engine.execution_engine import ExecutionEngine
 from engine.exit_engine import ExitEngine, ExitReason
+from engine.manual_trade_learner import ManualTradeLearner
 from engine.position_manager import Position, PositionManager
 from engine.risk_manager import RiskGuard
 from engine.rl_position_agent import RLAction, RLPositionAgent

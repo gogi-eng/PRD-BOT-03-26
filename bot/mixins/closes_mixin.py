@@ -28,6 +28,8 @@ class TradingBotClosesMixin:
             reason,
             origin=pos.origin,
             exchange_close_meta=close_meta,
+            entry_time=getattr(pos, "entry_time", None),
+            entry_context=getattr(pos, "entry_context", None),
         )
         logger.info(f"CLOSED {symbol}: pnl=${pnl:.2f} reason={reason}")
         if self.tg:
@@ -52,7 +54,18 @@ class TradingBotClosesMixin:
         self.controls.add_trade(pnl, symbol, pos.side, reason)
         if getattr(self, "meta_controller_enabled", False) or getattr(self, "rl_meta_enabled", False):
             self._meta_stack_update_pnl(pnl)
-        self._save_trade(symbol, pos.side, qty, pos.entry_price, exit_price, pnl, reason, origin=pos.origin)
+        self._save_trade(
+            symbol,
+            pos.side,
+            qty,
+            pos.entry_price,
+            exit_price,
+            pnl,
+            reason,
+            origin=pos.origin,
+            entry_time=getattr(pos, "entry_time", None),
+            entry_context=getattr(pos, "entry_context", None),
+        )
         self.position_manager.reduce(symbol, qty)
         logger.info(f"REDUCED {symbol}: qty={qty:.6f} pnl=${pnl:.2f} reason={reason}")
 
@@ -90,9 +103,12 @@ class TradingBotClosesMixin:
         reason: str,
         origin: str = "bot",
         exchange_close_meta: dict | None = None,
+        entry_time: datetime | None = None,
+        entry_context: dict | None = None,
     ):
+        close_time = datetime.now(timezone.utc)
         trade = {
-            "time": datetime.now(timezone.utc).isoformat(),
+            "time": close_time.isoformat(),
             "symbol": symbol,
             "side": side,
             "qty": qty,
@@ -104,6 +120,16 @@ class TradingBotClosesMixin:
             "reason": reason,
             "origin": origin,
         }
+        if entry_time:
+            try:
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                trade["entry_time"] = entry_time.astimezone(timezone.utc).isoformat()
+                trade["hold_minutes"] = round((close_time - entry_time.astimezone(timezone.utc)).total_seconds() / 60.0, 2)
+            except Exception:
+                pass
+        if isinstance(entry_context, dict) and entry_context:
+            trade["entry_context"] = entry_context
         if exchange_close_meta:
             trade["exchange_close_meta"] = exchange_close_meta
         history_path = resolve_bot_dir() / "trade_history.json"
