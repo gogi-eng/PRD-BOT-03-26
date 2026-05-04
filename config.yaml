@@ -111,7 +111,7 @@ scalp:
   impulse_retest_bypass_confidence: 0.90
   quality_gate_bypass_confidence: 0.90
   # LONG/субаккаунт: чуть мягче, чтобы чаще проходили кандидаты
-  quality_min_confidence: 0.78
+  quality_min_confidence: 0.76
   quality_min_expected_edge: 0.36
   mtf_single_tf_min_confidence: 0.78
 
@@ -153,7 +153,7 @@ entry:
   funding_tight_if_abs_24h_change_pct: 16.0
   max_funding_rate_for_mover: 0.009
   # Минимальный composite. Повышено после серии убыточных входов PRD-SCALP.
-  entry_threshold: 0.62
+  entry_threshold: 0.60
   # Мягкий пол: между soft и hard composite проходят в пайплайн (для BPR-ранжирования в цикле).
   entry_threshold_soft: 0.60
   # SELL за последнее окно дал 0% winrate, поэтому шорты проходят только при более сильном composite.
@@ -588,7 +588,7 @@ manual_trade_learning:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.80
+  min_confidence: 0.78
   # Порог «сильного сигнала» для обходов chop / no_zone (должен совпадать с мин. входом).
   strong_signal_min_confidence: 0.80
   strong_signal_min_smc: 0.88
