@@ -127,6 +127,13 @@ class TradingBotLifecycleMixin:
             f"auto_apply={'ON' if self.adaptive_recommendations.auto_apply_enabled else 'OFF'})"
         )
         logger.info(
+            "Manual trade learning: "
+            f"{'ON' if self.manual_trade_learner.enabled else 'OFF'} "
+            f"(lookback={self.manual_trade_learner.lookback_days:.0f}d, "
+            f"min_winners={self.manual_trade_learner.min_manual_winners}, "
+            f"max_conf_boost={self.manual_trade_learner.max_confidence_boost:.2f})"
+        )
+        logger.info(
             f"Local advisor: {'ON' if self.advisor.enabled else 'OFF'} "
             f"(mode={self.advisor.mode})"
         )

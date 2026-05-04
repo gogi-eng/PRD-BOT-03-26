@@ -61,6 +61,17 @@ class TradingBotSyncManualMixin:
 
         external_tp_locked = bool(take_profit > 0 and self.manual_preserve_existing_tp)
         stop_loss_for_tracking = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else 0.0
+        entry_time = datetime.now(timezone.utc)
+        raw_entry_ts = exchange_position.get("createdTime") or exchange_position.get("updatedTime")
+        try:
+            raw_entry_ts = float(raw_entry_ts or 0)
+            if raw_entry_ts > 0:
+                entry_time = datetime.fromtimestamp(
+                    raw_entry_ts / 1000.0 if raw_entry_ts > 1_000_000_000_000 else raw_entry_ts,
+                    tz=timezone.utc,
+                )
+        except Exception:
+            entry_time = datetime.now(timezone.utc)
         adopted = Position(
             symbol=symbol,
             side=side,
@@ -68,6 +79,7 @@ class TradingBotSyncManualMixin:
             qty=size,
             stop_loss=stop_loss_for_tracking,
             take_profit=take_profit,
+            entry_time=entry_time,
             unrealized_pnl=float(exchange_position.get("unrealisedPnl", 0) or 0),
             origin="manual",
             partial_tp_price=0.0 if external_tp_locked else self._compute_partial_tp_price(entry_price or mark_price, take_profit, side),
@@ -77,6 +89,18 @@ class TradingBotSyncManualMixin:
             external_tp_locked=external_tp_locked,
             last_notified_stop_loss=stop_loss_for_tracking,
         )
+        adopted.entry_context = {
+            "atr_pct": float(getattr(market, "atr_pct", 0.0) or 0.0),
+            "adx": float(getattr(market, "adx", 0.0) or 0.0),
+            "regime": str(getattr(getattr(market, "regime", None), "value", getattr(market, "regime", ""))).lower(),
+            "trend": str(getattr(getattr(market, "trend", None), "name", getattr(market, "trend", ""))).lower(),
+            "htf_trend": str(getattr(getattr(market, "htf_trend", None), "name", getattr(market, "htf_trend", ""))).lower(),
+            "normalized_imbalance": float(getattr(orderflow, "normalized_imbalance", 0.0) or 0.0),
+            "spread_pct": float(getattr(orderflow, "spread_pct", 0.0) or 0.0),
+            "entry_zone": str(getattr(zone_context.active_zone, "kind", "no_zone") if getattr(zone_context, "active_zone", None) else "no_zone"),
+            "target_level": float(getattr(liq_analysis, "target_level", 0.0) or 0.0),
+            "protective_liq_level": float(getattr(liq_analysis, "protective_level", 0.0) or 0.0),
+        }
         self.exit_engine.initialize_position(adopted, atr_val, protective_liq_level=0.0)
         self._apply_manual_trailing_profile(adopted, atr_val)
         self._apply_profit_drawdown_profile(adopted)

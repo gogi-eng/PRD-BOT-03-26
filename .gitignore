@@ -31,6 +31,8 @@ models/*.meta.json
 
 # Local data / dumps (large or sensitive)
 trade_history.json
+adaptive_recommendations_state.json
+manual_trade_learning_state.json
 signal_only_feedback_data.json
 training_data_merged.json
 PROJECT_DUMP.txt
