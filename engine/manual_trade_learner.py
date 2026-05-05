@@ -56,6 +56,12 @@ class ManualTradeLearner:
             cfg.get("manual_trade_learning", "max_capital_score_mult", default=1.10) or 1.10
         )
         self.cache_ttl_sec = max(30.0, float(cfg.get("manual_trade_learning", "cache_ttl_sec", default=300) or 300))
+        self.max_entry_age_days = max(
+            1.0, float(cfg.get("manual_trade_learning", "max_entry_age_days", default=7.0) or 7.0)
+        )
+        self.context_weight = max(
+            0.0, float(cfg.get("manual_trade_learning", "context_weight", default=0.20) or 0.20)
+        )
         self.timezone_offset = int(cfg.get("timezone_offset", default=3) or 3)
         self._last_load_ts = 0.0
         self._profiles: dict[str, Any] = {}
@@ -90,6 +96,54 @@ class ManualTradeLearner:
             logger.warning(f"[MANUAL LEARN] failed to read trade history: {exc}")
         return []
 
+    def _trusted_entry_time(self, row: dict[str, Any], close_time: datetime | None) -> datetime | None:
+        entry_time = self._parse_time(row.get("entry_time"))
+        if entry_time is None:
+            return close_time
+        if close_time is None:
+            return entry_time
+        age_days = (close_time - entry_time).total_seconds() / 86400.0
+        if age_days < 0 or age_days > self.max_entry_age_days:
+            return close_time
+        return entry_time
+
+    @staticmethod
+    def _bucket_float(value: Any, bands: list[tuple[float, str]], default: str = "") -> str:
+        try:
+            val = abs(float(value))
+        except (TypeError, ValueError):
+            return default
+        for limit, label in bands:
+            if val < limit:
+                return label
+        return bands[-1][1] if bands else default
+
+    def _context_keys_from_mapping(self, context: dict[str, Any]) -> list[str]:
+        keys: list[str] = []
+        for ctx_key in ("regime", "trend", "htf_trend", "entry_zone"):
+            ctx_val = str(context.get(ctx_key, "") or "").lower()
+            if ctx_val and ctx_val not in {"none", "unknown", "no_zone"}:
+                keys.append(f"{ctx_key}:{ctx_val}")
+        atr_bucket = self._bucket_float(
+            context.get("atr_pct"),
+            [(0.15, "atr_low"), (0.45, "atr_normal"), (1.5, "atr_high"), (999.0, "atr_extreme")],
+        )
+        if atr_bucket:
+            keys.append(f"atr_pct:{atr_bucket}")
+        adx_bucket = self._bucket_float(
+            context.get("adx"),
+            [(15.0, "adx_weak"), (25.0, "adx_ok"), (40.0, "adx_strong"), (999.0, "adx_extreme")],
+        )
+        if adx_bucket:
+            keys.append(f"adx:{adx_bucket}")
+        imbalance_bucket = self._bucket_float(
+            context.get("normalized_imbalance"),
+            [(0.08, "imb_weak"), (0.25, "imb_ok"), (0.55, "imb_strong"), (999.0, "imb_extreme")],
+        )
+        if imbalance_bucket:
+            keys.append(f"imbalance:{imbalance_bucket}")
+        return keys
+
     def _save_state(self) -> None:
         try:
             self.state_path.write_text(json.dumps(self._profiles, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -106,6 +160,7 @@ class ManualTradeLearner:
         rows = self._load_trades()
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.lookback_days)
         winners: list[dict[str, Any]] = []
+        stale_entry_times = 0
         for row in rows:
             if str(row.get("origin", "")).lower() != "manual":
                 continue
@@ -113,9 +168,17 @@ class ManualTradeLearner:
             pnl_pct = self._safe_float(row.get("pnl_pct"))
             if pnl < self.min_pnl_usdt and pnl_pct < self.min_pnl_pct:
                 continue
-            dt = self._parse_time(row.get("time"))
-            if dt is None or dt < cutoff:
+            close_dt = self._parse_time(row.get("time"))
+            if close_dt is None or close_dt < cutoff:
                 continue
+            trusted_dt = self._trusted_entry_time(row, close_dt)
+            raw_entry_dt = self._parse_time(row.get("entry_time"))
+            if raw_entry_dt is not None and trusted_dt == close_dt:
+                age_days = (close_dt - raw_entry_dt).total_seconds() / 86400.0
+                if age_days < 0 or age_days > self.max_entry_age_days:
+                    stale_entry_times += 1
+            row = dict(row)
+            row["_manual_learning_time"] = trusted_dt.isoformat() if trusted_dt else close_dt.isoformat()
             winners.append(row)
 
         by_symbol_side: dict[str, dict[str, Any]] = {}
@@ -135,7 +198,7 @@ class ManualTradeLearner:
                 item["symbols"][symbol] = int(item["symbols"].get(symbol, 0)) + 1
 
         for row in winners:
-            dt = self._parse_time(row.get("entry_time")) or self._parse_time(row.get("time"))
+            dt = self._parse_time(row.get("_manual_learning_time")) or self._parse_time(row.get("time"))
             if dt is None:
                 continue
             symbol = str(row.get("symbol", "")).upper()
@@ -147,15 +210,14 @@ class ManualTradeLearner:
             add(by_side, side, row, dt)
             add(by_hour, str(local_hour), row, dt)
             context = row.get("entry_context") if isinstance(row.get("entry_context"), dict) else {}
-            for ctx_key in ("regime", "trend", "htf_trend", "entry_zone"):
-                ctx_val = str(context.get(ctx_key, "") or "").lower()
-                if ctx_val and ctx_val not in {"none", "unknown"}:
-                    add(by_context, f"{ctx_key}:{ctx_val}", row, dt)
+            for context_key in self._context_keys_from_mapping(context):
+                add(by_context, context_key, row, dt)
 
         profiles = {
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "lookback_days": self.lookback_days,
             "manual_winners": len(winners),
+            "stale_entry_times_ignored": stale_entry_times,
             "by_symbol_side": by_symbol_side,
             "by_side": by_side,
             "by_hour": by_hour,
@@ -208,23 +270,16 @@ class ManualTradeLearner:
 
         context_hits: dict[str, Any] = {}
         meta = getattr(signal, "metadata", {}) if signal is not None else {}
-        context_budget = 0.10
-        context_keys = {
-            "regime": str(meta.get("regime", "") or "").lower(),
-            "trend": str(meta.get("trend", "") or "").lower(),
-            "htf_trend": str(meta.get("htf_trend", "") or "").lower(),
-            "entry_zone": str(meta.get("entry_zone", "") or "").lower(),
-        }
+        context_keys = self._context_keys_from_mapping(meta)
+        context_budget = self.context_weight
         per_context_weight = context_budget / max(1, len(context_keys))
-        for ctx_key, ctx_val in context_keys.items():
-            if not ctx_val or ctx_val in {"none", "unknown", "no_zone"}:
-                continue
-            ctx_profile = context_profiles.get(f"{ctx_key}:{ctx_val}", {})
+        for context_key in context_keys:
+            ctx_profile = context_profiles.get(context_key, {})
             ctx_n = int(ctx_profile.get("n", 0) or 0)
             if ctx_n <= 0:
                 continue
             score += per_context_weight * min(1.0, ctx_n / max(1, self.min_manual_winners))
-            context_hits[ctx_key] = {"value": ctx_val, "n": ctx_n}
+            context_hits[context_key] = {"n": ctx_n}
         if context_hits:
             reasons.append(f"context_hits={context_hits}")
 

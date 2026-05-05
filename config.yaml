@@ -280,6 +280,7 @@ exit:
   min_profit_before_trail_pct: 0.85
   sl_buffer_atr_mult: 0.5
   fee_rate: 0.001
+  # Trend-exit оставлен как наблюдатель: код логирует сигнал, но больше не закрывает bot-позицию напрямую.
   ema_trend_exit: true
   ema_exit_period: 20
   # v3 anti-whipsaw: сильнее игнорируем шум/микро-откаты перед trend_exit.
@@ -580,6 +581,8 @@ manual_trade_learning:
   min_match_score: 0.55
   max_confidence_boost: 0.05
   max_capital_score_mult: 1.10
+  max_entry_age_days: 7
+  context_weight: 0.20
   symbol_weight: 0.45
   side_weight: 0.25
   hour_weight: 0.20

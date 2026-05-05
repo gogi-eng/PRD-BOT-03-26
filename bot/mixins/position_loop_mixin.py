@@ -368,6 +368,12 @@ class TradingBotPositionLoopMixin:
                             f"{reason.value} — {why}. {details}"
                         )
                         should_exit = False
+                elif should_exit and pos.origin == "bot":
+                    logger.info(
+                        f"[TREND EXIT WATCH] {symbol} bot close suppressed: {reason.value}. "
+                        f"{details}"
+                    )
+                    should_exit = False
 
             if should_exit:
                 close_result = await self.execution_engine.execute_close(symbol, pos.side, reason=f"{reason.value}: {details}", position_idx=pos.position_idx)

@@ -61,17 +61,26 @@ class TradingBotSyncManualMixin:
 
         external_tp_locked = bool(take_profit > 0 and self.manual_preserve_existing_tp)
         stop_loss_for_tracking = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else 0.0
-        entry_time = datetime.now(timezone.utc)
+        adopted_at = datetime.now(timezone.utc)
+        entry_time = adopted_at
         raw_entry_ts = exchange_position.get("createdTime") or exchange_position.get("updatedTime")
         try:
             raw_entry_ts = float(raw_entry_ts or 0)
             if raw_entry_ts > 0:
-                entry_time = datetime.fromtimestamp(
+                parsed_entry_time = datetime.fromtimestamp(
                     raw_entry_ts / 1000.0 if raw_entry_ts > 1_000_000_000_000 else raw_entry_ts,
                     tz=timezone.utc,
                 )
+                age_days = (adopted_at - parsed_entry_time).total_seconds() / 86400.0
+                if 0 <= age_days <= 7:
+                    entry_time = parsed_entry_time
+                else:
+                    logger.info(
+                        f"[MANUAL SYNC] {symbol} ignored stale exchange entry_time "
+                        f"{parsed_entry_time.isoformat()} age_days={age_days:.1f}; using adoption time"
+                    )
         except Exception:
-            entry_time = datetime.now(timezone.utc)
+            entry_time = adopted_at
         adopted = Position(
             symbol=symbol,
             side=side,
@@ -90,6 +99,8 @@ class TradingBotSyncManualMixin:
             last_notified_stop_loss=stop_loss_for_tracking,
         )
         adopted.entry_context = {
+            "adopted_at": adopted_at.isoformat(),
+            "exchange_entry_time_raw": str(raw_entry_ts or ""),
             "atr_pct": float(getattr(market, "atr_pct", 0.0) or 0.0),
             "adx": float(getattr(market, "adx", 0.0) or 0.0),
             "regime": str(getattr(getattr(market, "regime", None), "value", getattr(market, "regime", ""))).lower(),
