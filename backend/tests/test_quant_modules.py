@@ -137,16 +137,16 @@ class TestOrderflowImbalance:
 class TestFeatureBuilder:
 
     def test_feature_count_increased(self):
-        """Feature vector should have 15 elements (14 original + normalized_imbalance)."""
+        """Feature vector includes orderflow + Open Interest tail (4)."""
         fe = FeatureEngineer(sequence_length=20)
         klines = [{"open": 100, "high": 101, "low": 99, "close": 100 + i * 0.1, "volume": 1000}
                   for i in range(30)]
         orderflow = OrderflowSnapshot(normalized_imbalance=0.3)
         liq = LiquidationAnalysis([], [], None, None, 50500, 1.0, "up", 1, 1.0)
         result = fe.build(klines, orderflow, liq, 1.0)
-        assert result.feature_count == 15
-        # Last element should be normalized_imbalance
-        assert result.latest_vector[-1] == 0.3
+        assert result.feature_count == 19
+        assert result.latest_vector[-5] == 0.3
+        assert result.latest_vector[-4:] == [0.0, 0.0, 0.0, 0.0]
 
     def test_empty_klines(self):
         fe = FeatureEngineer()

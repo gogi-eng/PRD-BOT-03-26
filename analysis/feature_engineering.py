@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+from analysis.open_interest import empty_oi_pack
 
 
 @dataclass
@@ -28,9 +30,36 @@ class FeatureEngineer:
         except (TypeError, ValueError):
             return default
 
-    def build(self, klines: List[Dict], orderflow, liq_analysis, atr_value: float) -> FeatureBatch:
+    def build(
+        self,
+        klines: List[Dict],
+        orderflow,
+        liq_analysis,
+        atr_value: float,
+        oi_pack: Optional[Dict[str, float]] = None,
+    ) -> FeatureBatch:
         if not klines:
             return FeatureBatch([], [], 0, 0, {})
+
+        oi_summary = dict(empty_oi_pack())
+        raw_oi = oi_pack if isinstance(oi_pack, dict) else {}
+        try:
+            oi_summary["oi_change_5m"] = float(raw_oi.get("oi_change_5m", 0.0) or 0.0)
+            oi_summary["oi_change_15m"] = float(raw_oi.get("oi_change_15m", 0.0) or 0.0)
+            oi_summary["oi_trend_strength"] = float(raw_oi.get("oi_trend_strength", 0.0) or 0.0)
+            oi_summary["oi_price_divergence"] = float(raw_oi.get("oi_price_divergence", 0.0) or 0.0)
+            oi_summary["oi_spike"] = float(raw_oi.get("oi_spike", 0.0) or 0.0)
+            oi_summary["price_change_5m"] = float(raw_oi.get("price_change_5m", 0.0) or 0.0)
+            oi_summary["available"] = float(raw_oi.get("available", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            oi_summary = dict(empty_oi_pack())
+
+        oi_vec_suffix = (
+            float(oi_summary["oi_change_5m"]),
+            float(oi_summary["oi_change_15m"]),
+            float(oi_summary["oi_trend_strength"]),
+            float(oi_summary["oi_price_divergence"]),
+        )
 
         window = klines[-self.sequence_length :]
         closes = [float(item["close"]) for item in window]
@@ -78,6 +107,10 @@ class FeatureEngineer:
                     dist_to_target,
                     liq_density / 1_000_000,
                     self._f(getattr(orderflow, "normalized_imbalance", 0.0)),
+                    oi_vec_suffix[0],
+                    oi_vec_suffix[1],
+                    oi_vec_suffix[2],
+                    oi_vec_suffix[3],
                 ]
             )
 
@@ -90,6 +123,11 @@ class FeatureEngineer:
             "avg_return": sum(item[0] for item in sequence[-16:]) / max(1, len(sequence[-16:])),
             "momentum": sum(item[1] for item in sequence[-8:]) / max(1, len(sequence[-8:])),
             "volatility": sum(item[3] for item in sequence[-14:]) / max(1, len(sequence[-14:])),
+            "oi_change_5m": oi_summary["oi_change_5m"],
+            "oi_change_15m": oi_summary["oi_change_15m"],
+            "oi_trend_strength": oi_summary["oi_trend_strength"],
+            "oi_price_divergence": oi_summary["oi_price_divergence"],
+            "oi_spike": oi_summary["oi_spike"],
         }
         return FeatureBatch(
             sequence=sequence,

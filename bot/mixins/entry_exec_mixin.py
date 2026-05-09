@@ -73,6 +73,14 @@ class TradingBotEntryExecMixin:
             margin_cap_pct=self.controls.margin_total_pct,
             size_mode=self.position_size_mode,
         )
+        try:
+            oi_sz = float(signal.metadata.get("oi_risk_size_mult", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            oi_sz = 1.0
+        oi_sz = max(0.25, min(oi_sz, 1.0))
+        if abs(oi_sz - 1.0) > 1e-6:
+            qty *= oi_sz
+            logger.info(f"[OI RISK] {symbol} size_mult={oi_sz:.3f} (open-interest spike × vol)")
         notional = qty * signal.entry_price
         margin_used = notional / max(1.0, float(leverage))
         margin_cap = balance * (float(self.controls.margin_total_pct) / 100.0) * max(0.2, float(capital_weight))

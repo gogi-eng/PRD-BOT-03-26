@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
+from analysis.open_interest import build_open_interest_pack
+
 class TradingBotAnalyzeEntryMixin:
     async def _analyze_symbol(self, symbol: str) -> EntrySignal:
         def reject(reason: str) -> EntrySignal:
@@ -89,6 +91,8 @@ class TradingBotAnalyzeEntryMixin:
                 "trend": market.trend.name.lower(),
                 "htf_trend": market.htf_trend.name.lower(),
                 "atr_pct": float(getattr(market, "atr_pct", 0.0) or 0.0),
+                "oi_risk_size_mult": 1.0,
+                "oi_available": 0.0,
             }
             return sig
 
@@ -174,21 +178,43 @@ class TradingBotAnalyzeEntryMixin:
         zone_context_4h = self.structure_zone_analyzer.analyze(htf_4h_klines, current_price)
 
         regime = self.regime_ai.classify(market)
-        features = self.feature_engineer.build(klines, orderflow, liq, atr_val)
-        transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
-        # Get funding + 24h change (single-symbol ticker; used for funding gate + mover cap).
+        # Single round-trip cluster: ticker (funding) + Open Interest histories (PUBLIC).
         funding_rate = 0.0
         abs_change_24h_dec = None
+        oi_hist_5: list = []
+        oi_hist_15: list = []
         try:
-            t = await self.client.get_ticker(symbol)
-            if t:
-                funding_rate = float(t.get("fundingRate", 0) or 0)
-                raw_pct = t.get("price24hPcnt")
+            ticker_task = self.client.get_ticker(symbol)
+            oi5_task = self.client.get_open_interest_history(symbol, "5min", 8)
+            oi15_task = self.client.get_open_interest_history(symbol, "15min", 8)
+            ticker_res, oi5_res, oi15_res = await asyncio.gather(
+                ticker_task, oi5_task, oi15_task, return_exceptions=True
+            )
+            if isinstance(ticker_res, dict):
+                funding_rate = float(ticker_res.get("fundingRate", 0) or 0)
+                raw_pct = ticker_res.get("price24hPcnt")
                 if raw_pct is not None and raw_pct != "":
                     abs_change_24h_dec = float(raw_pct)
-        except Exception:
-            pass
+            elif ticker_res is not None:
+                logger.warning("[OI] ticker fetch failed %s: %s", symbol, ticker_res)
+
+            if isinstance(oi5_res, list):
+                oi_hist_5 = oi5_res
+            elif oi5_res is not None:
+                logger.warning("[OI] open-interest 5m failed %s: %s", symbol, oi5_res)
+
+            if isinstance(oi15_res, list):
+                oi_hist_15 = oi15_res
+            elif oi15_res is not None:
+                logger.warning("[OI] open-interest 15m failed %s: %s", symbol, oi15_res)
+        except Exception as exc:
+            logger.warning("[OI] market extras bundle failed %s: %s", symbol, exc)
+
+        oi_pack = build_open_interest_pack(oi_hist_5, oi_hist_15, klines)
+
+        features = self.feature_engineer.build(klines, orderflow, liq, atr_val, oi_pack=oi_pack)
+        transformer = self.transformer_model.predict(features, regime, orderflow, liq)
 
         fail_funding, funding_reason = self.entry_engine.funding_pre_fails(
             funding_rate, abs_change_24h_dec
@@ -196,13 +222,39 @@ class TradingBotAnalyzeEntryMixin:
         if fail_funding:
             return reject(funding_reason)
 
+        if signal is not None:
+            signal.metadata["funding_rate"] = funding_rate
+
         if signal is None:
             signal = self.entry_engine.generate_signal(
                 symbol, klines, current_price, market, regime, transformer, orderflow, liq,
-                atr_val, zone_context=zone_context, structure=structure, funding_rate=funding_rate,
+                atr_val,
+                zone_context=zone_context,
+                structure=structure,
+                funding_rate=funding_rate,
                 htf_4h_trend=htf_4h_trend,
                 abs_change_24h_dec=abs_change_24h_dec,
+                oi_features=oi_pack,
             )
+
+        # SCALP fast-path skips generate_signal(): reuse the same trap / funding OI rails.
+        if signal is not None and signal.should_enter:
+            strat_mc = str(signal.metadata.get("strategy", "") or "").lower()
+            if strat_mc == "scalp_session":
+                atr_for_oi = float(signal.metadata.get("atr_pct", getattr(market, "atr_pct", 0.0)) or 0.0)
+                rej_scalp_oi, scalp_oi_rm, scalp_oi_extra = self.entry_engine.open_interest_scalp_gate(
+                    side_up=str(signal.side or ""),
+                    funding_rate=funding_rate,
+                    oi_features=oi_pack,
+                    market_atr_pct=atr_for_oi,
+                )
+                if rej_scalp_oi:
+                    return reject(rej_scalp_oi)
+                signal.metadata["oi_risk_size_mult"] = float(scalp_oi_rm or 1.0)
+                for ok, ov in (scalp_oi_extra or {}).items():
+                    if isinstance(ok, str) and isinstance(ov, (int, float)):
+                        signal.metadata[ok] = float(ov)
+
         if not signal.should_enter:
             signal.metadata.setdefault("reject_reason", "entry_filters")
             return signal
