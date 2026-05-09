@@ -22,7 +22,7 @@ import math
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 try:
     import torch
@@ -216,6 +216,24 @@ class EntryEngine:
             cfg.get("entry", "guard_confidence_bypass", default=0.82)
         )
 
+        # Open interest (derivatives positioning): confirms trends, filters squeezes/traps,
+        # and can shrink size when aggressive OI stacking meets high realized volatility.
+        self.oi_filter_enabled = bool(cfg.get("entry", "oi_filter_enabled", default=True))
+        self.oi_score_weight = float(cfg.get("entry", "oi_score_weight", default=0.2) or 0.0)
+        self.oi_spike_pct = float(cfg.get("entry", "oi_spike_pct", default=0.08) or 0.0)
+        self.oi_spike_bonus = float(cfg.get("entry", "oi_spike_bonus", default=0.35) or 0.0)
+        self.oi_trap_long_enabled = bool(cfg.get("entry", "oi_trap_long_enabled", default=True))
+        self.oi_trap_short_enabled = bool(cfg.get("entry", "oi_trap_short_enabled", default=True))
+        self.oi_min_price_move_frac = float(cfg.get("entry", "oi_min_price_move_frac", default=0.0006) or 0.0)
+        self.oi_neg_move_eps = float(cfg.get("entry", "oi_neg_move_eps", default=0.0) or 0.0)
+        self.oi_require_positive_for_long = bool(cfg.get("entry", "oi_require_positive_for_long", default=False))
+        self.oi_require_positive_for_short = bool(cfg.get("entry", "oi_require_positive_for_short", default=False))
+        self.oi_confirmation_min_frac = float(cfg.get("entry", "oi_confirmation_min_frac", default=0.02) or 0.0)
+        self.oi_require_funding_align = bool(cfg.get("entry", "oi_require_funding_align", default=False))
+        self.oi_strict_skip_negative = bool(cfg.get("entry", "oi_strict_skip_negative", default=False))
+        self.oi_high_volatility_atr_pct = float(cfg.get("entry", "oi_high_volatility_atr_pct", default=1.8) or 0.0)
+        self.oi_spike_size_mult = float(cfg.get("entry", "oi_spike_size_mult", default=0.55) or 0.0)
+
         if self.trained_model_enabled:
             self._load_trained_model()
 
@@ -367,13 +385,179 @@ class EntryEngine:
             return True, f"funding_rate_high ({fr:.6f} cap={float(cap):.6f})"
         return False, ""
 
+    def _open_interest_post_side(
+        self,
+        *,
+        is_long: bool,
+        composite: float,
+        funding_rate: float,
+        market_atr_pct: float,
+        oi_features: Optional[Dict],
+    ) -> Tuple[Optional[str], float, float, Dict[str, float]]:
+        """
+        Returns:
+            (reject_reason|None, composite_after_oi, risk_size_mult in (0, 1], telemetry dict)
+        """
+        if not self.oi_filter_enabled:
+            return None, float(composite), 1.0, {}
+
+        pack = oi_features if isinstance(oi_features, dict) else {}
+        try:
+            avail = float(pack.get("available", 0.0) or 0.0) >= 0.5
+        except (TypeError, ValueError):
+            avail = False
+        if not avail:
+            return None, float(composite), 1.0, {"oi_available": 0.0}
+
+        def _f(x: object, default: float = 0.0) -> float:
+            try:
+                return float(x)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return default
+
+        oc5 = _f(pack.get("oi_change_5m"))
+        oc15 = _f(pack.get("oi_change_15m"))
+        pr5 = _f(pack.get("price_change_5m"))
+        div = _f(pack.get("oi_price_divergence"))
+        tstr = _f(pack.get("oi_trend_strength"))
+        spike_flag = _f(pack.get("oi_spike")) >= 0.5 or abs(oc5) >= float(self.oi_spike_pct)
+
+        telem: Dict[str, float] = {
+            "oi_available": 1.0,
+            "oi_change_5m": float(oc5),
+            "oi_change_15m": float(oc15),
+            "oi_price_divergence": float(div),
+            "oi_trend_strength": float(tstr),
+            "oi_spike": 1.0 if spike_flag else 0.0,
+        }
+
+        pm = float(max(self.oi_min_price_move_frac, 0.0))
+        neg_eps = float(max(self.oi_neg_move_eps, 0.0))
+
+        # ---- Hard gates -------------------------------------------------
+        if self.oi_strict_skip_negative and oc5 < -neg_eps:
+            return "oi_strict_negative_bucket_change", float(composite), 1.0, telem
+
+        if self.oi_require_positive_for_long and is_long:
+            thr = float(max(self.oi_confirmation_min_frac, 0.0))
+            if oc5 + 1e-12 < thr:
+                return (
+                    f"oi_long_below_confirmation ({oc5:.4f} < {thr:.4f})",
+                    float(composite),
+                    1.0,
+                    telem,
+                )
+
+        if self.oi_require_positive_for_short and (not is_long):
+            thr = float(max(self.oi_confirmation_min_frac, 0.0))
+            if oc5 + 1e-12 < thr:
+                return (
+                    f"oi_short_below_confirmation ({oc5:.4f} < {thr:.4f})",
+                    float(composite),
+                    1.0,
+                    telem,
+                )
+
+        if self.oi_trap_long_enabled and is_long:
+            if pr5 > pm and oc5 < -neg_eps:
+                return (
+                    f"oi_trap_long_short_cover ({pr5:.5f}>{pm:.5f} but ΔOI5={oc5:.4f})",
+                    float(composite),
+                    1.0,
+                    telem,
+                )
+
+        if self.oi_trap_short_enabled and (not is_long):
+            if pr5 < -pm and oc5 < -neg_eps:
+                return (
+                    f"oi_trap_short_weak_trend ({pr5:.5f}<-{pm:.5f} and ΔOI5={oc5:.4f})",
+                    float(composite),
+                    1.0,
+                    telem,
+                )
+
+        if self.oi_require_funding_align:
+            try:
+                fr = float(funding_rate or 0.0)
+            except (TypeError, ValueError):
+                fr = 0.0
+            if is_long and fr <= 0:
+                return "oi_funding_not_long_aligned", float(composite), 1.0, telem
+            if (not is_long) and fr >= 0:
+                return "oi_funding_not_short_aligned", float(composite), 1.0, telem
+
+        # ---- Composite bump + risk multiplier ---------------------------
+        adj = composite
+        w = float(max(self.oi_score_weight, 0.0))
+        if w > 0:
+            aligned = math.tanh(oc5 * 22.0) * (1.15 + 0.35 * div)
+            s = aligned
+            if spike_flag:
+                spike_adj = abs(float(min(self.oi_spike_bonus, 1.0)))
+                sign = math.copysign(1.0, oc5 + 1e-12 if oc5 != 0 else aligned)
+                s = math.copysign(min(1.0, abs(float(s)) + spike_adj), sign)
+                s = max(-1.0, min(1.0, float(s)))
+
+            adj = float(composite) + w * float(s)
+            adj = float(min(1.0, max(0.0, adj)))
+            telem["oi_signal"] = float(round(s, 4))
+            telem["composite_delta_oi"] = float(round(adj - float(composite), 6))
+
+        size_mult = 1.0
+        atr_pct = float(max(market_atr_pct, 0.0))
+        vol_thr = float(max(self.oi_high_volatility_atr_pct, 0.0))
+        hi_vol = bool(vol_thr > 0.0 and atr_pct >= vol_thr)
+        spike_mult = float(self.oi_spike_size_mult)
+        if spike_flag and hi_vol:
+            spike_mult = max(0.1, min(1.0, spike_mult))
+            size_mult = min(size_mult, spike_mult)
+
+        return None, float(adj), float(size_mult), telem
+
+    def open_interest_scalp_gate(
+        self,
+        *,
+        side_up: str,
+        funding_rate: float,
+        oi_features: Optional[Dict],
+        market_atr_pct: float = 0.0,
+    ) -> Tuple[Optional[str], float, Dict[str, float]]:
+        """Scalp fast-path: same trap / strict / funding rails as discretionary entries.
+
+        Returns (reject_reason|None, oi_risk_size_mult, telemetry).
+        """
+        if not self.oi_filter_enabled:
+            return None, 1.0, {}
+        is_long = str(side_up or "").strip().upper() in {"BUY", "LONG"}
+        rej, _c, size_mult, extras = self._open_interest_post_side(
+            is_long=is_long,
+            composite=0.55,
+            funding_rate=funding_rate,
+            market_atr_pct=float(market_atr_pct or 0.0),
+            oi_features=oi_features,
+        )
+        if rej:
+            extras["reject_reason"] = rej
+            return rej, 1.0, extras
+        return None, float(size_mult), extras
+
     def generate_signal(
-        self, symbol: str, klines: List[Dict], current_price: float,
-        market_analysis, regime_prediction, transformer_prediction,
-        orderflow_snapshot, liq_analysis, atr_value: float = 0.0,
-        zone_context=None, structure=None, funding_rate: float = 0.0,
+        self,
+        symbol: str,
+        klines: List[Dict],
+        current_price: float,
+        market_analysis,
+        regime_prediction,
+        transformer_prediction,
+        orderflow_snapshot,
+        liq_analysis,
+        atr_value: float = 0.0,
+        zone_context=None,
+        structure=None,
+        funding_rate: float = 0.0,
         htf_4h_trend: int = 0,
         abs_change_24h_dec: float | None = None,
+        oi_features: Optional[Dict] = None,
     ) -> EntrySignal:
         signal = EntrySignal(entry_price=current_price)
 
@@ -618,6 +802,38 @@ class EntryEngine:
                 return signal
 
         side = "BUY" if is_long else "SELL"
+
+        oi_risk_mult = 1.0
+        oi_snap: Dict[str, float] = {}
+        rej_oi, composite, oi_risk_mult, oi_snap = self._open_interest_post_side(
+            is_long=is_long,
+            composite=composite,
+            funding_rate=funding_rate,
+            market_atr_pct=market_atr_pct,
+            oi_features=oi_features,
+        )
+        composite = round(float(composite), 4)
+        if rej_oi:
+            md_oi = {
+                "reject_reason": rej_oi,
+                "composite_score": composite,
+                "side": side,
+                "trend_score": round(trend_score, 3),
+                "orderflow_score": round(orderflow_score, 3),
+                "ai_score": round(ai_score, 3),
+                "oi_risk_size_mult": float(oi_risk_mult),
+            }
+            if oi_snap:
+                for k_oi, v_oi in oi_snap.items():
+                    if isinstance(v_oi, (int, float)) and isinstance(k_oi, str):
+                        md_oi[k_oi] = float(v_oi)
+            signal.metadata = md_oi
+            return signal
+
+        if oi_snap:
+            oc5_frac = float(oi_snap.get("oi_change_5m", 0.0))
+            spike_i = int(float(oi_snap.get("oi_spike", 0.0)) >= 0.5)
+            all_reasons.append(f"OIΔ5m={oc5_frac * 100.0:.2f}% spike={spike_i}")
 
         # Directional orderflow quality gate:
         # magnitude-only checks can still pass with opposite-signed imbalance.
@@ -1083,7 +1299,12 @@ class EntryEngine:
             "signal_grade": signal.grade,
             "entry_soft_pass": _soft_pass,
             "entry_soft_band": _soft_band,
+            "oi_risk_size_mult": float(oi_risk_mult),
         }
+        if oi_snap:
+            for _k, _v in oi_snap.items():
+                if isinstance(_k, str) and isinstance(_v, (int, float)):
+                    signal.metadata[_k] = float(_v)
 
         if self.require_sweep and not signal.metadata.get("has_sweep", False):
             signal.should_enter = False
