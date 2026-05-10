@@ -79,8 +79,33 @@ from bot.state import BasketProfitState
 _LOG_FMT = logging.Formatter("%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
 
 
+def _stderr_is_same_file_as(log_path: Path) -> bool:
+    """Detect systemd (or shell) redirect: stderr already opened on ``bot.log``.
+
+    If we also attach a FileHandler to the same path, every ``logger.info`` is written
+    twice into ``bot.log``. See ``scripts/systemd/trading_bot_scalp_log_append.conf.example``.
+    """
+    try:
+        if not hasattr(sys.stderr, "fileno"):
+            return False
+        fd = sys.stderr.fileno()
+        if fd < 0:
+            return False
+        if os.isatty(fd):
+            return False
+        err_st = os.fstat(fd)
+        log_st = os.stat(log_path)
+        return (err_st.st_dev, err_st.st_ino) == (log_st.st_dev, log_st.st_ino)
+    except OSError:
+        return False
+
+
 def _configure_logging() -> None:
-    """Console (systemd/journal) + ``bot.log`` in project root — same lines to both."""
+    """Stderr stream + optional ``bot.log`` file on the project root.
+
+    If stderr is already opened on ``bot.log`` (e.g. systemd ``StandardError=append:...``),
+    only the stream handler is used so lines are not written twice to the same file.
+    """
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     log_path = (resolve_bot_dir() / "bot.log").resolve()
@@ -105,7 +130,8 @@ def _configure_logging() -> None:
         sh = logging.StreamHandler(sys.stderr)
         sh.setFormatter(_LOG_FMT)
         root.addHandler(sh)
-    if not _has_bot_log_file():
+    # Avoid duplicate lines when stderr is already append-opened on bot.log (systemd drop-in).
+    if not _has_bot_log_file() and not _stderr_is_same_file_as(log_path):
         fh = logging.FileHandler(log_path, encoding="utf-8")
         fh.setFormatter(_LOG_FMT)
         root.addHandler(fh)
