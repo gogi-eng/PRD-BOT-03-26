@@ -1,0 +1,46 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Logs and runtime
+*.log
+bot.log
+reports/bot_watchdog.lock
+signal_feedback_queue.json
+
+# Model weights (large binaries)
+models/*.pkl
+models/*.meta.json
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# Local data / dumps (large or sensitive)
+trade_history.json
+adaptive_recommendations_state.json
+manual_trade_learning_state.json
+signal_only_feedback_data.json
+training_data_merged.json
+PROJECT_DUMP.txt
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*.log
