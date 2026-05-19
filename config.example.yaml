@@ -1,0 +1,62 @@
+# Скопируйте: copy config.example.yaml config.yaml
+# Ключи можно также задать в .env (BYBIT_*, TELEGRAM_*, TESTNET=true)
+
+bybit:
+  api_key: ""
+  api_secret: ""
+  testnet: false         # Боевая торговля (минимальный депозит). Testnet: true
+  category: linear
+
+telegram:
+  bot_token: ""
+  chat_id: ""            # личный чат для уведомлений и кнопок
+  channel_id: ""         # канал для bi-hourly (может = chat_id)
+  allowed_user_ids: []   # пусто = все; иначе список user id
+
+trading:
+  symbols: ["BTCUSDT", "ETHUSDT"]
+  leverage: 5
+  risk_pct_per_trade: 0.5
+  max_positions: 3
+  min_signal_confidence: 0.62
+  loop_interval_sec: 60
+
+risk:
+  max_daily_loss_pct: 5.0
+  max_daily_loss_usdt: 50.0
+  max_consecutive_losses: 4
+  max_trades_per_day: 20
+  cooldown_after_loss_sec: 300
+  cooldown_after_stop_hours: 2
+
+signals:
+  own_agents_enabled: true
+  telegram_inbox_enabled: true
+  # Файл, куда пишет scripts/telegram_signal_agent.py (если запущен отдельно)
+  telegram_signals_jsonl: "reports/telegram_signals/signals.jsonl"
+  whale_news_enabled: true
+
+whale_news:
+  rss_urls:
+    - "https://feeds.feedburner.com/CoinDesk"
+    - "https://cointelegraph.com/rss"
+  liquidation_usd_threshold: 500000
+  oi_change_pct_threshold: 3.0
+  news_keywords_bull: ["etf approved", "rate cut", "institutional", "partnership", "upgrade"]
+  news_keywords_bear: ["hack", "exploit", "ban", "lawsuit", "sec", "crash", "liquidation"]
+
+reporter:
+  interval_hours: 2
+  high_confidence_threshold: 0.75
+
+self_improvement:
+  enabled: true
+  auto_apply_low_risk: true
+  require_approval_critical: true
+  sandbox_dir: "data/sandbox"
+  git_auto_commit: false
+  reload_config_after_apply: true
+
+global_analysis:
+  enabled: true
+  interval_hours: 6

@@ -1,0 +1,128 @@
+"""
+Адаптер Bybit: локальный exchange.bybit_client из корня проекта (без внешнего клона).
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+def _import_local_client(root: Path):
+    root_s = str(root.resolve())
+    if root_s not in sys.path:
+        sys.path.insert(0, root_s)
+    try:
+        from exchange.bybit_client import BybitClient  # type: ignore
+
+        return BybitClient
+    except ImportError:
+        return None
+
+
+class BybitAdapter:
+    """Единая точка доступа к Bybit API."""
+
+    def __init__(self, cfg: Dict[str, Any]):
+        b = cfg.get("bybit", {})
+        root = Path(cfg["_root"])
+        ClientCls = _import_local_client(root)
+        self._use_prd = ClientCls is not None
+        if self._use_prd:
+            self._client = ClientCls(
+                api_key=b["api_key"],
+                api_secret=b["api_secret"],
+                testnet=bool(b.get("testnet", False)),
+                category=b.get("category", "linear"),
+            )
+        else:
+            from prd_agent.exchange.simple_bybit import SimpleBybitClient
+
+            self._client = SimpleBybitClient(
+                api_key=b["api_key"],
+                api_secret=b["api_secret"],
+                testnet=bool(b.get("testnet", False)),
+            )
+
+    async def close(self) -> None:
+        if hasattr(self._client, "close"):
+            await self._client.close()
+
+    async def get_balance(self) -> float:
+        return float(await self._client.get_balance())
+
+    async def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
+        return list(await self._client.get_positions(symbol))
+
+    async def get_price(self, symbol: str) -> float:
+        return float(await self._client.get_price(symbol))
+
+    async def get_klines(self, symbol: str, interval: str = "15", limit: int = 200):
+        if hasattr(self._client, "get_klines"):
+            return await self._client.get_klines(symbol, interval=interval, limit=limit)
+        return []
+
+    async def set_liquidation_symbols(self, symbols: List[str]) -> None:
+        if hasattr(self._client, "set_liquidation_symbols"):
+            await self._client.set_liquidation_symbols(symbols)
+
+    async def get_recent_liquidations(self, symbol: str, limit: int = 20) -> List[Dict]:
+        if hasattr(self._client, "get_liquidation_events"):
+            return list(self._client.get_liquidation_events(symbol, limit=limit))
+        return []
+
+    async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
+        if hasattr(self._client, "get_funding_rate"):
+            return await self._client.get_funding_rate(symbol)
+        return None
+
+    async def get_open_interest_history(self, symbol: str, interval: str = "1h", limit: int = 25):
+        if hasattr(self._client, "get_open_interest_history"):
+            return await self._client.get_open_interest_history(symbol, interval=interval, limit=limit)
+        return []
+
+    async def place_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ) -> Dict:
+        return await self._client.place_order(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+
+    async def get_closed_pnl_page(
+        self,
+        *,
+        symbol: Optional[str] = None,
+        start_time_ms: Optional[int] = None,
+        end_time_ms: Optional[int] = None,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+    ):
+        if hasattr(self._client, "get_closed_pnl_page"):
+            return await self._client.get_closed_pnl_page(
+                symbol=symbol,
+                start_time_ms=start_time_ms,
+                end_time_ms=end_time_ms,
+                cursor=cursor,
+                limit=limit,
+            )
+        rows = await self._client.get_closed_pnl(symbol=symbol, limit=limit) if hasattr(
+            self._client, "get_closed_pnl"
+        ) else []
+        return rows, ""
+
+    @property
+    def uses_prd_client(self) -> bool:
+        return self._use_prd
+
+    @property
+    def is_testnet(self) -> bool:
+        return bool(getattr(self._client, "base_url", "").find("testnet") >= 0)
