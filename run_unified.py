@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
 import sys
 from pathlib import Path
 
@@ -28,13 +29,30 @@ async def async_main() -> None:
     cfg = load_config(ROOT / "config.yaml")
     orch = UnifiedOrchestrator(cfg)
     tg = ControlBot(cfg, orch)
+
+    loop = asyncio.get_running_loop()
+    shutdown = asyncio.Event()
+
+    def _request_shutdown() -> None:
+        shutdown.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, _request_shutdown)
+        except NotImplementedError:
+            pass
+
+    poll_task = asyncio.create_task(tg.run_polling())
     try:
-        await tg.run_polling()
-    except KeyboardInterrupt:
-        pass
+        await shutdown.wait()
     finally:
         orch.stop()
         await tg.stop()
+        poll_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
         await orch.close()
 
 
