@@ -3,6 +3,7 @@ Telegram-управление кнопками (python-telegram-bot).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -72,8 +73,6 @@ class ControlBot:
     async def _handle_action(self, action: str) -> str:
         if action == "start":
             if not self.orch._running:
-                import asyncio
-
                 asyncio.create_task(self.orch.start())
             return "Торговый цикл запущен."
         if action == "stop":
@@ -117,8 +116,13 @@ class ControlBot:
         self.app.add_handler(CommandHandler("panel", self.cmd_start))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         logger.info("Telegram control bot polling...")
-        await self.app.run_polling()
+        self._stop = asyncio.Event()
+        async with self.app:
+            await self.app.start()
+            await self.app.updater.start_polling(drop_pending_updates=True)
+            await self._stop.wait()
 
     async def stop(self) -> None:
-        if self.app:
-            await self.app.shutdown()
+        stop = getattr(self, "_stop", None)
+        if stop and not stop.is_set():
+            stop.set()
