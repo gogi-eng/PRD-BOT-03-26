@@ -51,11 +51,14 @@ async def async_main() -> None:
     finally:
         orch.stop()
         await tg.stop()
-        poll_task.cancel()
+        if not poll_task.done():
+            poll_task.cancel()
         try:
             await poll_task
         except asyncio.CancelledError:
             pass
+        except Exception as exc:
+            logging.getLogger("prd_agent").warning("poll_task end: %s", exc)
         await orch.close()
 
 
