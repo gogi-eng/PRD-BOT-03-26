@@ -71,6 +71,21 @@ class SignalRouter:
         )
         self._init_own_agents()
 
+    @staticmethod
+    def _own_agent_confidence(score: float, outputs: List[Dict[str, Any]]) -> float:
+        """Уверенность по согласным агентам (не равна abs(score), иначе всё отсекается порогом 0.62)."""
+        if not outputs:
+            return min(0.95, abs(score))
+        bullish = score > 0
+        agreeing = [
+            o for o in outputs
+            if (float(o.get("signal", 0)) > 0) == bullish and abs(float(o.get("signal", 0))) >= 0.05
+        ]
+        pool = agreeing if len(agreeing) >= 2 else outputs
+        confs = [float(o.get("confidence", 0)) for o in pool]
+        avg_conf = sum(confs) / len(confs) if confs else abs(score)
+        return min(0.95, max(abs(score), avg_conf))
+
     def _init_own_agents(self) -> None:
         if not self.cfg.get("signals", {}).get("own_agents_enabled", True):
             return
@@ -104,7 +119,7 @@ class SignalRouter:
             if abs(score) < 0.12:
                 continue
             side = "Buy" if score > 0 else "Sell"
-            conf = min(0.95, abs(score))
+            conf = self._own_agent_confidence(score, outputs)
             if conf < self._min_conf:
                 continue
             price = await exchange.get_price(sym)

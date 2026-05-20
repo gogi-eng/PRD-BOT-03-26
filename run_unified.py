@@ -43,6 +43,9 @@ async def async_main() -> None:
             pass
 
     poll_task = asyncio.create_task(tg.run_polling())
+    if cfg.get("trading", {}).get("auto_start", True):
+        asyncio.create_task(orch.start())
+        logging.getLogger("prd_agent").info("Торговый цикл запущен автоматически (trading.auto_start=true)")
     try:
         await shutdown.wait()
     finally:

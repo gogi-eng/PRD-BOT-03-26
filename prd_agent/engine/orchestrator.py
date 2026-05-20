@@ -15,6 +15,7 @@ from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
+from prd_agent.exchange.order_prep import prepare_market_order
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.guard import RiskGuard
 from prd_agent.signals.router import SignalRouter, UnifiedSignal
@@ -170,6 +171,19 @@ class UnifiedOrchestrator:
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
             await self.notifier.signal_skipped(sig.symbol, sig.side, "размер позиции = 0")
+            return
+
+        qty, sl, tp, prep_err = await prepare_market_order(
+            self.exchange._client,
+            symbol=sig.symbol,
+            leverage=self.leverage,
+            qty=qty,
+            stop_loss=sl,
+            take_profit=tp,
+        )
+        if prep_err:
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
+            await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
             return
 
         result = await self.exchange.place_order(
