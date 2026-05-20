@@ -107,6 +107,24 @@ class ControlBot:
             return "Отчёт отправлен в канал."
         return "Неизвестная команда."
 
+    async def _shutdown_app(self) -> None:
+        app = self.app
+        if not app:
+            return
+        try:
+            if getattr(app.updater, "running", False):
+                await app.updater.stop()
+        except Exception as exc:
+            logger.warning("TG updater stop: %s", exc)
+        try:
+            await app.stop()
+        except Exception as exc:
+            logger.warning("TG app stop: %s", exc)
+        try:
+            await app.shutdown()
+        except Exception as exc:
+            logger.warning("TG shutdown: %s", exc)
+
     async def run_polling(self) -> None:
         if not self.token:
             logger.warning("Telegram bot_token не задан")
@@ -117,12 +135,18 @@ class ControlBot:
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         logger.info("Telegram control bot polling...")
         self._stop = asyncio.Event()
-        async with self.app:
+        try:
+            await self.app.initialize()
             await self.app.start()
             await self.app.updater.start_polling(drop_pending_updates=True)
             await self._stop.wait()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await self._shutdown_app()
 
     async def stop(self) -> None:
         stop = getattr(self, "_stop", None)
         if stop and not stop.is_set():
             stop.set()
+        await self._shutdown_app()
