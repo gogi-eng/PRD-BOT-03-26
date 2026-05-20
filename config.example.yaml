@@ -12,6 +12,8 @@ telegram:
   chat_id: ""            # личный чат для уведомлений и кнопок
   channel_id: ""         # канал для bi-hourly (может = chat_id)
   allowed_user_ids: []   # пусто = все; иначе список user id
+  # false — если тот же токен уже у ScalpBot/другого процесса (убирает 409 Conflict)
+  control_polling_enabled: true
 
 trading:
   symbols: ["BTCUSDT", "ETHUSDT"]
