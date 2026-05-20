@@ -31,7 +31,9 @@ async def main() -> int:
         print("ПРОБЛЕМА: баланс 0 — сделки не откроются (qty=0).")
 
     syms = cfg.get("trading", {}).get("symbols", ["BTCUSDT"])
-    min_conf = float(cfg.get("trading", {}).get("min_signal_confidence", 0.62))
+    tcfg = cfg.get("trading", {})
+    min_conf = float(tcfg.get("min_signal_confidence", 0.62))
+    min_own = float(tcfg.get("min_own_agent_confidence", getattr(router, "_min_own_conf", 0.28)))
 
     if router._multi_agent:
         import pandas as pd
@@ -45,9 +47,10 @@ async def main() -> int:
             outs = router._multi_agent.get_signals(df)
             score = router._multi_agent.aggregate(outs)
             conf = router._own_agent_confidence(score, outs)
+            ok = conf >= min_own and abs(score) >= 0.12
             print(
                 f"{sym}: score={score:+.3f} conf={conf:.3f} "
-                f"(порог {min_conf}) -> {'ПРОЙДЁТ' if conf >= min_conf and abs(score) >= 0.12 else 'ОТСЕЧЁТ'}"
+                f"(порог агентов {min_own}) -> {'ПРОЙДЁТ' if ok else 'ОТСЕЧЁТ'}"
             )
 
     sigs = await router.collect_all(ex, syms)
@@ -69,7 +72,8 @@ async def main() -> int:
         )
         print(f"Пример ордера {s.symbol} {s.side}: qty_raw={qty:.6f} qty_ready={qty2} err={err or 'OK'}")
 
-    print(f"auto_start в config: {cfg.get('trading', {}).get('auto_start', False)}")
+    print(f"Пороги: агенты={min_own}, telegram/гибрид={min_conf}")
+    print(f"auto_start в config: {tcfg.get('auto_start', False)}")
     await ex.close()
     return 0
 

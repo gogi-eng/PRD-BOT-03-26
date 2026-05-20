@@ -61,7 +61,9 @@ class SignalRouter:
         self.store_dir = store_dir
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self._queue_file = self.store_dir / "signal_queue.jsonl"
-        self._min_conf = float(cfg.get("trading", {}).get("min_signal_confidence", 0.62))
+        t = cfg.get("trading", {})
+        self._min_conf = float(t.get("min_signal_confidence", 0.62))
+        self._min_own_conf = float(t.get("min_own_agent_confidence", 0.28))
         self._multi_agent = None
         self._whale = WhaleNewsAgent(cfg) if cfg.get("signals", {}).get("whale_news_enabled", True) else None
         self._tg_inbox = (
@@ -120,7 +122,7 @@ class SignalRouter:
                 continue
             side = "Buy" if score > 0 else "Sell"
             conf = self._own_agent_confidence(score, outputs)
-            if conf < self._min_conf:
+            if conf < self._min_own_conf:
                 continue
             price = await exchange.get_price(sym)
             atr_pct = 0.005
@@ -224,7 +226,12 @@ class SignalRouter:
             if w_sum <= 0:
                 continue
             conf = c_sum / w_sum
-            if conf < self._min_conf:
+            min_need = (
+                self._min_own_conf
+                if sources and all(s == "own_multi_agent" for s in sources)
+                else self._min_conf
+            )
+            if conf < min_need:
                 continue
             merged.append(
                 UnifiedSignal(
