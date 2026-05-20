@@ -20,6 +20,7 @@ trading:
   max_positions: 3
   min_signal_confidence: 0.62
   loop_interval_sec: 60
+  auto_start: true   # старт торговли сразу при запуске run_unified.py
 
 risk:
   max_daily_loss_pct: 5.0
