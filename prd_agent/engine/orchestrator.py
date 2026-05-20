@@ -126,6 +126,12 @@ class UnifiedOrchestrator:
         await self._sync_closed_pnl_to_risk()
 
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
+        if all_signals:
+            logger.info(
+                "Cycle: %d signal(s), open positions=%d",
+                len(all_signals),
+                len(positions),
+            )
         for sig in all_signals:
             entry = self.ledger.record(
                 symbol=sig.symbol,
@@ -155,6 +161,7 @@ class UnifiedOrchestrator:
     async def _maybe_execute(self, sig: UnifiedSignal, ledger_id: str) -> None:
         ok, reason = self.risk.can_trade(sig.symbol)
         if not ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
@@ -195,11 +202,13 @@ class UnifiedOrchestrator:
         )
         if result.get("success"):
             oid = str(result.get("orderId", ""))
+            logger.info("Order OK %s %s qty=%.6f id=%s", sig.symbol, sig.side, qty, oid)
             self.ledger.update_status(ledger_id, SignalStatus.EXECUTED, "ok", order_id=oid)
             self.monitor.record_execution(sig.symbol, sig.side, qty, sig.source, oid)
             await self.notifier.order_placed(sig.symbol, sig.side, qty, oid)
         else:
             err = str(result.get("error", "unknown"))
+            logger.warning("Order FAIL %s %s: %s", sig.symbol, sig.side, err)
             self.ledger.update_status(ledger_id, SignalStatus.REJECTED, err)
             await self.notifier.order_failed(sig.symbol, err)
 
