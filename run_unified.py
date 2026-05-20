@@ -42,23 +42,33 @@ async def async_main() -> None:
         except NotImplementedError:
             pass
 
-    poll_task = asyncio.create_task(tg.run_polling())
+    log = logging.getLogger("prd_agent")
+    tg_poll = bool(cfg.get("telegram", {}).get("control_polling_enabled", True))
+    poll_task = None
+    if tg_poll:
+        poll_task = asyncio.create_task(tg.run_polling())
+    else:
+        log.info(
+            "Telegram polling кнопок отключён (control_polling_enabled=false). "
+            "Торговля и уведомления работают."
+        )
     if cfg.get("trading", {}).get("auto_start", True):
         asyncio.create_task(orch.start())
-        logging.getLogger("prd_agent").info("Торговый цикл запущен автоматически (trading.auto_start=true)")
+        log.info("Торговый цикл запущен автоматически (trading.auto_start=true)")
     try:
         await shutdown.wait()
     finally:
         orch.stop()
-        await tg.stop()
-        if not poll_task.done():
-            poll_task.cancel()
-        try:
-            await poll_task
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            logging.getLogger("prd_agent").warning("poll_task end: %s", exc)
+        if poll_task:
+            await tg.stop()
+            if not poll_task.done():
+                poll_task.cancel()
+            try:
+                await poll_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                log.warning("poll_task end: %s", exc)
         await orch.close()
 
 
