@@ -30,7 +30,7 @@ trading:
     - USDE
   leverage: 5
   risk_pct_per_trade: 0.5
-  max_positions: 3
+  max_positions: 4
   min_signal_confidence: 0.62   # Telegram / киты / гибрид
   min_own_agent_confidence: 0.28  # только собственные агенты (ниже порог)
   loop_interval_sec: 60

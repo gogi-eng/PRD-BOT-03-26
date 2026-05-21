@@ -11,7 +11,17 @@ telegram_signal_agent:
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   session_name: telegram_user_signal_agent
-  allowed_chats: []
+  # Пустой [] = слушать ВСЕ подписки (263+ канала — шум). Укажите только рабочие сигнальные каналы:
+  allowed_chats:
+    - "FibTrader | Крипта, Сигналы, Копитрейдинг"
+    - "INVEX GROUP"
+    - "Евгений Ковалёв | NextGen"
+    - "Binance Killers®"
+    - "Crypto Inner Circle®"
+    - "Cornix Trading Signals (free)"
+    - "Fed. Russian Insiders®"
+    - "Wallstreet Queen Official®"
+    - "Wolf of Trading®"
   ignored_substrings:
     - pocket
     - quotex
