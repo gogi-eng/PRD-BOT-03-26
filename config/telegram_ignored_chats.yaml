@@ -1,0 +1,74 @@
+# Список для telegram_signal_agent.ignored_chats в config.yaml
+# Пустой allowed_chats = все каналы КРОМЕ этих. Подстроки — в ignored_substrings.
+
+ignored_substrings:
+  - pocket
+  - quotex
+  - binolla
+  - binary option
+  - fantastishe
+  - stationtrade
+  - botfather
+  - chatgpt
+  - midjourney
+  - onliner
+  - linux academy
+  - openai community
+  - learn 2 trade
+  - bbc news
+  - белновости
+  - блумберг
+  - экономист
+  - bybit комьюнити
+  - bybit новости
+  - cryptovolk
+  - bullrunsignals
+  - polygen
+  - hype detector
+  - labuh25bot
+  - igorzuevich
+  - a24plus
+  - alfabank
+  - directed by robert
+
+ignored_chats:
+  - FantastisheBot
+  - PocketOptions_1969_BOT
+  - StationTradeeeeBot
+  - "Pocket Option Bot Signals M1🤖"
+  - "Pocket Option Bot Signals M15🤖"
+  - "Quotex Signals M5 Bot 🤖"
+  - "Quotex Signals Bot M1 🤖"
+  - "Binolla Signals M1 🤖"
+  - "Gavin Binary Option Signals 🐳"
+  - "BYBIT Комьюнити"
+  - "BYBIT Новости"
+  - "BBC News | Русская служба"
+  - BotFather
+  - "Learn 2 Trade Crypto"
+  - "Linux Academy"
+  - "OpenAI Community"
+  - "ChatGPT Work"
+  - "ChatGPT | Нейро News"
+  - "Midjourney | Диджитал"
+  - Onliner
+  - "Dan News"
+  - "ITcour | Уроки программирования"
+  - "FREE2EX | Новости"
+  - Bullrunsignals
+  - Cryptovolksignalbot
+  - "Hype Detector"
+  - POLYGEN
+  - a24plus_bot
+  - AlfaBankBYPaymentUATBot
+  - "Directed by Robert B. Weide"
+  - igorzuevichtelegrambot
+  - Labuh25Bot
+  - "one trade money"
+  - "ABV'invest 💰🚀"
+  - "Alex разумные инвестиции "
+  - "The Экономист"
+  - Блумберг
+  - Белновости
+  - "VST Audio Software"
+  - Crypto_signals_rating

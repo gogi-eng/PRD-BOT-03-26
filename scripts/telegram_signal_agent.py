@@ -1006,6 +1006,10 @@ class TelegramSignalAgent:
             c = _chat_name_compact(x)
             if len(c) >= 3:
                 self.ignored_chats_compact.add(c)
+        for sub in list(self.agent_cfg.get("ignored_substrings", []) or []):
+            c = _chat_name_compact(str(sub))
+            if len(c) >= 4:
+                self.ignored_chats_compact.add(c)
         self.trusted_signal_sources = {
             normalize_chat_name(x) for x in (self.agent_cfg.get("trusted_signal_sources", []) or [])
         }
@@ -3352,6 +3356,14 @@ class TelegramSignalAgent:
                 LOG.warning("Market scanner error: %s", exc)
             await asyncio.sleep(max(60.0, self.market_scanner_interval_sec))
 
+    @staticmethod
+    def _chat_source_label(chat: Any) -> str:
+        return str(
+            getattr(chat, "title", "")
+            or getattr(chat, "username", "")
+            or chat
+        )
+
     async def run_once(self, limit: int) -> None:
         await self._evaluate_pending_signal_reviews()
         await self._evaluate_pending_excursions()
@@ -3361,12 +3373,22 @@ class TelegramSignalAgent:
         async with client:
             dialogs = self.allowed_chats or []
             if not dialogs:
+                skipped = 0
                 async for dialog in client.iter_dialogs():
-                    if getattr(dialog, "is_channel", False):
-                        dialogs.append(dialog.entity)
+                    if not getattr(dialog, "is_channel", False):
+                        continue
+                    ent = dialog.entity
+                    if self._is_ignored_source(self._chat_source_label(ent)):
+                        skipped += 1
+                        continue
+                    dialogs.append(ent)
                     if len(dialogs) >= self.max_chats_once:
                         break
+                if skipped:
+                    LOG.info("run_once: пропущено ignored каналов=%s, сканируем=%s", skipped, len(dialogs))
             for chat in dialogs:
+                if self._is_ignored_source(self._chat_source_label(chat)):
+                    continue
                 async for msg in client.iter_messages(chat, limit=limit):
                     text = getattr(msg, "message", "") or ""
                     source = str(getattr(getattr(msg, "chat", None), "title", "") or getattr(chat, "username", "") or chat)
