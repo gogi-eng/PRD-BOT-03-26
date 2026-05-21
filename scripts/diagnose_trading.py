@@ -66,8 +66,19 @@ async def main() -> int:
     tg_dir = tg_path.parent
     tsa = cfg.get("telegram_signal_agent", {})
     print("\n--- Внешние агенты ---")
+    cfg_raw = (ROOT / "config.yaml").read_text(encoding="utf-8", errors="ignore")
+    n_tsa = cfg_raw.count("telegram_signal_agent:")
+    n_sig = cfg_raw.count("\nsignals:")
+    if n_tsa > 1:
+        print(f"⚠ config.yaml: telegram_signal_agent встречается {n_tsa} раз — оставьте ОДНУ секцию!")
+        print("  Исправление: ./venv/bin/python3 scripts/fix_server_config.py")
+    if n_sig > 1:
+        print(f"⚠ config.yaml: блок signals: встречается несколько раз — второй затирает первый!")
+        print("  Исправление: ./venv/bin/python3 scripts/fix_server_config.py")
     if isinstance(tsa, dict) and tsa:
         print(f"telegram_signal_agent: enabled={tsa.get('enabled', True)} auto_execute={tsa.get('auto_execute', False)}")
+        print(f"  inbox_jsonl: {tsa.get('inbox_jsonl', '—')}")
+        print(f"  audit_jsonl_enabled: {tsa.get('audit_jsonl_enabled', True)}")
         chats = tsa.get("allowed_chats", [])
         print(f"  allowed_chats: {'все подписки' if not chats else len(chats)}")
     else:
