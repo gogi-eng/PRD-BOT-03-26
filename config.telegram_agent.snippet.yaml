@@ -1,19 +1,63 @@
-# Вставьте этот блок в config.yaml на сервере (nano config.yaml).
-# Нужны также в .env: TELEGRAM_API_ID, TELEGRAM_API_HASH, BYBIT_API_KEY, BYBIT_API_SECRET
-# И файл сессии Telethon: telegram_user_signal_agent.session (один раз: python3 scripts/telegram_signal_agent.py --once)
+# Вставьте в config.yaml на сервере (секция telegram_signal_agent).
+# allowed_chats: [] — только каналы с сигналами, остальное режется ignored_*.
 
 telegram_signal_agent:
   enabled: true
   auto_execute: false
+  market_scanner_enabled: false
+  control_panel_enabled: false
   telegram_notify: true
   session_name: telegram_user_signal_agent
   allowed_chats: []
+  ignored_substrings:
+    - pocket
+    - quotex
+    - binolla
+    - binary option
+    - fantastishe
+    - stationtrade
+    - botfather
+    - chatgpt
+    - bybit комьюнити
+    - bybit новости
+    - learn 2 trade
+    - bbc news
+    - cryptovolk
+    - bullrunsignals
   ignored_chats:
     - FantastisheBot
     - PocketOptions_1969_BOT
+    - StationTradeeeeBot
+    - "Pocket Option Bot Signals M1🤖"
+    - "Pocket Option Bot Signals M15🤖"
+    - "Quotex Signals M5 Bot 🤖"
+    - "Quotex Signals Bot M1 🤖"
+    - "Binolla Signals M1 🤖"
+    - "Gavin Binary Option Signals 🐳"
+    - "BYBIT Комьюнити"
+    - "BYBIT Новости"
+    - "BBC News | Русская служба"
+    - BotFather
+    - "Learn 2 Trade Crypto"
+    - "Linux Academy"
+    - "OpenAI Community"
+    - "ChatGPT Work"
+    - "ChatGPT | Нейро News"
+    - "Midjourney | Диджитал"
+    - Onliner
+    - Bullrunsignals
+    - Cryptovolksignalbot
+    - "Hype Detector"
+    - POLYGEN
+    - a24plus_bot
+    - AlfaBankBYPaymentUATBot
+    - igorzuevichtelegrambot
+    - Labuh25Bot
+    - "one trade money"
+    - Crypto_signals_rating
   state_path: telegram_signal_agent_state.json
   out_dir: reports/telegram_signals
   lookback_hours: 6
   duplicate_signal_cooldown_sec: 1800
-  max_chats_once: 40
+  max_chats_once: 25
   scan_delay_sec: 0.35
