@@ -47,9 +47,19 @@ risk:
 signals:
   own_agents_enabled: true
   telegram_inbox_enabled: true
-  # Файл, куда пишет scripts/telegram_signal_agent.py (если запущен отдельно)
+  # Файл, куда пишет scripts/telegram_signal_agent.py (ОТДЕЛЬНЫЙ процесс на сервере!)
   telegram_signals_jsonl: "reports/telegram_signals/signals.jsonl"
+  telegram_inbox_backlog_lines: 100
+  min_telegram_confidence: 0.55
   whale_news_enabled: true
+
+# Сопровождение позиций с биржи (в т.ч. открытых вручную на Bybit)
+positions:
+  adopt_manual: true
+  trailing_enabled: true
+  trailing_activation_pct: 0.4
+  trailing_distance_pct: 0.35
+  breakeven_after_pct: 0.25
 
 whale_news:
   rss_urls:

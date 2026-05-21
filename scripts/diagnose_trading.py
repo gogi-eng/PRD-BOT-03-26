@@ -61,7 +61,37 @@ async def main() -> int:
                 f"(порог агентов {min_own}) -> {'ПРОЙДЁТ' if ok else 'ОТСЕЧЁТ'}"
             )
 
-    sigs = await router.collect_all(ex, syms)
+    sig = cfg.get("signals", {})
+    tg_path = (ROOT / sig.get("telegram_signals_jsonl", "reports/telegram_signals/signals.jsonl")).resolve()
+    print("\n--- Внешние агенты ---")
+    if sig.get("telegram_inbox_enabled", True):
+        if tg_path.exists():
+            lines = [ln for ln in tg_path.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+            print(f"Telegram inbox: {tg_path}")
+            print(f"  строк в файле: {len(lines)}, размер {tg_path.stat().st_size} байт")
+            if lines:
+                print(f"  последняя: {lines[-1][:120]}...")
+        else:
+            print(f"Telegram inbox: файл НЕТ — {tg_path}")
+            print("  Запустите отдельно: python3 scripts/telegram_signal_agent.py")
+    else:
+        print("Telegram inbox: отключён в config")
+    if router._tg_inbox:
+        fresh = router._tg_inbox.poll()
+        print(f"  новых строк с прошлого poll: {len(fresh)}")
+    if router._whale:
+        whale_raw = await router._whale.collect(ex, syms)
+        print(f"Whale/News сырых: {len(whale_raw)}")
+        for w in whale_raw[:3]:
+            print(f"  {w.symbol} {w.side} conf={w.confidence:.3f} src={w.source}")
+    else:
+        print("Whale/News: отключён")
+
+    own = await router.collect_own_signals(ex, syms)
+    tg = router.collect_telegram_signals()
+    whale = await router.collect_whale_news(ex, syms)
+    print(f"Источники: own={len(own)} telegram={len(tg)} whale={len(whale)}")
+    sigs = router.merge_and_rank(own + tg + whale)
     print(f"Сигналов после фильтра: {len(sigs)}")
     for s in sigs[:5]:
         print(f"  {s.symbol} {s.side} conf={s.confidence:.3f} src={s.source}")
@@ -80,7 +110,20 @@ async def main() -> int:
         )
         print(f"Пример ордера {s.symbol} {s.side}: qty_raw={qty:.6f} qty_ready={qty2} err={err or 'OK'}")
 
-    print(f"Пороги: агенты={min_own}, telegram/гибрид={min_conf}")
+    min_tg = float(tcfg.get("min_telegram_confidence", min_conf))
+    print(f"Пороги: агенты={min_own}, telegram={min_tg}, гибрид/whale={min_conf}")
+    pcfg = cfg.get("positions", {})
+    print(
+        f"Трейлинг позиций: {'ВКЛ' if pcfg.get('trailing_enabled', True) else 'ВЫКЛ'}, "
+        f"подхват ручных: {pcfg.get('adopt_manual', True)}"
+    )
+    pos = await ex.get_positions()
+    print(f"Открытых позиций на бирже: {len(pos)}")
+    for p in pos:
+        print(
+            f"  {p.get('symbol')} {p.get('side')} size={p.get('size')} "
+            f"SL={p.get('stopLoss', 0)} uPnL={p.get('unrealisedPnl', 0)}"
+        )
     print(f"auto_start в config: {tcfg.get('auto_start', False)}")
     await ex.close()
     return 0

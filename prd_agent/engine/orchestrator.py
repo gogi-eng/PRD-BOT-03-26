@@ -19,6 +19,7 @@ from prd_agent.exchange.order_prep import prepare_market_order
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.guard import RiskGuard
 from prd_agent.market.symbol_scanner import SymbolScanner
+from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.signals.router import SignalRouter, UnifiedSignal
 from prd_agent.telegram.notifier import TelegramNotifier
 from prd_agent.telegram.status_table import format_status_table
@@ -43,6 +44,7 @@ class UnifiedOrchestrator:
         self.notifier = TelegramNotifier(cfg)
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
+        self.position_steward = PositionSteward(cfg)
 
         t = cfg.get("trading", {})
         self.symbols: List[str] = list(t.get("symbols", ["BTCUSDT"]))
@@ -87,6 +89,10 @@ class UnifiedOrchestrator:
         self.signals._min_own_conf = float(
             t.get("min_own_agent_confidence", getattr(self.signals, "_min_own_conf", 0.28))
         )
+        self.signals._min_tg_conf = float(
+            t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf))
+        )
+        self.position_steward = PositionSteward(self.cfg)
         self.symbols = list(t.get("symbols", self.symbols))
         self.symbol_scanner = SymbolScanner(self.cfg)
         self._symbol_rescan_sec = float(t.get("symbol_rescan_interval_sec", self._symbol_rescan_sec))
@@ -248,6 +254,10 @@ class UnifiedOrchestrator:
         positions = await self.exchange.get_positions()
         self.risk.open_positions_count = len(positions)
         await self._monitor_positions(positions)
+        trail_notes = await self.position_steward.manage(self.exchange, positions)
+        for note in trail_notes:
+            if note.startswith("📌"):
+                await self.notifier.send(note)
         await self._sync_closed_pnl_to_risk()
 
         open_symbols = self._symbols_with_open_positions(positions)
@@ -372,6 +382,7 @@ class UnifiedOrchestrator:
             logger.info("Order OK %s %s qty=%.6f id=%s", sig.symbol, sig.side, qty, oid)
             self.ledger.update_status(ledger_id, SignalStatus.EXECUTED, "ok", order_id=oid)
             self.monitor.record_execution(sig.symbol, sig.side, qty, sig.source, oid)
+            self.position_steward.mark_bot_opened(sig.symbol)
             await self.notifier.order_placed(sig.symbol, sig.side, qty, oid)
         else:
             err = str(result.get("error", "unknown"))
