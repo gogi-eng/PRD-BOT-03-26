@@ -73,6 +73,11 @@ class BybitAdapter:
             return await self._client.get_klines(symbol, interval=interval, limit=limit)
         return []
 
+    async def get_tickers(self) -> List[Dict]:
+        if hasattr(self._client, "get_tickers"):
+            return list(await self._client.get_tickers())
+        return []
+
     async def set_liquidation_symbols(self, symbols: List[str]) -> None:
         if hasattr(self._client, "set_liquidation_symbols"):
             await self._client.set_liquidation_symbols(symbols)

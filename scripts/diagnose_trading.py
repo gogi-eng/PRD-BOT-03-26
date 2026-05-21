@@ -13,6 +13,7 @@ from prd_agent.config import load_config
 from prd_agent.engine.orchestrator import UnifiedOrchestrator
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_market_order
+from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.signals.router import SignalRouter
 
 
@@ -30,7 +31,14 @@ async def main() -> int:
     if bal <= 0:
         print("ПРОБЛЕМА: баланс 0 — сделки не откроются (qty=0).")
 
-    syms = cfg.get("trading", {}).get("symbols", ["BTCUSDT"])
+    scanner = SymbolScanner(cfg)
+    if scanner.enabled():
+        syms = await scanner.scan(ex)
+        print(f"Скан Bybit (min_24h_volume={scanner.min_24h_volume_usdt:.0f}): {len(syms)} пар")
+        print("  ", ", ".join(syms))
+    else:
+        syms = cfg.get("trading", {}).get("symbols", ["BTCUSDT"])
+        print(f"Скан отключён — symbols из config: {', '.join(syms)}")
     tcfg = cfg.get("trading", {})
     min_conf = float(tcfg.get("min_signal_confidence", 0.62))
     min_own = float(tcfg.get("min_own_agent_confidence", getattr(router, "_min_own_conf", 0.28)))
