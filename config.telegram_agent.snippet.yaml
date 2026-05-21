@@ -1,0 +1,19 @@
+# Вставьте этот блок в config.yaml на сервере (nano config.yaml).
+# Нужны также в .env: TELEGRAM_API_ID, TELEGRAM_API_HASH, BYBIT_API_KEY, BYBIT_API_SECRET
+# И файл сессии Telethon: telegram_user_signal_agent.session (один раз: python3 scripts/telegram_signal_agent.py --once)
+
+telegram_signal_agent:
+  enabled: true
+  auto_execute: false
+  telegram_notify: true
+  session_name: telegram_user_signal_agent
+  allowed_chats: []
+  ignored_chats:
+    - FantastisheBot
+    - PocketOptions_1969_BOT
+  state_path: telegram_signal_agent_state.json
+  out_dir: reports/telegram_signals
+  lookback_hours: 6
+  duplicate_signal_cooldown_sec: 1800
+  max_chats_once: 40
+  scan_delay_sec: 0.35

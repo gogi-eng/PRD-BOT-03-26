@@ -63,7 +63,35 @@ async def main() -> int:
 
     sig = cfg.get("signals", {})
     tg_path = (ROOT / sig.get("telegram_signals_jsonl", "reports/telegram_signals/signals.jsonl")).resolve()
+    tg_dir = tg_path.parent
+    tsa = cfg.get("telegram_signal_agent", {})
     print("\n--- Внешние агенты ---")
+    if isinstance(tsa, dict) and tsa:
+        print(f"telegram_signal_agent: enabled={tsa.get('enabled', True)} auto_execute={tsa.get('auto_execute', False)}")
+        chats = tsa.get("allowed_chats", [])
+        print(f"  allowed_chats: {'все подписки' if not chats else len(chats)}")
+    else:
+        print("telegram_signal_agent: секция ОТСУТСТВУЕТ в config.yaml — коллектор не настроен!")
+    env_path = ROOT / ".env"
+    if env_path.exists():
+        env_txt = env_path.read_text(encoding="utf-8", errors="ignore")
+        has_api = "TELEGRAM_API_ID" in env_txt and "TELEGRAM_API_HASH" in env_txt
+        print(f"  .env TELEGRAM_API_ID/HASH: {'есть' if has_api else 'НЕТ — нужны для Telethon'}")
+    else:
+        print("  .env: файл не найден")
+    sessions = list(ROOT.glob("*.session"))
+    print(f"  Telethon session (*.session): {len(sessions)} файл(ов)" + (f" ({sessions[0].name})" if sessions else " — нужна авторизация"))
+    log_path = ROOT / "telegram_signal_agent.log"
+    if log_path.exists():
+        log_lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if log_lines:
+            print(f"  лог агента (последняя строка): {log_lines[-1][:140]}")
+    else:
+        print("  telegram_signal_agent.log: пока нет")
+    if tg_dir.exists():
+        print(f"  каталог {tg_dir}: {list(tg_dir.iterdir())[:5]}")
+    else:
+        print(f"  каталог {tg_dir}: не создан — агент не дошёл до старта или падает")
     if sig.get("telegram_inbox_enabled", True):
         if tg_path.exists():
             lines = [ln for ln in tg_path.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
@@ -73,7 +101,7 @@ async def main() -> int:
                 print(f"  последняя: {lines[-1][:120]}...")
         else:
             print(f"Telegram inbox: файл НЕТ — {tg_path}")
-            print("  Запустите отдельно: python3 scripts/telegram_signal_agent.py")
+            print("  Проверьте: journalctl -u telegram_signal_agent -n 50")
     else:
         print("Telegram inbox: отключён в config")
     if router._tg_inbox:
@@ -110,7 +138,7 @@ async def main() -> int:
         )
         print(f"Пример ордера {s.symbol} {s.side}: qty_raw={qty:.6f} qty_ready={qty2} err={err or 'OK'}")
 
-    min_tg = float(tcfg.get("min_telegram_confidence", min_conf))
+    min_tg = float(sig.get("min_telegram_confidence", tcfg.get("min_telegram_confidence", min_conf)))
     print(f"Пороги: агенты={min_own}, telegram={min_tg}, гибрид/whale={min_conf}")
     pcfg = cfg.get("positions", {})
     print(
