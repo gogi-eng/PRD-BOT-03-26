@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-BRANCH="${1:-19.05.26-ALL}"
+BRANCH="${1:-21.05.26-ALL}"
 
 echo "=== PRD-BOT-ALL: обновление на сервере ==="
 echo "Папка: $ROOT"
@@ -40,6 +40,10 @@ else
 fi
 
 echo ""
+echo "=== Зависимости (unified + telethon) ==="
+pip install -q -r requirements-unified.txt
+
+echo ""
 echo "=== Диагностика (без ордеров) ==="
 python3 scripts/diagnose_trading.py || true
 
@@ -64,6 +68,14 @@ else
   echo "Служба systemd не найдена. Остановите старый процесс и запустите:"
   echo "  pkill -f run_unified.py || true"
   echo "  nohup python3 run_unified.py >> bot.log 2>&1 &"
+fi
+
+if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^telegram_signal_agent.service'; then
+  echo ""
+  echo "=== Перезапуск telegram_signal_agent ==="
+  sudo systemctl restart telegram_signal_agent
+  sleep 2
+  sudo systemctl status telegram_signal_agent --no-pager | head -15 || true
 fi
 
 echo ""

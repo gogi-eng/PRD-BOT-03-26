@@ -5,3 +5,5 @@ PyYAML>=6.0
 python-telegram-bot>=21.0
 pandas>=2.0.0
 numpy>=1.24.0
+# Коллектор сигналов из Telegram-каналов (scripts/telegram_signal_agent.py)
+telethon>=1.34.0
