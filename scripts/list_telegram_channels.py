@@ -25,9 +25,13 @@ async def main() -> int:
     import importlib.util
 
     mod_path = ROOT / "scripts" / "telegram_signal_agent.py"
-    spec = importlib.util.spec_from_file_location("telegram_signal_agent", mod_path)
+    mod_name = "telegram_signal_agent_list_channels"
+    spec = importlib.util.spec_from_file_location(mod_name, mod_path)
+    if spec is None or spec.loader is None:
+        print("Не удалось загрузить telegram_signal_agent.py")
+        return 1
     mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
+    sys.modules[mod_name] = mod
     spec.loader.exec_module(mod)
     agent = mod.TelegramSignalAgent(ROOT)
     api_id = int(os.getenv("TELEGRAM_API_ID", "0") or "0")
