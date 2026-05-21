@@ -12,11 +12,18 @@ telegram:
   chat_id: ""            # личный чат для уведомлений и кнопок
   channel_id: ""         # канал для bi-hourly (может = chat_id)
   allowed_user_ids: []   # пусто = все; иначе список user id
-  # false — если тот же токен уже у ScalpBot/другого процесса (убирает 409 Conflict)
+  # true — кнопки и таблица /panel (если 409 Conflict — поставьте false)
   control_polling_enabled: true
 
 trading:
-  symbols: ["BTCUSDT", "ETHUSDT"]
+  # Не только BTC/ETH — добавьте пары USDT linear на Bybit (до max_positions одновременно)
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - SOLUSDT
+    - XRPUSDT
+    - DOGEUSDT
+    - BNBUSDT
   leverage: 5
   risk_pct_per_trade: 0.5
   max_positions: 3

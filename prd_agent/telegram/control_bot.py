@@ -56,8 +56,9 @@ class ControlBot:
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.effective_user or not self._allowed(update.effective_user.id):
             return
-        await update.message.reply_text(
-            "PRD Unified Agent — панель управления.\nВыберите действие:",
+        table = await self.orch.build_status_table()
+        await update.message.reply_html(
+            table + "\n\n<i>Кнопки управления:</i>",
             reply_markup=self._main_keyboard(),
         )
 
@@ -68,7 +69,11 @@ class ControlBot:
         await query.answer()
         action = (query.data or "").split(":", 1)[-1]
         text = await self._handle_action(action)
-        await query.edit_message_text(text, reply_markup=self._main_keyboard())
+        parse = "HTML" if action == "status" else None
+        if parse == "HTML":
+            await query.edit_message_text(text, reply_markup=self._main_keyboard(), parse_mode=parse)
+        else:
+            await query.edit_message_text(text, reply_markup=self._main_keyboard())
 
     async def _handle_action(self, action: str) -> str:
         if action == "start":
@@ -86,20 +91,18 @@ class ControlBot:
         if action == "reset_risk":
             self.orch.risk.status = GuardStatus.ACTIVE
             self.orch.risk.stop_reason = ""
+            self.orch._block_notify_sent = False
             return "Риск-стоп сброшен."
         if action == "rollback":
             path = self.orch.improver.rollback_last_config()
             self.orch.reload_config()
             return f"Откат config: {path or 'нет резервной копии'}"
         if action == "status":
-            snap = self.orch.risk.snapshot()
-            bal = await self.orch.exchange.get_balance()
+            can_trade, block_reason = self.orch.risk.can_trade()
             pos = await self.orch.exchange.get_positions()
-            return (
-                f"Баланс: {bal:.2f} USDT\n"
-                f"Позиций: {len(pos)}\n"
-                f"Риск: {snap}\n"
-                f"PRD Bybit: {self.orch.exchange.uses_prd_client}"
+            return await self.orch.build_status_table(
+                positions=pos,
+                block_reason="" if can_trade else block_reason,
             )
         if action == "report":
             pos = await self.orch.exchange.get_positions()
