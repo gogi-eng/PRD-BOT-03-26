@@ -6,14 +6,21 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 PY="${ROOT}/venv/bin/python3"
-PIP="${ROOT}/venv/bin/pip"
 if [ ! -x "$PY" ]; then
   PY="${ROOT}/.venv/bin/python3"
-  PIP="${ROOT}/.venv/bin/pip"
+fi
+if [ ! -x "$PY" ]; then
+  echo "venv не найден. Запустите: bash scripts/rebuild_venv.sh"
+  exit 1
+fi
+
+if ! "$PY" -m pip --version >/dev/null 2>&1; then
+  echo "pip в venv сломан. Запустите: bash scripts/rebuild_venv.sh"
+  exit 1
 fi
 
 echo "=== pip install telethon ==="
-"$PIP" install -q 'telethon>=1.34.0'
+"$PY" -m pip install -q 'telethon>=1.34.0'
 "$PY" -c "import telethon; print('telethon OK', telethon.__version__)"
 
 if ! grep -q '^telegram_signal_agent:' config.yaml 2>/dev/null; then
