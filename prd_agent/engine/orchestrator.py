@@ -123,13 +123,56 @@ class UnifiedOrchestrator:
         return list(latest.values())[:limit]
 
     @staticmethod
-    def _symbols_with_open_positions(positions: List[Dict]) -> Set[str]:
+    def _position_size(p: Dict) -> float:
+        for key in ("size", "qty", "positionQty"):
+            val = float(p.get(key, 0) or 0)
+            if val > 0:
+                return val
+        avg = float(p.get("avgPrice", 0) or p.get("entryPrice", 0) or 0)
+        pval = float(p.get("positionValue", 0) or 0)
+        if pval > 0 and avg > 0:
+            return pval / avg
+        return 0.0
+
+    @classmethod
+    def _symbols_with_open_positions(cls, positions: List[Dict]) -> Set[str]:
         out: Set[str] = set()
         for p in positions:
             sym = str(p.get("symbol", "")).upper()
-            if sym and float(p.get("size", 0) or 0) > 0:
+            if sym and cls._position_size(p) > 0:
                 out.add(sym)
         return out
+
+    async def _skip_if_position_open(
+        self, sig: UnifiedSignal, ledger_id: Optional[str] = None, *, notify_telegram: bool = False
+    ) -> bool:
+        """True = пропустить (позиция на бирже уже есть)."""
+        sym = sig.symbol.upper()
+        try:
+            if await self.exchange.has_open_position(sym):
+                reason = f"на бирже уже открыта позиция {sym} — новый ордер не отправляем"
+                logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+                if ledger_id:
+                    self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+                elif notify_telegram is False:
+                    self.ledger.record(
+                        symbol=sig.symbol,
+                        side=sig.side,
+                        confidence=sig.confidence,
+                        source=sig.source,
+                        status=SignalStatus.SKIPPED,
+                        reason=reason,
+                        entry=sig.entry,
+                        stop_loss=sig.stop_loss,
+                        take_profit=sig.take_profit,
+                        raw=sig.raw,
+                    )
+                if notify_telegram:
+                    await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+                return True
+        except Exception as exc:
+            logger.warning("has_open_position(%s) failed: %s", sym, exc)
+        return False
 
     async def _monitor_positions(self, positions: List[Dict]) -> None:
         for p in positions:
@@ -160,19 +203,7 @@ class UnifiedOrchestrator:
         for sig in all_signals:
             sym = sig.symbol.upper()
             if sym in open_symbols:
-                self.ledger.record(
-                    symbol=sig.symbol,
-                    side=sig.side,
-                    confidence=sig.confidence,
-                    source=sig.source,
-                    status=SignalStatus.SKIPPED,
-                    reason="позиция уже открыта — без Telegram",
-                    entry=sig.entry,
-                    stop_loss=sig.stop_loss,
-                    take_profit=sig.take_profit,
-                    raw=sig.raw,
-                )
-                logger.debug("Skip signal notify %s %s: position open", sig.symbol, sig.side)
+                await self._skip_if_position_open(sig)
                 continue
             entry = self.ledger.record(
                 symbol=sig.symbol,
@@ -200,6 +231,8 @@ class UnifiedOrchestrator:
             self._last_global_at = now
 
     async def _maybe_execute(self, sig: UnifiedSignal, ledger_id: str) -> None:
+        if await self._skip_if_position_open(sig, ledger_id):
+            return
         ok, reason = self.risk.can_trade(sig.symbol)
         if not ok:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
