@@ -108,6 +108,15 @@ class UnifiedOrchestrator:
             pnl = float(r.get("closedPnl", 0) or 0)
             self.risk.record_trade(pnl)
 
+    @staticmethod
+    def _symbols_with_open_positions(positions: List[Dict]) -> Set[str]:
+        out: Set[str] = set()
+        for p in positions:
+            sym = str(p.get("symbol", "")).upper()
+            if sym and float(p.get("size", 0) or 0) > 0:
+                out.add(sym)
+        return out
+
     async def _monitor_positions(self, positions: List[Dict]) -> None:
         for p in positions:
             sym = p.get("symbol", "")
@@ -125,14 +134,32 @@ class UnifiedOrchestrator:
         await self._monitor_positions(positions)
         await self._sync_closed_pnl_to_risk()
 
+        open_symbols = self._symbols_with_open_positions(positions)
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
         if all_signals:
             logger.info(
-                "Cycle: %d signal(s), open positions=%d",
+                "Cycle: %d signal(s), open positions=%d (symbols: %s)",
                 len(all_signals),
                 len(positions),
+                ",".join(sorted(open_symbols)) or "-",
             )
         for sig in all_signals:
+            sym = sig.symbol.upper()
+            if sym in open_symbols:
+                self.ledger.record(
+                    symbol=sig.symbol,
+                    side=sig.side,
+                    confidence=sig.confidence,
+                    source=sig.source,
+                    status=SignalStatus.SKIPPED,
+                    reason="позиция уже открыта — без Telegram",
+                    entry=sig.entry,
+                    stop_loss=sig.stop_loss,
+                    take_profit=sig.take_profit,
+                    raw=sig.raw,
+                )
+                logger.debug("Skip signal notify %s %s: position open", sig.symbol, sig.side)
+                continue
             entry = self.ledger.record(
                 symbol=sig.symbol,
                 side=sig.side,
