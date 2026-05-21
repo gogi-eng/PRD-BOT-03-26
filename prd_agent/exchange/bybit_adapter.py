@@ -59,6 +59,12 @@ class BybitAdapter:
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
         return list(await self._client.get_positions(symbol))
 
+    async def has_open_position(self, symbol: str) -> bool:
+        if hasattr(self._client, "has_open_position"):
+            return bool(await self._client.has_open_position(symbol))
+        rows = await self.get_positions(symbol)
+        return len(rows) > 0
+
     async def get_price(self, symbol: str) -> float:
         return float(await self._client.get_price(symbol))
 

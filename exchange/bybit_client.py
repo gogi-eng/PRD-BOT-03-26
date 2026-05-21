@@ -282,14 +282,30 @@ class BybitClient:
 
     # === PRIVATE ===
 
+    @staticmethod
+    def _position_size(p: Dict) -> float:
+        for key in ("size", "qty", "positionQty"):
+            val = float(p.get(key, 0) or 0)
+            if val > 0:
+                return val
+        avg = float(p.get("avgPrice", 0) or p.get("entryPrice", 0) or 0)
+        pval = float(p.get("positionValue", 0) or 0)
+        if pval > 0 and avg > 0:
+            return pval / avg
+        return 0.0
+
     async def get_positions(self, symbol: str = None) -> List[Dict]:
-        params = {"category": self.category, "settleCoin": "USDT"}
+        params = {"category": self.category, "settleCoin": "USDT", "limit": 200}
         if symbol:
-            params["symbol"] = symbol
+            params["symbol"] = str(symbol).upper()
         result = await self._request("GET", "/v5/position/list", params, private=True)
         if result and result.get("list"):
-            return [p for p in result["list"] if float(p.get("size", 0)) > 0]
+            return [p for p in result["list"] if self._position_size(p) > 0]
         return []
+
+    async def has_open_position(self, symbol: str) -> bool:
+        rows = await self.get_positions(symbol)
+        return len(rows) > 0
 
     async def get_balance(self) -> float:
         snap = await self.get_wallet_snapshot()
