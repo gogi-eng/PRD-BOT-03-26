@@ -109,6 +109,20 @@ class UnifiedOrchestrator:
             self.risk.record_trade(pnl)
 
     @staticmethod
+    def _dedupe_signals_for_report(signals: List[Dict], *, limit: int = 8) -> List[Dict]:
+        """В отчёте — по одному последнему сигналу на символ (без повторов BTC×8)."""
+        skip_reasons = ("позиция уже открыта",)
+        latest: Dict[str, Dict] = {}
+        for s in sorted(signals, key=lambda x: str(x.get("created_at", "")), reverse=True):
+            reason = str(s.get("reason", "") or "")
+            if any(x in reason for x in skip_reasons):
+                continue
+            sym = str(s.get("symbol", "")).upper()
+            if sym and sym not in latest:
+                latest[sym] = s
+        return list(latest.values())[:limit]
+
+    @staticmethod
     def _symbols_with_open_positions(positions: List[Dict]) -> Set[str]:
         out: Set[str] = set()
         for p in positions:
@@ -242,7 +256,8 @@ class UnifiedOrchestrator:
     async def _bi_hourly_report(self, positions: List[Dict]) -> None:
         signals_2h = self.signals.recent_signals(hours=2)
         signals_24h = self.signals.recent_signals(hours=24)
-        high_conf = [s for s in signals_2h if float(s.get("confidence", 0)) >= self.reporter.high_conf]
+        high_conf_raw = [s for s in signals_2h if float(s.get("confidence", 0)) >= self.reporter.high_conf]
+        high_conf = self._dedupe_signals_for_report(high_conf_raw)
         report_2h = await self.monitor.period_report(
             self.exchange, signals_2h, 2, self.reporter.high_conf
         )
