@@ -20,6 +20,7 @@ from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.guard import RiskGuard
 from prd_agent.signals.router import SignalRouter, UnifiedSignal
 from prd_agent.telegram.notifier import TelegramNotifier
+from prd_agent.telegram.status_table import format_status_table
 
 logger = logging.getLogger("prd_agent")
 
@@ -55,8 +56,21 @@ class UnifiedOrchestrator:
         self._seen_closed_ids: Set[str] = set()
         self._last_upnl: Dict[str, float] = {}
         self._notify_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._block_notify_sent = False
+        self._silent_skip_prefixes = (
+            "Пауза после стопа",
+            "Кулдаун после убытка",
+            "Макс. позиций",
+            "EMERGENCY",
+            "на бирже уже открыта",
+            "недостаточно свободной маржи",
+            "недостаточно маржи",
+        )
 
     def _risk_notify(self, msg: str) -> None:
+        # AUTO-STOP дублируется таблицей в _notify_risk_block_once — не спамим в Telegram.
+        if str(msg).startswith("AUTO-STOP"):
+            return
         if self._notify_loop and self._notify_loop.is_running():
             asyncio.run_coroutine_threadsafe(self.notifier.risk_event(msg), self._notify_loop)
 
@@ -66,6 +80,9 @@ class UnifiedOrchestrator:
         t = self.cfg.get("trading", {})
         self.risk_pct = float(t.get("risk_pct_per_trade", self.risk_pct))
         self.signals._min_conf = float(t.get("min_signal_confidence", self.signals._min_conf))
+        self.signals._min_own_conf = float(
+            t.get("min_own_agent_confidence", getattr(self.signals, "_min_own_conf", 0.28))
+        )
         self.symbols = list(t.get("symbols", self.symbols))
         logger.info("Config reloaded from disk")
 
@@ -76,12 +93,9 @@ class UnifiedOrchestrator:
         balance = await self.exchange.get_balance()
         self.risk.initial_balance = balance
         mode = "TESTNET" if self.exchange.is_testnet else "LIVE"
-        await self.notifier.send(
-            f"🚀 <b>Unified Agent</b> запущен\n"
-            f"Режим: {mode}\n"
-            f"Баланс: {balance:.2f} USDT\n"
-            f"Символы: {', '.join(self.symbols)}"
-        )
+        positions = await self.exchange.get_positions()
+        table = await self.build_status_table(positions=positions, block_reason="")
+        await self.notifier.send(f"🚀 <b>Unified Agent</b> запущен\n\n{table}")
         logger.info("Unified started balance=%.2f testnet=%s", balance, self.exchange.is_testnet)
         while self._running:
             try:
@@ -174,6 +188,34 @@ class UnifiedOrchestrator:
             logger.warning("has_open_position(%s) failed: %s", sym, exc)
         return False
 
+    def _is_silent_skip(self, reason: str) -> bool:
+        r = reason or ""
+        return any(r.startswith(p) or p in r for p in self._silent_skip_prefixes)
+
+    async def build_status_table(
+        self, *, positions: Optional[List[Dict]] = None, block_reason: str = ""
+    ) -> str:
+        positions = positions if positions is not None else await self.exchange.get_positions()
+        balance = await self.exchange.get_balance()
+        available = await self.exchange.get_available_balance()
+        mode = "TESTNET" if self.exchange.is_testnet else "LIVE"
+        return format_status_table(
+            balance=balance,
+            available=available,
+            positions=positions,
+            watch_symbols=self.symbols,
+            risk_snapshot=self.risk.snapshot(),
+            block_reason=block_reason,
+            mode=mode,
+        )
+
+    async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
+        if self._block_notify_sent:
+            return
+        self._block_notify_sent = True
+        table = await self.build_status_table(positions=positions, block_reason=block_reason)
+        await self.notifier.send(table)
+
     async def _monitor_positions(self, positions: List[Dict]) -> None:
         for p in positions:
             sym = p.get("symbol", "")
@@ -192,18 +234,39 @@ class UnifiedOrchestrator:
         await self._sync_closed_pnl_to_risk()
 
         open_symbols = self._symbols_with_open_positions(positions)
+        can_trade, block_reason = self.risk.can_trade()
+        if can_trade:
+            self._block_notify_sent = False
+        else:
+            await self._notify_risk_block_once(block_reason, positions)
+
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
         if all_signals:
             logger.info(
-                "Cycle: %d signal(s), open positions=%d (symbols: %s)",
+                "Cycle: %d signal(s), open=%d, scan=%d symbols, trade_ok=%s",
                 len(all_signals),
                 len(positions),
-                ",".join(sorted(open_symbols)) or "-",
+                len(self.symbols),
+                can_trade,
             )
         for sig in all_signals:
             sym = sig.symbol.upper()
             if sym in open_symbols:
                 await self._skip_if_position_open(sig)
+                continue
+            if not can_trade:
+                self.ledger.record(
+                    symbol=sig.symbol,
+                    side=sig.side,
+                    confidence=sig.confidence,
+                    source=sig.source,
+                    status=SignalStatus.SKIPPED,
+                    reason=block_reason,
+                    entry=sig.entry,
+                    stop_loss=sig.stop_loss,
+                    take_profit=sig.take_profit,
+                    raw=sig.raw,
+                )
                 continue
             entry = self.ledger.record(
                 symbol=sig.symbol,
@@ -237,7 +300,8 @@ class UnifiedOrchestrator:
         if not ok:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
-            await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+            if not self._is_silent_skip(reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
         if not self.exchange.uses_prd_client:
             self.ledger.update_status(ledger_id, SignalStatus.REJECTED, "нет BybitClient")
@@ -252,7 +316,6 @@ class UnifiedOrchestrator:
         qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, self.leverage)
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
-            await self.notifier.signal_skipped(sig.symbol, sig.side, "размер позиции = 0")
             return
 
         notional = (qty * entry) / max(self.leverage, 1)
@@ -276,7 +339,8 @@ class UnifiedOrchestrator:
         )
         if prep_err:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
-            await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
+            if not self._is_silent_skip(prep_err):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
             return
 
         result = await self.exchange.place_order(
