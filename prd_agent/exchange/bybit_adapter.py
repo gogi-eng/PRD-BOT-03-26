@@ -51,6 +51,11 @@ class BybitAdapter:
     async def get_balance(self) -> float:
         return float(await self._client.get_balance())
 
+    async def get_available_balance(self) -> float:
+        if hasattr(self._client, "get_available_balance"):
+            return float(await self._client.get_available_balance())
+        return float(await self._client.get_balance())
+
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
         return list(await self._client.get_positions(symbol))
 

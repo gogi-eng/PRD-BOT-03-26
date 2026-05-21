@@ -215,10 +215,22 @@ class UnifiedOrchestrator:
         sl = sig.stop_loss or (entry * 0.995 if sig.side == "Buy" else entry * 1.005)
         tp = sig.take_profit or (entry * 1.01 if sig.side == "Buy" else entry * 0.99)
         balance = await self.exchange.get_balance()
+        available = await self.exchange.get_available_balance()
         qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, self.leverage)
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
             await self.notifier.signal_skipped(sig.symbol, sig.side, "размер позиции = 0")
+            return
+
+        notional = (qty * entry) / max(self.leverage, 1)
+        min_margin = notional * 1.05
+        if available < min_margin:
+            reason = (
+                f"недостаточно свободной маржи: доступно {available:.2f} USDT, "
+                f"нужно ~{min_margin:.2f} (retCode=110007)"
+            )
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             return
 
         qty, sl, tp, prep_err = await prepare_market_order(
@@ -250,6 +262,13 @@ class UnifiedOrchestrator:
         else:
             err = str(result.get("error", "unknown"))
             logger.warning("Order FAIL %s %s: %s", sig.symbol, sig.side, err)
+            if "110007" in err or "not enough" in err.lower():
+                self.ledger.update_status(
+                    ledger_id,
+                    SignalStatus.SKIPPED,
+                    "недостаточно маржи — позиция уже занята или баланс в сделках",
+                )
+                return
             self.ledger.update_status(ledger_id, SignalStatus.REJECTED, err)
             await self.notifier.order_failed(sig.symbol, err)
 

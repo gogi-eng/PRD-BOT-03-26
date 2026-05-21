@@ -292,13 +292,38 @@ class BybitClient:
         return []
 
     async def get_balance(self) -> float:
+        snap = await self.get_wallet_snapshot()
+        return snap.get("wallet_balance", 0.0)
+
+    async def get_available_balance(self) -> float:
+        """Свободная маржа для нового ордера (не walletBalance — он включает занятую маржу)."""
+        snap = await self.get_wallet_snapshot()
+        return snap.get("available_balance", 0.0)
+
+    async def get_wallet_snapshot(self) -> Dict[str, float]:
         result = await self._request("GET", "/v5/account/wallet-balance", {"accountType": "UNIFIED"}, private=True)
-        if result and result.get("list"):
-            for acc in result["list"]:
-                for coin in acc.get("coin", []):
-                    if coin.get("coin") == "USDT":
-                        return float(coin.get("walletBalance", 0))
-        return 0.0
+        out = {"wallet_balance": 0.0, "available_balance": 0.0, "equity": 0.0}
+        if not result or not result.get("list"):
+            return out
+        acc = result["list"][0]
+        total_avail = float(acc.get("totalAvailableBalance", 0) or 0)
+        if total_avail > 0:
+            out["available_balance"] = total_avail
+        out["equity"] = float(acc.get("totalEquity", 0) or acc.get("totalWalletBalance", 0) or 0)
+        for coin in acc.get("coin", []):
+            if coin.get("coin") != "USDT":
+                continue
+            out["wallet_balance"] = float(coin.get("walletBalance", 0) or 0)
+            if out["available_balance"] <= 0:
+                for key in ("availableToWithdraw", "availableBalance", "equity"):
+                    val = float(coin.get(key, 0) or 0)
+                    if val > 0:
+                        out["available_balance"] = val
+                        break
+            break
+        if out["available_balance"] <= 0 and out["wallet_balance"] > 0:
+            out["available_balance"] = out["wallet_balance"]
+        return out
 
     async def place_order(self, symbol: str, side: str, qty: float,
                           order_type: str = "Market", price: float = None,
