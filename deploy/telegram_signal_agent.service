@@ -11,6 +11,9 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/PRD-BOT-ALL
+Environment=PRD_LOG_STDERR=1
+StandardOutput=journal
+StandardError=journal
 ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/scripts/telegram_signal_agent.py
 Restart=always
 RestartSec=15
