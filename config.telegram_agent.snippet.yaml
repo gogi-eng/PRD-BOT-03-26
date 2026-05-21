@@ -1,5 +1,4 @@
-# Вставьте в config.yaml на сервере (секция telegram_signal_agent).
-# allowed_chats: [] — только каналы с сигналами, остальное режется ignored_*.
+# Секция telegram_signal_agent для config.yaml на сервере
 
 telegram_signal_agent:
   enabled: true
@@ -7,6 +6,10 @@ telegram_signal_agent:
   market_scanner_enabled: false
   control_panel_enabled: false
   telegram_notify: true
+  notify_only_approved: true
+  audit_jsonl_enabled: false
+  inbox_jsonl_enabled: true
+  inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   session_name: telegram_user_signal_agent
   allowed_chats: []
   ignored_substrings:
@@ -20,10 +23,6 @@ telegram_signal_agent:
     - chatgpt
     - bybit комьюнити
     - bybit новости
-    - learn 2 trade
-    - bbc news
-    - cryptovolk
-    - bullrunsignals
   ignored_chats:
     - FantastisheBot
     - PocketOptions_1969_BOT
@@ -36,28 +35,35 @@ telegram_signal_agent:
     - "Gavin Binary Option Signals 🐳"
     - "BYBIT Комьюнити"
     - "BYBIT Новости"
-    - "BBC News | Русская служба"
     - BotFather
-    - "Learn 2 Trade Crypto"
-    - "Linux Academy"
-    - "OpenAI Community"
-    - "ChatGPT Work"
-    - "ChatGPT | Нейро News"
-    - "Midjourney | Диджитал"
-    - Onliner
     - Bullrunsignals
     - Cryptovolksignalbot
-    - "Hype Detector"
-    - POLYGEN
-    - a24plus_bot
-    - AlfaBankBYPaymentUATBot
-    - igorzuevichtelegrambot
     - Labuh25Bot
-    - "one trade money"
-    - Crypto_signals_rating
+  signal_parse_simple: true
+  infer_side_from_sr: true
+  require_stop_loss: true
+  min_openrouter_confidence: 68
+  signal_quality:
+    enabled: true
+    skip_noise_posts: true
+    require_stop_loss: true
+    min_structure_score: 58
+    prefer_rule_based_when_structured: true
+    openrouter_skip_if_structure_score_ge: 78
+    openrouter_min_structure_score: 48
+  trusted_signal_sources:
+    - "FibTrader | Крипта, Сигналы, Копитрейдинг"
+    - "INVEX GROUP"
+    - "Евгений Ковалёв | NextGen"
   state_path: telegram_signal_agent_state.json
   out_dir: reports/telegram_signals
   lookback_hours: 6
   duplicate_signal_cooldown_sec: 1800
   max_chats_once: 25
   scan_delay_sec: 0.35
+
+# В секции signals unified-бота:
+# signals:
+#   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
+#   telegram_inbox_only_approved: true
+#   min_telegram_confidence: 0.55

@@ -169,6 +169,10 @@ from telegram_agent.signal_agent_panel import start_control_panel_task  # noqa: 
 from analysis.structure_zones import StructureZoneAnalyzer  # noqa: E402
 from telegram_agent.photo_ocr import telethon_photo_ocr_text  # noqa: E402
 from telegram_agent.signal_parse import enrich_parsed_signal_levels  # noqa: E402
+from telegram_agent.signal_quality import (  # noqa: E402
+    passes_quality_gate,
+    rule_based_review,
+)
 from telegram_agent.sr_execution_adjust import (  # noqa: E402
     adjust_telegram_sl_tp_with_sr_zones,
     infer_side_from_zones,
@@ -1037,6 +1041,17 @@ class TelegramSignalAgent:
         self.default_sl_pct = float(self.agent_cfg.get("default_sl_pct", 1.2))
         self.default_tp_pct = float(self.agent_cfg.get("default_tp_pct", 2.4))
         self.require_stop_loss = bool(self.agent_cfg.get("require_stop_loss", True))
+        _sq = self.agent_cfg.get("signal_quality", {})
+        self.signal_quality_cfg = _sq if isinstance(_sq, dict) else {}
+        self.notify_only_approved = bool(self.agent_cfg.get("notify_only_approved", True))
+        self.audit_jsonl_enabled = bool(self.agent_cfg.get("audit_jsonl_enabled", True))
+        self.inbox_jsonl_enabled = bool(self.agent_cfg.get("inbox_jsonl_enabled", True))
+        rel_inbox = str(
+            self.agent_cfg.get("inbox_jsonl", "reports/telegram_signals/signals_inbox.jsonl")
+        )
+        self.inbox_jsonl = (repo_dir / rel_inbox).resolve()
+        if self.inbox_jsonl_enabled:
+            self.inbox_jsonl.parent.mkdir(parents=True, exist_ok=True)
         self.allow_auto_take_profit = bool(self.agent_cfg.get("allow_auto_take_profit", True))
         self.min_openrouter_confidence = int(self.agent_cfg.get("min_openrouter_confidence", 65))
         self.min_openrouter_confidence_trusted = int(
@@ -1874,7 +1889,37 @@ class TelegramSignalAgent:
             self.state["pending_signal_reviews"] = keep[-max(1, self.channel_rating_max_pending):]
             self._save_state()
 
+    def _append_unified_inbox(self, signal: TelegramSignal, review: dict[str, Any]) -> None:
+        """Чистая очередь для unified-бота: только одобренные качественные сигналы."""
+        if not self.inbox_jsonl_enabled:
+            return
+        if not bool(review.get("approve")):
+            return
+        side = str(signal.side or "").upper()
+        if side not in {"BUY", "SELL"}:
+            return
+        conf = float(review.get("confidence", 0) or 0) / 100.0
+        if conf <= 0:
+            conf = float(signal.confidence or 0) / 100.0
+        row = {
+            "symbol": str(signal.symbol).upper(),
+            "side": "Buy" if side == "BUY" else "Sell",
+            "confidence": min(0.98, max(0.35, conf if conf <= 1 else conf / 100.0)),
+            "entry": float(signal.entry or 0),
+            "stop_loss": float(signal.stop_loss or 0),
+            "take_profit": float(signal.take_profit or 0),
+            "channel": signal.source,
+            "message_id": signal.message_id,
+            "reason": str(review.get("reason", ""))[:200],
+            "parser_confidence": int(signal.parser_confidence or 0),
+            "market_regime": signal.market_regime,
+        }
+        with open(self.inbox_jsonl, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
     def _append_signal(self, signal: TelegramSignal, review: dict[str, Any], action: str, result: dict[str, Any] | None) -> None:
+        if not self.audit_jsonl_enabled:
+            return
         audit: dict[str, Any] = {
             "logged_entry": float(signal.entry),
             "logged_stop_loss": float(signal.stop_loss),
@@ -2330,18 +2375,32 @@ class TelegramSignalAgent:
             self._append_signal(signal, review_pre, "risk_reject", None)
             self._notify_signal(signal, review_pre, "risk_reject", None)
             return
-        review = openrouter_review(
-            api_key=os.getenv("OPENROUTER_API_KEY", ""),
-            model=self.openrouter_model,
-            signal=signal,
-            timeout_sec=self.openrouter_timeout_sec,
-            budget_agent=self,
-            budget_kind="telegram",
+        trusted = self._is_trusted_source(source)
+        rb = rule_based_review(parsed, signal.market_regime)
+        skip_ai_below = int(self.signal_quality_cfg.get("openrouter_skip_if_structure_score_ge", 78))
+        use_rules_only = (
+            bool(self.signal_quality_cfg.get("prefer_rule_based_when_structured", True))
+            and rb.get("approve")
+            and int(rb.get("confidence", 0)) >= skip_ai_below
         )
+        if use_rules_only:
+            review = dict(rb)
+        else:
+            min_for_ai = int(self.signal_quality_cfg.get("openrouter_min_structure_score", 45))
+            if int(rb.get("confidence", 0)) < min_for_ai and not trusted:
+                review = {"approve": False, "confidence": int(rb.get("confidence", 0)), "reason": "structure_too_weak_for_ai"}
+            else:
+                review = openrouter_review(
+                    api_key=os.getenv("OPENROUTER_API_KEY", ""),
+                    model=self.openrouter_model,
+                    signal=signal,
+                    timeout_sec=self.openrouter_timeout_sec,
+                    budget_agent=self,
+                    budget_kind="telegram",
+                )
         signal.confidence = int(review.get("confidence", 0) or 0)
         signal.reason = str(review.get("reason", ""))
         ai_conf = int(review.get("confidence", 0) or 0)
-        trusted = self._is_trusted_source(source)
         base_min_ai = self.min_openrouter_confidence_trusted if trusted else self.min_openrouter_confidence
         min_ai = self._scaled_openrouter_min_confidence(base_min_ai, signal.market_regime)
         approved = bool(review.get("approve")) and ai_conf >= min_ai
@@ -2424,6 +2483,8 @@ class TelegramSignalAgent:
             )
         self._post_signal_analytics(signal)
         self._append_signal(signal, review_out, action, result)
+        if approved:
+            self._append_unified_inbox(signal, review_out)
         self._notify_signal(signal, review_out, action, result)
 
     async def process_message(
@@ -2482,30 +2543,16 @@ class TelegramSignalAgent:
                 LOG.info("Parse skip (hint): source=%r … %s", source, preview)
             self._mark_seen(source, message_id)
             return
+        trusted = self._is_trusted_source(source)
+        ok_q, q_reason = passes_quality_gate(
+            parsed, combined, self.signal_quality_cfg, trusted=trusted
+        )
+        if not ok_q:
+            LOG.debug("Quality skip %r: %s", source, q_reason)
+            self._mark_seen(source, message_id)
+            return
         fingerprint = self._signal_fingerprint(source, parsed)
         if self._is_duplicate_signal(fingerprint):
-            signal = TelegramSignal(
-                source=source,
-                message_id=message_id,
-                message_time_utc=(message_dt or utc_now()).astimezone(timezone.utc).isoformat(),
-                received_at_utc=utc_now().isoformat(),
-                symbol=str(parsed.get("symbol", "")),
-                side=str(parsed.get("side", "")),
-                entry=safe_float(parsed.get("entry")),
-                stop_loss=safe_float(parsed.get("stop_loss")),
-                take_profit=safe_float(parsed.get("take_profit")),
-                leverage=int(parsed.get("leverage", self.default_leverage) or self.default_leverage),
-                confidence=0,
-                reason="duplicate_signal",
-                raw_text=combined[:4000],
-                parser_confidence=int(parsed.get("parser_confidence", 0) or 0),
-            )
-            self._append_signal(
-                signal,
-                {"approve": False, "confidence": 0, "reason": "duplicate_signal"},
-                "duplicate",
-                None,
-            )
             self._mark_seen(source, message_id)
             return
 
@@ -2692,6 +2739,12 @@ class TelegramSignalAgent:
 
     def _notify_signal(self, signal: TelegramSignal, review: dict[str, Any], action: str, result: dict[str, Any] | None) -> None:
         if not self.telegram_notify:
+            return
+        if self.notify_only_approved and action not in {
+            "executed",
+            "approved_notify",
+            "scanner_executed",
+        }:
             return
         token = os.getenv("TELEGRAM_TOKEN", "")
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "")

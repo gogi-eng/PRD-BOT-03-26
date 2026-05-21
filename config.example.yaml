@@ -48,7 +48,8 @@ signals:
   own_agents_enabled: true
   telegram_inbox_enabled: true
   # Файл, куда пишет scripts/telegram_signal_agent.py (ОТДЕЛЬНЫЙ процесс на сервере!)
-  telegram_signals_jsonl: "reports/telegram_signals/signals.jsonl"
+  telegram_signals_jsonl: "reports/telegram_signals/signals_inbox.jsonl"
+  telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
   min_telegram_confidence: 0.55
   whale_news_enabled: true
@@ -65,10 +66,19 @@ positions:
 telegram_signal_agent:
   enabled: true
   auto_execute: false
+  notify_only_approved: true
+  audit_jsonl_enabled: false
+  inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  signal_parse_simple: true
+  signal_quality:
+    enabled: true
+    skip_noise_posts: true
+    min_structure_score: 58
   session_name: telegram_user_signal_agent
   allowed_chats: []
   ignored_chats:
     - FantastisheBot
+    - PocketOptions_1969_BOT
   state_path: telegram_signal_agent_state.json
   out_dir: reports/telegram_signals
   lookback_hours: 6
