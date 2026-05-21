@@ -1052,6 +1052,8 @@ class TelegramSignalAgent:
         self.inbox_jsonl = (repo_dir / rel_inbox).resolve()
         if self.inbox_jsonl_enabled:
             self.inbox_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        _cp = self.agent_cfg.get("channel_prune", {})
+        self.channel_prune_cfg = _cp if isinstance(_cp, dict) else {}
         self.allow_auto_take_profit = bool(self.agent_cfg.get("allow_auto_take_profit", True))
         self.min_openrouter_confidence = int(self.agent_cfg.get("min_openrouter_confidence", 65))
         self.min_openrouter_confidence_trusted = int(
@@ -1889,12 +1891,41 @@ class TelegramSignalAgent:
             self.state["pending_signal_reviews"] = keep[-max(1, self.channel_rating_max_pending):]
             self._save_state()
 
+    def _touch_channel_activity(
+        self,
+        source: str,
+        message_dt: datetime | None = None,
+        *,
+        had_signal: bool = False,
+    ) -> None:
+        """Учёт активности канала для scripts/prune_inactive_telegram_channels.py."""
+        src = str(source or "").strip()
+        if not src:
+            return
+        key = normalize_chat_name(src)
+        now = (message_dt or utc_now()).astimezone(timezone.utc)
+        node = self.state.setdefault("channel_activity", {})
+        if not isinstance(node, dict):
+            node = {}
+            self.state["channel_activity"] = node
+        row = node.setdefault(key, {"source": src})
+        if not isinstance(row, dict):
+            row = {"source": src}
+            node[key] = row
+        row["source"] = src
+        if not row.get("first_seen_at"):
+            row["first_seen_at"] = now.isoformat()
+        row["last_post_at"] = now.isoformat()
+        if had_signal:
+            row["last_signal_at"] = now.isoformat()
+
     def _append_unified_inbox(self, signal: TelegramSignal, review: dict[str, Any]) -> None:
         """Чистая очередь для unified-бота: только одобренные качественные сигналы."""
         if not self.inbox_jsonl_enabled:
             return
         if not bool(review.get("approve")):
             return
+        self._touch_channel_activity(signal.source, had_signal=True)
         side = str(signal.side or "").upper()
         if side not in {"BUY", "SELL"}:
             return
@@ -2505,6 +2536,7 @@ class TelegramSignalAgent:
         if self._is_ignored_source(source):
             self._mark_seen(source, message_id)
             return
+        self._touch_channel_activity(source, message_dt, had_signal=False)
         if self.channel_auto_block_cfg.enabled and channel_is_blocked(self.state, normalize_chat_name(source)):
             LOG.info("Skip auto-blocked source: %r", source)
             self._mark_seen(source, message_id)

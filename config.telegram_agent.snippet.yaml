@@ -55,6 +55,13 @@ telegram_signal_agent:
     - "FibTrader | Крипта, Сигналы, Копитрейдинг"
     - "INVEX GROUP"
     - "Евгений Ковалёв | NextGen"
+  channel_prune:
+    enabled: true
+    inactive_hours: 24
+    min_track_hours: 48
+    auto_update_config: true
+    notify_telegram: true
+    never_prune: []
   state_path: telegram_signal_agent_state.json
   out_dir: reports/telegram_signals
   lookback_hours: 6

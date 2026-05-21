@@ -1,0 +1,12 @@
+[Unit]
+Description=PRD prune inactive Telegram channels (no signals 24h)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/PRD-BOT-ALL
+ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/scripts/prune_inactive_telegram_channels.py --apply
+
+[Install]
+WantedBy=multi-user.target
