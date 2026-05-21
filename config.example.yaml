@@ -16,14 +16,18 @@ telegram:
   control_polling_enabled: true
 
 trading:
-  # Не только BTC/ETH — добавьте пары USDT linear на Bybit (до max_positions одновременно)
+  # Автоскан: пары с оборотом 24ч >= min_24h_volume_usdt (turnover24h на Bybit)
+  min_24h_volume_usdt: 10000000
+  max_scan_symbols: 12
+  symbol_rescan_interval_sec: 1800
+  # Всегда в списке скана (в начале), даже если объём ниже порога
   symbols:
     - BTCUSDT
     - ETHUSDT
-    - SOLUSDT
-    - XRPUSDT
-    - DOGEUSDT
-    - BNBUSDT
+  symbol_blacklist: []
+  symbol_blacklist_substrings:
+    - USDC
+    - USDE
   leverage: 5
   risk_pct_per_trade: 0.5
   max_positions: 3

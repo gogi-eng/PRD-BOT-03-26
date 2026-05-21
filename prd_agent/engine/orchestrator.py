@@ -18,6 +18,7 @@ from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_market_order
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.guard import RiskGuard
+from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.signals.router import SignalRouter, UnifiedSignal
 from prd_agent.telegram.notifier import TelegramNotifier
 from prd_agent.telegram.status_table import format_status_table
@@ -41,9 +42,12 @@ class UnifiedOrchestrator:
         self.improver = SelfImprover(cfg, self.root, on_config_reload=self.reload_config)
         self.notifier = TelegramNotifier(cfg)
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
+        self.symbol_scanner = SymbolScanner(cfg)
 
         t = cfg.get("trading", {})
         self.symbols: List[str] = list(t.get("symbols", ["BTCUSDT"]))
+        self._symbol_rescan_sec = float(t.get("symbol_rescan_interval_sec", 1800))
+        self._last_symbol_scan_at = 0.0
         self.leverage = int(t.get("leverage", 5))
         self.risk_pct = float(t.get("risk_pct_per_trade", 0.5))
         self.report_interval_sec = float(cfg.get("reporter", {}).get("interval_hours", 2)) * 3600
@@ -84,7 +88,18 @@ class UnifiedOrchestrator:
             t.get("min_own_agent_confidence", getattr(self.signals, "_min_own_conf", 0.28))
         )
         self.symbols = list(t.get("symbols", self.symbols))
+        self.symbol_scanner = SymbolScanner(self.cfg)
+        self._symbol_rescan_sec = float(t.get("symbol_rescan_interval_sec", self._symbol_rescan_sec))
         logger.info("Config reloaded from disk")
+
+    async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
+        if not self.symbol_scanner.enabled():
+            return
+        now = datetime.now(timezone.utc).timestamp()
+        if not force and (now - self._last_symbol_scan_at) < self._symbol_rescan_sec:
+            return
+        self.symbols = await self.symbol_scanner.scan(self.exchange)
+        self._last_symbol_scan_at = now
 
     async def start(self) -> None:
         self._running = True
@@ -92,6 +107,7 @@ class UnifiedOrchestrator:
         self.risk.set_notify_callback(self._risk_notify)
         balance = await self.exchange.get_balance()
         self.risk.initial_balance = balance
+        await self._refresh_symbols_if_due(force=True)
         mode = "TESTNET" if self.exchange.is_testnet else "LIVE"
         positions = await self.exchange.get_positions()
         table = await self.build_status_table(positions=positions, block_reason="")
@@ -228,6 +244,7 @@ class UnifiedOrchestrator:
             self._last_upnl[sym] = upnl
 
     async def _cycle(self) -> None:
+        await self._refresh_symbols_if_due()
         positions = await self.exchange.get_positions()
         self.risk.open_positions_count = len(positions)
         await self._monitor_positions(positions)
