@@ -61,6 +61,19 @@ positions:
   trailing_distance_pct: 0.35
   breakeven_after_pct: 0.25
 
+# Коллектор сигналов из Telegram-каналов (отдельная служба telegram_signal_agent)
+telegram_signal_agent:
+  enabled: true
+  auto_execute: false
+  session_name: telegram_user_signal_agent
+  allowed_chats: []
+  ignored_chats:
+    - FantastisheBot
+  state_path: telegram_signal_agent_state.json
+  out_dir: reports/telegram_signals
+  lookback_hours: 6
+  duplicate_signal_cooldown_sec: 1800
+
 whale_news:
   rss_urls:
     - "https://feeds.feedburner.com/CoinDesk"
