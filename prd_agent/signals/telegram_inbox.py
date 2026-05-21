@@ -23,8 +23,31 @@ class TelegramInbox:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._offset = 0
         self._seen_ids: Set[str] = set()
+        backlog = int(sig.get("telegram_inbox_backlog_lines", 100))
         if self.path.exists():
-            self._offset = self.path.stat().st_size
+            if backlog > 0:
+                self._load_backlog(backlog)
+            else:
+                self._offset = self.path.stat().st_size
+
+    def _load_backlog(self, max_lines: int) -> None:
+        """При старте читает последние N строк (иначе только новые после запуска)."""
+        try:
+            lines = self.path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            return
+        tail = lines[-max_lines:] if len(lines) > max_lines else lines
+        for line in tail:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+                uid = str(row.get("message_id") or row.get("id") or hash(line))
+            except json.JSONDecodeError:
+                uid = str(hash(line))
+            self._seen_ids.add(uid)
+        self._offset = self.path.stat().st_size
 
     def _parse_text_signal(self, text: str) -> Optional[Dict[str, Any]]:
         if not text or len(text) < 8:

@@ -64,6 +64,7 @@ class SignalRouter:
         t = cfg.get("trading", {})
         self._min_conf = float(t.get("min_signal_confidence", 0.62))
         self._min_own_conf = float(t.get("min_own_agent_confidence", 0.28))
+        self._min_tg_conf = float(t.get("min_telegram_confidence", self._min_conf))
         self._multi_agent = None
         self._whale = WhaleNewsAgent(cfg) if cfg.get("signals", {}).get("whale_news_enabled", True) else None
         self._tg_inbox = (
@@ -159,7 +160,7 @@ class SignalRouter:
             else:
                 continue
             conf = float(parsed.get("confidence", parsed.get("score", 0.7)))
-            if conf < self._min_conf:
+            if conf < self._min_tg_conf:
                 continue
             sig = UnifiedSignal(
                 symbol=sym,
@@ -226,11 +227,12 @@ class SignalRouter:
             if w_sum <= 0:
                 continue
             conf = c_sum / w_sum
-            min_need = (
-                self._min_own_conf
-                if sources and all(s == "own_multi_agent" for s in sources)
-                else self._min_conf
-            )
+            if sources and all(s == "own_multi_agent" for s in sources):
+                min_need = self._min_own_conf
+            elif sources and all(s == "telegram" for s in sources):
+                min_need = self._min_tg_conf
+            else:
+                min_need = self._min_conf
             if conf < min_need:
                 continue
             merged.append(
@@ -253,7 +255,18 @@ class SignalRouter:
         own = await self.collect_own_signals(exchange, symbols)
         tg = self.collect_telegram_signals()
         whale = await self.collect_whale_news(exchange, symbols)
-        return self.merge_and_rank(own + tg + whale)
+        merged = self.merge_and_rank(own + tg + whale)
+        if own or tg or whale:
+            import logging
+
+            logging.getLogger("prd_agent.signals").info(
+                "Signals: own=%d telegram=%d whale=%d → merged=%d",
+                len(own),
+                len(tg),
+                len(whale),
+                len(merged),
+            )
+        return merged
 
     def recent_signals(self, hours: float = 2) -> List[Dict]:
         if not self._queue_file.exists():

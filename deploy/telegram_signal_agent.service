@@ -1,0 +1,19 @@
+# Отдельный процесс: читает каналы Telegram и пишет signals.jsonl для unified-бота.
+# Установка на сервере:
+#   sudo cp deploy/telegram_signal_agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now telegram_signal_agent
+[Unit]
+Description=PRD Telegram signal collector (JSONL inbox)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PRD-BOT-ALL
+ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/scripts/telegram_signal_agent.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
