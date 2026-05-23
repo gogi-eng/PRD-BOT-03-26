@@ -40,6 +40,18 @@ def main() -> int:
     trades_dir.mkdir(parents=True, exist_ok=True)
     print(f"OK: каталог сделок {trades_dir}")
 
+    try:
+        import asyncio
+        from prd_agent.ai.llm_gateway import health_check, load_llm_settings
+
+        cfg = load_config(ROOT / "config.yaml")
+        llm = load_llm_settings(cfg)
+        ok, msg = asyncio.run(health_check(llm))
+        tag = "OK" if ok else "WARN"
+        print(f"{tag}: AI ({llm.provider}): {msg}")
+    except Exception as exc:
+        print(f"WARN: AI check: {exc}")
+
     if errors:
         print("FAIL:")
         for e in errors:

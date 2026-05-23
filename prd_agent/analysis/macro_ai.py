@@ -1,16 +1,13 @@
 """
-Макро-брифинг через OpenRouter + заголовки RSS (whale_news).
-Не использует CDC AI Agent — только свой ключ OpenRouter.
+Макро-брифинг: RSS (whale_news) + LLM через OpenRouter или Free Claude Code (FCC).
 """
 from __future__ import annotations
 
 import html
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-
+from prd_agent.ai.llm_gateway import chat_async, load_llm_settings
 from telegram_agent.world_feed import fetch_rss_items
 
 logger = logging.getLogger("prd_agent.macro_ai")
@@ -18,12 +15,9 @@ logger = logging.getLogger("prd_agent.macro_ai")
 
 class MacroAI:
     def __init__(self, cfg: Dict[str, Any]):
-        o = cfg.get("openrouter", {})
         m = cfg.get("macro_ai", {})
         self.enabled = bool(m.get("enabled", True))
-        self.api_key = str(o.get("api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")).strip()
-        self.model = str(o.get("model", "google/gemini-2.0-flash-001"))
-        self.timeout = float(o.get("timeout_sec", 30))
+        self._llm = load_llm_settings(cfg)
         self.max_headlines = int(m.get("max_headlines", 8))
         wn = cfg.get("whale_news", {})
         self.rss_urls: List[str] = list(wn.get("rss_urls", []))
@@ -40,42 +34,6 @@ class MacroAI:
                     return titles
         return titles
 
-    async def _call_openrouter(self, prompt: str) -> str:
-        if not self.api_key:
-            return "OpenRouter API key не задан (openrouter.api_key или OPENROUTER_API_KEY)."
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты аналитик крипторынка для трейдера фьючерсов Bybit. "
-                        "Отвечай кратко на русском, 8–12 пунктов, без воды. "
-                        "Не давай финансовых советов «вложите всё» — только риски и контекст."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-            "max_tokens": 700,
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "X-Title": "PRD-BOT-ALL Macro AI",
-        }
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
-            ) as resp:
-                body = await resp.json()
-                if resp.status >= 400:
-                    return f"OpenRouter HTTP {resp.status}: {str(body)[:300]}"
-                return str(
-                    ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-                ).strip()
-
     async def build_briefing(
         self,
         *,
@@ -84,6 +42,8 @@ class MacroAI:
     ) -> str:
         if not self.enabled:
             return "Модуль macro_ai отключён в config.yaml"
+        if not self._llm.uses_fcc and not self._llm.openrouter_api_key:
+            return "AI не настроен: включите free_claude_code или OPENROUTER_API_KEY."
         headlines = self._collect_headlines()
         pos_lines: List[str] = []
         if self.include_positions and positions:
@@ -110,11 +70,25 @@ class MacroAI:
 4) Рекомендация по режиму: осторожно / нейтрально / агрессивно (без конкретных цен)
 """
         try:
-            text = await self._call_openrouter(prompt)
+            text, err = await chat_async(
+                self._llm,
+                system=(
+                    "Ты аналитик крипторынка для трейдера фьючерсов Bybit. "
+                    "Отвечай кратко на русском, 8–12 пунктов, без воды. "
+                    "Не давай финансовых советов «вложите всё» — только риски и контекст."
+                ),
+                user=prompt,
+                max_tokens=700,
+                temperature=0.2,
+                title="PRD-BOT-ALL Macro AI",
+            )
+            if err:
+                return f"Ошибка AI ({'FCC' if self._llm.uses_fcc else 'OpenRouter'}): {err}"
             if not text:
-                return "OpenRouter вернул пустой ответ."
+                return "AI вернул пустой ответ."
             safe = html.escape(text[:3500])
-            return f"<b>🧠 Макро-анализ (OpenRouter)</b>\n\n{safe}"
+            backend = "Free Claude Code" if self._llm.uses_fcc else "OpenRouter"
+            return f"<b>🧠 Макро-анализ ({backend})</b>\n\n{safe}"
         except Exception as exc:
             logger.exception("macro_ai: %s", exc)
             return f"Ошибка macro_ai: {exc}"

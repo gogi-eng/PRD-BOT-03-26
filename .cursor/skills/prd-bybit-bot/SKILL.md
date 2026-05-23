@@ -50,7 +50,26 @@ sudo systemctl restart telegram_signal_agent   # если включён
 | `BYBIT_API_KEY` / `BYBIT_API_SECRET` | Bybit |
 | `TELEGRAM_TOKEN` | Бот кнопок |
 | `TELEGRAM_CHAT_ID` | Уведомления |
-| `OPENROUTER_API_KEY` | Макро-кнопка «🧠 Макро» |
+| `OPENROUTER_API_KEY` | AI при `ai.provider: openrouter` |
+| `FCC_AUTH_TOKEN` | Токен прокси FCC (обычно `freecc`) |
+
+## Free Claude Code (опционально)
+
+Единый AI-шлюз: `prd_agent/ai/llm_gateway.py` — макро, проверка TG-сигналов.
+
+```yaml
+ai:
+  provider: fcc          # или openrouter на сервере
+free_claude_code:
+  enabled: true
+  base_url: http://127.0.0.1:8082
+  auth_token: freecc
+```
+
+Перед ботом на **том же хосте**: `uv run fcc-server` (папка free-claude-code-main).  
+На **DigitalOcean** без FCC — `ai.provider: openrouter`.
+
+Проверка: `./venv/bin/python3 scripts/check_llm.py`
 
 Не коммитить `.env` и не логировать токены.
 

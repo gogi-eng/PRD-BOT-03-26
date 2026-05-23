@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Список Telegram-каналов: что сканируется и что в игноре (без ордеров)."""
+"""Список Telegram-каналов: whitelist бота, игнор и остальные подписки."""
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +13,16 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env", override=True)
+
+
+def _peer_id(mod, entity) -> int | None:
+    tu = getattr(mod, "telethon_utils", None)
+    if tu is None:
+        return None
+    try:
+        return int(tu.get_peer_id(entity))
+    except Exception:
+        return None
 
 
 async def main() -> int:
@@ -43,24 +53,68 @@ async def main() -> int:
     session = str(agent.agent_cfg.get("session_name", "telegram_user_signal_agent"))
     client = TelegramClient(str(ROOT / session), api_id, api_hash)
 
-    scan: list[str] = []
+    allowed_raw = list(agent.agent_cfg.get("allowed_chats", []) or [])
+    whitelist: list[str] = []
     skip: list[str] = []
+    other: list[str] = []
+    peer_ids: set[int] = set()
+
     async with client:
+        if allowed_raw:
+            try:
+                resolved = await agent._resolve_allowed_peer_ids(client)
+                peer_ids = resolved or set()
+            except Exception as exc:
+                print(f"Ошибка allowed_chats: {exc}")
+
         async for dialog in client.iter_dialogs():
             if not getattr(dialog, "is_channel", False):
                 continue
             name = agent._chat_source_label(dialog.entity)
+            pk = _peer_id(mod, dialog.entity)
             if agent._is_ignored_source(name):
                 skip.append(name)
+            elif allowed_raw:
+                if pk is not None and pk in peer_ids:
+                    whitelist.append(name)
+                else:
+                    other.append(name)
             else:
-                scan.append(name)
+                other.append(name)
 
-    print(f"=== Сканируются ({len(scan)}) ===")
-    for n in sorted(scan):
-        print(f"  + {n}")
-    print(f"\n=== Игнор ({len(skip)}) ===")
-    for n in sorted(skip):
-        print(f"  - {n}")
+    if allowed_raw:
+        print(
+            f"=== Бот СЛУШАЕТ только whitelist ({len(whitelist)} из {len(allowed_raw)} в config) ==="
+        )
+        print("(то же, что peer_ids:N в логе telegram_signal_agent)\n")
+        for n in sorted(whitelist):
+            print(f"  + {n}")
+        missing = [
+            x
+            for x in allowed_raw
+            if not any(x.lower() in w.lower() or w.lower() in x.lower() for w in whitelist)
+        ]
+        if missing:
+            print("\n  ! Не найдены в Telegram (проверьте имя в config):")
+            for m in missing:
+                print(f"    ? {m}")
+        print(f"\n=== Игнор ({len(skip)}) ===")
+        for n in sorted(skip):
+            print(f"  - {n}")
+        print(f"\n=== Остальные подписки — бот НЕ слушает ({len(other)}) ===")
+        print("Убрать: отписка в Telegram ИЛИ строка в ignored_chats в config.yaml\n")
+        for n in sorted(other)[:40]:
+            print(f"  · {n}")
+        if len(other) > 40:
+            print(f"  … и ещё {len(other) - 40} (всего {len(other)})")
+    else:
+        print("allowed_chats пуст — бот слушает ВСЕ каналы кроме игнора!\n")
+        print(f"=== Сканируются ({len(other)}) ===")
+        for n in sorted(other):
+            print(f"  + {n}")
+        print(f"\n=== Игнор ({len(skip)}) ===")
+        for n in sorted(skip):
+            print(f"  - {n}")
     return 0
 
 
