@@ -828,17 +828,19 @@ def human_status(action: str, reason: str = "") -> str:
 
 
 def openrouter_review(
-    api_key: str,
-    model: str,
+    cfg: dict[str, Any],
     signal: TelegramSignal,
     timeout_sec: float,
     *,
     budget_agent: Any = None,
     budget_kind: str = "telegram",
 ) -> dict[str, Any]:
-    if not api_key:
-        return {"approve": True, "confidence": signal.confidence, "reason": "OpenRouter key not set"}
-    if budget_agent is not None:
+    from prd_agent.ai.llm_gateway import chat_sync, load_llm_settings
+
+    settings = load_llm_settings(cfg)
+    if not settings.uses_fcc and not settings.openrouter_api_key:
+        return {"approve": True, "confidence": signal.confidence, "reason": "AI key not set"}
+    if budget_agent is not None and not settings.uses_fcc:
         ok, bmsg = budget_agent._openrouter_budget_allow(budget_kind)
         if not ok:
             return {"approve": False, "confidence": 0, "reason": bmsg}
@@ -858,37 +860,22 @@ market_regime={signal.market_regime}
 Исходный текст:
 {signal.raw_text[:2500]}
 """
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a conservative crypto futures signal risk filter. Capital protection first.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 180,
-    }
-    req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "X-Title": "PRD-BOT Telegram Signal Agent",
-        },
-        method="POST",
+    body, err = chat_sync(
+        settings,
+        system="You are a conservative crypto futures signal risk filter. Capital protection first.",
+        user=prompt,
+        max_tokens=180,
+        temperature=0.1,
+        title="PRD-BOT Telegram Signal Agent",
+        timeout_sec=timeout_sec,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            if budget_agent is not None:
-                budget_agent._openrouter_budget_record(budget_kind, body)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:300]
-        return {"approve": False, "confidence": 0, "reason": f"OpenRouter HTTP {exc.code}: {detail}"}
-    text = str(((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+    if err:
+        label = "FCC" if settings.uses_fcc else "OpenRouter"
+        return {"approve": False, "confidence": 0, "reason": f"{label}: {err}"}
+    if budget_agent is not None and body and not settings.uses_fcc:
+        budget_agent._openrouter_budget_record(budget_kind, body)
+    _msg = ((body or {}).get("choices") or [{}])[0].get("message") or {}
+    text = str(_msg.get("content") or "")
     start, end = text.find("{"), text.rfind("}")
     if 0 <= start < end:
         text = text[start : end + 1]
@@ -904,8 +891,7 @@ market_regime={signal.market_regime}
 
 
 def openrouter_world_extract(
-    api_key: str,
-    model: str,
+    cfg: dict[str, Any],
     *,
     title: str,
     summary: str,
@@ -916,9 +902,12 @@ def openrouter_world_extract(
     budget_kind: str = "world",
 ) -> dict[str, Any]:
     """LLM: из новости извлечь гипотезу сделки Bybit USDT linear или has_trade=false."""
-    if not api_key:
-        return {"has_trade": False, "confidence": 0, "reason": "OpenRouter key not set"}
-    if budget_agent is not None:
+    from prd_agent.ai.llm_gateway import chat_sync, load_llm_settings
+
+    settings = load_llm_settings(cfg)
+    if not settings.uses_fcc and not settings.openrouter_api_key:
+        return {"has_trade": False, "confidence": 0, "reason": "AI key not set"}
+    if budget_agent is not None and not settings.uses_fcc:
         ok, bmsg = budget_agent._openrouter_budget_allow(budget_kind)
         if not ok:
             return {"has_trade": False, "confidence": 0, "reason": bmsg}
@@ -932,37 +921,22 @@ def openrouter_world_extract(
 Текст: {body}
 Ссылка: {link}
 """
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "Conservative extractor. Only Bybit USDT linear perps. Output JSON only.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.05,
-        "max_tokens": 420,
-    }
-    req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "X-Title": "PRD-BOT Agent-World Extract",
-        },
-        method="POST",
+    data, err = chat_sync(
+        settings,
+        system="Conservative extractor. Only Bybit USDT linear perps. Output JSON only.",
+        user=prompt,
+        max_tokens=420,
+        temperature=0.05,
+        title="PRD-BOT Agent-World Extract",
+        timeout_sec=timeout_sec,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if budget_agent is not None:
-                budget_agent._openrouter_budget_record(budget_kind, data)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:300]
-        return {"has_trade": False, "confidence": 0, "reason": f"OpenRouter HTTP {exc.code}: {detail}"}
-    text = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+    if err:
+        label = "FCC" if settings.uses_fcc else "OpenRouter"
+        return {"has_trade": False, "confidence": 0, "reason": f"{label}: {err}"}
+    if budget_agent is not None and data and not settings.uses_fcc:
+        budget_agent._openrouter_budget_record(budget_kind, data)
+    _msg = ((data or {}).get("choices") or [{}])[0].get("message") or {}
+    text = str(_msg.get("content") or "")
     start, end = text.find("{"), text.rfind("}")
     if 0 <= start < end:
         text = text[start : end + 1]
@@ -2425,10 +2399,9 @@ class TelegramSignalAgent:
                 review = {"approve": False, "confidence": int(rb.get("confidence", 0)), "reason": "structure_too_weak_for_ai"}
             else:
                 review = openrouter_review(
-                    api_key=os.getenv("OPENROUTER_API_KEY", ""),
-                    model=self.openrouter_model,
-                    signal=signal,
-                    timeout_sec=self.openrouter_timeout_sec,
+                    self.cfg,
+                    signal,
+                    self.openrouter_timeout_sec,
                     budget_agent=self,
                     budget_kind="telegram",
                 )
@@ -2631,8 +2604,7 @@ class TelegramSignalAgent:
         eid = str(event.get("id", "") or "")
         msg_id = int(hashlib.sha256(eid.encode()).hexdigest()[:12], 16) % (2**30) if eid else int(time.time() * 1000) % (2**30)
         ext = openrouter_world_extract(
-            os.getenv("OPENROUTER_API_KEY", ""),
-            self.openrouter_model,
+            self.cfg,
             title=title,
             summary=summary,
             link=link,

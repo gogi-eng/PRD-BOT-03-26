@@ -119,6 +119,16 @@ quality_gate:
 analytics:
   report_hours: 24
 
+ai:
+  provider: openrouter   # на сервере без FCC: openrouter; с fcc-server: fcc
+
+free_claude_code:
+  enabled: false
+  base_url: http://127.0.0.1:8082
+  auth_token: freecc
+  model: claude-3-5-haiku-20241022
+  timeout_sec: 30
+
 openrouter:
   api_key: ""   # или OPENROUTER_API_KEY в .env
   model: google/gemini-2.0-flash-001
