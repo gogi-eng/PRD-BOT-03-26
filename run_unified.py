@@ -97,10 +97,15 @@ async def async_main() -> None:
         orch.stop()
         if poll_task:
             await tg.stop()
-            if not poll_task.done():
-                poll_task.cancel()
             try:
-                await poll_task
+                await asyncio.wait_for(poll_task, timeout=25.0)
+            except asyncio.TimeoutError:
+                log.warning("Telegram polling: таймаут остановки, cancel")
+                poll_task.cancel()
+                try:
+                    await poll_task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
             except Exception as exc:

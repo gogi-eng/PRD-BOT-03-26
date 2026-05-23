@@ -8,7 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import Conflict
+from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from prd_agent.risk.guard import GuardStatus
@@ -27,6 +27,8 @@ class ControlBot:
         self.allowed: List[int] = [int(x) for x in tg.get("allowed_user_ids", [])]
         self.orch = orchestrator
         self.app: Optional[Application] = None
+        self._tg_shutdown_done = False
+        self._stop: Optional[asyncio.Event] = None
 
     def _allowed(self, user_id: Optional[int]) -> bool:
         if not self.allowed:
@@ -70,28 +72,57 @@ class ControlBot:
             reply_markup=self._main_keyboard(),
         )
 
+    def _app_ready(self) -> bool:
+        app = self.app
+        if not app:
+            return False
+        return bool(getattr(app, "running", False))
+
+    async def _safe_edit(
+        self, query, text: str, *, html: bool = False
+    ) -> None:
+        if not self._app_ready():
+            logger.warning("TG edit пропущен: Application не запущен")
+            return
+        body = (text or "")[:4090]
+        kwargs: Dict[str, Any] = {"reply_markup": self._main_keyboard()}
+        if html:
+            kwargs["parse_mode"] = "HTML"
+        try:
+            await query.edit_message_text(body, **kwargs)
+        except (NetworkError, TimedOut) as exc:
+            logger.warning("TG edit_message (сеть): %s", exc)
+        except Exception as exc:
+            logger.warning("TG edit_message: %s", exc)
+
     async def on_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if not query or not query.from_user or not self._allowed(query.from_user.id):
             return
         action = (query.data or "").split(":", 1)[-1]
-        if action == "ta_scan":
-            await query.answer("Сканирую Bybit…")
-            await query.edit_message_text(
-                "⏳ <b>TA-скан</b>\n\nЧитаю графики волатильных пар…",
-                reply_markup=self._main_keyboard(),
-                parse_mode="HTML",
-            )
-        else:
-            await query.answer()
-        text = await self._handle_action(action)
         html_actions = {"status", "stats", "macro", "ta_scan"}
-        if action in html_actions:
-            await query.edit_message_text(
-                text, reply_markup=self._main_keyboard(), parse_mode="HTML"
+        try:
+            if action == "ta_scan":
+                await query.answer("Сканирую Bybit…")
+                await self._safe_edit(
+                    query,
+                    "⏳ <b>TA-скан</b>\n\nЧитаю графики волатильных пар…",
+                    html=True,
+                )
+            else:
+                await query.answer()
+            text = await self._handle_action(action)
+            if action in html_actions:
+                await self._safe_edit(query, text, html=True)
+            else:
+                await self._safe_edit(query, text, html=False)
+        except Exception as exc:
+            logger.exception("on_button %s: %s", action, exc)
+            await self._safe_edit(
+                query,
+                f"⚠️ Ошибка кнопки <b>{action}</b>\n\n<code>{str(exc)[:500]}</code>",
+                html=True,
             )
-        else:
-            await query.edit_message_text(text, reply_markup=self._main_keyboard())
 
     async def _handle_action(self, action: str) -> str:
         if action == "start":
@@ -135,18 +166,22 @@ class ControlBot:
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:
+        if self._tg_shutdown_done:
+            return
         app = self.app
         if not app:
             return
+        self._tg_shutdown_done = True
         try:
             if getattr(app.updater, "running", False):
                 await app.updater.stop()
         except Exception as exc:
             logger.warning("TG updater stop: %s", exc)
-        try:
-            await app.stop()
-        except Exception as exc:
-            logger.warning("TG app stop: %s", exc)
+        if getattr(app, "running", False):
+            try:
+                await app.stop()
+            except Exception as exc:
+                logger.warning("TG app stop: %s", exc)
         try:
             await app.shutdown()
         except Exception as exc:
@@ -156,6 +191,7 @@ class ControlBot:
         if not self.token:
             logger.warning("Telegram bot_token не задан")
             return
+        self._tg_shutdown_done = False
         self.app = Application.builder().token(self.token).build()
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("panel", self.cmd_start))
@@ -192,7 +228,6 @@ class ControlBot:
         await self.run_polling()
 
     async def stop(self) -> None:
-        stop = getattr(self, "_stop", None)
-        if stop and not stop.is_set():
-            stop.set()
-        await self._shutdown_app()
+        """Остановить polling; shutdown выполняется в finally run_polling()."""
+        if self._stop and not self._stop.is_set():
+            self._stop.set()
