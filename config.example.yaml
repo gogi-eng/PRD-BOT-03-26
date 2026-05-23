@@ -47,6 +47,18 @@ risk:
 signals:
   own_agents_enabled: true
   telegram_inbox_enabled: true
+
+ta_scanner:
+  enabled: true
+  min_24h_change_pct: 1.0
+  min_intraday_range_pct: 0.8
+  max_symbols: 15
+  interval: "15"
+  kline_limit: 120
+  min_confidence: 0.55
+  atr_sl_mult: 1.2
+  atr_tp_mult: 2.5
+  min_rr: 2.0
   # Файл, куда пишет scripts/telegram_signal_agent.py (ОТДЕЛЬНЫЙ процесс на сервере!)
   telegram_signals_jsonl: "reports/telegram_signals/signals_inbox.jsonl"
   telegram_inbox_only_approved: true
