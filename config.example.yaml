@@ -31,8 +31,9 @@ trading:
   leverage: 5
   risk_pct_per_trade: 0.5
   max_positions: 4
-  min_signal_confidence: 0.82
-  min_own_agent_confidence: 0.65
+  min_signal_confidence: 0.90
+  min_own_agent_confidence: 0.90
+  min_multi_agent_score: 0.4
   loop_interval_sec: 60
   auto_start: true   # старт торговли сразу при запуске run_unified.py
 
@@ -55,7 +56,7 @@ ta_scanner:
   max_symbols: 15
   interval: "15"
   kline_limit: 120
-  min_confidence: 0.70
+  min_confidence: 0.90
   atr_sl_mult: 1.2
   atr_tp_mult: 2.5
   min_rr: 2.0
@@ -63,8 +64,9 @@ ta_scanner:
   telegram_signals_jsonl: "reports/telegram_signals/signals_inbox.jsonl"
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
-  min_telegram_confidence: 0.85
-  min_analysis_confidence: 0.85
+  min_telegram_confidence: 0.90
+  min_analysis_confidence: 0.90
+  min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
   whale_news_enabled: true
 
@@ -109,7 +111,7 @@ whale_news:
 
 reporter:
   interval_hours: 2
-  high_confidence_threshold: 0.85
+  high_confidence_threshold: 0.90
 
 self_improvement:
   enabled: true
@@ -125,7 +127,7 @@ global_analysis:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.82
+  min_confidence: 0.90
   min_rr_ratio: 2.5
   require_sl_tp: true
   min_24h_volume_usdt: 10000000

@@ -218,6 +218,12 @@ class SignalRouter:
             if w_sum <= 0:
                 continue
             conf = c_sum / w_sum
+            ma_score = 0.0
+            for g in group:
+                if g.source == "own_multi_agent":
+                    agg = g.raw.get("aggregate") if isinstance(g.raw, dict) else None
+                    if agg is not None:
+                        ma_score = max(ma_score, abs(float(agg)))
             if sources and all(s in ("own_multi_agent", "ta_volatility") for s in sources):
                 min_need = self._min_own_conf
             elif sources and all(s == "telegram" for s in sources):
@@ -236,7 +242,11 @@ class SignalRouter:
                     stop_loss=sl,
                     take_profit=tp,
                     reason=" | ".join(reasons[:3]),
-                    raw={"sources": sources, "count": len(group)},
+                    raw={
+                        "sources": sources,
+                        "count": len(group),
+                        "multi_agent_score": ma_score,
+                    },
                 )
             )
         merged.sort(key=lambda x: x.confidence, reverse=True)
@@ -247,7 +257,10 @@ class SignalRouter:
         ta = await self.collect_ta_volatility(exchange, symbols)
         tg = self.collect_telegram_signals()
         whale = await self.collect_whale_news(exchange, symbols)
+        from prd_agent.signals.confidence_filter import passes_emit_gate
+
         merged = self.merge_and_rank(own + ta + tg + whale)
+        merged = [s for s in merged if passes_emit_gate(s, self.cfg)]
         if own or ta or tg or whale:
             import logging
 
