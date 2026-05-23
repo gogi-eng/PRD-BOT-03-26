@@ -44,6 +44,7 @@ risk:
   max_trades_per_day: 20
   cooldown_after_loss_sec: 300
   cooldown_after_stop_hours: 2
+  daily_loss_blocks_until_next_day: true
 
 signals:
   own_agents_enabled: true
