@@ -231,3 +231,53 @@ class VolatilityTAEngine:
             ", ".join(f"{s.symbol} {s.side}" for s in signals[:5]) or "—",
         )
         return signals, volatile
+
+
+def format_ta_telegram_report(
+    volatile: List[VolatileSymbol],
+    signals: List[TASignalResult],
+    *,
+    min_change_pct: float,
+    max_lines: int = 8,
+) -> str:
+    """HTML-отчёт для кнопки Telegram (лимит ~4096 символов)."""
+    lines = [
+        f"<b>📉 TA-скан Bybit</b>",
+        f"Пары с |Δ24ч| ≥ <b>{min_change_pct:.1f}%</b> (без авто-сделки — только анализ)",
+        "",
+        f"<b>Волатильные ({len(volatile)})</b>",
+    ]
+    if not volatile:
+        lines.append("<i>Нет пар по критерию волатильности/объёма.</i>")
+    else:
+        for v in volatile[:max_lines]:
+            lines.append(
+                f"• <code>{v.symbol}</code> Δ24h={v.change_24h_pct:.1f}% "
+                f"оборот={v.turnover_24h/1e6:.0f}M"
+            )
+        if len(volatile) > max_lines:
+            lines.append(f"<i>… ещё {len(volatile) - max_lines}</i>")
+
+    lines.append("")
+    lines.append(f"<b>Сигналы TA ({len(signals)})</b>")
+    if not signals:
+        lines.append(
+            "<i>Нет входа: тренд EMA / RSI / RR не прошли фильтр.</i>"
+        )
+    else:
+        for s in signals[:max_lines]:
+            ind = s.indicators
+            lines.append(
+                f"• <b>{s.symbol}</b> {s.side} conf={s.confidence:.0%}\n"
+                f"  вход={s.entry:.6g} SL={s.stop_loss:.6g} TP={s.take_profit:.6g}\n"
+                f"  RSI={ind.get('rsi')} RR={ind.get('rr')} — {s.reason[:120]}"
+            )
+        if len(signals) > max_lines:
+            lines.append(f"<i>… ещё {len(signals) - max_lines} сигналов</i>")
+
+    lines.append("")
+    lines.append(
+        "<i>Сделки открывает только торговый цикл при совпадении с риском и quality gate.</i>"
+    )
+    text = "\n".join(lines)
+    return text[:3900]

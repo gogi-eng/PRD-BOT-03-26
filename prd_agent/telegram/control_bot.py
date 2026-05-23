@@ -45,8 +45,11 @@ class ControlBot:
                     InlineKeyboardButton("📈 Статистика", callback_data="act:stats"),
                 ],
                 [
-                    InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
+                    InlineKeyboardButton("📉 TA-скан", callback_data="act:ta_scan"),
                     InlineKeyboardButton("🧠 Макро", callback_data="act:macro"),
+                ],
+                [
+                    InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
                 ],
                 [
                     InlineKeyboardButton("🛑 Emergency stop", callback_data="act:emergency"),
@@ -71,10 +74,18 @@ class ControlBot:
         query = update.callback_query
         if not query or not query.from_user or not self._allowed(query.from_user.id):
             return
-        await query.answer()
         action = (query.data or "").split(":", 1)[-1]
+        if action == "ta_scan":
+            await query.answer("Сканирую Bybit…")
+            await query.edit_message_text(
+                "⏳ <b>TA-скан</b>\n\nЧитаю графики волатильных пар…",
+                reply_markup=self._main_keyboard(),
+                parse_mode="HTML",
+            )
+        else:
+            await query.answer()
         text = await self._handle_action(action)
-        html_actions = {"status", "stats", "macro"}
+        html_actions = {"status", "stats", "macro", "ta_scan"}
         if action in html_actions:
             await query.edit_message_text(
                 text, reply_markup=self._main_keyboard(), parse_mode="HTML"
@@ -119,6 +130,8 @@ class ControlBot:
             return self.orch.get_trade_stats_report()
         if action == "macro":
             return await self.orch.get_macro_briefing()
+        if action == "ta_scan":
+            return await self.orch.get_ta_scan_report()
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:
