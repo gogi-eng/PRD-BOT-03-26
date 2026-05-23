@@ -1124,6 +1124,8 @@ class TelegramSignalAgent:
         )
         # Кнопки unified-бота (run_unified) — тот же TELEGRAM_TOKEN; панель агента по умолчанию выкл.
         self.control_panel_enabled = bool(self.agent_cfg.get("control_panel_enabled", False))
+        if os.getenv("PRD_UNIFIED_POLLING", "").strip().lower() in ("1", "true", "yes", "on"):
+            self.control_panel_enabled = False
         self.market_scanner_learning_enabled = bool(self.agent_cfg.get("market_scanner_learning_enabled", True))
         self.market_scanner_learning_timeout_hours = float(
             self.agent_cfg.get("market_scanner_learning_timeout_hours", 6)
