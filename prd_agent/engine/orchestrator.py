@@ -29,7 +29,7 @@ from prd_agent.signals.confidence_filter import (
     filter_signal_dicts,
     load_min_analysis_confidence,
     load_signal_notify_cooldown_sec,
-    meets_threshold,
+    passes_emit_gate,
 )
 from prd_agent.signals.router import SignalRouter
 from prd_agent.signals.types import UnifiedSignal
@@ -132,7 +132,7 @@ class UnifiedOrchestrator:
         self._signal_cooldown = PerSymbolSignalCooldown(
             load_signal_notify_cooldown_sec(self.cfg)
         )
-        self.notifier._min_signal_conf = self._min_analysis_conf
+        self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
 
     async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
@@ -311,9 +311,7 @@ class UnifiedOrchestrator:
 
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
         if all_signals:
-            strong = sum(
-                1 for s in all_signals if meets_threshold(s.confidence, self._min_analysis_conf)
-            )
+            strong = sum(1 for s in all_signals if passes_emit_gate(s, self.cfg))
             logger.info(
                 "Cycle: %d signal(s) (conf>=%.0f%%: %d), open=%d, scan=%d symbols, trade_ok=%s",
                 len(all_signals),
@@ -325,7 +323,7 @@ class UnifiedOrchestrator:
             )
         for sig in all_signals:
             sym = sig.symbol.upper()
-            if not meets_threshold(sig.confidence, self._min_analysis_conf):
+            if not passes_emit_gate(sig, self.cfg):
                 continue
             if self._signal_cooldown.is_on_cooldown(sym, sig.side):
                 continue
@@ -360,7 +358,12 @@ class UnifiedOrchestrator:
             )
             self._signal_cooldown.mark_handled(sym, sig.side)
             await self.notifier.signal_received(
-                sig.symbol, sig.side, sig.confidence, sig.source, sig.reason
+                sig.symbol,
+                sig.side,
+                sig.confidence,
+                sig.source,
+                sig.reason,
+                raw=sig.raw,
             )
             await self._maybe_execute(sig, entry.id)
 
@@ -472,8 +475,8 @@ class UnifiedOrchestrator:
 
     async def _bi_hourly_report(self, positions: List[Dict]) -> None:
         min_c = self._min_analysis_conf
-        signals_2h = filter_signal_dicts(self.signals.recent_signals(hours=2), min_c)
-        signals_24h = filter_signal_dicts(self.signals.recent_signals(hours=24), min_c)
+        signals_2h = filter_signal_dicts(self.signals.recent_signals(hours=2), self.cfg)
+        signals_24h = filter_signal_dicts(self.signals.recent_signals(hours=24), self.cfg)
         high_conf = self._dedupe_signals_for_report(signals_2h)
         report_2h = await self.monitor.period_report(
             self.exchange, signals_2h, 2, self.reporter.high_conf
@@ -505,9 +508,7 @@ class UnifiedOrchestrator:
     async def _global_analysis(self) -> None:
         if not self.cfg.get("global_analysis", {}).get("enabled", True):
             return
-        signals_24h = filter_signal_dicts(
-            self.signals.recent_signals(hours=24), self._min_analysis_conf
-        )
+        signals_24h = filter_signal_dicts(self.signals.recent_signals(hours=24), self.cfg)
         text = await self.global_analyzer.build_report(self.exchange, signals_24h, hours=24)
         await self.notifier.global_report(text)
 
