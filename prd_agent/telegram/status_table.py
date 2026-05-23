@@ -41,8 +41,12 @@ def format_status_table(
         f"<pre>{table}</pre>",
         f"Баланс: <b>{balance:.2f}</b> USDT | Свободно: <b>{available:.2f}</b>",
         f"Риск: <code>{risk_snapshot.get('status', '?')}</code> | "
-        f"PnL сегодня: {risk_snapshot.get('pnl_today_usdt', 0):+.2f} USDT",
+        f"PnL сегодня (UTC): {risk_snapshot.get('pnl_today_usdt', 0):+.2f} USDT",
     ]
+    reset_min = int(risk_snapshot.get("reset_utc_in_min", 0) or 0)
+    if reset_min > 0 and (block_reason or risk_snapshot.get("blocked")):
+        rh, rm = divmod(reset_min, 60)
+        lines.append(f"<i>Сброс дневного счётчика: 00:00 UTC (~{rh}ч {rm}м)</i>")
     if block_reason:
         lines.append(f"⚠️ <b>{block_reason}</b>")
     elif risk_snapshot.get("blocked"):

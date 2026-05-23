@@ -20,6 +20,7 @@ from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_market_order
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
+from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import RiskGuard
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
@@ -81,7 +82,7 @@ class UnifiedOrchestrator:
         self._last_report_at = 0.0
         self._last_global_at = 0.0
         self._loop_sec = float(t.get("loop_interval_sec", 60))
-        self._seen_closed_ids: Set[str] = set()
+        self._closed_pnl_dedup = ClosedPnlDedup(self.data_dir / "risk_seen_closed.json")
         self._last_upnl: Dict[str, float] = {}
         self._notify_loop: Optional[asyncio.AbstractEventLoop] = None
         self._block_notify_sent = False
@@ -175,14 +176,15 @@ class UnifiedOrchestrator:
         await self.exchange.close()
 
     async def _sync_closed_pnl_to_risk(self) -> None:
-        rows = await self.monitor.fetch_closed_pnl(self.exchange, hours=6)
+        """Только новые закрытия с биржи; дедуп на диске — иначе после рестарта убыток «удваивается»."""
+        rows = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
         for r in rows:
             oid = str(r.get("orderId") or r.get("id") or "")
-            if not oid or oid in self._seen_closed_ids:
+            if not oid or not self._closed_pnl_dedup.is_new(oid):
                 continue
-            self._seen_closed_ids.add(oid)
             pnl = float(r.get("closedPnl", 0) or 0)
             self.risk.record_trade(pnl)
+            self._closed_pnl_dedup.mark(oid)
             origin = "bot" if str(r.get("symbol", "")).upper() in self.position_steward._bot_symbols else "manual"
             self.trade_journal.record_closed_from_exchange(r, origin=origin)
 
