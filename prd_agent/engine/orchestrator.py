@@ -110,6 +110,9 @@ class UnifiedOrchestrator:
         self._last_symbol_scan_at = now
 
     async def start(self) -> None:
+        if self._running:
+            logger.debug("Trading loop already running, skip duplicate start()")
+            return
         self._running = True
         self._notify_loop = asyncio.get_running_loop()
         self.risk.set_notify_callback(self._risk_notify)

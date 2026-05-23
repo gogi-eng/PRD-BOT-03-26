@@ -11,6 +11,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/PRD-BOT-ALL
+Environment=PRD_UNIFIED_POLLING=1
 Environment=PRD_LOG_STDERR=1
 StandardOutput=journal
 StandardError=journal
