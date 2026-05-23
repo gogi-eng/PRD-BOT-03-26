@@ -28,24 +28,30 @@ p.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), enco
 PY
 fi
 
-if [ -d .venv ]; then
-  # shellcheck disable=SC1091
-  source .venv/bin/activate
-elif [ -d venv ]; then
-  # shellcheck disable=SC1091
-  source venv/bin/activate
+if [ -x venv/bin/python3 ]; then
+  PY=venv/bin/python3
+  PIP=venv/bin/pip
+elif [ -x .venv/bin/python3 ]; then
+  PY=.venv/bin/python3
+  PIP=.venv/bin/pip
 else
-  echo "Нет .venv — создайте: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-unified.txt"
+  echo "Нет venv — создайте: bash scripts/rebuild_venv.sh"
   exit 1
 fi
 
+echo "Python: $($PY --version)"
+
 echo ""
 echo "=== Зависимости (unified + telethon) ==="
-pip install -q -r requirements-unified.txt
+"$PIP" install -q -r requirements-unified.txt
+
+echo ""
+echo "=== Healthcheck ==="
+"$PY" scripts/healthcheck_agents.py
 
 echo ""
 echo "=== Диагностика (без ордеров) ==="
-python3 scripts/diagnose_trading.py || true
+"$PY" scripts/diagnose_trading.py || true
 
 echo ""
 echo "=== Перезапуск службы ==="
