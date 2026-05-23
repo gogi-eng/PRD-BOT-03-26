@@ -24,6 +24,13 @@ from prd_agent.risk.guard import RiskGuard
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
+from prd_agent.signals.confidence_filter import (
+    PerSymbolSignalCooldown,
+    filter_signal_dicts,
+    load_min_analysis_confidence,
+    load_signal_notify_cooldown_sec,
+    meets_threshold,
+)
 from prd_agent.signals.router import SignalRouter
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.telegram.notifier import TelegramNotifier
@@ -45,7 +52,12 @@ class UnifiedOrchestrator:
         self.ledger = SignalLedger(self.data_dir / "ledger")
         self.monitor = TradeMonitor(self.data_dir / "trades")
         self.trade_journal = TradeJournal(self.data_dir)
+        self._min_analysis_conf = load_min_analysis_confidence(cfg)
+        self._signal_cooldown = PerSymbolSignalCooldown(
+            load_signal_notify_cooldown_sec(cfg)
+        )
         self.reporter = BiHourlyReporter(cfg)
+        self.reporter.high_conf = self._min_analysis_conf
         self.improver = SelfImprover(cfg, self.root, on_config_reload=self.reload_config)
         self.notifier = TelegramNotifier(cfg)
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
@@ -81,6 +93,7 @@ class UnifiedOrchestrator:
             "на бирже уже открыта",
             "недостаточно свободной маржи",
             "недостаточно маржи",
+            "quality_gate:",
         )
 
     def _risk_notify(self, msg: str) -> None:
@@ -93,6 +106,7 @@ class UnifiedOrchestrator:
     def reload_config(self) -> None:
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
         self.cfg = load_config(path)
+        sig = self.cfg.get("signals", {}) if isinstance(self.cfg.get("signals"), dict) else {}
         t = self.cfg.get("trading", {})
         self.risk_pct = float(t.get("risk_pct_per_trade", self.risk_pct))
         self.signals._min_conf = float(t.get("min_signal_confidence", self.signals._min_conf))
@@ -100,7 +114,10 @@ class UnifiedOrchestrator:
             t.get("min_own_agent_confidence", getattr(self.signals, "_min_own_conf", 0.28))
         )
         self.signals._min_tg_conf = float(
-            t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf))
+            sig.get(
+                "min_telegram_confidence",
+                t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf)),
+            )
         )
         self.position_steward = PositionSteward(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
@@ -110,6 +127,12 @@ class UnifiedOrchestrator:
         self.symbols = list(t.get("symbols", self.symbols))
         self.symbol_scanner = SymbolScanner(self.cfg)
         self._symbol_rescan_sec = float(t.get("symbol_rescan_interval_sec", self._symbol_rescan_sec))
+        self._min_analysis_conf = load_min_analysis_confidence(self.cfg)
+        self.reporter.high_conf = self._min_analysis_conf
+        self._signal_cooldown = PerSymbolSignalCooldown(
+            load_signal_notify_cooldown_sec(self.cfg)
+        )
+        self.notifier._min_signal_conf = self._min_analysis_conf
         logger.info("Config reloaded from disk")
 
     async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
@@ -288,15 +311,24 @@ class UnifiedOrchestrator:
 
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
         if all_signals:
+            strong = sum(
+                1 for s in all_signals if meets_threshold(s.confidence, self._min_analysis_conf)
+            )
             logger.info(
-                "Cycle: %d signal(s), open=%d, scan=%d symbols, trade_ok=%s",
+                "Cycle: %d signal(s) (conf>=%.0f%%: %d), open=%d, scan=%d symbols, trade_ok=%s",
                 len(all_signals),
+                self._min_analysis_conf * 100,
+                strong,
                 len(positions),
                 len(self.symbols),
                 can_trade,
             )
         for sig in all_signals:
             sym = sig.symbol.upper()
+            if not meets_threshold(sig.confidence, self._min_analysis_conf):
+                continue
+            if self._signal_cooldown.is_on_cooldown(sym, sig.side):
+                continue
             if sym in open_symbols:
                 await self._skip_if_position_open(sig)
                 continue
@@ -326,6 +358,7 @@ class UnifiedOrchestrator:
                 take_profit=sig.take_profit,
                 raw=sig.raw,
             )
+            self._signal_cooldown.mark_handled(sym, sig.side)
             await self.notifier.signal_received(
                 sig.symbol, sig.side, sig.confidence, sig.source, sig.reason
             )
@@ -395,7 +428,8 @@ class UnifiedOrchestrator:
         if not q_ok:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, q_reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason)
-            await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
+            if not self._is_silent_skip(q_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
             return
 
         result = await self.exchange.place_order(
@@ -437,10 +471,10 @@ class UnifiedOrchestrator:
             await self.notifier.order_failed(sig.symbol, err)
 
     async def _bi_hourly_report(self, positions: List[Dict]) -> None:
-        signals_2h = self.signals.recent_signals(hours=2)
-        signals_24h = self.signals.recent_signals(hours=24)
-        high_conf_raw = [s for s in signals_2h if float(s.get("confidence", 0)) >= self.reporter.high_conf]
-        high_conf = self._dedupe_signals_for_report(high_conf_raw)
+        min_c = self._min_analysis_conf
+        signals_2h = filter_signal_dicts(self.signals.recent_signals(hours=2), min_c)
+        signals_24h = filter_signal_dicts(self.signals.recent_signals(hours=24), min_c)
+        high_conf = self._dedupe_signals_for_report(signals_2h)
         report_2h = await self.monitor.period_report(
             self.exchange, signals_2h, 2, self.reporter.high_conf
         )
@@ -471,7 +505,9 @@ class UnifiedOrchestrator:
     async def _global_analysis(self) -> None:
         if not self.cfg.get("global_analysis", {}).get("enabled", True):
             return
-        signals_24h = self.signals.recent_signals(hours=24)
+        signals_24h = filter_signal_dicts(
+            self.signals.recent_signals(hours=24), self._min_analysis_conf
+        )
         text = await self.global_analyzer.build_report(self.exchange, signals_24h, hours=24)
         await self.notifier.global_report(text)
 

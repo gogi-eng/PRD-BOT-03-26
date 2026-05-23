@@ -8,9 +8,12 @@ import aiohttp
 
 class TelegramNotifier:
     def __init__(self, cfg: Dict[str, Any]):
+        from prd_agent.signals.confidence_filter import load_min_analysis_confidence
+
         tg = cfg.get("telegram", {})
         self.token = tg.get("bot_token", "")
         self.chat_id = tg.get("chat_id") or tg.get("channel_id", "")
+        self._min_signal_conf = load_min_analysis_confidence(cfg)
 
     async def send(self, text: str, *, silent: bool = False) -> bool:
         if not self.token or not self.chat_id:
@@ -31,6 +34,10 @@ class TelegramNotifier:
             return False
 
     async def signal_received(self, symbol: str, side: str, conf: float, source: str, reason: str = "") -> None:
+        from prd_agent.signals.confidence_filter import meets_threshold
+
+        if not meets_threshold(conf, self._min_signal_conf):
+            return
         await self.send(
             f"📥 <b>Сигнал</b> {symbol} {side}\n"
             f"conf={conf:.0%} | {source}\n"

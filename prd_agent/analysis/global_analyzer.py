@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from prd_agent.analysis.signal_ledger import SignalLedger
 from prd_agent.analysis.trade_monitor import TradeMonitor
+from prd_agent.signals.confidence_filter import load_min_analysis_confidence
 
 
 class GlobalAnalyzer:
@@ -17,8 +18,9 @@ class GlobalAnalyzer:
         ledger_sum = self.ledger.summary(hours)
         closed = await self.monitor.fetch_closed_pnl(exchange, hours)
         pnl_stats = self.monitor.summarize_pnl_rows(closed)
+        min_conf = load_min_analysis_confidence(self.cfg)
         sig_report = await self.monitor.period_report(
-            exchange, signals_recent, hours, self.cfg.get("reporter", {}).get("high_confidence_threshold", 0.75)
+            exchange, signals_recent, hours, min_conf
         )
 
         lines = [

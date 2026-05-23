@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from prd_agent.signals.confidence_filter import meets_threshold
+
 from prd_agent.analysis.technical_indicators import (
     atr,
     ema,
@@ -73,6 +75,17 @@ class VolatilityTAEngine:
         self._cache_signals: List[TASignalResult] = []
         self._cache_volatile: List[VolatileSymbol] = []
         self._parallel_klines = int(s.get("parallel_klines", 5))
+        sig_cfg = cfg.get("signals", {}) if isinstance(cfg.get("signals"), dict) else {}
+        rep_cfg = cfg.get("reporter", {}) if isinstance(cfg.get("reporter"), dict) else {}
+        self.min_display_confidence = float(
+            s.get(
+                "min_display_confidence",
+                sig_cfg.get(
+                    "min_analysis_confidence",
+                    rep_cfg.get("high_confidence_threshold", 0.80),
+                ),
+            )
+        )
 
     def cache_age_sec(self) -> float:
         if not self._cache_at:
@@ -94,6 +107,7 @@ class VolatilityTAEngine:
             self._cache_signals,
             min_change_pct=self.min_24h_change_pct,
             cache_age_sec=int(self.cache_age_sec()),
+            min_display_confidence=self.min_display_confidence,
         )
 
     def _symbol_ok(self, symbol: str) -> bool:
@@ -292,6 +306,7 @@ def format_ta_telegram_report(
     min_change_pct: float,
     max_lines: int = 8,
     cache_age_sec: Optional[int] = None,
+    min_display_confidence: float = 0.80,
 ) -> str:
     """HTML-отчёт для кнопки Telegram (лимит ~4096 символов)."""
     lines = [
@@ -319,22 +334,26 @@ def format_ta_telegram_report(
         if len(volatile) > max_lines:
             lines.append(f"<i>… ещё {len(volatile) - max_lines}</i>")
 
+    shown = [s for s in signals if meets_threshold(s.confidence, min_display_confidence)]
     lines.append("")
-    lines.append(f"<b>Сигналы TA ({len(signals)})</b>")
-    if not signals:
+    lines.append(
+        f"<b>Сигналы TA ({len(shown)})</b> "
+        f"<i>(conf ≥ {min_display_confidence:.0%})</i>"
+    )
+    if not shown:
         lines.append(
-            "<i>Нет входа: тренд EMA / RSI / RR не прошли фильтр.</i>"
+            "<i>Нет сигналов с уверенностью ≥ порога (или не прошли EMA / RSI / RR).</i>"
         )
     else:
-        for s in signals[:max_lines]:
+        for s in shown[:max_lines]:
             ind = s.indicators
             lines.append(
                 f"• <b>{s.symbol}</b> {s.side} conf={s.confidence:.0%}\n"
                 f"  вход={s.entry:.6g} SL={s.stop_loss:.6g} TP={s.take_profit:.6g}\n"
                 f"  RSI={ind.get('rsi')} RR={ind.get('rr')} — {s.reason[:120]}"
             )
-        if len(signals) > max_lines:
-            lines.append(f"<i>… ещё {len(signals) - max_lines} сигналов</i>")
+        if len(shown) > max_lines:
+            lines.append(f"<i>… ещё {len(shown) - max_lines} сигналов</i>")
 
     lines.append("")
     lines.append(
