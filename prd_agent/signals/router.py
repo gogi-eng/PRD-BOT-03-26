@@ -33,10 +33,13 @@ class SignalRouter:
         self.store_dir = store_dir
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self._queue_file = self.store_dir / "signal_queue.jsonl"
+        sig = cfg.get("signals", {}) if isinstance(cfg.get("signals"), dict) else {}
         t = cfg.get("trading", {})
         self._min_conf = float(t.get("min_signal_confidence", 0.62))
         self._min_own_conf = float(t.get("min_own_agent_confidence", 0.28))
-        self._min_tg_conf = float(t.get("min_telegram_confidence", self._min_conf))
+        self._min_tg_conf = float(
+            sig.get("min_telegram_confidence", t.get("min_telegram_confidence", self._min_conf))
+        )
         self._multi_agent = None
         self._whale = WhaleNewsAgent(cfg) if cfg.get("signals", {}).get("whale_news_enabled", True) else None
         self._ta_vol = None
