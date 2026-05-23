@@ -1122,7 +1122,8 @@ class TelegramSignalAgent:
         self.market_scanner_stretch_tp_to_min_rr = bool(
             self.agent_cfg.get("market_scanner_stretch_tp_to_min_rr", True)
         )
-        self.control_panel_enabled = bool(self.agent_cfg.get("control_panel_enabled", True))
+        # Кнопки unified-бота (run_unified) — тот же TELEGRAM_TOKEN; панель агента по умолчанию выкл.
+        self.control_panel_enabled = bool(self.agent_cfg.get("control_panel_enabled", False))
         self.market_scanner_learning_enabled = bool(self.agent_cfg.get("market_scanner_learning_enabled", True))
         self.market_scanner_learning_timeout_hours = float(
             self.agent_cfg.get("market_scanner_learning_timeout_hours", 6)
