@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from prd_agent.signals.ta_volatility_agent import TAVolatilityAgent
 from prd_agent.signals.telegram_inbox import TelegramInbox
 from prd_agent.signals.whale_news_agent import WhaleNewsAgent, MacroSignal
 
@@ -47,6 +48,7 @@ class UnifiedSignal:
 
 SOURCE_WEIGHT = {
     "own_multi_agent": 1.0,
+    "ta_volatility": 0.92,
     "telegram": 0.95,
     "whale_liquidation": 0.85,
     "whale_oi": 0.75,
@@ -67,6 +69,11 @@ class SignalRouter:
         self._min_tg_conf = float(t.get("min_telegram_confidence", self._min_conf))
         self._multi_agent = None
         self._whale = WhaleNewsAgent(cfg) if cfg.get("signals", {}).get("whale_news_enabled", True) else None
+        self._ta_vol = (
+            TAVolatilityAgent(cfg)
+            if cfg.get("ta_scanner", {}).get("enabled", True)
+            else None
+        )
         self._tg_inbox = (
             TelegramInbox(cfg, self.root)
             if cfg.get("signals", {}).get("telegram_inbox_enabled", True)
@@ -177,6 +184,17 @@ class SignalRouter:
             self._persist(sig)
         return out
 
+    async def collect_ta_volatility(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
+        out: List[UnifiedSignal] = []
+        if not self._ta_vol:
+            return out
+        for sig in await self._ta_vol.collect(exchange):
+            if sig.confidence < self._min_own_conf:
+                continue
+            out.append(sig)
+            self._persist(sig)
+        return out
+
     async def collect_whale_news(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         if not self._whale:
@@ -227,7 +245,7 @@ class SignalRouter:
             if w_sum <= 0:
                 continue
             conf = c_sum / w_sum
-            if sources and all(s == "own_multi_agent" for s in sources):
+            if sources and all(s in ("own_multi_agent", "ta_volatility") for s in sources):
                 min_need = self._min_own_conf
             elif sources and all(s == "telegram" for s in sources):
                 min_need = self._min_tg_conf
@@ -253,15 +271,17 @@ class SignalRouter:
 
     async def collect_all(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         own = await self.collect_own_signals(exchange, symbols)
+        ta = await self.collect_ta_volatility(exchange, symbols)
         tg = self.collect_telegram_signals()
         whale = await self.collect_whale_news(exchange, symbols)
-        merged = self.merge_and_rank(own + tg + whale)
-        if own or tg or whale:
+        merged = self.merge_and_rank(own + ta + tg + whale)
+        if own or ta or tg or whale:
             import logging
 
             logging.getLogger("prd_agent.signals").info(
-                "Signals: own=%d telegram=%d whale=%d → merged=%d",
+                "Signals: own=%d ta_vol=%d telegram=%d whale=%d → merged=%d",
                 len(own),
+                len(ta),
                 len(tg),
                 len(whale),
                 len(merged),

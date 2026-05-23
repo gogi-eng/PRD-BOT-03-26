@@ -80,6 +80,8 @@ free_claude_code:
 | `config.yaml` | Плечо, риск, quality_gate, openrouter |
 | `data/trades/trade_history.jsonl` | Журнал ENTERED/CLOSED |
 | `prd_agent/risk/quality_gate.py` | Фильтр перед ордером |
+| `prd_agent/analysis/volatility_ta.py` | Теханализ волатильных пар |
+| `scripts/ta_volatility_scan.py` | Ручной скан TA без торговли |
 | `prd_agent/analysis/trade_analytics.py` | Отчёт для кнопки «📈 Статистика» |
 | `prd_agent/analysis/macro_ai.py` | OpenRouter + RSS whale_news |
 | `scripts/trade_analytics.py` | CLI отчёт |
