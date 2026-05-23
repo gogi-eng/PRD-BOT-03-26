@@ -42,7 +42,11 @@ class ControlBot:
                 ],
                 [
                     InlineKeyboardButton("📊 Статус", callback_data="act:status"),
+                    InlineKeyboardButton("📈 Статистика", callback_data="act:stats"),
+                ],
+                [
                     InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
+                    InlineKeyboardButton("🧠 Макро", callback_data="act:macro"),
                 ],
                 [
                     InlineKeyboardButton("🛑 Emergency stop", callback_data="act:emergency"),
@@ -70,9 +74,11 @@ class ControlBot:
         await query.answer()
         action = (query.data or "").split(":", 1)[-1]
         text = await self._handle_action(action)
-        parse = "HTML" if action == "status" else None
-        if parse == "HTML":
-            await query.edit_message_text(text, reply_markup=self._main_keyboard(), parse_mode=parse)
+        html_actions = {"status", "stats", "macro"}
+        if action in html_actions:
+            await query.edit_message_text(
+                text, reply_markup=self._main_keyboard(), parse_mode="HTML"
+            )
         else:
             await query.edit_message_text(text, reply_markup=self._main_keyboard())
 
@@ -109,6 +115,10 @@ class ControlBot:
             pos = await self.orch.exchange.get_positions()
             await self.orch._bi_hourly_report(pos)
             return "Отчёт отправлен в канал."
+        if action == "stats":
+            return self.orch.get_trade_stats_report()
+        if action == "macro":
+            return await self.orch.get_macro_briefing()
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:
