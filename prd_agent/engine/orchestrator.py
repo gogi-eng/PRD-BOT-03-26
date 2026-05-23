@@ -488,3 +488,23 @@ class UnifiedOrchestrator:
             positions=positions,
             watch_symbols=self.symbols,
         )
+
+    async def get_ta_scan_report(self) -> str:
+        from prd_agent.analysis.volatility_ta import (
+            VolatilityTAEngine,
+            format_ta_telegram_report,
+        )
+
+        engine = VolatilityTAEngine(self.cfg)
+        if not engine.enabled:
+            return "<b>📉 TA-скан</b>\n\nМодуль отключён: <code>ta_scanner.enabled: false</code>"
+        try:
+            signals, volatile = await engine.collect_signals(self.exchange)
+        except Exception as exc:
+            logger.exception("ta_scan: %s", exc)
+            return f"<b>📉 TA-скан</b>\n\nОшибка: {exc}"
+        return format_ta_telegram_report(
+            volatile,
+            signals,
+            min_change_pct=engine.min_24h_change_pct,
+        )
