@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import signal
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -17,11 +19,41 @@ from prd_agent.engine.orchestrator import UnifiedOrchestrator
 from prd_agent.telegram.control_bot import ControlBot
 
 
+class _RedactSecretsFilter(logging.Filter):
+    _token_re = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self._token_re.sub("bot***REDACTED***", record.msg)
+        if record.args:
+            record.args = tuple(
+                self._token_re.sub("bot***REDACTED***", str(a)) if isinstance(a, str) else a
+                for a in record.args
+            )
+        return True
+
+
 def setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter(log_fmt))
+    console.addFilter(_RedactSecretsFilter())
+    root.addHandler(console)
+
+    log_path = ROOT / "bot.log"
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=50 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
     )
+    file_handler.setFormatter(logging.Formatter(log_fmt))
+    file_handler.addFilter(_RedactSecretsFilter())
+    root.addHandler(file_handler)
 
 
 async def async_main() -> None:

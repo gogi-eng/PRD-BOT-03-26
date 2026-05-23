@@ -197,9 +197,41 @@ class SelfImprover:
         self.pending_path.write_text(json.dumps(pending, indent=2), encoding="utf-8")
         self._log_change({**entry, "applied": False})
 
+    @staticmethod
+    def _resolve_conflicting_proposals(proposals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Один ключ config — одно изменение за цикл (приоритет ужесточению при убытке)."""
+        by_path: Dict[tuple, List[Dict[str, Any]]] = {}
+        for p in proposals:
+            if p.get("risk") != "low":
+                continue
+            path = tuple(p.get("path") or [])
+            if path:
+                by_path.setdefault(path, []).append(p)
+
+        resolved: List[Dict[str, Any]] = []
+        for path, group in by_path.items():
+            if len(group) == 1:
+                resolved.append(group[0])
+                continue
+            deltas = [float(x.get("delta", 0)) for x in group]
+            if all(d > 0 for d in deltas) or all(d < 0 for d in deltas):
+                merged = dict(group[0])
+                merged["delta"] = sum(deltas)
+                resolved.append(merged)
+                continue
+            # Противоречие: оставляем ужесточение (положительный delta для confidence/cooldown)
+            tighten = [x for x in group if float(x.get("delta", 0)) > 0]
+            resolved.append(tighten[0] if tighten else group[0])
+
+        for p in proposals:
+            if p.get("risk") != "low":
+                resolved.append(p)
+        return resolved
+
     def process_proposals(self, proposals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
+        proposals = self._resolve_conflicting_proposals(proposals)
         applied: List[Dict[str, Any]] = []
         for p in proposals:
             if p.get("risk") == "low" and self.auto_low:

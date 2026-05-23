@@ -61,7 +61,7 @@ class GlobalAnalyzer:
                     "justification": f"win_rate={pnl_wr:.1f}%",
                 }
             )
-        if ledger_sum.get("not_opened", 0) > ledger_sum.get("total", 0) * 0.8:
+        if ledger_sum.get("not_opened", 0) > ledger_sum.get("total", 0) * 0.8 and pnl_wr >= 45:
             hints.append(
                 {
                     "risk": "low",

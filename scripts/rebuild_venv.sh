@@ -9,13 +9,23 @@ cd "$ROOT"
 echo "=== PRD-BOT-ALL: пересборка venv ==="
 echo "Папка: $ROOT"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Ошибка: python3 не найден. Установите: apt install python3 python3-venv python3-pip"
+# pyenv: команда python часто не настроена — используем python3
+if command -v python3 >/dev/null 2>&1; then
+  PYBOOT=python3
+elif [ -n "${PYENV_ROOT:-}" ] && [ -x "${PYENV_ROOT}/shims/python3" ]; then
+  PYBOOT="${PYENV_ROOT}/shims/python3"
+elif command -v pyenv >/dev/null 2>&1; then
+  pyenv global 3.11.9 2>/dev/null || true
+  PYBOOT="$(pyenv which python3 2>/dev/null || pyenv which python 2>/dev/null || true)"
+fi
+if [ -z "${PYBOOT:-}" ] || ! command -v "$PYBOOT" >/dev/null 2>&1; then
+  echo "Ошибка: python3 не найден."
+  echo "  apt install python3 python3-venv python3-full"
+  echo "  или: pyenv global 3.11.9"
   exit 1
 fi
 
-PYVER="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-echo "Системный Python: $(python3 --version)"
+echo "Системный Python: $($PYBOOT --version)"
 
 if [ -d venv ]; then
   BK="venv.bak.$(date +%Y%m%d_%H%M%S)"
@@ -23,7 +33,7 @@ if [ -d venv ]; then
   mv venv "$BK"
 fi
 
-python3 -m venv venv
+"$PYBOOT" -m venv venv
 ./venv/bin/python3 -m pip install --upgrade pip wheel
 ./venv/bin/pip install -r requirements-unified.txt
 

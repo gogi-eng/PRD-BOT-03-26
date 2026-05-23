@@ -67,10 +67,38 @@ def parse_log_lines(text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any
 def load_history(path: Optional[Path]) -> List[Dict[str, Any]]:
     if not path or not path.exists():
         return []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    if not text:
         return []
+    if path.suffix == ".jsonl":
+        rows: List[Dict[str, Any]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("event") == "closed":
+                rows.append(
+                    {
+                        "symbol": row.get("symbol"),
+                        "pnl": row.get("pnl", 0),
+                        "reason": row.get("reason", ""),
+                        "strategy": row.get("source", "unknown"),
+                    }
+                )
+        return rows
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and "trades" in data:
+            return list(data["trades"])
+    except Exception:
+        pass
+    return []
 
 
 def summarize_closed(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -109,7 +137,12 @@ def summarize_entries(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Analyze PRD-SCALP bot logs")
     ap.add_argument("--log", type=Path, default=Path("bot.log"))
-    ap.add_argument("--history", type=Path, default=Path("trade_history.json"))
+    ap.add_argument(
+        "--history",
+        type=Path,
+        default=Path("data/trades/trade_history.jsonl"),
+        help="JSONL журнал (trade_journal) или legacy trade_history.json",
+    )
     args = ap.parse_args()
 
     report: Dict[str, Any] = {"log_path": str(args.log), "history_path": str(args.history)}

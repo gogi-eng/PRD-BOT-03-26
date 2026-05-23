@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.signal_ledger import SignalLedger, SignalStatus
+from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
 from prd_agent.evolution.self_improver import SelfImprover
@@ -39,6 +40,7 @@ class UnifiedOrchestrator:
         self.signals = SignalRouter(cfg, self.data_dir / "signals")
         self.ledger = SignalLedger(self.data_dir / "ledger")
         self.monitor = TradeMonitor(self.data_dir / "trades")
+        self.trade_journal = TradeJournal(self.data_dir)
         self.reporter = BiHourlyReporter(cfg)
         self.improver = SelfImprover(cfg, self.root, on_config_reload=self.reload_config)
         self.notifier = TelegramNotifier(cfg)
@@ -143,6 +145,8 @@ class UnifiedOrchestrator:
             self._seen_closed_ids.add(oid)
             pnl = float(r.get("closedPnl", 0) or 0)
             self.risk.record_trade(pnl)
+            origin = "bot" if str(r.get("symbol", "")).upper() in self.position_steward._bot_symbols else "manual"
+            self.trade_journal.record_closed_from_exchange(r, origin=origin)
 
     @staticmethod
     def _dedupe_signals_for_report(signals: List[Dict], *, limit: int = 8) -> List[Dict]:
@@ -382,6 +386,17 @@ class UnifiedOrchestrator:
             logger.info("Order OK %s %s qty=%.6f id=%s", sig.symbol, sig.side, qty, oid)
             self.ledger.update_status(ledger_id, SignalStatus.EXECUTED, "ok", order_id=oid)
             self.monitor.record_execution(sig.symbol, sig.side, qty, sig.source, oid)
+            self.trade_journal.log_entered(
+                symbol=sig.symbol,
+                side=sig.side,
+                source=sig.source,
+                qty=qty,
+                entry=entry,
+                order_id=oid,
+                stop_loss=sl,
+                take_profit=tp,
+                confidence=sig.confidence,
+            )
             self.position_steward.mark_bot_opened(sig.symbol)
             await self.notifier.order_placed(sig.symbol, sig.side, qty, oid)
         else:
