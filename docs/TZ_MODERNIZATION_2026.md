@@ -59,7 +59,8 @@ flowchart LR
 | **3** | 2–3 нед | trend_exit, trailing 0.25%, ATR SL/TP |
 | **4** | 1–2 нед | Кап плеча, blacklist альтов, approve в TG |
 
-**Статус этапа 0 (2026-05-23):** в работе — см. раздел 8.
+**Статус этапа 0 (2026-05-23):** выполнен — см. раздел 8.  
+**Статус этапов 1–2 (2026-05-23):** журнал + `trade_analytics`, quality gate v2, кнопки «Статистика»/«Макро», OpenRouter macro — см. раздел 10.
 
 ---
 
@@ -179,6 +180,21 @@ risk:
 4. **Месяц 3:** micro-live при WR ≥ 45% за 30 дней.
 
 **Безопасность:** сменить токен Telegram-бота, если он попадал в `bot.log`.
+
+---
+
+## 10. Реализация этапов 1–2 (changelog)
+
+| Файл | Изменение |
+|------|-----------|
+| `prd_agent/analysis/trade_analytics.py` | Агрегация журнала, HTML для Telegram |
+| `scripts/trade_analytics.py` | CLI отчёт |
+| `prd_agent/risk/quality_gate.py` | Quality gate v2 перед ордером |
+| `prd_agent/engine/orchestrator.py` | Интеграция gate + stats/macro API |
+| `prd_agent/analysis/macro_ai.py` | OpenRouter + RSS (whale_news), не CDC |
+| `prd_agent/telegram/control_bot.py` | Кнопки «📈 Статистика», «🧠 Макро» |
+| `config.yaml` | `quality_gate`, `analytics`, `openrouter`, `macro_ai` |
+| `.cursor/skills/prd-bybit-bot/SKILL.md` | Скил для Cursor |
 
 ---
 

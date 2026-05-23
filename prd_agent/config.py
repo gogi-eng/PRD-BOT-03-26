@@ -17,6 +17,7 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
     """Подставляет ключи из .env в config (не перезаписывает явно заданные в yaml)."""
     bybit = data.setdefault("bybit", {})
     tg = data.setdefault("telegram", {})
+    oai = data.setdefault("openrouter", {})
 
     def _set(section: dict, key: str, env_key: str, cast=None):
         if section.get(key):
@@ -35,6 +36,7 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
     _set(tg, "bot_token", "TELEGRAM_TOKEN")
     _set(tg, "chat_id", "TELEGRAM_CHAT_ID")
     _set(tg, "channel_id", "TELEGRAM_CHANNEL_ID")
+    _set(oai, "api_key", "OPENROUTER_API_KEY")
 
 
 def load_config(path: Path | None = None, *, reload: bool = False) -> Dict[str, Any]:

@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
+from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import SignalLedger, SignalStatus
+from prd_agent.analysis.trade_analytics import build_report as build_trade_stats_report
 from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
@@ -19,6 +21,7 @@ from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_market_order
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.guard import RiskGuard
+from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.signals.router import SignalRouter, UnifiedSignal
@@ -47,6 +50,10 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
+        self.quality_gate = QualityGate(cfg)
+        self.macro_ai = MacroAI(cfg)
+        an = cfg.get("analytics", {})
+        self._stats_hours = float(an.get("report_hours", 24))
 
         t = cfg.get("trading", {})
         self.symbols: List[str] = list(t.get("symbols", ["BTCUSDT"]))
@@ -95,6 +102,10 @@ class UnifiedOrchestrator:
             t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf))
         )
         self.position_steward = PositionSteward(self.cfg)
+        self.quality_gate = QualityGate(self.cfg)
+        self.macro_ai = MacroAI(self.cfg)
+        an = self.cfg.get("analytics", {})
+        self._stats_hours = float(an.get("report_hours", self._stats_hours))
         self.symbols = list(t.get("symbols", self.symbols))
         self.symbol_scanner = SymbolScanner(self.cfg)
         self._symbol_rescan_sec = float(t.get("symbol_rescan_interval_sec", self._symbol_rescan_sec))
@@ -377,6 +388,15 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
             return
 
+        q_ok, q_reason = await self.quality_gate.check(
+            sig, self.exchange, entry=entry, sl=sl, tp=tp
+        )
+        if not q_ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, q_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason)
+            await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
+            return
+
         result = await self.exchange.place_order(
             symbol=sig.symbol,
             side=sig.side,
@@ -453,3 +473,18 @@ class UnifiedOrchestrator:
         signals_24h = self.signals.recent_signals(hours=24)
         text = await self.global_analyzer.build_report(self.exchange, signals_24h, hours=24)
         await self.notifier.global_report(text)
+
+    def get_trade_stats_report(self, hours: Optional[float] = None) -> str:
+        h = float(hours if hours is not None else self._stats_hours)
+        return build_trade_stats_report(self.trade_journal.path, h)
+
+    async def get_macro_briefing(self) -> str:
+        positions: List[Dict] = []
+        try:
+            positions = await self.exchange.get_positions()
+        except Exception as exc:
+            logger.warning("macro positions: %s", exc)
+        return await self.macro_ai.build_briefing(
+            positions=positions,
+            watch_symbols=self.symbols,
+        )

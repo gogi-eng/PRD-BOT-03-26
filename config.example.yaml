@@ -108,3 +108,23 @@ self_improvement:
 global_analysis:
   enabled: true
   interval_hours: 6
+
+quality_gate:
+  enabled: true
+  min_confidence: 0.68
+  min_rr_ratio: 2.5
+  require_sl_tp: true
+  min_24h_volume_usdt: 10000000
+
+analytics:
+  report_hours: 24
+
+openrouter:
+  api_key: ""   # или OPENROUTER_API_KEY в .env
+  model: google/gemini-2.0-flash-001
+  timeout_sec: 30
+
+macro_ai:
+  enabled: true
+  max_headlines: 8
+  include_positions: true
