@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Conflict
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from prd_agent.risk.guard import GuardStatus
@@ -138,9 +139,24 @@ class ControlBot:
         self.app.add_handler(CallbackQueryHandler(self.on_button))
         logger.info("Telegram control bot polling...")
         self._stop = asyncio.Event()
+
+        async def _on_error(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+            if isinstance(context.error, Conflict):
+                logger.error(
+                    "Telegram Conflict: тот же bot_token уже опрашивается другим процессом. "
+                    "Остановите дубликат (pkill -f run_unified) или в config.yaml задайте "
+                    "telegram_signal_agent.control_panel_enabled: false"
+                )
+                self._stop.set()
+
+        self.app.add_error_handler(_on_error)
         try:
             await self.app.initialize()
             await self.app.start()
+            try:
+                await self.app.bot.delete_webhook(drop_pending_updates=True)
+            except Exception as exc:
+                logger.warning("delete_webhook: %s", exc)
             await self.app.updater.start_polling(drop_pending_updates=True)
             await self._stop.wait()
         except asyncio.CancelledError:
