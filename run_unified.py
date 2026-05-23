@@ -78,7 +78,11 @@ async def async_main() -> None:
     tg_poll = bool(cfg.get("telegram", {}).get("control_polling_enabled", True))
     poll_task = None
     if tg_poll:
-        poll_task = asyncio.create_task(tg.run_polling())
+        poll_fn = getattr(tg, "run_polling", None) or getattr(tg, "run_polling_sync", None)
+        if poll_fn is None:
+            log.error("ControlBot: нет run_polling / run_polling_sync")
+        else:
+            poll_task = asyncio.create_task(poll_fn())
     else:
         log.info(
             "Telegram polling кнопок отключён (control_polling_enabled=false). "

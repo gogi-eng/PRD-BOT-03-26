@@ -148,6 +148,10 @@ class ControlBot:
         finally:
             await self._shutdown_app()
 
+    async def run_polling_sync(self) -> None:
+        """Совместимость со старыми run_unified на сервере."""
+        await self.run_polling()
+
     async def stop(self) -> None:
         stop = getattr(self, "_stop", None)
         if stop and not stop.is_set():
