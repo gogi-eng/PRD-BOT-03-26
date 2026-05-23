@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from prd_agent.analysis.volatility_ta import VolatilityTAEngine
-from prd_agent.signals.router import UnifiedSignal
+from prd_agent.signals.types import UnifiedSignal
 
 
 class TAVolatilityAgent:

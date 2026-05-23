@@ -5,45 +5,15 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from prd_agent.signals.ta_volatility_agent import TAVolatilityAgent
 from prd_agent.signals.telegram_inbox import TelegramInbox
+from prd_agent.signals.types import UnifiedSignal
 from prd_agent.signals.whale_news_agent import WhaleNewsAgent, MacroSignal
-
-
-@dataclass
-class UnifiedSignal:
-    symbol: str
-    side: str
-    confidence: float
-    source: str
-    entry: float = 0.0
-    stop_loss: float = 0.0
-    take_profit: float = 0.0
-    reason: str = ""
-    raw: Dict[str, Any] = field(default_factory=dict)
-    created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "symbol": self.symbol,
-            "side": self.side,
-            "confidence": self.confidence,
-            "source": self.source,
-            "entry": self.entry,
-            "stop_loss": self.stop_loss,
-            "take_profit": self.take_profit,
-            "reason": self.reason,
-            "created_at": self.created_at,
-        }
 
 
 SOURCE_WEIGHT = {
@@ -69,11 +39,11 @@ class SignalRouter:
         self._min_tg_conf = float(t.get("min_telegram_confidence", self._min_conf))
         self._multi_agent = None
         self._whale = WhaleNewsAgent(cfg) if cfg.get("signals", {}).get("whale_news_enabled", True) else None
-        self._ta_vol = (
-            TAVolatilityAgent(cfg)
-            if cfg.get("ta_scanner", {}).get("enabled", True)
-            else None
-        )
+        self._ta_vol = None
+        if cfg.get("ta_scanner", {}).get("enabled", True):
+            from prd_agent.signals.ta_volatility_agent import TAVolatilityAgent
+
+            self._ta_vol = TAVolatilityAgent(cfg)
         self._tg_inbox = (
             TelegramInbox(cfg, self.root)
             if cfg.get("signals", {}).get("telegram_inbox_enabled", True)

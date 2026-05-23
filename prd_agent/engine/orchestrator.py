@@ -24,7 +24,8 @@ from prd_agent.risk.guard import RiskGuard
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
-from prd_agent.signals.router import SignalRouter, UnifiedSignal
+from prd_agent.signals.router import SignalRouter
+from prd_agent.signals.types import UnifiedSignal
 from prd_agent.telegram.notifier import TelegramNotifier
 from prd_agent.telegram.status_table import format_status_table
 
