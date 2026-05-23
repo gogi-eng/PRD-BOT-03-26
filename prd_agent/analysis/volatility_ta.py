@@ -3,7 +3,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -67,6 +69,32 @@ class VolatilityTAEngine:
         )
         self.blacklist_substrings = tuple(str(x) for x in subs if x)
         self.blacklist = {str(x).upper() for x in t.get("symbol_blacklist", []) if x}
+        self._cache_at = 0.0
+        self._cache_signals: List[TASignalResult] = []
+        self._cache_volatile: List[VolatileSymbol] = []
+        self._parallel_klines = int(s.get("parallel_klines", 5))
+
+    def cache_age_sec(self) -> float:
+        if not self._cache_at:
+            return 9999.0
+        return max(0.0, time.time() - self._cache_at)
+
+    def _store_cache(
+        self, signals: List[TASignalResult], volatile: List[VolatileSymbol]
+    ) -> None:
+        self._cache_signals = list(signals)
+        self._cache_volatile = list(volatile)
+        self._cache_at = time.time()
+
+    def format_cached_report(self, *, max_cache_age: float = 120.0) -> Optional[str]:
+        if self.cache_age_sec() > max_cache_age or not self._cache_volatile:
+            return None
+        return format_ta_telegram_report(
+            self._cache_volatile,
+            self._cache_signals,
+            min_change_pct=self.min_24h_change_pct,
+            cache_age_sec=int(self.cache_age_sec()),
+        )
 
     def _symbol_ok(self, symbol: str) -> bool:
         sym = symbol.upper()
@@ -215,15 +243,20 @@ class VolatilityTAEngine:
         if not self.enabled:
             return [], []
         volatile = await self.scan_volatile(exchange)
-        signals: List[TASignalResult] = []
-        for vol in volatile:
-            try:
-                sig = await self.analyze_symbol(exchange, vol)
-                if sig:
-                    signals.append(sig)
-            except Exception as exc:
-                logger.warning("TA %s: %s", vol.symbol, exc)
+        sem = asyncio.Semaphore(max(1, self._parallel_klines))
+
+        async def _one(vol: VolatileSymbol) -> Optional[TASignalResult]:
+            async with sem:
+                try:
+                    return await self.analyze_symbol(exchange, vol)
+                except Exception as exc:
+                    logger.warning("TA %s: %s", vol.symbol, exc)
+                    return None
+
+        results = await asyncio.gather(*[_one(v) for v in volatile])
+        signals = [r for r in results if r]
         signals.sort(key=lambda x: x.confidence, reverse=True)
+        self._store_cache(signals, volatile)
         logger.info(
             "TA scan: volatile=%d signals=%d top=%s",
             len(volatile),
@@ -232,6 +265,25 @@ class VolatilityTAEngine:
         )
         return signals, volatile
 
+    async def get_telegram_report(
+        self,
+        exchange,
+        *,
+        prefer_cache: bool = True,
+        force: bool = False,
+        max_cache_age: float = 120.0,
+    ) -> str:
+        if not self.enabled:
+            return "<b>📉 TA-скан</b>\n\nМодуль отключён: <code>ta_scanner.enabled: false</code>"
+        if prefer_cache and not force:
+            cached = self.format_cached_report(max_cache_age=max_cache_age)
+            if cached:
+                return cached
+        await self.collect_signals(exchange)
+        return self.format_cached_report(max_cache_age=9999.0) or (
+            "<b>📉 TA-скан</b>\n\nНет данных после сканирования."
+        )
+
 
 def format_ta_telegram_report(
     volatile: List[VolatileSymbol],
@@ -239,14 +291,23 @@ def format_ta_telegram_report(
     *,
     min_change_pct: float,
     max_lines: int = 8,
+    cache_age_sec: Optional[int] = None,
 ) -> str:
     """HTML-отчёт для кнопки Telegram (лимит ~4096 символов)."""
     lines = [
         f"<b>📉 TA-скан Bybit</b>",
-        f"Пары с |Δ24ч| ≥ <b>{min_change_pct:.1f}%</b> (без авто-сделки — только анализ)",
-        "",
-        f"<b>Волатильные ({len(volatile)})</b>",
     ]
+    if cache_age_sec is not None:
+        lines.append(
+            f"<i>🕐 Данные торгового цикла ({cache_age_sec} сек назад)</i>"
+        )
+    lines.extend(
+        [
+            f"Пары с |Δ24ч| ≥ <b>{min_change_pct:.1f}%</b> (без авто-сделки — только анализ)",
+            "",
+            f"<b>Волатильные ({len(volatile)})</b>",
+        ]
+    )
     if not volatile:
         lines.append("<i>Нет пар по критерию волатильности/объёма.</i>")
     else:

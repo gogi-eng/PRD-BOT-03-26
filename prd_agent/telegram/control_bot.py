@@ -103,14 +103,21 @@ class ControlBot:
         html_actions = {"status", "stats", "macro", "ta_scan"}
         try:
             if action == "ta_scan":
-                await query.answer("Сканирую Bybit…")
+                await query.answer("📉 TA-скан")
+                cache_age = self.orch.ta_cache_age_sec()
+                if cache_age < 120:
+                    text = await self.orch.get_ta_scan_report(prefer_cache=True)
+                    await self._safe_edit(query, text, html=True)
+                    return
                 await self._safe_edit(
                     query,
-                    "⏳ <b>TA-скан</b>\n\nЧитаю графики волатильных пар…",
+                    "⏳ <b>TA-скан</b>\n\nПервый запуск — читаю графики (до ~30 сек)…",
                     html=True,
                 )
-            else:
-                await query.answer()
+                text = await self.orch.get_ta_scan_report(force=True)
+                await self._safe_edit(query, text, html=True)
+                return
+            await query.answer()
             text = await self._handle_action(action)
             if action in html_actions:
                 await self._safe_edit(query, text, html=True)
@@ -162,7 +169,7 @@ class ControlBot:
         if action == "macro":
             return await self.orch.get_macro_briefing()
         if action == "ta_scan":
-            return await self.orch.get_ta_scan_report()
+            return await self.orch.get_ta_scan_report(prefer_cache=True)
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:

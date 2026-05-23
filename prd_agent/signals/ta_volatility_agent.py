@@ -42,3 +42,17 @@ class TAVolatilityAgent:
                 )
             )
         return out
+
+    def cache_age_sec(self) -> float:
+        return self.engine.cache_age_sec()
+
+    async def get_telegram_report(
+        self,
+        exchange,
+        *,
+        prefer_cache: bool = True,
+        force: bool = False,
+    ) -> str:
+        return await self.engine.get_telegram_report(
+            exchange, prefer_cache=prefer_cache, force=force
+        )

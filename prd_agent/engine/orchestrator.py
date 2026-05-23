@@ -490,22 +490,25 @@ class UnifiedOrchestrator:
             watch_symbols=self.symbols,
         )
 
-    async def get_ta_scan_report(self) -> str:
-        from prd_agent.analysis.volatility_ta import (
-            VolatilityTAEngine,
-            format_ta_telegram_report,
-        )
+    def ta_cache_age_sec(self) -> float:
+        ta = self.signals._ta_vol
+        if not ta:
+            return 9999.0
+        return ta.cache_age_sec()
 
-        engine = VolatilityTAEngine(self.cfg)
-        if not engine.enabled:
-            return "<b>📉 TA-скан</b>\n\nМодуль отключён: <code>ta_scanner.enabled: false</code>"
+    async def get_ta_scan_report(
+        self, *, prefer_cache: bool = True, force: bool = False
+    ) -> str:
+        ta = self.signals._ta_vol
+        if not ta:
+            return (
+                "<b>📉 TA-скан</b>\n\nМодуль отключён: "
+                "<code>ta_scanner.enabled: false</code>"
+            )
         try:
-            signals, volatile = await engine.collect_signals(self.exchange)
+            return await ta.get_telegram_report(
+                self.exchange, prefer_cache=prefer_cache, force=force
+            )
         except Exception as exc:
             logger.exception("ta_scan: %s", exc)
             return f"<b>📉 TA-скан</b>\n\nОшибка: {exc}"
-        return format_ta_telegram_report(
-            volatile,
-            signals,
-            min_change_pct=engine.min_24h_change_pct,
-        )
