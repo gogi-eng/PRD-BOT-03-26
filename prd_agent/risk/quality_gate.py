@@ -13,13 +13,16 @@ logger = logging.getLogger("prd_agent.quality")
 
 class QualityGate:
     def __init__(self, cfg: Dict[str, Any]):
+        self._cfg = cfg
         q = cfg.get("quality_gate", {})
         t = cfg.get("trading", {})
+        ta = cfg.get("ta_scanner", {}) if isinstance(cfg.get("ta_scanner"), dict) else {}
         self.enabled = bool(q.get("enabled", True))
         self.min_confidence = float(
             q.get("min_confidence", t.get("min_signal_confidence", 0.68))
         )
-        self.min_rr = float(q.get("min_rr_ratio", 2.5))
+        # По умолчанию 2.0 — как ta_scanner.min_rr и own_multi_agent (atr_tp/atr_sl ≈ 2.08)
+        self.min_rr = float(q.get("min_rr_ratio", ta.get("min_rr", 2.0)))
         self.require_sl_tp = bool(q.get("require_sl_tp", True))
         self.min_volume = float(
             q.get("min_24h_volume_usdt", t.get("min_24h_volume_usdt", 10_000_000))
@@ -57,6 +60,15 @@ class QualityGate:
             return 0.0
         return reward / risk
 
+    def _min_rr_for_signal(self, sig: UnifiedSignal) -> float:
+        """own_multi_agent / TA: не требовать RR выше, чем у самого сканера."""
+        src = (sig.source or "").lower()
+        if src in ("own_multi_agent", "ta_volatility"):
+            ta = self._cfg.get("ta_scanner", {})
+            if isinstance(ta, dict) and ta.get("min_rr") is not None:
+                return float(ta["min_rr"])
+        return self.min_rr
+
     async def check(
         self,
         sig: UnifiedSignal,
@@ -78,8 +90,9 @@ class QualityGate:
         if self.require_sl_tp and (sl <= 0 or tp <= 0):
             return False, "quality_gate: нет SL/TP"
         rr = self._rr_ratio(entry, sl, tp, sig.side)
-        if rr < self.min_rr:
-            return False, f"quality_gate: RR {rr:.2f} < {self.min_rr:.2f}"
+        min_rr = self._min_rr_for_signal(sig)
+        if rr < min_rr:
+            return False, f"quality_gate: RR {rr:.2f} < {min_rr:.2f}"
         vol = await self._symbol_volume(exchange, sym)
         if self.min_volume > 0 and vol > 0 and vol < self.min_volume:
             return False, (
