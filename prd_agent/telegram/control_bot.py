@@ -35,6 +35,15 @@ class ControlBot:
             return True
         return user_id in self.allowed
 
+    def _trailing_button(self) -> InlineKeyboardButton:
+        if self.orch.position_steward.enabled:
+            return InlineKeyboardButton(
+                "🚫 Отключить трейлинг", callback_data="act:trailing_off"
+            )
+        return InlineKeyboardButton(
+            "✅ Включить трейлинг", callback_data="act:trailing_on"
+        )
+
     def _main_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             [
@@ -49,6 +58,9 @@ class ControlBot:
                 [
                     InlineKeyboardButton("📉 TA-скан", callback_data="act:ta_scan"),
                     InlineKeyboardButton("🧠 Макро", callback_data="act:macro"),
+                ],
+                [
+                    self._trailing_button(),
                 ],
                 [
                     InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
@@ -119,10 +131,8 @@ class ControlBot:
                 return
             await query.answer()
             text = await self._handle_action(action)
-            if action in html_actions:
-                await self._safe_edit(query, text, html=True)
-            else:
-                await self._safe_edit(query, text, html=False)
+            html_reply = action in html_actions or action.startswith("trailing_")
+            await self._safe_edit(query, text, html=html_reply)
         except Exception as exc:
             logger.exception("on_button %s: %s", action, exc)
             await self._safe_edit(
@@ -170,6 +180,10 @@ class ControlBot:
             return await self.orch.get_macro_briefing()
         if action == "ta_scan":
             return await self.orch.get_ta_scan_report(prefer_cache=True)
+        if action == "trailing_off":
+            return self.orch.set_trailing_enabled(False)
+        if action == "trailing_on":
+            return self.orch.set_trailing_enabled(True)
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:

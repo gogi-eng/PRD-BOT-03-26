@@ -136,6 +136,33 @@ class UnifiedOrchestrator:
         self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
 
+    def set_trailing_enabled(self, enabled: bool) -> str:
+        """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
+        import shutil
+
+        import yaml
+
+        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        if path.exists():
+            backup = (
+                self.improver.sandbox_dir
+                / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
+            )
+            shutil.copy2(path, backup)
+            with path.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            data.setdefault("positions", {})["trailing_enabled"] = bool(enabled)
+            with path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            self.reload_config()
+            backup_note = f"Резервная копия: {backup.name}"
+        else:
+            self.position_steward.enabled = bool(enabled)
+            backup_note = "config.yaml не найден — только до перезапуска"
+        state = "ВКЛ" if self.position_steward.enabled else "ВЫКЛ"
+        logger.info("Trailing %s via Telegram", state)
+        return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
+
     async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
         if not self.symbol_scanner.enabled():
             return
@@ -273,6 +300,7 @@ class UnifiedOrchestrator:
             risk_snapshot=self.risk.snapshot(),
             block_reason=block_reason,
             mode=mode,
+            trailing_enabled=self.position_steward.enabled,
         )
 
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
