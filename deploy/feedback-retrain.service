@@ -1,0 +1,13 @@
+[Unit]
+Description=PRD daily transformer retrain (stop trading_bot, train, restart)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/PRD-BOT-ALL
+Environment=TZ=UTC
+ExecStart=/bin/bash /root/PRD-BOT-ALL/scripts/daily_feedback_retrain.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -70,6 +70,32 @@ python run_unified.py
 
 Сигналы из (1) можно передавать в (2) через `SignalRouter.ingest_telegram_signal()` (интеграция через общий файл `data/signals/` или доработка webhook).
 
+## Автообучение каждый день в 00:00 UTC
+
+Переобучение transformer **останавливает только** `trading_bot` (коллектор `telegram_signal_agent` не трогаем).
+
+На сервере после `git pull`:
+
+```bash
+cd /root/PRD-BOT-ALL
+sudo bash deploy/install_feedback_retrain_timer.sh
+```
+
+В `config.yaml` на сервере добавьте (если ещё нет):
+
+```yaml
+feedback_loop:
+  retrain_in_process: false
+```
+
+Лог: `logs/daily_feedback_retrain.log`. Ручная проверка:
+
+```bash
+sudo bash /root/PRD-BOT-ALL/scripts/daily_feedback_retrain.sh
+```
+
+Первый раз установится `torch` (CPU) в venv — 2–5 минут, RAM ~2–3 ГБ.
+
 ## Systemd (пример на Linux)
 
 ```ini
