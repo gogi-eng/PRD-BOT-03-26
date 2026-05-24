@@ -133,6 +133,20 @@ quality_gate:
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
 
+# Переобучение transformer (скрипт scripts/daily_feedback_retrain.sh в 00:00 UTC)
+feedback_loop:
+  enabled: true
+  retrain_in_process: false          # false = обучение только вне бота (systemd timer)
+  retrain_daily: true
+  retrain_hour_utc: 0                # для in-process; внешний timer всегда 00:00 UTC
+  min_new_labels_for_retrain: 50
+  dataset_path: signal_only_feedback_data.json
+  base_dataset_path: training_data.json
+  use_merged_dataset_for_retrain: true
+  train_epochs: 220
+  train_lr: 0.002
+  train_batch_size: 32
+
 analytics:
   report_hours: 24
 

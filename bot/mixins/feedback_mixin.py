@@ -40,7 +40,7 @@ class TradingBotFeedbackMixin:
                         await self.tg.send_message(
                             "<b>FEEDBACK RETRAIN (off-line)</b>\n"
                             "In-process training disabled. Use cron, e.g.:\n"
-                            "<code>0 2 * * * cd /path/to/PRD-SCALP && bash scripts/run_feedback_retrain.sh</code>"
+                            "<code>0 0 * * * bash scripts/daily_feedback_retrain.sh</code> (00:00 UTC)"
                         )
                     except Exception as exc:
                         logger.warning(f"[FEEDBACK] retrain-skip Telegram failed: {exc}")
