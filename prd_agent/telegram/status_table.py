@@ -13,6 +13,7 @@ def format_status_table(
     risk_snapshot: Dict[str, Any],
     block_reason: str = "",
     mode: str = "LIVE",
+    trailing_enabled: bool | None = None,
 ) -> str:
     open_map: Dict[str, Dict] = {}
     for p in positions:
@@ -43,6 +44,10 @@ def format_status_table(
         f"Риск: <code>{risk_snapshot.get('status', '?')}</code> | "
         f"PnL сегодня (UTC): {risk_snapshot.get('pnl_today_usdt', 0):+.2f} USDT",
     ]
+    if trailing_enabled is not None:
+        lines.append(
+            f"Трейлинг SL: <code>{'ВКЛ' if trailing_enabled else 'ВЫКЛ'}</code>"
+        )
     reset_min = int(risk_snapshot.get("reset_utc_in_min", 0) or 0)
     if reset_min > 0 and (block_reason or risk_snapshot.get("blocked")):
         rh, rm = divmod(reset_min, 60)
