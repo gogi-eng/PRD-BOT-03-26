@@ -33,6 +33,7 @@ class PositionSteward:
         self.adopt_manual = bool(p.get("adopt_manual", True))
         self.activation_pct = float(p.get("trailing_activation_pct", 0.4))
         self.distance_pct = float(p.get("trailing_distance_pct", 0.35))
+        self.distance_atr_mult = float(p.get("trailing_distance_atr_mult", 1.4))
         self.breakeven_pct = float(p.get("breakeven_after_pct", 0.25))
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
@@ -99,7 +100,11 @@ class PositionSteward:
         if profit_pct < self.activation_pct:
             return None
 
-        dist = max(entry * self.distance_pct / 100, atr * 0.8 if atr > 0 else 0)
+        # Дистанция от лучшей цены (не от входа — иначе SL жмётся к графику при росте)
+        ref = pos.best_price if pos.best_price > 0 else price
+        dist_pct = ref * self.distance_pct / 100
+        dist_atr = atr * self.distance_atr_mult if atr > 0 else 0.0
+        dist = max(dist_pct, dist_atr)
         if dist <= 0:
             return None
 

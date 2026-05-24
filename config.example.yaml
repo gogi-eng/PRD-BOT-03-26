@@ -75,9 +75,13 @@ ta_scanner:
 positions:
   adopt_manual: true
   trailing_enabled: true
-  trailing_activation_pct: 0.4
-  trailing_distance_pct: 0.35
-  breakeven_after_pct: 0.25
+  # Когда начать подтягивать SL (% прибыли от входа)
+  trailing_activation_pct: 0.5
+  # Отступ SL от лучшей цены: % от текущего пика (0.8 = 0.8%). Больше = дальше от графика
+  trailing_distance_pct: 0.8
+  # Минимум отступа в ATR (15m), если волатильность выше процента
+  trailing_distance_atr_mult: 1.4
+  breakeven_after_pct: 0.35
 
 # Коллектор сигналов из Telegram-каналов (отдельная служба telegram_signal_agent)
 telegram_signal_agent:
