@@ -133,7 +133,7 @@ global_analysis:
 quality_gate:
   enabled: true
   min_confidence: 0.90
-  min_rr_ratio: 2.5
+  min_rr_ratio: 2.0   # 2.5 режет все own_multi_agent (RR≈2.0) — сделок не будет
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
 
