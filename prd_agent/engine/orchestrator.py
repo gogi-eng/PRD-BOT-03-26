@@ -25,6 +25,7 @@ from prd_agent.risk.guard import RiskGuard
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
+from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 from prd_agent.signals.confidence_filter import (
     PerSymbolSignalCooldown,
     filter_signal_dicts,
@@ -96,6 +97,64 @@ class UnifiedOrchestrator:
             "недостаточно маржи",
             "quality_gate:",
         )
+        self._apply_sr_zones_config()
+
+    def _apply_sr_zones_config(self) -> None:
+        sr = self.cfg.get("execution_sr_zones", {})
+        if not isinstance(sr, dict):
+            sr = {}
+        self._sr_enabled = bool(sr.get("enabled", True))
+        self._sr_interval = str(sr.get("kline_interval", "15"))
+        self._sr_limit = max(20, int(sr.get("kline_limit", 120) or 120))
+        self._sr_sl_atr = float(sr.get("sl_extra_buffer_atr", 0.1))
+        self._sr_tp_atr = float(sr.get("tp_extra_buffer_atr", 0.08))
+        preserve = float(sr.get("preserve_min_rr", 0) or 0)
+        if preserve <= 0:
+            q = self.cfg.get("quality_gate", {})
+            if isinstance(q, dict):
+                preserve = float(q.get("min_rr_ratio", 2.0))
+        self._sr_preserve_rr = preserve
+
+    async def _apply_sr_zones_to_levels(
+        self,
+        symbol: str,
+        side: str,
+        entry: float,
+        stop_loss: float,
+        take_profit: float,
+    ) -> tuple[float, float]:
+        if not self._sr_enabled:
+            return stop_loss, take_profit
+        try:
+            klines = await self.exchange.get_klines(
+                symbol.upper(),
+                interval=self._sr_interval,
+                limit=self._sr_limit,
+            )
+            new_sl, new_tp, changed = adjust_sl_tp_with_sr_zones(
+                entry=entry,
+                side=side,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                klines=klines,
+                sl_extra_atr=self._sr_sl_atr,
+                tp_extra_atr=self._sr_tp_atr,
+                preserve_min_rr=self._sr_preserve_rr,
+            )
+            if changed:
+                logger.info(
+                    "SR zones %s %s: SL %.6g→%.6g TP %.6g→%.6g (поддержка/сопротивление)",
+                    symbol,
+                    side,
+                    stop_loss,
+                    new_sl,
+                    take_profit,
+                    new_tp,
+                )
+            return new_sl, new_tp
+        except Exception as exc:
+            logger.warning("SR zones %s: %s", symbol, exc)
+            return stop_loss, take_profit
 
     def _risk_notify(self, msg: str) -> None:
         # AUTO-STOP дублируется таблицей в _notify_risk_block_once — не спамим в Telegram.
@@ -133,6 +192,7 @@ class UnifiedOrchestrator:
         self._signal_cooldown = PerSymbolSignalCooldown(
             load_signal_notify_cooldown_sec(self.cfg)
         )
+        self._apply_sr_zones_config()
         self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
 
@@ -423,6 +483,7 @@ class UnifiedOrchestrator:
         entry = sig.entry or await self.exchange.get_price(sig.symbol)
         sl = sig.stop_loss or (entry * 0.995 if sig.side == "Buy" else entry * 1.005)
         tp = sig.take_profit or (entry * 1.01 if sig.side == "Buy" else entry * 0.99)
+        sl, tp = await self._apply_sr_zones_to_levels(sig.symbol, sig.side, entry, sl, tp)
         balance = await self.exchange.get_balance()
         available = await self.exchange.get_available_balance()
         qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, self.leverage)
