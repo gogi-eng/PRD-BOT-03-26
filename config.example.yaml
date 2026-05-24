@@ -83,6 +83,15 @@ positions:
   trailing_distance_atr_mult: 1.4
   breakeven_after_pct: 0.35
 
+# Поджатие SL/TP к зонам поддержки/сопротивления (FVG/OB/swing) перед ордером unified-бота
+execution_sr_zones:
+  enabled: true
+  kline_interval: "15"
+  kline_limit: 120
+  sl_extra_buffer_atr: 0.1
+  tp_extra_buffer_atr: 0.08
+  preserve_min_rr: 0   # 0 = взять quality_gate.min_rr_ratio
+
 # Коллектор сигналов из Telegram-каналов (отдельная служба telegram_signal_agent)
 telegram_signal_agent:
   enabled: true
