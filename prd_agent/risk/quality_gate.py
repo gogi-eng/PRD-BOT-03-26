@@ -89,6 +89,17 @@ class QualityGate:
             )
         if self.require_sl_tp and (sl <= 0 or tp <= 0):
             return False, "quality_gate: нет SL/TP"
+        side_u = sig.side.lower()
+        if entry > 0 and sl > 0 and tp > 0:
+            if side_u == "buy":
+                if sl >= entry or tp <= entry:
+                    return False, "quality_gate: SL/TP не согласованы с LONG"
+            elif side_u == "sell":
+                if sl <= entry or tp >= entry:
+                    return False, "quality_gate: SL/TP не согласованы с SHORT"
+            sl_pct = abs(entry - sl) / entry
+            if sl_pct > 0.5:
+                return False, f"quality_gate: SL далеко от entry ({sl_pct:.0%})"
         rr = self._rr_ratio(entry, sl, tp, sig.side)
         min_rr = self._min_rr_for_signal(sig)
         if rr < min_rr:
