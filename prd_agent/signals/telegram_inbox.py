@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from telegram_agent.signal_parse import enrich_parsed_signal_levels
+from telegram_agent.signal_quality import signal_levels_plausible
 
 
 SIDE_RE = re.compile(r"\b(LONG|SHORT|BUY|SELL|ЛОНГ|ШОРТ)\b", re.I)
@@ -67,7 +68,19 @@ class TelegramInbox:
     def _normalize_row(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Плоская строка inbox или audit {signal, review, action}."""
         if row.get("symbol") and row.get("side"):
-            return dict(row)
+            flat = dict(row)
+            side_raw = str(flat.get("side", ""))
+            side = "BUY" if side_raw.lower() in ("buy", "long") else "SELL"
+            probe = {
+                "side": side,
+                "entry": float(flat.get("entry", 0) or 0),
+                "stop_loss": float(flat.get("stop_loss", 0) or 0),
+                "take_profit": float(flat.get("take_profit", 0) or 0),
+            }
+            ok_lv, _ = signal_levels_plausible(probe)
+            if not ok_lv:
+                return None
+            return flat
         nested = row.get("signal")
         review = row.get("review") if isinstance(row.get("review"), dict) else {}
         action = str(row.get("action", ""))
@@ -86,6 +99,15 @@ class TelegramInbox:
         conf_raw = float(review.get("confidence", nested.get("confidence", 0)) or 0)
         conf = conf_raw / 100.0 if conf_raw > 1 else conf_raw
         if conf < self._min_conf:
+            return None
+        probe = {
+            "side": side,
+            "entry": float(nested.get("entry", 0) or 0),
+            "stop_loss": float(nested.get("stop_loss", 0) or 0),
+            "take_profit": float(nested.get("take_profit", 0) or 0),
+        }
+        ok_lv, _ = signal_levels_plausible(probe)
+        if not ok_lv:
             return None
         return {
             "symbol": sym,

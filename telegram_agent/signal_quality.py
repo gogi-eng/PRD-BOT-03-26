@@ -74,6 +74,42 @@ def is_noise_post(text: str, extra_substrings: Tuple[str, ...] = ()) -> Tuple[bo
     return False, ""
 
 
+def signal_levels_plausible(
+    parsed: Dict[str, Any],
+    *,
+    max_sl_pct: float = 0.35,
+    max_tp_pct: float = 2.5,
+) -> Tuple[bool, str]:
+    """SL/TP должны быть по правильную сторону от entry и не «космические» (Cornix мусор)."""
+    side = str(parsed.get("side") or "").upper()
+    entry = float(parsed.get("entry") or 0)
+    sl = float(parsed.get("stop_loss") or 0)
+    tp = float(parsed.get("take_profit") or 0)
+    if entry <= 0:
+        return False, "нет entry"
+    if sl <= 0 or tp <= 0:
+        return False, "нет SL/TP"
+    if side == "BUY":
+        if sl >= entry:
+            return False, f"SL {sl} не ниже entry {entry} (LONG)"
+        if tp <= entry:
+            return False, f"TP {tp} не выше entry {entry} (LONG)"
+    elif side == "SELL":
+        if sl <= entry:
+            return False, f"SL {sl} не выше entry {entry} (SHORT)"
+        if tp >= entry:
+            return False, f"TP {tp} не ниже entry {entry} (SHORT)"
+    else:
+        return False, "нет стороны"
+    sl_dist = abs(entry - sl) / entry
+    tp_dist = abs(tp - entry) / entry
+    if sl_dist > max_sl_pct:
+        return False, f"SL слишком далеко от entry ({sl_dist:.0%} > {max_sl_pct:.0%})"
+    if tp_dist > max_tp_pct:
+        return False, f"TP слишком далеко от entry ({tp_dist:.0%} > {max_tp_pct:.0%})"
+    return True, ""
+
+
 def structure_score(parsed: Dict[str, Any]) -> int:
     """0–100: насколько пост похож на полноценный сигнал."""
     score = 0
@@ -118,6 +154,9 @@ def passes_quality_gate(
         return False, "нет SL в посте"
     if cfg.get("require_take_profit", False) and tp <= 0:
         return False, "нет TP в посте"
+    ok_lv, why_lv = signal_levels_plausible(parsed)
+    if not ok_lv:
+        return False, f"уровни: {why_lv}"
     min_struct = int(cfg.get("min_structure_score", 55))
     if not trusted:
         sc = structure_score(parsed)
@@ -137,7 +176,8 @@ def rule_based_review(parsed: Dict[str, Any], market_regime: str = "unknown") ->
     sl = float(parsed.get("stop_loss") or 0)
     tp = float(parsed.get("take_profit") or 0)
     side = str(parsed.get("side") or "").upper()
-    approve = sc >= 72 and sl > 0 and tp > 0 and side in {"BUY", "SELL"}
+    ok_lv, _ = signal_levels_plausible(parsed)
+    approve = sc >= 72 and sl > 0 and tp > 0 and side in {"BUY", "SELL"} and ok_lv
     if market_regime == "chop":
         approve = approve and sc >= 78
     return {
