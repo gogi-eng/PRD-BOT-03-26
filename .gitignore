@@ -12,6 +12,7 @@ __pycache__/
 .Python
 .venv/
 venv/
+venv.bak.*/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

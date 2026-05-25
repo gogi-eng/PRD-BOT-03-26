@@ -29,7 +29,7 @@ git checkout -f "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH" "origin/$BRAN
 git reset --hard "origin/$BRANCH"
 git clean -fd \
   -e .env -e config.yaml \
-  -e venv -e .venv \
+  -e venv -e .venv -e 'venv.bak.*' \
   -e data -e bot.log \
   -e telegram_user_signal_agent.session \
   -e telegram_signal_agent_state.json \
@@ -51,8 +51,10 @@ mkdir -p reports/telegram_signals data/trades
 touch reports/telegram_signals/signals_inbox.jsonl
 
 echo ""
-echo "=== venv ==="
+echo "=== venv (пересборка только если сломан venv или сменился requirements-unified.txt) ==="
 bash scripts/rebuild_venv.sh
+# Убрать старые бэкапы venv после деплоя (не трогать git clean — он долго печатает Removing…)
+ls -1dt venv.bak.* 2>/dev/null | tail -n +2 | xargs -r rm -rf
 
 echo ""
 echo "=== Healthcheck ==="
