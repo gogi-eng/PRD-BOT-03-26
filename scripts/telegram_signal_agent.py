@@ -559,9 +559,39 @@ def extract_signal_symbol(upper: str, raw: str = "") -> str | None:
     return None
 
 
+# Сообщения от trading_bot / signal_agent в личный чат — не торговые сигналы
+_BOT_ECHO_TEXT_MARKERS = (
+    "TELEGRAM SIGNAL AGENT",
+    "PRD Agent — отчёт",
+    "PRD Unified — панель",
+    "PRD Unified",
+    "Глобальный анализ",
+    "📊 PRD Agent",
+    "📊 PRD Unified",
+    "🌍 Глобальный анализ",
+)
+
+
+def is_bot_echo_notification_text(text: str) -> bool:
+    t = (text or "").strip()
+    if len(t) < 12:
+        return False
+    return any(m in t for m in _BOT_ECHO_TEXT_MARKERS)
+
+
 _SIMPLE_SYMBOL_STOPWORDS = frozenset({
     "LONG",
     "SHORT",
+    "TELEGRAM",
+    "PRD",
+    "SKIPPED",
+    "AGENT",
+    "UNIFIED",
+    "SIGNAL",
+    "GLOBAL",
+    "ОТЧЁТ",
+    "ОТЧЕТ",
+    "ПАНЕЛЬ",
     "HIGH",
     "LOW",
     "OPEN",
@@ -988,6 +1018,15 @@ class TelegramSignalAgent:
             c = _chat_name_compact(str(sub))
             if len(c) >= 4:
                 self.ignored_chats_compact.add(c)
+        self._ignored_peer_ids: set[int] = set()
+        for raw_pid in list(self.agent_cfg.get("ignored_peer_ids", []) or []):
+            try:
+                self._ignored_peer_ids.add(int(raw_pid))
+            except (TypeError, ValueError):
+                pass
+        _notify_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        if _notify_chat.lstrip("-").isdigit():
+            self._ignored_peer_ids.add(int(_notify_chat))
         self.trusted_signal_sources = {
             normalize_chat_name(x) for x in (self.agent_cfg.get("trusted_signal_sources", []) or [])
         }
@@ -2512,6 +2551,9 @@ class TelegramSignalAgent:
         if self._is_ignored_source(source):
             self._mark_seen(source, message_id)
             return
+        if is_bot_echo_notification_text(text):
+            self._mark_seen(source, message_id)
+            return
         self._touch_channel_activity(source, message_dt, had_signal=False)
         if self.channel_auto_block_cfg.enabled and channel_is_blocked(self.state, normalize_chat_name(source)):
             LOG.info("Skip auto-blocked source: %r", source)
@@ -3571,11 +3613,21 @@ class TelegramSignalAgent:
                     @client.on(events.NewMessage())
                     async def handler(event):  # type: ignore[no-untyped-def]
                         async with new_message_lock:
+                            pk = self._new_message_peer_key(event)
+                            if pk is not None and pk in self._ignored_peer_ids:
+                                return
                             if allowed_peer_ids is not None:
-                                pk = self._new_message_peer_key(event)
                                 if pk is None or pk not in allowed_peer_ids:
                                     return
+                            try:
+                                sender = await event.get_sender()
+                                if sender is not None and bool(getattr(sender, "bot", False)):
+                                    return
+                            except Exception:
+                                pass
                             text = getattr(event.message, "message", "") or ""
+                            if is_bot_echo_notification_text(text):
+                                return
                             try:
                                 source = await self._new_message_source(event)
                             except Exception as exc:
