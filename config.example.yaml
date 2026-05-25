@@ -146,6 +146,14 @@ quality_gate:
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
 
+# Агент-надсмотрщик: все позиции на бирже + виртуальные сделки + подстройка config каждые 2ч
+trade_supervisor:
+  enabled: true
+  interval_hours: 2
+  virtual_trades_enabled: true
+  virtual_max_open: 40
+  virtual_max_age_hours: 72
+
 # Переобучение transformer (скрипт scripts/daily_feedback_retrain.sh в 00:00 UTC)
 feedback_loop:
   enabled: true

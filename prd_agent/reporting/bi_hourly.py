@@ -43,6 +43,7 @@ class BiHourlyReporter:
         code_changes: List[Dict],
         risk_snapshot: Dict[str, Any],
         balance: float,
+        supervisor_summary: Optional[Dict[str, Any]] = None,
     ) -> str:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         lines = [
@@ -103,6 +104,14 @@ class BiHourlyReporter:
                     lines.append(f"  ↳ {ch['justification'][:200]}")
         else:
             lines.append("• за период изменений не было")
+
+        if supervisor_summary:
+            try:
+                from prd_agent.supervisor.trade_supervisor import TradeSupervisor
+
+                lines.extend(TradeSupervisor.format_report_section(supervisor_summary))
+            except Exception:
+                pass
 
         lines.append("")
         lines.append(
