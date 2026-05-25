@@ -16,6 +16,8 @@ import yaml
 # Разрешённые ключи для авто-подстройки (числа в пределах)
 LOW_RISK_TUNING = {
     ("trading", "min_signal_confidence"): (0.55, 0.85, 0.02),
+    ("signals", "min_analysis_confidence"): (0.85, 0.95, 0.02),
+    ("quality_gate", "min_rr_ratio"): (1.5, 2.5, 0.05),
     ("risk", "cooldown_after_loss_sec"): (60, 900, 30),
     ("risk", "max_consecutive_losses"): (2, 6, 1),
     ("trading", "risk_pct_per_trade"): (0.1, 1.5, 0.05),
@@ -132,6 +134,8 @@ class SelfImprover:
         new_val = current + float(proposal.get("delta", 0))
         if path_tuple[1] == "max_consecutive_losses":
             new_val = int(round(new_val))
+        elif path_tuple == ("quality_gate", "min_rr_ratio"):
+            new_val = round(new_val, 2)
         else:
             new_val = round(new_val, 3)
         new_val = max(lo, min(hi, new_val))
