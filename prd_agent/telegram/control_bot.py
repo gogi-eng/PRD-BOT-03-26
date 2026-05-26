@@ -155,10 +155,7 @@ class ControlBot:
             self.orch.stop()
             return "EMERGENCY STOP: торговля и цикл остановлены."
         if action == "reset_risk":
-            self.orch.risk.status = GuardStatus.ACTIVE
-            self.orch.risk.stop_reason = ""
-            self.orch._block_notify_sent = False
-            return "Риск-стоп сброшен."
+            return self.orch.reset_risk_guard()
         if action == "rollback":
             path = self.orch.improver.rollback_last_config()
             self.orch.reload_config()

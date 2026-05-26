@@ -217,6 +217,35 @@ class RiskGuard:
         max_qty = max_notional / entry
         return min(qty, max_qty)
 
+    def reset_daily_state(self, *, clear_stop: bool = True) -> None:
+        """Сброс дневных счётчиков, убытка и стопа (кнопка Telegram / скрипт на сервере)."""
+        today = self._today_utc()
+        self.day_stats = DayStats(date=today)
+        self._consecutive_losses = 0
+        self.last_loss_time = None
+        if clear_stop:
+            self.status = GuardStatus.ACTIVE
+            self.stop_reason = ""
+            self.stop_kind = StopKind.NONE
+            self.auto_stop_time = None
+
+    def apply_risk_config(self, cfg: Dict) -> None:
+        """Подхватить лимиты из config.yaml без перезапуска (reload_config)."""
+        r = cfg.get("risk", {}) if isinstance(cfg.get("risk"), dict) else {}
+        self.max_consecutive_losses = int(r.get("max_consecutive_losses", self.max_consecutive_losses))
+        self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", self.max_daily_loss_pct))
+        self.max_daily_loss_usdt = float(r.get("max_daily_loss_usdt", self.max_daily_loss_usdt))
+        self.max_trades_per_day = int(r.get("max_trades_per_day", self.max_trades_per_day))
+        self.cooldown_after_loss_sec = int(r.get("cooldown_after_loss_sec", self.cooldown_after_loss_sec))
+        self.cooldown_after_stop_hours = int(r.get("cooldown_after_stop_hours", self.cooldown_after_stop_hours))
+        self.daily_loss_blocks_until_next_day = bool(
+            r.get("daily_loss_blocks_until_next_day", self.daily_loss_blocks_until_next_day)
+        )
+        self.reduce_after_losses = int(r.get("reduce_after_losses", self.reduce_after_losses))
+        self.reduction_factor = float(r.get("reduction_factor", self.reduction_factor))
+        t = cfg.get("trading", {}) if isinstance(cfg.get("trading"), dict) else {}
+        self.max_positions = int(t.get("max_positions", self.max_positions))
+
     def snapshot(self) -> Dict:
         self._ensure_today()
         s = self.day_stats
