@@ -27,6 +27,10 @@ from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
+from prd_agent.positions.tp_progress_exit import (
+    cycle_breakeven_threshold,
+    format_tp_progress_status,
+)
 from prd_agent.positions.trend_sl_buffer import TrendSlBufferConfig, apply_trend_sl_buffer
 from prd_agent.supervisor.trade_supervisor import TradeSupervisor
 from prd_agent.signals.confidence_filter import (
@@ -297,6 +301,58 @@ class UnifiedOrchestrator:
         logger.info("Trailing %s via Telegram", state)
         return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
 
+    def _save_positions_yaml_key(self, key: str, value: Any) -> str:
+        import shutil
+
+        import yaml
+
+        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        if not path.exists():
+            return "config.yaml не найден — только до перезапуска"
+        backup = (
+            self.improver.sandbox_dir
+            / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
+        )
+        shutil.copy2(path, backup)
+        with path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        pos = data.setdefault("positions", {})
+        parts = key.split(".")
+        if len(parts) == 1:
+            pos[parts[0]] = value
+        else:
+            cur: Any = pos
+            for part in parts[:-1]:
+                nxt = cur.get(part)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    cur[part] = nxt
+                cur = nxt
+            cur[parts[-1]] = value
+        with path.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+        self.reload_config()
+        return f"Резервная копия: {backup.name}"
+
+    def set_tp_progress_enabled(self, enabled: bool) -> str:
+        note = self._save_positions_yaml_key("tp_progress_exit.enabled", bool(enabled))
+        cfg = self.position_steward.tp_progress_cfg
+        state = "ВКЛ" if cfg.enabled else "ВЫКЛ"
+        return f"{format_tp_progress_status(cfg)}\n<i>{note}</i>"
+
+    def cycle_tp_progress_be_threshold(self) -> str:
+        cur = self.position_steward.tp_progress_cfg.breakeven_at_progress_pct
+        new_val = cycle_breakeven_threshold(cur)
+        note = self._save_positions_yaml_key(
+            "tp_progress_exit.breakeven_at_progress_pct", new_val
+        )
+        cfg = self.position_steward.tp_progress_cfg
+        return (
+            f"Порог безубытка: <b>{cfg.breakeven_at_progress_pct:.0f}%</b> пути к TP\n"
+            f"(следующее нажатие: 20 → 30 → 40)\n"
+            f"{format_tp_progress_status(cfg)}\n<i>{note}</i>"
+        )
+
     async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
         if not self.symbol_scanner.enabled():
             return
@@ -435,6 +491,9 @@ class UnifiedOrchestrator:
             block_reason=block_reason,
             mode=mode,
             trailing_enabled=self.position_steward.enabled,
+            tp_progress_status=format_tp_progress_status(
+                self.position_steward.tp_progress_cfg
+            ),
         )
 
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
@@ -695,7 +754,9 @@ class UnifiedOrchestrator:
                 confidence=sig.confidence,
                 leverage=leverage,
             )
-            self.position_steward.mark_bot_opened(sig.symbol)
+            self.position_steward.mark_bot_opened(
+                sig.symbol, take_profit=tp, stop_loss=sl
+            )
             self.supervisor.note_signal_outcome(ledger_id, "executed", oid)
             await self.notifier.order_placed(
                 sig.symbol,

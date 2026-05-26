@@ -14,6 +14,7 @@ def format_status_table(
     block_reason: str = "",
     mode: str = "LIVE",
     trailing_enabled: bool | None = None,
+    tp_progress_status: str = "",
 ) -> str:
     open_map: Dict[str, Dict] = {}
     for p in positions:
@@ -52,6 +53,8 @@ def format_status_table(
         lines.append(
             f"Трейлинг SL: <code>{'ВКЛ' if trailing_enabled else 'ВЫКЛ'}</code>"
         )
+    if tp_progress_status:
+        lines.append(tp_progress_status)
     reset_min = int(risk_snapshot.get("reset_utc_in_min", 0) or 0)
     if reset_min > 0 and (block_reason or risk_snapshot.get("blocked")):
         rh, rm = divmod(reset_min, 60)

@@ -19,6 +19,10 @@ from prd_agent.positions.exit_management import (
     profit_pct,
     progress_in_atr,
 )
+from prd_agent.positions.tp_progress_exit import (
+    TpProgressExitConfig,
+    evaluate_tp_progress_exit,
+)
 
 logger = logging.getLogger("prd_agent.positions")
 
@@ -30,7 +34,9 @@ class TrackedPosition:
     entry: float
     qty: float
     stop_loss: float = 0.0
+    take_profit: float = 0.0
     best_price: float = 0.0
+    tp_progress_phase: str = ""
     trailing_active: bool = False
     position_idx: int = 0
     origin: str = "manual"
@@ -54,11 +60,29 @@ class PositionSteward:
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
+        self.tp_progress_cfg = TpProgressExitConfig.from_cfg(p)
         self._tracked: Dict[str, TrackedPosition] = {}
         self._bot_symbols: set[str] = set()
+        self._bot_levels: Dict[str, Dict[str, float]] = {}
 
-    def mark_bot_opened(self, symbol: str) -> None:
-        self._bot_symbols.add(symbol.upper())
+    def mark_bot_opened(
+        self,
+        symbol: str,
+        *,
+        take_profit: float = 0.0,
+        stop_loss: float = 0.0,
+    ) -> None:
+        sym = symbol.upper()
+        self._bot_symbols.add(sym)
+        self._bot_levels[sym] = {
+            "take_profit": float(take_profit or 0),
+            "stop_loss": float(stop_loss or 0),
+        }
+        if sym in self._tracked:
+            if take_profit > 0:
+                self._tracked[sym].take_profit = take_profit
+            if stop_loss > 0:
+                self._tracked[sym].stop_loss = stop_loss
 
     @staticmethod
     def _atr_from_klines(klines: List[Dict], period: int = 14) -> float:
@@ -86,6 +110,12 @@ class PositionSteward:
         if entry <= 0:
             return None
         sl = float(row.get("stopLoss") or 0)
+        tp = float(row.get("takeProfit") or 0)
+        levels = self._bot_levels.get(sym, {})
+        if tp <= 0:
+            tp = float(levels.get("take_profit", 0) or 0)
+        if sl <= 0:
+            sl = float(levels.get("stop_loss", 0) or 0)
         origin = "bot" if sym in self._bot_symbols else "manual"
         if origin == "manual" and not self.adopt_manual:
             return None
@@ -97,6 +127,7 @@ class PositionSteward:
             entry=entry,
             qty=size,
             stop_loss=sl,
+            take_profit=tp,
             best_price=mark,
             position_idx=int(row.get("positionIdx", 0) or 0),
             origin=origin,
@@ -182,7 +213,11 @@ class PositionSteward:
 
     async def manage(self, exchange, positions: List[Dict]) -> List[str]:
         """Трейлинг SL, time-stop, breakeven. Возвращает сообщения для лога/Telegram."""
-        if not self.enabled and not self.exit_cfg.enabled:
+        if (
+            not self.enabled
+            and not self.exit_cfg.enabled
+            and not self.tp_progress_cfg.enabled
+        ):
             return []
         notes: List[str] = []
         live_syms = set()
@@ -210,6 +245,8 @@ class PositionSteward:
                 t.entry = adopted.entry
                 if adopted.stop_loss > 0:
                     t.stop_loss = adopted.stop_loss
+                if adopted.take_profit > 0:
+                    t.take_profit = adopted.take_profit
 
         for sym, pos in list(self._tracked.items()):
             row = next((p for p in positions if str(p.get("symbol", "")).upper() == sym), None)
@@ -253,16 +290,46 @@ class PositionSteward:
             ):
                 dist_factor = self.exit_cfg.late_tighten_distance_factor
 
-            if not self.enabled:
-                continue
+            new_sl = None
+            if self.tp_progress_cfg.enabled and pos.take_profit > 0:
+                tp_res = evaluate_tp_progress_exit(
+                    cfg=self.tp_progress_cfg,
+                    side=pos.side,
+                    entry=pos.entry,
+                    price=price,
+                    take_profit=pos.take_profit,
+                    current_sl=pos.stop_loss,
+                    klines=klines or [],
+                    atr=atr,
+                )
+                if tp_res.suggested_sl is not None:
+                    new_sl = tp_res.suggested_sl
+                    if tp_res.phase and tp_res.phase != pos.tp_progress_phase:
+                        pos.tp_progress_phase = tp_res.phase
+                        logger.info(
+                            "TP progress %s %s: %s (%.0f%%)",
+                            sym,
+                            pos.side,
+                            tp_res.note,
+                            tp_res.progress_pct or 0,
+                        )
 
-            new_sl = self._calc_trailing_sl(
-                pos,
-                price,
-                atr,
-                be_pct_override=be_override,
-                distance_factor=dist_factor,
-            )
+            if self.enabled:
+                trail_sl = self._calc_trailing_sl(
+                    pos,
+                    price,
+                    atr,
+                    be_pct_override=be_override,
+                    distance_factor=dist_factor,
+                )
+                if trail_sl is not None:
+                    if new_sl is None:
+                        new_sl = trail_sl
+                    elif pos.side == "Buy":
+                        new_sl = max(new_sl, trail_sl)
+                    else:
+                        new_sl = min(new_sl, trail_sl)
+
             if new_sl is None:
                 continue
             if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) / max(pos.last_sl_sent, 1e-9) < 0.0003:
