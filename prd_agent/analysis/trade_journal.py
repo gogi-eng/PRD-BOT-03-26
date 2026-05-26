@@ -38,6 +38,7 @@ class TradeJournal:
         stop_loss: float = 0.0,
         take_profit: float = 0.0,
         confidence: float = 0.0,
+        leverage: int = 0,
     ) -> None:
         sym = symbol.upper()
         grade = source or "unknown"
@@ -54,6 +55,7 @@ class TradeJournal:
             "stop_loss": stop_loss,
             "take_profit": take_profit,
             "confidence": confidence,
+            "leverage": leverage,
         }
         self._append(row)
         if order_id:

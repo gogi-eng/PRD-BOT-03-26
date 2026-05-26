@@ -44,6 +44,10 @@ def format_status_table(
         f"Риск: <code>{risk_snapshot.get('status', '?')}</code> | "
         f"PnL сегодня (UTC): {risk_snapshot.get('pnl_today_usdt', 0):+.2f} USDT",
     ]
+    max_pos = int(risk_snapshot.get("max_positions", 0) or 0)
+    open_pos = int(risk_snapshot.get("open_positions", len(positions)) or 0)
+    if max_pos > 0:
+        lines.append(f"Позиции: <code>{open_pos}/{max_pos}</code>")
     if trailing_enabled is not None:
         lines.append(
             f"Трейлинг SL: <code>{'ВКЛ' if trailing_enabled else 'ВЫКЛ'}</code>"

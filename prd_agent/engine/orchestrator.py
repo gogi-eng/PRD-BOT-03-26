@@ -195,6 +195,8 @@ class UnifiedOrchestrator:
             load_signal_notify_cooldown_sec(self.cfg)
         )
         self._apply_sr_zones_config()
+        self.leverage = int(t.get("leverage", self.leverage))
+        self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
         self.supervisor = TradeSupervisor(self.cfg, self.data_dir / "supervisor", self.improver)
         self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
@@ -522,19 +524,30 @@ class UnifiedOrchestrator:
             return
 
         entry, sl, tp = plan_entry, plan_sl, plan_tp
+        lev_advice = self.supervisor.recommend_leverage(
+            sig, entry=entry, stop_loss=sl, take_profit=tp
+        )
+        leverage = lev_advice.leverage
+        logger.info(
+            "Supervisor leverage %s %s: %dx — %s",
+            sig.symbol,
+            sig.side,
+            leverage,
+            lev_advice.reason,
+        )
         balance = await self.exchange.get_balance()
         available = await self.exchange.get_available_balance()
-        qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, self.leverage)
+        qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, leverage)
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
             return
 
-        notional = (qty * entry) / max(self.leverage, 1)
+        notional = (qty * entry) / max(leverage, 1)
         min_margin = notional * 1.05
         if available < min_margin:
             reason = (
                 f"недостаточно свободной маржи: доступно {available:.2f} USDT, "
-                f"нужно ~{min_margin:.2f} (retCode=110007)"
+                f"нужно ~{min_margin:.2f} (плечо {leverage}x, retCode=110007)"
             )
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
@@ -543,7 +556,7 @@ class UnifiedOrchestrator:
         qty, sl, tp, prep_err = await prepare_market_order(
             self.exchange._client,
             symbol=sig.symbol,
-            leverage=self.leverage,
+            leverage=leverage,
             qty=qty,
             stop_loss=sl,
             take_profit=tp,
@@ -574,7 +587,15 @@ class UnifiedOrchestrator:
         )
         if result.get("success"):
             oid = str(result.get("orderId", ""))
-            logger.info("Order OK %s %s qty=%.6f id=%s", sig.symbol, sig.side, qty, oid)
+            logger.info(
+                "Order OK %s %s qty=%.6f lev=%dx conf=%.0f%% id=%s",
+                sig.symbol,
+                sig.side,
+                qty,
+                leverage,
+                sig.confidence * 100,
+                oid,
+            )
             self.ledger.update_status(ledger_id, SignalStatus.EXECUTED, "ok", order_id=oid)
             self.monitor.record_execution(sig.symbol, sig.side, qty, sig.source, oid)
             self.trade_journal.log_entered(
@@ -587,10 +608,18 @@ class UnifiedOrchestrator:
                 stop_loss=sl,
                 take_profit=tp,
                 confidence=sig.confidence,
+                leverage=leverage,
             )
             self.position_steward.mark_bot_opened(sig.symbol)
             self.supervisor.note_signal_outcome(ledger_id, "executed", oid)
-            await self.notifier.order_placed(sig.symbol, sig.side, qty, oid)
+            await self.notifier.order_placed(
+                sig.symbol,
+                sig.side,
+                qty,
+                oid,
+                leverage=leverage,
+                advisor_reason=lev_advice.reason,
+            )
         else:
             err = str(result.get("error", "unknown"))
             logger.warning("Order FAIL %s %s: %s", sig.symbol, sig.side, err)

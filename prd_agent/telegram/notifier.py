@@ -62,9 +62,21 @@ class TelegramNotifier:
     async def signal_skipped(self, symbol: str, side: str, reason: str) -> None:
         await self.send(f"⏭ <b>Пропуск</b> {symbol} {side}\n{reason[:400]}")
 
-    async def order_placed(self, symbol: str, side: str, qty: float, order_id: str = "") -> None:
+    async def order_placed(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        order_id: str = "",
+        *,
+        leverage: int = 0,
+        advisor_reason: str = "",
+    ) -> None:
+        lev_line = f"\nплечо: <code>{leverage}x</code> (супервизор)" if leverage > 0 else ""
+        adv_line = f"\n<i>{advisor_reason[:280]}</i>" if advisor_reason else ""
         await self.send(
-            f"✅ <b>Ордер</b> {symbol} {side}\nqty={qty:.4f}" + (f"\nid={order_id}" if order_id else "")
+            f"✅ <b>Ордер</b> {symbol} {side}\nqty={qty:.4f}{lev_line}{adv_line}"
+            + (f"\nid={order_id}" if order_id else "")
         )
 
     async def order_failed(self, symbol: str, error: str) -> None:
