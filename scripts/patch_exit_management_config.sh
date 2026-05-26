@@ -36,6 +36,24 @@ if not isinstance(ex, dict):
     }
     print("OK: добавлен positions.exit_management")
 
+tpe = pos.get("tp_progress_exit")
+if not isinstance(tpe, dict):
+    pos["tp_progress_exit"] = {
+        "enabled": True,
+        "breakeven_at_progress_pct": 30,
+        "sr_trail_at_progress_pct": 50,
+        "be_fee_buffer_pct": 0.05,
+        "sr_trail_enabled": True,
+        "sr_sl_buffer_atr": 0.15,
+        "min_valid_tp_distance_pct": 0.08,
+    }
+    print("OK: добавлен positions.tp_progress_exit")
+
+srz = data.get("execution_sr_zones")
+if isinstance(srz, dict) and float(srz.get("preserve_min_rr", 0) or 0) < 2.0:
+    srz["preserve_min_rr"] = 2.0
+    print("OK: execution_sr_zones.preserve_min_rr = 2.0")
+
 tsb = data.get("trend_sl_buffer")
 if not isinstance(tsb, dict):
     data["trend_sl_buffer"] = {

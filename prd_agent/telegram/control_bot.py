@@ -44,6 +44,23 @@ class ControlBot:
             "✅ Включить трейлинг", callback_data="act:trailing_on"
         )
 
+    def _tp_progress_toggle_button(self) -> InlineKeyboardButton:
+        cfg = self.orch.position_steward.tp_progress_cfg
+        if cfg.enabled:
+            return InlineKeyboardButton(
+                "📐 Выход по TP: ВЫКЛ", callback_data="act:tp_progress_off"
+            )
+        return InlineKeyboardButton(
+            "📐 Выход по TP: ВКЛ", callback_data="act:tp_progress_on"
+        )
+
+    def _tp_be_cycle_button(self) -> InlineKeyboardButton:
+        pct = self.orch.position_steward.tp_progress_cfg.breakeven_at_progress_pct
+        return InlineKeyboardButton(
+            f"🎯 BE после {pct:.0f}% к TP",
+            callback_data="act:tp_progress_be_cycle",
+        )
+
     def _main_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             [
@@ -61,6 +78,10 @@ class ControlBot:
                 ],
                 [
                     self._trailing_button(),
+                ],
+                [
+                    self._tp_progress_toggle_button(),
+                    self._tp_be_cycle_button(),
                 ],
                 [
                     InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
@@ -131,7 +152,11 @@ class ControlBot:
                 return
             await query.answer()
             text = await self._handle_action(action)
-            html_reply = action in html_actions or action.startswith("trailing_")
+            html_reply = (
+                action in html_actions
+                or action.startswith("trailing_")
+                or action.startswith("tp_progress")
+            )
             await self._safe_edit(query, text, html=html_reply)
         except Exception as exc:
             logger.exception("on_button %s: %s", action, exc)
@@ -181,6 +206,12 @@ class ControlBot:
             return self.orch.set_trailing_enabled(False)
         if action == "trailing_on":
             return self.orch.set_trailing_enabled(True)
+        if action == "tp_progress_off":
+            return self.orch.set_tp_progress_enabled(False)
+        if action == "tp_progress_on":
+            return self.orch.set_tp_progress_enabled(True)
+        if action == "tp_progress_be_cycle":
+            return self.orch.cycle_tp_progress_be_threshold()
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:

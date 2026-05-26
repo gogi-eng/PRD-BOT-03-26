@@ -88,6 +88,17 @@ positions:
   # Минимум отступа в ATR (15m), если волатильность выше процента
   trailing_distance_atr_mult: 1.4
   breakeven_after_pct: 0.35
+  exit_management:
+    enabled: true
+    time_stop_minutes: 120
+  # BE после N% пути к TP; трейлинг SL за S/R после 50% (кнопки /panel)
+  tp_progress_exit:
+    enabled: true
+    breakeven_at_progress_pct: 30
+    sr_trail_at_progress_pct: 50
+    be_fee_buffer_pct: 0.05
+    sr_trail_enabled: true
+    sr_sl_buffer_atr: 0.15
 
 # Поджатие SL/TP к зонам поддержки/сопротивления (FVG/OB/swing) перед ордером unified-бота
 execution_sr_zones:
