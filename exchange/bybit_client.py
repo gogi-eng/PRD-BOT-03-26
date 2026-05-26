@@ -11,6 +11,11 @@ from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 
+try:
+    from exchange.circuit_breaker import ApiCircuitBreaker
+except ImportError:
+    from circuit_breaker import ApiCircuitBreaker  # type: ignore
+
 
 class BybitClient:
     """Async Bybit v5 API Client."""
@@ -37,6 +42,9 @@ class BybitClient:
         self.public_min_interval = 0.22
         self.private_min_interval = 0.35
         self.last_rate_limit_at_monotonic = 0.0
+        self.circuit_breaker = ApiCircuitBreaker(failure_threshold=5, open_sec=45.0)
+        self._retryable_http = frozenset({429, 500, 502, 503, 504})
+        self._retryable_ret = frozenset({10006, 10016, 10018})
 
     async def _respect_rate_limit(self, is_private: bool):
         async with self._request_lock:
@@ -140,60 +148,98 @@ class BybitClient:
             "Content-Type": "application/json",
         }
 
-    async def _request(self, method: str, endpoint: str, params: Optional[Dict] = None, private: bool = False, signed: bool = False, retries: int = 3, return_full: bool = False) -> Optional[Dict]:
+    async def _read_response_json(self, response: aiohttp.ClientResponse) -> Dict:
+        try:
+            data = await response.json()
+            return data if isinstance(data, dict) else {"_error": "Invalid response"}
+        except Exception:
+            text = await response.text()
+            return {"_error": "Non-JSON", "_raw": text[:200]}
+
+    async def _request(self, method: str, endpoint: str, params: Optional[Dict] = None, private: bool = False, signed: bool = False, retries: int = 4, return_full: bool = False) -> Optional[Dict]:
         is_private = private or signed
+        if self.circuit_breaker.is_open():
+            wait = self.circuit_breaker.seconds_until_retry()
+            return {
+                "_error": f"Bybit circuit open, retry in {wait:.0f}s",
+                "_code": "circuit_open",
+            }
+
         session = await self._get_session()
         url = f"{self.base_url}{endpoint}"
 
         for attempt in range(retries):
             try:
                 await self._respect_rate_limit(is_private)
-                data = {}
                 if method == "GET":
                     query = "&".join(f"{key}={value}" for key, value in (params or {}).items())
                     headers = self._get_headers(query) if is_private else {}
                     full_url = f"{url}?{query}" if query else url
-                    async with session.get(full_url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                        try:
-                            data = await response.json()
-                        except Exception:
-                            text = await response.text()
-                            return {"_error": "Non-JSON", "_raw": text[:200]}
+                    async with session.get(
+                        full_url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)
+                    ) as response:
+                        if response.status in self._retryable_http and attempt < retries - 1:
+                            self.circuit_breaker.record_failure()
+                            wait = 2 ** (attempt + 1)
+                            print(
+                                f"[BYBIT] HTTP {response.status}, retry in {wait}s "
+                                f"({attempt + 1}/{retries})"
+                            )
+                            await asyncio.sleep(wait)
+                            continue
+                        data = await self._read_response_json(response)
                 else:
                     body = json.dumps(params or {})
                     headers = self._get_headers(body) if is_private else {"Content-Type": "application/json"}
-                    async with session.post(url, headers=headers, data=body, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                        try:
-                            data = await response.json()
-                        except Exception:
-                            text = await response.text()
-                            return {"_error": "Non-JSON", "_raw": text[:200]}
+                    async with session.post(
+                        url, headers=headers, data=body, timeout=aiohttp.ClientTimeout(total=20)
+                    ) as response:
+                        if response.status in self._retryable_http and attempt < retries - 1:
+                            self.circuit_breaker.record_failure()
+                            wait = 2 ** (attempt + 1)
+                            print(
+                                f"[BYBIT] HTTP {response.status}, retry in {wait}s "
+                                f"({attempt + 1}/{retries})"
+                            )
+                            await asyncio.sleep(wait)
+                            continue
+                        data = await self._read_response_json(response)
 
-                if not isinstance(data, dict):
-                    return {"_error": "Invalid response"}
-                if return_full:
+                if data.get("_error") and "_code" not in data:
+                    self.circuit_breaker.record_failure()
                     return data
+
+                if return_full:
+                    if data.get("retCode") == 0:
+                        self.circuit_breaker.record_success()
+                    return data
+
                 if data.get("retCode") == 0:
+                    self.circuit_breaker.record_success()
                     return data.get("result", {})
 
                 ret_code = data.get("retCode")
                 error_msg = data.get("retMsg", "Unknown error")
                 print(f"[BYBIT] API error: {error_msg} (code: {ret_code})")
                 if ret_code == 110043:
+                    self.circuit_breaker.record_success()
                     return data.get("result", {})
-                if ret_code == 10006 and attempt < retries - 1:
+                if ret_code in self._retryable_ret and attempt < retries - 1:
+                    self.circuit_breaker.record_failure()
                     self.last_rate_limit_at_monotonic = time.monotonic()
-                    # Exponential backoff: 2s, 4s, 8s, 16s...
                     wait = 2 ** (attempt + 1)
-                    print(f"[BYBIT] Rate limited, retry in {wait}s (attempt {attempt + 1}/{retries})")
+                    print(f"[BYBIT] retCode {ret_code}, retry in {wait}s ({attempt + 1}/{retries})")
                     await asyncio.sleep(wait)
                     continue
+                self.circuit_breaker.record_failure()
                 return {"_error": error_msg, "_code": ret_code}
             except aiohttp.ClientError as exc:
+                self.circuit_breaker.record_failure()
                 print(f"[BYBIT] Request error {attempt + 1}/{retries}: {exc}")
                 if attempt < retries - 1:
                     await asyncio.sleep(2 ** (attempt + 1))
             except Exception as exc:
+                self.circuit_breaker.record_failure()
                 print(f"[BYBIT] Unexpected error: {exc}")
                 return None
         return None
