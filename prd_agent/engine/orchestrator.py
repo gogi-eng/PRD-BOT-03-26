@@ -27,6 +27,7 @@ from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
+from prd_agent.positions.trend_sl_buffer import TrendSlBufferConfig, apply_trend_sl_buffer
 from prd_agent.supervisor.trade_supervisor import TradeSupervisor
 from prd_agent.signals.confidence_filter import (
     PerSymbolSignalCooldown,
@@ -120,6 +121,47 @@ class UnifiedOrchestrator:
             if isinstance(q, dict):
                 preserve = float(q.get("min_rr_ratio", 2.0))
         self._sr_preserve_rr = preserve
+        self._trend_sl_cfg = TrendSlBufferConfig.from_cfg(self.cfg)
+
+    async def _apply_trend_sl_buffer(
+        self,
+        sig: UnifiedSignal,
+        entry: float,
+        stop_loss: float,
+        take_profit: float,
+    ) -> tuple[float, float]:
+        if not self._trend_sl_cfg.enabled:
+            return stop_loss, take_profit
+        try:
+            klines = await self.exchange.get_klines(
+                sig.symbol.upper(),
+                interval=self._sr_interval,
+                limit=self._sr_limit,
+            )
+            new_sl, new_tp, changed = apply_trend_sl_buffer(
+                entry=entry,
+                side=sig.side,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                klines=klines,
+                cfg=self._trend_sl_cfg,
+                signal_raw=sig.raw if isinstance(sig.raw, dict) else None,
+                preserve_min_rr=self._sr_preserve_rr,
+            )
+            if changed:
+                logger.info(
+                    "Trend SL buffer %s %s: SL %.6g→%.6g TP %.6g→%.6g (стоп дальше по тренду)",
+                    sig.symbol,
+                    sig.side,
+                    stop_loss,
+                    new_sl,
+                    take_profit,
+                    new_tp,
+                )
+            return new_sl, new_tp
+        except Exception as exc:
+            logger.warning("Trend SL buffer %s: %s", sig.symbol, exc)
+            return stop_loss, take_profit
 
     async def _apply_sr_zones_to_levels(
         self,
@@ -199,6 +241,7 @@ class UnifiedOrchestrator:
             load_signal_notify_cooldown_sec(self.cfg)
         )
         self._apply_sr_zones_config()
+        self._trend_sl_cfg = TrendSlBufferConfig.from_cfg(self.cfg)
         self.leverage = int(t.get("leverage", self.leverage))
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
         self.supervisor = TradeSupervisor(self.cfg, self.data_dir / "supervisor", self.improver)
@@ -224,6 +267,7 @@ class UnifiedOrchestrator:
             entry * 1.01 if sig.side == "Buy" else entry * 0.99
         )
         sl, tp = await self._apply_sr_zones_to_levels(sig.symbol, sig.side, entry, sl, tp)
+        sl, tp = await self._apply_trend_sl_buffer(sig, entry, sl, tp)
         return entry, sl, tp
 
     def set_trailing_enabled(self, enabled: bool) -> str:

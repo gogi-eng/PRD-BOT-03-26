@@ -36,6 +36,20 @@ if not isinstance(ex, dict):
     }
     print("OK: добавлен positions.exit_management")
 
+tsb = data.get("trend_sl_buffer")
+if not isinstance(tsb, dict):
+    data["trend_sl_buffer"] = {
+        "enabled": True,
+        "require_trend_alignment": True,
+        "extra_sl_atr_mult": 0.35,
+        "extra_sl_pct": 0.12,
+        "max_extra_sl_atr_mult": 0.75,
+        "preserve_min_rr": True,
+        "use_klines_trend_fallback": True,
+        "klines_trend_ema_period": 20,
+    }
+    print("OK: добавлен trend_sl_buffer")
+
 fb = data.setdefault("feedback_loop", {})
 if isinstance(fb, dict):
     fb.setdefault("sync_journal_before_retrain", True)
