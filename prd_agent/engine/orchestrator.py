@@ -203,7 +203,14 @@ class UnifiedOrchestrator:
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
         self.supervisor = TradeSupervisor(self.cfg, self.data_dir / "supervisor", self.improver)
         self.notifier._cfg = self.cfg
+        self.risk.apply_risk_config(self.cfg)
         logger.info("Config reloaded from disk")
+
+    def reset_risk_guard(self) -> str:
+        """Сброс дневного убытка, лимита сделок и AUTO-STOP в памяти."""
+        self.risk.reset_daily_state(clear_stop=True)
+        self._block_notify_sent = False
+        return "Риск сброшен: дневной PnL=0, сделок сегодня=0, стоп снят."
 
     async def _plan_order_levels(
         self, sig: UnifiedSignal

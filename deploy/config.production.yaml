@@ -1,4 +1,4 @@
-# Production config for PRD-BOT-ALL (branch 25.05.26-ALL)
+# Production config for PRD-BOT-ALL (branch 26.05.26-ALL)
 # Secrets: fill in .env (BYBIT_*, TELEGRAM_*, OPENROUTER_API_KEY) or below.
 # Install: bash scripts/install_production_config.sh
 
@@ -52,7 +52,7 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 30
-  max_trades_per_day: 8
+  max_trades_per_day: 60
 
 signals:
   own_agents_enabled: true
