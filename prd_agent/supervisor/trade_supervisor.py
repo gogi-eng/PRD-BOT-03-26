@@ -13,7 +13,9 @@ from typing import Any, Dict, List, Optional, Set
 import yaml
 
 from prd_agent.evolution.self_improver import SelfImprover
+from prd_agent.signals.types import UnifiedSignal
 from prd_agent.supervisor.position_tracker import PositionTracker
+from prd_agent.supervisor.trade_advisor import LeverageAdvice, TradeAdvisor
 from prd_agent.supervisor.virtual_trade_engine import VirtualTradeEngine
 
 logger = logging.getLogger("prd_agent.supervisor")
@@ -44,6 +46,7 @@ class TradeSupervisor:
             max_open=int(sup.get("virtual_max_open", 40)),
             max_age_hours=float(sup.get("virtual_max_age_hours", 72)),
         )
+        self.leverage_advisor = TradeAdvisor(cfg)
 
     def _log_note(self, text: str, **extra: Any) -> None:
         row = {
@@ -103,6 +106,24 @@ class TradeSupervisor:
     def note_signal_outcome(self, ledger_id: str, status: str, reason: str = "") -> None:
         if ledger_id:
             self.virtual.mark_real_status(ledger_id, status, reason)
+
+    def recommend_leverage(
+        self,
+        sig: UnifiedSignal,
+        *,
+        entry: float,
+        stop_loss: float,
+        take_profit: float,
+    ) -> LeverageAdvice:
+        """Советник супервизора: плечо 20–50x по качеству сигнала и виртуальной статистике."""
+        virtual_stats = self.virtual.stats(24) if self.virtual_enabled else {}
+        return self.leverage_advisor.recommend_leverage(
+            sig,
+            entry=entry,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            virtual_stats=virtual_stats,
+        )
 
     def _analyze_ledger_skips(self, ledger, hours: float = 2) -> Dict[str, Any]:
         entries = ledger.recent(hours) if hasattr(ledger, "recent") else []

@@ -28,9 +28,15 @@ trading:
   symbol_blacklist_substrings:
     - USDC
     - USDE
-  leverage: 5
+  leverage: 20
   risk_pct_per_trade: 0.5
-  max_positions: 4
+  max_positions: 5
+  dynamic_leverage:
+    enabled: true
+    min: 20
+    max: 50
+    min_confidence: 0.68
+    max_confidence: 0.95
   min_signal_confidence: 0.90
   min_own_agent_confidence: 0.90
   min_multi_agent_score: 0.4
@@ -109,6 +115,8 @@ telegram_signal_agent:
   ignored_chats:
     - FantastisheBot
     - PocketOptions_1969_BOT
+  # Личный чат с trading_bot (TELEGRAM_CHAT_ID) подставляется из .env автоматически
+  # ignored_peer_ids: []
   state_path: telegram_signal_agent_state.json
   out_dir: reports/telegram_signals
   lookback_hours: 6
@@ -153,6 +161,10 @@ trade_supervisor:
   virtual_trades_enabled: true
   virtual_max_open: 40
   virtual_max_age_hours: 72
+  leverage_advisor:
+    enabled: true
+    min_confidence: 0.68
+    min_rr: 1.8
 
 # Переобучение transformer (скрипт scripts/daily_feedback_retrain.sh в 00:00 UTC)
 feedback_loop:

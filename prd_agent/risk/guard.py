@@ -229,6 +229,8 @@ class RiskGuard:
             "pnl_today_pct": round(s.net_pnl_pct, 2),
             "trades_today": s.trades,
             "consecutive_losses": self._consecutive_losses,
+            "open_positions": self.open_positions_count,
+            "max_positions": self.max_positions,
             "blocked": blocked,
             "block_reason": reason,
             "status": self.status.value,
