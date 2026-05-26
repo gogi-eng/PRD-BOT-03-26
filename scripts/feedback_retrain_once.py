@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.config import BotConfig
+from prd_agent.evolution.feedback_dataset import (
+    filter_quality_rows,
+    load_journal_pairs,
+    merge_journal_into_dataset,
+)
 from train_transformer import train as train_transformer_model
 
 
@@ -28,19 +33,39 @@ def _parse_iso_dt(s) -> datetime | None:
 
 
 def _is_quality_feedback_row(cfg: BotConfig, row: dict) -> bool:
-    if row.get("source") != "signal_only_feedback":
+    if row.get("source") not in {"signal_only_feedback", "journal_feedback"}:
         return False
-    if row.get("exit_reason") not in {"stop_loss", "take_profit"}:
+    if row.get("exit_reason") not in {
+        "stop_loss",
+        "take_profit",
+        "time_stop",
+        "late_retrace",
+        "trailing",
+        "exchange_closed",
+    }:
         return False
-    min_p = float(cfg.get("feedback_loop", "min_feedback_label_abs_pnl_pct", default=0.4) or 0.4)
+    min_p = float(cfg.get("feedback_loop", "min_feedback_label_abs_pnl_pct", default=0.25) or 0.25)
     if abs(float(row.get("pnl_pct", 0) or 0)) < min_p:
-        return False
+        tier = str(row.get("label_tier", ""))
+        if tier != "soft":
+            soft_p = float(
+                cfg.get("feedback_loop", "soft_min_feedback_label_abs_pnl_pct", default=0.12) or 0.12
+            )
+            if abs(float(row.get("pnl_pct", 0) or 0)) < soft_p:
+                return False
     entry_dt = _parse_iso_dt(row.get("entry_time"))
     exit_dt = _parse_iso_dt(row.get("exit_time"))
     if not entry_dt or not exit_dt:
         return False
     hold = (exit_dt - entry_dt).total_seconds() / 60.0
-    return hold >= float(cfg.get("feedback_loop", "min_feedback_label_hold_minutes", default=8) or 8)
+    min_h = float(cfg.get("feedback_loop", "min_feedback_label_hold_minutes", default=5) or 5)
+    if hold < min_h:
+        soft_h = float(
+            cfg.get("feedback_loop", "soft_min_feedback_label_hold_minutes", default=3) or 3
+        )
+        if hold < soft_h or str(row.get("label_tier", "")) != "soft":
+            return False
+    return True
 
 
 def _resolve_path(bd: Path, p: str | Path) -> Path:
@@ -48,9 +73,36 @@ def _resolve_path(bd: Path, p: str | Path) -> Path:
     return pp if pp.is_absolute() else (bd / pp)
 
 
+def _sync_journal_labels(cfg: BotConfig, bd: Path) -> int:
+    if not bool(cfg.get("feedback_loop", "sync_journal_before_retrain", default=True)):
+        return 0
+    journal = bd / "data" / "trades" / "trade_history.jsonl"
+    ds = _resolve_path(bd, str(cfg.get("feedback_loop", "dataset_path", default="signal_only_feedback_data.json")))
+    pairs = load_journal_pairs(journal)
+    min_p = float(cfg.get("feedback_loop", "min_feedback_label_abs_pnl_pct", default=0.25) or 0.25)
+    min_h = float(cfg.get("feedback_loop", "min_feedback_label_hold_minutes", default=5) or 5)
+    quality = filter_quality_rows(
+        pairs,
+        min_abs_pnl_pct=min_p,
+        min_hold_minutes=min_h,
+        include_soft=bool(cfg.get("feedback_loop", "include_soft_labels", default=True)),
+        soft_min_abs_pnl_pct=float(
+            cfg.get("feedback_loop", "soft_min_feedback_label_abs_pnl_pct", default=0.12) or 0.12
+        ),
+        soft_min_hold_minutes=float(
+            cfg.get("feedback_loop", "soft_min_feedback_label_hold_minutes", default=3) or 3
+        ),
+    )
+    return merge_journal_into_dataset(ds, quality)
+
+
 def main() -> int:
     bd = ROOT
     cfg = BotConfig.load(str(bd / "config.yaml"))
+
+    added = _sync_journal_labels(cfg, bd)
+    if added:
+        print(f"[feedback_retrain_once] journal labels added: {added}")
 
     use_merged = bool(cfg.get("feedback_loop", "use_merged_dataset_for_retrain", default=True))
     if not use_merged:
@@ -82,6 +134,7 @@ def main() -> int:
 
     wrel = str(cfg.get("entry", "trained_model_weights_path", default="bot/transformer_weights.pt") or "bot/transformer_weights.pt")
     output_path = str(_resolve_path(bd, wrel))
+    split_mode = str(cfg.get("feedback_loop", "train_split_mode", default="time") or "time")
 
     ok = train_transformer_model(
         data_path=str(data_path),
@@ -94,6 +147,7 @@ def main() -> int:
         seed=int(cfg.get("feedback_loop", "train_seed", default=42) or 42),
         augment_wins_factor=max(1, int(cfg.get("feedback_loop", "augment_wins_factor", default=2) or 2)),
         augment_noise_std=max(0.0, float(cfg.get("feedback_loop", "augment_noise_std", default=0.03) or 0.03)),
+        split_mode=split_mode,
     )
     return 0 if ok else 1
 

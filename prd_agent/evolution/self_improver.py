@@ -21,6 +21,10 @@ LOW_RISK_TUNING = {
     ("risk", "cooldown_after_loss_sec"): (60, 900, 30),
     ("risk", "max_consecutive_losses"): (2, 6, 1),
     ("trading", "risk_pct_per_trade"): (0.1, 1.5, 0.05),
+    ("positions", "breakeven_after_pct"): (0.12, 0.65, 0.04),
+    ("positions", "trailing_activation_pct"): (0.25, 1.2, 0.05),
+    ("positions", "trailing_distance_pct"): (0.35, 1.5, 0.05),
+    ("positions", "trailing_distance_atr_mult"): (0.7, 2.5, 0.1),
 }
 
 
@@ -105,6 +109,77 @@ class SelfImprover:
                     "justification": f"PnL 24h={pnl_24h:.2f}, WR={wr_24h}%",
                 }
             )
+            proposals.append(
+                {
+                    "risk": "low",
+                    "path": ["positions", "trailing_activation_pct"],
+                    "delta": -0.05,
+                    "summary": "Раньше включать трейлинг при стабильном плюсе",
+                    "justification": f"PnL 24h={pnl_24h:.2f}, WR={wr_24h}%",
+                }
+            )
+        return proposals
+
+    def propose_exit_tuning(
+        self,
+        *,
+        real_wr_24h: float,
+        real_pnl_24h: float,
+        virtual_wr_24h: float,
+        virtual_n_24h: int,
+        time_stop_closes_24h: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Подстройка выходов (positions.*) по статистике."""
+        proposals: List[Dict[str, Any]] = []
+        if virtual_n_24h >= 8 and virtual_wr_24h < 40:
+            proposals.extend(
+                [
+                    {
+                        "risk": "low",
+                        "path": ["positions", "breakeven_after_pct"],
+                        "delta": +0.04,
+                        "summary": "Раньше breakeven — слабые виртуальные сделки",
+                        "justification": f"virtual WR={virtual_wr_24h}%",
+                    },
+                    {
+                        "risk": "low",
+                        "path": ["positions", "trailing_distance_pct"],
+                        "delta": -0.05,
+                        "summary": "Уже трейлинг — меньше откатов",
+                        "justification": f"virtual WR={virtual_wr_24h}%",
+                    },
+                ]
+            )
+        if virtual_n_24h >= 8 and virtual_wr_24h >= 55 and real_pnl_24h > 0:
+            proposals.append(
+                {
+                    "risk": "low",
+                    "path": ["positions", "trailing_activation_pct"],
+                    "delta": -0.05,
+                    "summary": "Раньше трейлинг — виртуальные в плюсе",
+                    "justification": f"virtual WR={virtual_wr_24h}% real PnL={real_pnl_24h}",
+                }
+            )
+        if real_wr_24h < 38 and real_pnl_24h < -8:
+            proposals.append(
+                {
+                    "risk": "low",
+                    "path": ["positions", "trailing_distance_atr_mult"],
+                    "delta": -0.1,
+                    "summary": "Ужесточить дистанцию SL (ATR) после просадки",
+                    "justification": f"real WR={real_wr_24h}% PnL={real_pnl_24h}",
+                }
+            )
+        if time_stop_closes_24h >= 3:
+            proposals.append(
+                {
+                    "risk": "low",
+                    "path": ["positions", "breakeven_after_pct"],
+                    "delta": -0.04,
+                    "summary": "Чаще breakeven — много time-stop выходов",
+                    "justification": f"time_stop closes={time_stop_closes_24h}",
+                }
+            )
         return proposals
 
     def _get_nested(self, data: Dict, path: Tuple[str, ...]) -> Any:
@@ -135,6 +210,8 @@ class SelfImprover:
         if path_tuple[1] == "max_consecutive_losses":
             new_val = int(round(new_val))
         elif path_tuple == ("quality_gate", "min_rr_ratio"):
+            new_val = round(new_val, 2)
+        elif path_tuple[0] == "positions":
             new_val = round(new_val, 2)
         else:
             new_val = round(new_val, 3)

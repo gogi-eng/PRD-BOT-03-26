@@ -126,20 +126,37 @@ def trade_to_features(trade: dict) -> list[float]:
     return [_clamp(raw[name], lo, hi) for name, lo, hi, _ in FEATURE_SPECS]
 
 
-def load_dataset(data_path: str) -> tuple[list[list[float]], list[float]]:
+def _row_sort_ts(trade: dict) -> float:
+    for key in ("entry_time", "exit_time", "created_at", "ts"):
+        raw = trade.get(key)
+        if not raw:
+            continue
+        try:
+            from datetime import datetime
+
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            return dt.timestamp()
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def load_dataset(data_path: str) -> tuple[list[list[float]], list[float], list[dict]]:
     with open(data_path, "r", encoding="utf-8") as f:
         rows = json.load(f)
 
     features: list[list[float]] = []
     labels: list[float] = []
+    meta: list[dict] = []
     for trade in rows:
         result = str(trade.get("result", "")).lower()
         if result not in {"win", "loss"}:
             continue
         features.append(trade_to_features(trade))
         labels.append(1.0 if result == "win" else 0.0)
+        meta.append(trade)
 
-    return features, labels
+    return features, labels, meta
 
 
 def augment_wins(
@@ -172,6 +189,27 @@ def augment_wins(
             out_y.append(1.0)
 
     return out_x, out_y
+
+
+def time_based_split(
+    features: list[list[float]],
+    labels: list[float],
+    meta: list[dict],
+    val_ratio: float,
+) -> tuple[list[list[float]], list[float], list[list[float]], list[float]]:
+    """Walk-forward: train = старые сделки, val = последние val_ratio по времени."""
+    if len(features) < 4:
+        raise ValueError(f"Not enough rows for time split: {len(features)}")
+    order = sorted(range(len(features)), key=lambda i: _row_sort_ts(meta[i]))
+    n_val = max(2, int(round(len(order) * val_ratio)))
+    n_val = min(n_val, len(order) - 2)
+    val_idx = order[-n_val:]
+    train_idx = order[:-n_val]
+    train_x = [features[i] for i in train_idx]
+    train_y = [labels[i] for i in train_idx]
+    val_x = [features[i] for i in val_idx]
+    val_y = [labels[i] for i in val_idx]
+    return train_x, train_y, val_x, val_y
 
 
 def stratified_split(
@@ -332,10 +370,11 @@ def train(
     augment_wins_factor: int,
     augment_noise_std: float,
     min_trades: int = 20,
+    split_mode: str = "time",
 ) -> bool:
     set_seed(seed)
 
-    features, labels = load_dataset(data_path)
+    features, labels, meta = load_dataset(data_path)
     if len(features) < min_trades:
         logger.error(
             f"Not enough labeled trades: {len(features)} (need at least {min_trades}). "
@@ -353,8 +392,18 @@ def train(
     losses = len(labels) - wins
     logger.info(f"Raw dataset: total={len(labels)} wins={wins} losses={losses}")
 
+    mode = str(split_mode or "time").lower()
     try:
-        train_x_raw, train_y_raw, val_x, val_y = stratified_split(features, labels, val_ratio=val_ratio, seed=seed)
+        if mode == "time":
+            train_x_raw, train_y_raw, val_x, val_y = time_based_split(
+                features, labels, meta, val_ratio=val_ratio
+            )
+            logger.info("Split mode: time-based walk-forward (val = последние %.0f%%)", val_ratio * 100)
+        else:
+            train_x_raw, train_y_raw, val_x, val_y = stratified_split(
+                features, labels, val_ratio=val_ratio, seed=seed
+            )
+            logger.info("Split mode: stratified random")
     except ValueError as exc:
         logger.error(str(exc))
         return False
@@ -536,6 +585,13 @@ def main():
         default=20,
         help="Minimum labeled trades (win+loss) required; below this training aborts.",
     )
+    parser.add_argument(
+        "--split-mode",
+        type=str,
+        default="time",
+        choices=("time", "stratified"),
+        help="time = walk-forward по entry_time; stratified = случайный баланс классов",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.data):
@@ -559,6 +615,7 @@ def main():
         augment_wins_factor=max(1, args.augment_wins_factor),
         augment_noise_std=max(0.0, args.augment_noise_std),
         min_trades=max(4, args.min_trades),
+        split_mode=args.split_mode,
     )
     if not ok:
         sys.exit(1)

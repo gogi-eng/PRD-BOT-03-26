@@ -1,4 +1,4 @@
-# Production config for PRD-BOT-ALL (branch 26.05.26-ALL)
+# Production config for PRD-BOT-ALL (branch 26.05.26-OPT-ALL)
 # Secrets: fill in .env (BYBIT_*, TELEGRAM_*, OPENROUTER_API_KEY) or below.
 # Install: bash scripts/install_production_config.sh
 
@@ -86,6 +86,19 @@ positions:
   trailing_distance_atr_mult: 1.4
   breakeven_after_pct: 0.35
   notify_trailing_telegram: false
+  exit_management:
+    enabled: true
+    time_stop_enabled: true
+    time_stop_minutes: 120
+    time_stop_min_atr_progress: 0.25
+    close_on_time_stop: true
+    early_breakeven_enabled: true
+    early_breakeven_atr_mult: 0.45
+    early_breakeven_pct: 0.18
+    late_breakeven_enabled: true
+    late_breakeven_retrace_pct: 40
+    close_on_late_retrace: false
+    late_tighten_distance_factor: 0.55
 
 execution_sr_zones:
   enabled: true
@@ -150,6 +163,13 @@ feedback_loop:
   dataset_path: signal_only_feedback_data.json
   base_dataset_path: training_data.json
   use_merged_dataset_for_retrain: true
+  sync_journal_before_retrain: true
+  include_soft_labels: true
+  min_feedback_label_abs_pnl_pct: 0.25
+  min_feedback_label_hold_minutes: 5
+  soft_min_feedback_label_abs_pnl_pct: 0.12
+  soft_min_feedback_label_hold_minutes: 3
+  train_split_mode: time
   train_epochs: 220
   train_lr: 0.002
   train_batch_size: 32

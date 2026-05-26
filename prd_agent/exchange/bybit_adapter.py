@@ -118,6 +118,23 @@ class BybitAdapter:
             price=price,
         )
 
+    async def close_position(
+        self,
+        symbol: str,
+        side: str,
+        qty: Optional[float] = None,
+        *,
+        position_idx: int = 0,
+    ) -> Dict:
+        if hasattr(self._client, "close_position"):
+            return await self._client.close_position(
+                symbol,
+                side,
+                qty=qty,
+                position_idx=position_idx,
+            )
+        return {"success": False, "error": "close_position not supported"}
+
     def api_circuit_snapshot(self) -> Dict:
         cb = getattr(self._client, "circuit_breaker", None)
         if cb and hasattr(cb, "snapshot"):

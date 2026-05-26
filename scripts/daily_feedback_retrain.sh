@@ -59,6 +59,9 @@ if ! "${PY}" -c "import torch" 2>/dev/null; then
   exit 1
 fi
 
+log "sync journal labels (optional)"
+"${PY}" "${REPO_DIR}/scripts/build_feedback_from_journal.py" || log "WARN: build_feedback_from_journal"
+
 log "running feedback_retrain_once.py"
 set +e
 "${PY}" "${REPO_DIR}/scripts/feedback_retrain_once.py"
