@@ -18,7 +18,8 @@ from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
-from prd_agent.exchange.order_prep import prepare_market_order
+from prd_agent.exchange.order_prep import prepare_order
+from prd_agent.risk.entry_guard import build_entry_execution_plan
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import RiskGuard
@@ -54,7 +55,7 @@ class UnifiedOrchestrator:
         self.signals = SignalRouter(cfg, self.data_dir / "signals")
         self.ledger = SignalLedger(self.data_dir / "ledger")
         self.monitor = TradeMonitor(self.data_dir / "trades")
-        self.trade_journal = TradeJournal(self.data_dir)
+        self.trade_journal = TradeJournal(self.data_dir, cfg)
         self._min_analysis_conf = load_min_analysis_confidence(cfg)
         self._signal_cooldown = PerSymbolSignalCooldown(
             load_signal_notify_cooldown_sec(cfg)
@@ -98,6 +99,9 @@ class UnifiedOrchestrator:
             "недостаточно свободной маржи",
             "недостаточно маржи",
             "quality_gate:",
+            "entry_guard:",
+            "Bybit circuit",
+            "circuit open",
         )
         self._apply_sr_zones_config()
 
@@ -469,14 +473,6 @@ class UnifiedOrchestrator:
                 raw=sig.raw,
             )
             self._signal_cooldown.mark_handled(sym, sig.side)
-            await self.notifier.signal_received(
-                sig.symbol,
-                sig.side,
-                sig.confidence,
-                sig.source,
-                sig.reason,
-                raw=sig.raw,
-            )
             plan_entry, plan_sl, plan_tp = await self._plan_order_levels(sig)
             self.supervisor.register_virtual_signal(
                 symbol=sig.symbol,
@@ -523,7 +519,51 @@ class UnifiedOrchestrator:
             await self.notifier.order_failed(sig.symbol, "BybitClient недоступен")
             return
 
+        cb = self.exchange.api_circuit_snapshot()
+        if cb.get("open"):
+            reason = (
+                f"Bybit circuit open — пауза API ~{cb.get('retry_in_sec', 0):.0f} сек"
+            )
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            return
+
         entry, sl, tp = plan_entry, plan_sl, plan_tp
+
+        q_ok, q_reason = await self.quality_gate.check(
+            sig, self.exchange, entry=entry, sl=sl, tp=tp
+        )
+        if not q_ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, q_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", q_reason)
+            if not self._is_silent_skip(q_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
+            return
+
+        exec_plan = await build_entry_execution_plan(
+            sig, plan_entry=entry, exchange=self.exchange, cfg=self.cfg
+        )
+        if not exec_plan.allowed:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, exec_plan.reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, exec_plan.reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", exec_plan.reason)
+            if not self._is_silent_skip(exec_plan.reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, exec_plan.reason)
+            return
+
+        order_type = exec_plan.order_type
+        limit_price = exec_plan.limit_price if order_type == "Limit" else None
+
+        await self.notifier.signal_received(
+            sig.symbol,
+            sig.side,
+            sig.confidence,
+            sig.source,
+            f"{sig.reason} | {exec_plan.reason}"[:400],
+            raw=sig.raw,
+        )
+
         lev_advice = self.supervisor.recommend_leverage(
             sig, entry=entry, stop_loss=sl, take_profit=tp
         )
@@ -553,29 +593,19 @@ class UnifiedOrchestrator:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             return
 
-        qty, sl, tp, prep_err = await prepare_market_order(
+        qty, sl, tp, prep_err = await prepare_order(
             self.exchange._client,
             symbol=sig.symbol,
             leverage=leverage,
             qty=qty,
             stop_loss=sl,
             take_profit=tp,
+            limit_price=limit_price,
         )
         if prep_err:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
             if not self._is_silent_skip(prep_err):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
-            return
-
-        q_ok, q_reason = await self.quality_gate.check(
-            sig, self.exchange, entry=entry, sl=sl, tp=tp
-        )
-        if not q_ok:
-            logger.info("Skip %s %s: %s", sig.symbol, sig.side, q_reason)
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason)
-            self.supervisor.note_signal_outcome(ledger_id, "skipped", q_reason)
-            if not self._is_silent_skip(q_reason):
-                await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
             return
 
         result = await self.exchange.place_order(
@@ -584,6 +614,8 @@ class UnifiedOrchestrator:
             qty=qty,
             stop_loss=sl,
             take_profit=tp,
+            order_type=order_type,
+            price=limit_price,
         )
         if result.get("success"):
             oid = str(result.get("orderId", ""))
@@ -618,7 +650,7 @@ class UnifiedOrchestrator:
                 qty,
                 oid,
                 leverage=leverage,
-                advisor_reason=lev_advice.reason,
+                advisor_reason=f"{order_type} | {lev_advice.reason}",
             )
         else:
             err = str(result.get("error", "unknown"))

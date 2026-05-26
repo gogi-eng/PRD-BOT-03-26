@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -15,13 +16,35 @@ logger = logging.getLogger("prd_agent.trades")
 class TradeJournal:
     """Запись входов/выходов в data/trades/trade_history.jsonl."""
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, cfg: Optional[Dict[str, Any]] = None):
         self.dir = data_dir / "trades"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.path = self.dir / "trade_history.jsonl"
         self._pending: Dict[str, Dict[str, Any]] = {}
+        j = (cfg or {}).get("trade_journal", {}) if isinstance((cfg or {}).get("trade_journal"), dict) else {}
+        self._rotate_max_mb = float(j.get("rotate_max_mb", 8.0))
+        self._rotate_keep_files = max(3, int(j.get("rotate_keep_files", 14)))
+
+    def _maybe_rotate(self) -> None:
+        if self._rotate_max_mb <= 0 or not self.path.exists():
+            return
+        limit_bytes = int(self._rotate_max_mb * 1024 * 1024)
+        if self.path.stat().st_size < limit_bytes:
+            return
+        archive_dir = self.dir / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        target = archive_dir / f"trade_history_{stamp}.jsonl"
+        shutil.move(str(self.path), str(target))
+        self.path.touch()
+        archives = sorted(archive_dir.glob("trade_history_*.jsonl"), key=lambda p: p.stat().st_mtime)
+        while len(archives) > self._rotate_keep_files:
+            old = archives.pop(0)
+            old.unlink(missing_ok=True)
+        logger.info("Trade journal rotated -> %s", target.name)
 
     def _append(self, row: Dict[str, Any]) -> None:
+        self._maybe_rotate()
         row.setdefault("ts", datetime.now(timezone.utc).isoformat())
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")

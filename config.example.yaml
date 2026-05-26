@@ -147,6 +147,17 @@ global_analysis:
   enabled: true
   interval_hours: 6
 
+entry_guard:
+  enabled: true
+  max_market_drift_pct: 0.004
+  max_limit_drift_pct: 0.008
+  max_skip_drift_pct: 0.012
+  telegram_limit_entry: true
+
+trade_journal:
+  rotate_max_mb: 8
+  rotate_keep_files: 14
+
 quality_gate:
   enabled: true
   min_confidence: 0.90

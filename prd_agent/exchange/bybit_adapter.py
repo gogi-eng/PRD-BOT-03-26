@@ -104,6 +104,9 @@ class BybitAdapter:
         qty: float,
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
+        *,
+        order_type: str = "Market",
+        price: Optional[float] = None,
     ) -> Dict:
         return await self._client.place_order(
             symbol=symbol,
@@ -111,7 +114,15 @@ class BybitAdapter:
             qty=qty,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            order_type=order_type,
+            price=price,
         )
+
+    def api_circuit_snapshot(self) -> Dict:
+        cb = getattr(self._client, "circuit_breaker", None)
+        if cb and hasattr(cb, "snapshot"):
+            return cb.snapshot()
+        return {"open": False}
 
     async def get_closed_pnl_page(
         self,
