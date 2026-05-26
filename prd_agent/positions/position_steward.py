@@ -1,13 +1,24 @@
 """
-Сопровождение позиций с биржи (в т.ч. открытых вручную): трейлинг SL через Bybit API.
+Сопровождение позиций с биржи (в т.ч. открытых вручную): трейлинг SL, time-stop, breakeven по ATR.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+from prd_agent.positions.exit_management import (
+    ExitManagementConfig,
+    age_minutes,
+    effective_breakeven_pct,
+    evaluate_exit_actions,
+    late_retrace_active,
+    profit_pct,
+    progress_in_atr,
+)
 
 logger = logging.getLogger("prd_agent.positions")
 
@@ -24,11 +35,16 @@ class TrackedPosition:
     position_idx: int = 0
     origin: str = "manual"
     last_sl_sent: float = 0.0
+    opened_at_utc: str = ""
+    peak_profit_pct: float = 0.0
 
 
 class PositionSteward:
     def __init__(self, cfg: Dict[str, Any]):
-        p = cfg.get("positions", {})
+        self.apply_config(cfg)
+
+    def apply_config(self, cfg: Dict[str, Any]) -> None:
+        p = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
         self.enabled = bool(p.get("trailing_enabled", True))
         self.adopt_manual = bool(p.get("adopt_manual", True))
         self.activation_pct = float(p.get("trailing_activation_pct", 0.4))
@@ -37,6 +53,7 @@ class PositionSteward:
         self.breakeven_pct = float(p.get("breakeven_after_pct", 0.25))
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
+        self.exit_cfg = ExitManagementConfig.from_cfg(p)
         self._tracked: Dict[str, TrackedPosition] = {}
         self._bot_symbols: set[str] = set()
 
@@ -73,6 +90,7 @@ class PositionSteward:
         if origin == "manual" and not self.adopt_manual:
             return None
         mark = float(row.get("markPrice") or entry)
+        now_iso = datetime.now(timezone.utc).isoformat()
         return TrackedPosition(
             symbol=sym,
             side=side,
@@ -83,34 +101,42 @@ class PositionSteward:
             position_idx=int(row.get("positionIdx", 0) or 0),
             origin=origin,
             last_sl_sent=sl,
+            opened_at_utc=now_iso,
         )
 
-    def _calc_trailing_sl(self, pos: TrackedPosition, price: float, atr: float) -> Optional[float]:
+    def _calc_trailing_sl(
+        self,
+        pos: TrackedPosition,
+        price: float,
+        atr: float,
+        *,
+        be_pct_override: Optional[float] = None,
+        distance_factor: float = 1.0,
+    ) -> Optional[float]:
         entry = pos.entry
         is_long = pos.side == "Buy"
+        p_pct = profit_pct(pos.side, entry, price)
         if is_long:
-            profit_pct = (price - entry) / entry * 100
             pos.best_price = max(pos.best_price, price)
         else:
-            profit_pct = (entry - price) / entry * 100
             pos.best_price = min(pos.best_price or entry, price)
 
-        if profit_pct < self.breakeven_pct:
+        be_pct = be_pct_override if be_pct_override is not None else self.breakeven_pct
+        if p_pct < be_pct:
             return None
-        if profit_pct < self.activation_pct:
+        if p_pct < self.activation_pct:
             return None
 
-        # Дистанция от лучшей цены (не от входа — иначе SL жмётся к графику при росте)
         ref = pos.best_price if pos.best_price > 0 else price
-        dist_pct = ref * self.distance_pct / 100
-        dist_atr = atr * self.distance_atr_mult if atr > 0 else 0.0
+        dist_pct = ref * self.distance_pct / 100 * distance_factor
+        dist_atr = atr * self.distance_atr_mult * distance_factor if atr > 0 else 0.0
         dist = max(dist_pct, dist_atr)
         if dist <= 0:
             return None
 
         if is_long:
             new_sl = pos.best_price - dist
-            if profit_pct >= self.breakeven_pct:
+            if p_pct >= be_pct:
                 new_sl = max(new_sl, entry * 1.001)
             if pos.stop_loss > 0:
                 new_sl = max(new_sl, pos.stop_loss)
@@ -118,7 +144,7 @@ class PositionSteward:
                 return None
             return new_sl
         new_sl = pos.best_price + dist
-        if profit_pct >= self.breakeven_pct:
+        if p_pct >= be_pct:
             new_sl = min(new_sl, entry * 0.999)
         if pos.stop_loss > 0:
             new_sl = min(new_sl, pos.stop_loss)
@@ -126,9 +152,37 @@ class PositionSteward:
             return None
         return new_sl
 
+    def _log_note_close(self, pos: TrackedPosition, action: str, reason: str) -> None:
+        logger.info(
+            "EXIT %s %s action=%s reason=%s peak=%.2f%% age=%.0fm",
+            pos.symbol,
+            pos.side,
+            action,
+            reason,
+            pos.peak_profit_pct,
+            age_minutes(pos.opened_at_utc),
+        )
+
+    async def _try_close_position(self, exchange, pos: TrackedPosition, reason: str) -> Optional[str]:
+        if not hasattr(exchange, "close_position"):
+            return None
+        res = await exchange.close_position(
+            pos.symbol,
+            pos.side,
+            qty=pos.qty,
+            position_idx=pos.position_idx,
+        )
+        if res.get("success") or res.get("orderId"):
+            msg = f"⏹ Выход {pos.symbol} ({reason})"
+            logger.info("%s origin=%s", msg, pos.origin)
+            return msg
+        err = str(res.get("error", ""))[:120]
+        logger.warning("Close failed %s: %s", pos.symbol, err)
+        return None
+
     async def manage(self, exchange, positions: List[Dict]) -> List[str]:
-        """Обновляет трейлинг SL. Возвращает список сообщений для лога/Telegram."""
-        if not self.enabled:
+        """Трейлинг SL, time-stop, breakeven. Возвращает сообщения для лога/Telegram."""
+        if not self.enabled and not self.exit_cfg.enabled:
             return []
         notes: List[str] = []
         live_syms = set()
@@ -164,10 +218,54 @@ class PositionSteward:
             price = float(row.get("markPrice") or pos.entry)
             klines = await exchange.get_klines(sym, interval="15", limit=80)
             atr = self._atr_from_klines(klines, self.atr_period)
-            new_sl = self._calc_trailing_sl(pos, price, atr)
+            p_pct = profit_pct(pos.side, pos.entry, price)
+            pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
+            prog_atr = progress_in_atr(pos.side, pos.entry, price, atr)
+
+            action, action_reason = evaluate_exit_actions(
+                cfg=self.exit_cfg,
+                side=pos.side,
+                entry=pos.entry,
+                price=price,
+                atr=atr,
+                opened_at_iso=pos.opened_at_utc,
+                peak_profit_pct=pos.peak_profit_pct,
+            )
+            if action and action.startswith("close_"):
+                closed_msg = await self._try_close_position(exchange, pos, action_reason)
+                if closed_msg:
+                    if self.notify_trailing or action == "close_time_stop":
+                        notes.append(closed_msg)
+                    self._log_note_close(pos, action, action_reason)
+                    del self._tracked[sym]
+                continue
+
+            be_override = effective_breakeven_pct(
+                self.breakeven_pct,
+                cfg=self.exit_cfg,
+                progress_atr=prog_atr,
+            )
+            dist_factor = 1.0
+            if late_retrace_active(
+                cfg=self.exit_cfg,
+                peak_profit_pct=pos.peak_profit_pct,
+                current_profit_pct=p_pct,
+            ):
+                dist_factor = self.exit_cfg.late_tighten_distance_factor
+
+            if not self.enabled:
+                continue
+
+            new_sl = self._calc_trailing_sl(
+                pos,
+                price,
+                atr,
+                be_pct_override=be_override,
+                distance_factor=dist_factor,
+            )
             if new_sl is None:
                 continue
-            if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) / pos.last_sl_sent < 0.0003:
+            if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) / max(pos.last_sl_sent, 1e-9) < 0.0003:
                 continue
             client = exchange._client
             if not hasattr(client, "update_stop_loss"):
@@ -177,7 +275,8 @@ class PositionSteward:
                 pos.stop_loss = new_sl
                 pos.last_sl_sent = new_sl
                 pos.trailing_active = True
-                msg = f"🔁 Трейлинг {sym} SL→{new_sl:.4f} ({pos.origin})"
+                age = age_minutes(pos.opened_at_utc)
+                msg = f"🔁 Трейлинг {sym} SL→{new_sl:.4f} ({pos.origin}, {age:.0f}m)"
                 if self.notify_trailing:
                     notes.append(msg)
                 logger.info(msg)

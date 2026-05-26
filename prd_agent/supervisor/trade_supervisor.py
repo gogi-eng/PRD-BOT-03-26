@@ -125,6 +125,27 @@ class TradeSupervisor:
             virtual_stats=virtual_stats,
         )
 
+    def _count_time_stop_closes(self, hours: float = 24) -> int:
+        if not self.notes_path.is_file():
+            return 0
+        cutoff = datetime.now(timezone.utc).timestamp() - hours * 3600
+        n = 0
+        for line in self.notes_path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("event") != "exit_time_stop":
+                continue
+            ts = row.get("ts", "")
+            try:
+                t = datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+            except (TypeError, ValueError):
+                continue
+            if t >= cutoff:
+                n += 1
+        return n
+
     def _analyze_ledger_skips(self, ledger, hours: float = 2) -> Dict[str, Any]:
         entries = ledger.recent(hours) if hasattr(ledger, "recent") else []
         reasons = Counter()
@@ -253,6 +274,15 @@ class TradeSupervisor:
             virtual_24h=virtual_24h,
             skip_analysis=skip_analysis,
         )
+        time_stop_n = self._count_time_stop_closes(hours=24)
+        exit_props = self.improver.propose_exit_tuning(
+            real_wr_24h=float(report_24h.get("win_rate_pct", 0)),
+            real_pnl_24h=float(report_24h.get("pnl_usdt", 0)),
+            virtual_wr_24h=float(virtual_24h.get("win_rate_pct", 0)),
+            virtual_n_24h=int(virtual_24h.get("closed", 0)),
+            time_stop_closes_24h=time_stop_n,
+        )
+        proposals.extend(exit_props)
         applied: List[Dict[str, Any]] = []
         if self.improver.enabled:
             applied = self.improver.process_proposals(proposals)

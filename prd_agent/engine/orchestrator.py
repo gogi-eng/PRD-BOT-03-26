@@ -185,7 +185,7 @@ class UnifiedOrchestrator:
                 t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf)),
             )
         )
-        self.position_steward = PositionSteward(self.cfg)
+        self.position_steward.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
@@ -418,6 +418,8 @@ class UnifiedOrchestrator:
         await self._monitor_positions(positions)
         trail_notes = await self.position_steward.manage(self.exchange, positions)
         for note in trail_notes:
+            if "time-stop" in note.lower():
+                self.supervisor._log_note(note, event="exit_time_stop")
             if note.startswith("📌"):
                 await self.notifier.send(note)
         await self._sync_closed_pnl_to_risk()
