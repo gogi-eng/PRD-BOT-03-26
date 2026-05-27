@@ -70,9 +70,19 @@ class TelegramNotifier:
         order_id: str = "",
         *,
         leverage: int = 0,
+        leverage_requested: int = 0,
         advisor_reason: str = "",
     ) -> None:
-        lev_line = f"\nплечо: <code>{leverage}x</code> (супервизор)" if leverage > 0 else ""
+        if leverage > 0:
+            if leverage_requested > 0 and leverage_requested != leverage:
+                lev_line = (
+                    f"\nплечо на бирже: <code>{leverage}x</code> "
+                    f"(супервизор просил {leverage_requested}x)"
+                )
+            else:
+                lev_line = f"\nплечо на бирже: <code>{leverage}x</code>"
+        else:
+            lev_line = ""
         adv_line = f"\n<i>{advisor_reason[:280]}</i>" if advisor_reason else ""
         await self.send(
             f"✅ <b>Ордер</b> {symbol} {side}\nqty={qty:.4f}{lev_line}{adv_line}"

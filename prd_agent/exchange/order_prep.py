@@ -37,11 +37,7 @@ async def prepare_order(
     if qty <= 0:
         return 0.0, stop_loss, take_profit, "qty=0"
 
-    if hasattr(client, "set_leverage"):
-        try:
-            await client.set_leverage(symbol, leverage)
-        except Exception:
-            pass
+    # Плечо выставляется в orchestrator через apply_trade_leverage (с проверкой биржи).
 
     inst: Optional[Dict] = None
     if hasattr(client, "get_instrument_info"):

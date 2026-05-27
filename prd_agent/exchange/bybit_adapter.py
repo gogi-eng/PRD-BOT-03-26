@@ -118,22 +118,20 @@ class BybitAdapter:
             price=price,
         )
 
-    async def close_position(
-        self,
-        symbol: str,
-        side: str,
-        qty: Optional[float] = None,
-        *,
-        position_idx: int = 0,
-    ) -> Dict:
-        if hasattr(self._client, "close_position"):
-            return await self._client.close_position(
-                symbol,
-                side,
-                qty=qty,
-                position_idx=position_idx,
-            )
-        return {"success": False, "error": "close_position not supported"}
+    async def apply_trade_leverage(self, symbol: str, requested: int):
+        from prd_agent.exchange.leverage_apply import apply_trade_leverage
+
+        return await apply_trade_leverage(self._client, symbol, requested)
+
+    async def get_symbol_leverage(self, symbol: str) -> int:
+        if hasattr(self._client, "get_symbol_leverage"):
+            return int(await self._client.get_symbol_leverage(symbol) or 0)
+        return 0
+
+    async def get_max_leverage(self, symbol: str) -> int:
+        if hasattr(self._client, "get_max_leverage"):
+            return int(await self._client.get_max_leverage(symbol) or 100)
+        return 100
 
     def api_circuit_snapshot(self) -> Dict:
         cb = getattr(self._client, "circuit_breaker", None)

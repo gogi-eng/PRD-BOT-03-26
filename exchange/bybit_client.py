@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
@@ -466,13 +466,117 @@ class BybitClient:
                 return {"success": False, "orderId": "", "error": "Position not found"}
         return await self.place_order(symbol=symbol, side=close_side, qty=qty, order_type="Market", reduce_only=True, position_idx=position_idx)
 
-    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+    async def get_symbol_leverage(self, symbol: str) -> int:
+        """Фактическое плечо по символу с биржи (не «желаемое» супервизора)."""
+        sym = str(symbol).upper()
+        result = await self._request(
+            "GET",
+            "/v5/position/list",
+            {"category": self.category, "symbol": sym},
+            private=True,
+        )
+        if isinstance(result, dict) and result.get("_error"):
+            return 0
+        if result and result.get("list"):
+            for row in result["list"]:
+                lev = int(float(row.get("leverage", 0) or 0))
+                if lev > 0:
+                    return lev
+        return 0
+
+    async def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
+        """Устаревший bool заменён на dict — см. set_leverage_verified."""
+        return await self.set_leverage_verified(symbol, leverage)
+
+    async def set_leverage_verified(self, symbol: str, leverage: int) -> Dict[str, Any]:
+        sym = str(symbol).upper()
+        requested = max(1, int(leverage))
+        max_inst = await self.get_max_leverage(sym)
+        target = min(requested, max_inst)
+
         params = {
-            "category": self.category, "symbol": symbol,
-            "buyLeverage": str(leverage), "sellLeverage": str(leverage),
+            "category": self.category,
+            "symbol": sym,
+            "buyLeverage": str(target),
+            "sellLeverage": str(target),
         }
-        result = await self._request("POST", "/v5/position/set-leverage", params, private=True)
-        return result is not None
+        full = await self._request(
+            "POST",
+            "/v5/position/set-leverage",
+            params,
+            private=True,
+            return_full=True,
+        )
+        applied = await self.get_symbol_leverage(sym)
+
+        if not isinstance(full, dict):
+            return {
+                "success": False,
+                "requested": requested,
+                "target": target,
+                "applied": applied,
+                "max_instrument": max_inst,
+                "error": "пустой ответ Bybit set-leverage",
+            }
+
+        ret_code = full.get("retCode")
+        ret_msg = str(full.get("retMsg", "") or "")
+
+        if ret_code == 0:
+            if applied <= 0:
+                applied = target
+            ok = applied <= target or abs(applied - target) <= 1
+            if applied < requested:
+                return {
+                    "success": ok,
+                    "requested": requested,
+                    "target": target,
+                    "applied": applied,
+                    "max_instrument": max_inst,
+                    "error": (
+                        f"лимит аккаунта/пары: на бирже {applied}x "
+                        f"(запрос {requested}x)"
+                    )
+                    if applied < requested
+                    else "",
+                }
+            return {
+                "success": True,
+                "requested": requested,
+                "target": target,
+                "applied": applied,
+                "max_instrument": max_inst,
+                "error": "",
+            }
+
+        # 110043 — плечо не изменилось (уже стоит другое значение)
+        if ret_code == 110043:
+            if applied <= 0:
+                applied = target
+            return {
+                "success": applied > 0,
+                "requested": requested,
+                "target": target,
+                "applied": applied,
+                "max_instrument": max_inst,
+                "error": (
+                    f"Bybit 110043: фактически {applied}x (запрос {requested}x)"
+                    if applied != requested
+                    else ""
+                ),
+            }
+
+        if full.get("_error"):
+            ret_msg = str(full.get("_error"))
+
+        return {
+            "success": False,
+            "requested": requested,
+            "target": target,
+            "applied": applied,
+            "max_instrument": max_inst,
+            "error": ret_msg or f"set-leverage retCode={ret_code}",
+        }
 
     async def get_closed_pnl(self, symbol: str = None, limit: int = 50) -> List[Dict]:
         params = {"category": self.category, "limit": limit}

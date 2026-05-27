@@ -26,7 +26,14 @@ class ExecutionEngine:
             return result
 
         try:
-            await self.client.set_leverage(symbol, leverage)
+            lev_res = await self.client.set_leverage(symbol, leverage)
+            if isinstance(lev_res, dict) and not lev_res.get("success"):
+                applied = int(lev_res.get("applied", 0) or 0)
+                if applied > 0:
+                    leverage = applied
+                else:
+                    result["error"] = str(lev_res.get("error", "set_leverage failed"))
+                    return result
             inst = await self.client.get_instrument_info(symbol)
             if inst:
                 qty = self._round_qty(qty, inst["min_qty"], inst["qty_step"])
@@ -51,7 +58,12 @@ class ExecutionEngine:
             result.update({"success": True, "executed_qty": qty})
             return result
         try:
-            await self.client.set_leverage(symbol, leverage)
+            lev_res = await self.client.set_leverage(symbol, leverage)
+            if isinstance(lev_res, dict) and not lev_res.get("success"):
+                applied = int(lev_res.get("applied", 0) or 0)
+                if applied <= 0:
+                    result["error"] = str(lev_res.get("error", "set_leverage failed"))
+                    return result
             inst = await self.client.get_instrument_info(symbol)
             if inst:
                 qty = self._round_qty(qty, inst["min_qty"], inst["qty_step"])
