@@ -51,7 +51,7 @@ def load_config(path: Path | None = None, *, reload: bool = False) -> Dict[str, 
         if env_path.exists():
             load_dotenv(env_path, override=False)
 
-    cfg_path = path or (root / "config.yaml")
+    cfg_path = Path(path) if path is not None else (root / "config.yaml")
     if not cfg_path.exists():
         example = root / "config.example.yaml"
         raise FileNotFoundError(
