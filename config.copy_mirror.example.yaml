@@ -1,0 +1,50 @@
+# Отдельный конфиг для run_copy_mirror.py (не config.yaml trading_bot!)
+
+copy_mirror:
+  enabled: true
+  poll_seconds: 12
+  main_uid: "461368408"
+  sub_uid: "536308614"
+  close_when_source_closes: true
+  notify_telegram: true
+  state_file: data/copy_mirror/state.json
+
+  # Ключи лучше в .env: BYBIT_MIRROR_SOURCE_* / BYBIT_MIRROR_TARGET_*
+  source:
+    category: linear
+  target:
+    category: linear
+
+  # Зеркалим только когда копи-позиция уже в небольшом плюсе
+  profit:
+    min_pct: 0.12
+    max_pct: 1.5
+    max_watch_minutes: 45
+
+  trading:
+    risk_pct: 1.0
+    max_positions: 3
+    leverage: 10
+    min_notional_usdt: 5
+
+  quality_gate:
+    enabled: true
+    min_confidence: 0.68
+    min_rr_ratio: 2.0
+    require_sl_tp: false
+    min_24h_volume_usdt: 10000000
+    block_meme_symbol_substrings:
+      - 1000
+      - PEPE
+      - SHIB
+      - FLOKI
+      - BONK
+
+  risk:
+    max_consecutive_losses: 4
+    max_daily_loss_pct: 5
+    max_trades_per_day: 15
+
+telegram:
+  bot_token: ""
+  chat_id: ""
