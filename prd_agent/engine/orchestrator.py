@@ -679,14 +679,29 @@ class UnifiedOrchestrator:
         lev_advice = self.supervisor.recommend_leverage(
             sig, entry=entry, stop_loss=sl, take_profit=tp
         )
-        leverage = lev_advice.leverage
-        logger.info(
-            "Supervisor leverage %s %s: %dx — %s",
-            sig.symbol,
-            sig.side,
-            leverage,
-            lev_advice.reason,
+        leverage_requested = lev_advice.leverage
+        lev_apply = await self.exchange.apply_trade_leverage(
+            sig.symbol, leverage_requested
         )
+        leverage = max(1, int(lev_apply.applied or lev_apply.target or leverage_requested))
+        if lev_apply.mismatch or leverage_requested != leverage:
+            logger.warning(
+                "Leverage %s %s: supervisor=%dx exchange=%dx (max_inst=%dx) %s",
+                sig.symbol,
+                sig.side,
+                leverage_requested,
+                leverage,
+                lev_apply.max_instrument,
+                lev_apply.error or "",
+            )
+        else:
+            logger.info(
+                "Leverage %s %s: %dx on exchange — %s",
+                sig.symbol,
+                sig.side,
+                leverage,
+                lev_advice.reason,
+            )
         balance = await self.exchange.get_balance()
         available = await self.exchange.get_available_balance()
         qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, leverage)
@@ -731,12 +746,15 @@ class UnifiedOrchestrator:
         )
         if result.get("success"):
             oid = str(result.get("orderId", ""))
+            exchange_lev = await self.exchange.get_symbol_leverage(sig.symbol)
+            if exchange_lev > 0:
+                leverage = exchange_lev
             logger.info(
-                "Order OK %s %s qty=%.6f lev=%dx conf=%.0f%% id=%s",
+                "Order OK %s %s qty=%.6f lev=%dx (req %dx) conf=%.0f%% id=%s",
                 sig.symbol,
                 sig.side,
-                qty,
                 leverage,
+                leverage_requested,
                 sig.confidence * 100,
                 oid,
             )
@@ -764,6 +782,7 @@ class UnifiedOrchestrator:
                 qty,
                 oid,
                 leverage=leverage,
+                leverage_requested=leverage_requested,
                 advisor_reason=f"{order_type} | {lev_advice.reason}",
             )
         else:
