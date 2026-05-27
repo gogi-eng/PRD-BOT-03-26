@@ -10,6 +10,7 @@
 3. Фильтры **quality_gate** + риск.
 4. Зеркало на **субаккаунте 536308614**.
 5. Закрытие, когда мастер закрыл позицию на источнике.
+6. **Pump/Dump агент**: раз в сутки учится на движениях >=5% по всем perp USDT, затем раз в 15 минут ищет похожие признаки и пишет короткий сигнал в inbox `PRD-BOT-ALL` (без полного анализа, только исполнение).
 
 ---
 
@@ -86,6 +87,19 @@ profit:
   max_pct: 1.5
   max_watch_minutes: 45
 ```
+
+## Pump/Dump агент (`config.copy_mirror.yaml`)
+
+```yaml
+pump_dump_agent:
+  enabled: true
+  move_threshold_pct: 5.0
+  scan_every_minutes: 15
+  target_inbox_path: /root/PRD-BOT-ALL/reports/telegram_signals/signals_inbox.jsonl
+```
+
+Сигналы идут плоским JSON в `signals_inbox.jsonl`, источник `mirror_pump_dump_agent`.  
+Дальше их исполняет `PRD-BOT-ALL` через штатный inbox и риск-фильтры.
 
 ---
 
