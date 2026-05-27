@@ -38,9 +38,17 @@ class PumpDumpScout:
         self.move_threshold_pct = float(p.get("move_threshold_pct", 5.0))
         self.lookback_candles = int(p.get("lookback_candles", 4))  # 4x15m=1h
         self.symbol_limit = int(p.get("symbol_limit", 120))
-        self.min_turnover_usdt = float(p.get("min_turnover_usdt", 1_000_000))
-        self.score_threshold = float(p.get("score_threshold", 0.60))
-        self.cooldown_minutes = int(p.get("signal_cooldown_minutes", 180))
+        self.min_turnover_usdt = float(p.get("min_turnover_usdt", 3_000_000))
+        self.score_threshold = float(p.get("score_threshold", 0.72))
+        self.cooldown_minutes = int(p.get("signal_cooldown_minutes", 300))
+        self.min_profile_events = int(p.get("min_profile_events", 8))
+        self.min_impulse_move_pct = float(p.get("min_impulse_move_pct", 2.5))
+        self.min_vol_ratio = float(p.get("min_vol_ratio", 2.0))
+        self.min_oi_delta_pct = float(p.get("min_oi_delta_pct", 1.5))
+        self.max_signals_per_scan = int(p.get("max_signals_per_scan", 3))
+        self.min_emit_confidence = float(p.get("min_emit_confidence", 0.74))
+        subs = p.get("block_symbol_substrings", []) or []
+        self.block_subs = tuple(str(x).upper() for x in subs if x)
         self.inbox_path = Path(
             str(
                 p.get(
@@ -203,7 +211,7 @@ class PumpDumpScout:
                     dn_feats.append(feat)
 
         def mk(side: str, feats: List[Tuple[float, float, float, float]]) -> Optional[FeatureProfile]:
-            if len(feats) < 3:
+            if len(feats) < self.min_profile_events:
                 return None
             return FeatureProfile(
                 side=side,
@@ -271,9 +279,27 @@ class PumpDumpScout:
         with self.inbox_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    def _symbol_blocked(self, symbol: str) -> bool:
+        sym = symbol.upper()
+        return any(part in sym for part in self.block_subs)
+
+    def _impulse_ok(self, side: str, move_pct: float, feat: Dict[str, float]) -> bool:
+        if abs(move_pct) < self.min_impulse_move_pct:
+            return False
+        if feat["vol_ratio"] < self.min_vol_ratio:
+            return False
+        if side == "Buy" and feat["oi_delta"] < self.min_oi_delta_pct:
+            return False
+        if side == "Sell" and feat["oi_delta"] > -self.min_oi_delta_pct:
+            return False
+        return True
+
     async def _scan_once(self) -> None:
         syms = await self._symbol_universe()
+        candidates: List[Tuple[float, str, str, float, float, float, float, float]] = []
         for sym in syms:
+            if self._symbol_blocked(sym):
+                continue
             kl = await self._kline_15m(sym, limit=80)
             if len(kl) < 30:
                 continue
@@ -298,9 +324,11 @@ class PumpDumpScout:
             move = self._move_pct(c, max(0, i - self.lookback_candles), i)
             side = "Buy" if move >= 0 else "Sell"
             profile = self._profile_up if side == "Buy" else self._profile_down
-            if profile is None:
+            if profile is None or profile.event_count < self.min_profile_events:
                 continue
             if not self._cooldown_ok(sym, side):
+                continue
+            if not self._impulse_ok(side, move, feat):
                 continue
             score = self._score(feat, profile)
             if score < self.score_threshold:
@@ -308,15 +336,26 @@ class PumpDumpScout:
             entry = c[i]
             sl, tp = self._signal_levels(side, entry, feat["atr_pct"])
             conf = min(0.92, max(0.70, 0.62 + score * 0.35))
+            if conf < self.min_emit_confidence:
+                continue
+            candidates.append((score, sym, side, conf, entry, sl, tp, move))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        sent = 0
+        for score, sym, side, conf, entry, sl, tp, move in candidates[: self.max_signals_per_scan]:
             self._write_inbox_signal(sym, side, conf, entry, sl, tp, score)
             self._mark_signal(sym, side)
+            sent += 1
             logger.info(
-                "pump/dump signal -> inbox %s %s score=%.2f move=%.2f%%",
+                "pump/dump signal -> inbox %s %s score=%.2f move=%.2f%% conf=%.2f",
                 sym,
                 side,
                 score,
                 move,
+                conf,
             )
+        if sent:
+            logger.info("pump/dump scan: emitted %d signal(s) (candidates=%d)", sent, len(candidates))
 
     async def tick(self) -> None:
         if not self.enabled:

@@ -28,6 +28,14 @@ def test_signal_levels_long_short(tmp_path: Path):
     assert tp_s < 100 < sl_s
 
 
+def test_impulse_filter(tmp_path: Path):
+    s = PumpDumpScout(_cfg(tmp_path), _DummyAdapter())
+    feat = {"vol_ratio": 3.0, "atr_pct": 1.0, "oi_delta": 5.0, "abs_funding": 0.2}
+    assert s._impulse_ok("Buy", 3.0, feat)
+    assert not s._impulse_ok("Buy", 1.0, feat)
+    assert not s._impulse_ok("Buy", 3.0, {**feat, "oi_delta": 0.5})
+
+
 def test_score_increases_on_stronger_features(tmp_path: Path):
     s = PumpDumpScout(_cfg(tmp_path), _DummyAdapter())
     p = FeatureProfile(
