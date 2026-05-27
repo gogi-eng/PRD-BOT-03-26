@@ -33,14 +33,26 @@ copy_mirror:
 
   pump_dump_agent:
     enabled: true
-    daily_rebuild_hour_utc: 0
+    daily_rebuild_hour_utc: 1
     scan_every_minutes: 15
     move_threshold_pct: 5.0
     lookback_candles: 4
-    symbol_limit: 120
-    min_turnover_usdt: 1000000
-    score_threshold: 0.60
-    signal_cooldown_minutes: 180
+    symbol_limit: 80
+    min_turnover_usdt: 3000000
+    score_threshold: 0.72
+    signal_cooldown_minutes: 300
+    min_profile_events: 8
+    min_impulse_move_pct: 2.5
+    min_vol_ratio: 2.0
+    min_oi_delta_pct: 1.5
+    max_signals_per_scan: 3
+    min_emit_confidence: 0.74
+    block_symbol_substrings:
+      - 1000
+      - PEPE
+      - SHIB
+      - FLOKI
+      - BONK
     target_inbox_path: /root/PRD-BOT-ALL/reports/telegram_signals/signals_inbox.jsonl
     state_file: data/copy_mirror/pump_dump_state.json
 
