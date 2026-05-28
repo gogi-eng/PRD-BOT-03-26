@@ -14,7 +14,6 @@ from prd_agent.copy_mirror.clients import build_adapter
 from prd_agent.copy_mirror.config_loader import load_mirror_config, validate_credentials
 from prd_agent.copy_mirror.filters import MirrorEntryFilters
 from prd_agent.copy_mirror.position_math import parse_position, position_key
-from prd_agent.copy_mirror.pump_dump_agent import PumpDumpScout
 from prd_agent.copy_mirror.state import MirrorStateStore
 
 logger = logging.getLogger("prd_agent.copy_mirror")
@@ -36,7 +35,6 @@ class CopyMirrorEngine:
         self.source = build_adapter(cfg, "bybit_source")
         self.target = build_adapter(cfg, "bybit_target")
         self.filters = MirrorEntryFilters(cfg)
-        self.pump_dump = PumpDumpScout(cfg, self.source)
 
         tg = cfg.get("telegram", {})
         self._tg_token = str(tg.get("bot_token", "")).strip()
@@ -222,7 +220,6 @@ class CopyMirrorEngine:
         while self.enabled:
             try:
                 await self._tick()
-                await self.pump_dump.tick()
             except Exception as exc:
                 logger.exception("mirror tick error: %s", exc)
             await asyncio.sleep(self.poll_seconds)
