@@ -2,6 +2,7 @@
 
 copy_mirror:
   enabled: true
+  copy_trading_enabled: false
   poll_seconds: 12
   main_uid: "461368408"
   sub_uid: "536308614"
