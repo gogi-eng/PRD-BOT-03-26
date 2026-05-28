@@ -88,23 +88,13 @@ profit:
   max_watch_minutes: 45
 ```
 
-## Pump/Dump агент (`config.copy_mirror.yaml`) — боевые параметры
+## Pump/Dump агент (`config.copy_mirror.yaml`)
 
 ```yaml
 pump_dump_agent:
   enabled: true
-  daily_rebuild_hour_utc: 1      # 04:00 MSK — пересборка профиля
+  move_threshold_pct: 5.0
   scan_every_minutes: 15
-  move_threshold_pct: 5.0          # обучение на движениях >=5%
-  symbol_limit: 80                 # топ ликвидных USDT-perp
-  min_turnover_usdt: 3000000
-  score_threshold: 0.72            # строже, меньше шума
-  signal_cooldown_minutes: 300     # 5 ч на символ+сторону
-  min_impulse_move_pct: 2.5        # уже идёт импульс
-  min_vol_ratio: 2.0               # объём x2 к среднему
-  min_oi_delta_pct: 1.5            # OI в сторону движения
-  max_signals_per_scan: 3          # не более 3 сигналов за цикл
-  min_emit_confidence: 0.74
   target_inbox_path: /root/PRD-BOT-ALL/reports/telegram_signals/signals_inbox.jsonl
 ```
 
