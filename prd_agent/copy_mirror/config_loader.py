@@ -71,6 +71,10 @@ def _bybit_section(section: Dict[str, Any], key_env: str, sec_env: str) -> Dict[
 
 
 def validate_credentials(cfg: Dict[str, Any]) -> Tuple[bool, str]:
+    m = cfg.get("copy_mirror", {}) if isinstance(cfg.get("copy_mirror"), dict) else {}
+    copy_enabled = bool(m.get("copy_trading_enabled", True))
+    if not copy_enabled:
+        return True, ""
     src = cfg.get("bybit_source", {})
     tgt = cfg.get("bybit_target", {})
     if not src.get("api_key") or not src.get("api_secret"):
