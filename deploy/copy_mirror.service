@@ -1,18 +1,18 @@
-# Зеркало Copy Trading — отдельная папка /root/BOT-Mirror (не PRD-BOT-ALL!)
+# Зеркало Copy Trading (отдельно от trading_bot!)
 #   sudo cp deploy/copy_mirror.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now copy_mirror
 
 [Unit]
-Description=PRD Copy Mirror / BOT-Mirror (Classic copy → subaccount)
+Description=PRD Copy Mirror (Classic copy → subaccount, profitable only)
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/BOT-Mirror
-EnvironmentFile=-/root/BOT-Mirror/.env
-ExecStart=/root/BOT-Mirror/venv/bin/python3 /root/BOT-Mirror/run_copy_mirror.py
+WorkingDirectory=/root/PRD-BOT-ALL
+EnvironmentFile=-/root/PRD-BOT-ALL/.env
+ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/run_copy_mirror.py
 Restart=always
 RestartSec=20
 
