@@ -31,19 +31,6 @@ copy_mirror:
     max_daily_loss_pct: 5
     max_trades_per_day: 15
 
-  pump_dump_agent:
-    enabled: true
-    daily_rebuild_hour_utc: 0
-    scan_every_minutes: 15
-    move_threshold_pct: 5.0
-    lookback_candles: 4
-    symbol_limit: 120
-    min_turnover_usdt: 1000000
-    score_threshold: 0.60
-    signal_cooldown_minutes: 180
-    target_inbox_path: /root/PRD-BOT-ALL/reports/telegram_signals/signals_inbox.jsonl
-    state_file: data/copy_mirror/pump_dump_state.json
-
 telegram:
   bot_token: ""
   chat_id: ""
