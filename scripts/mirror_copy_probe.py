@@ -2,7 +2,7 @@
 """
 Проверка: видит ли API позиции Copy Trading Classic на основном аккаунте.
 
-Запуск на сервере (из /root/BOT-Mirror):
+Запуск на сервере (из корня PRD-BOT-ALL):
   ./venv/bin/python3 scripts/mirror_copy_probe.py
 
 Переменные (.env или export):
