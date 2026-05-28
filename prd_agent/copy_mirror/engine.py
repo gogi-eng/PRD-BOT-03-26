@@ -25,7 +25,6 @@ class CopyMirrorEngine:
         self.cfg = cfg
         m = cfg.get("copy_mirror", {})
         self.enabled = bool(m.get("enabled", True))
-        self.copy_trading_enabled = bool(m.get("copy_trading_enabled", True))
         self.poll_seconds = float(m.get("poll_seconds", 12))
         self.close_when_source_closes = bool(m.get("close_when_source_closes", True))
         self.notify_telegram = bool(m.get("notify_telegram", True))
@@ -215,16 +214,14 @@ class CopyMirrorEngine:
         if not ok:
             raise RuntimeError(err)
         logger.info(
-            "Copy mirror started (poll=%.0fs, profit %.2f–%.2f%%, copy_trading=%s)",
+            "Copy mirror started (poll=%.0fs, profit %.2f–%.2f%%)",
             self.poll_seconds,
             self.filters.min_profit_pct,
             self.filters.max_profit_pct,
-            self.copy_trading_enabled,
         )
         while self.enabled:
             try:
-                if self.copy_trading_enabled:
-                    await self._tick()
+                await self._tick()
                 await self.pump_dump.tick()
             except Exception as exc:
                 logger.exception("mirror tick error: %s", exc)
