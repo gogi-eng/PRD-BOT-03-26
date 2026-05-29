@@ -111,6 +111,20 @@ positions:
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
     min_valid_tp_distance_pct: 0.08
+  pump_dump_trailing:
+    trailing_activation_pct: 0.42
+    trailing_distance_pct: 0.52
+    trailing_distance_atr_mult: 1.15
+    trailing_min_distance_pct: 0.28
+    breakeven_after_pct: 0.38
+    exit_management:
+      early_breakeven_enabled: false
+      late_tighten_distance_factor: 0.65
+    tp_progress_exit:
+      breakeven_at_progress_pct: 32
+      sr_trail_at_progress_pct: 52
+      min_profit_pct_for_be: 0.42
+      sr_sl_buffer_atr: 0.15
 
 execution_sr_zones:
   enabled: true
@@ -124,6 +138,13 @@ execution_sr_zones:
 pullback_entry:
   enabled: true
   momentum_bars: 5
+  skip_for_pump_dump: true
+
+pump_dump_trade:
+  enabled: true
+  max_market_drift_pct: 0.012
+  max_limit_drift_pct: 0.018
+  max_skip_drift_pct: 0.03
 
 entry_guard:
   enabled: true
