@@ -1,6 +1,6 @@
-# Production config for PRD-BOT-ALL (branch 25.05.26-ALL)
-# Secrets: fill in .env (BYBIT_*, TELEGRAM_*, OPENROUTER_API_KEY) or below.
-# Install: bash scripts/install_production_config.sh
+# Production config for PRD-BOT-ALL (branch 29.05.26-OPT-ALL)
+# Установка на сервере: bash scripts/install_production_config.sh
+# Секреты: .env (BYBIT_*, TELEGRAM_*, OPENROUTER_API_KEY) — в yaml можно оставить пусто.
 
 bybit:
   api_key: ""
@@ -44,6 +44,7 @@ trading:
     - PENG
     - FART
     - "1000"
+    - BILL
 
 risk:
   cooldown_after_loss_sec: 600
@@ -81,7 +82,6 @@ ta_scanner:
 positions:
   adopt_manual: true
   trailing_enabled: true
-  # Трейлинг реже и дальше от цены (меньше выбиваний на первом откате)
   trailing_activation_pct: 0.85
   trailing_distance_pct: 1.25
   trailing_distance_atr_mult: 2.0
@@ -152,6 +152,7 @@ quality_gate:
     - PENG
     - FART
     - "1000"
+    - BILL
 
 trade_supervisor:
   enabled: true
