@@ -6,7 +6,7 @@ cd "$ROOT"
 SRC="${ROOT}/deploy/config.production.yaml"
 DST="${ROOT}/config.yaml"
 if [[ ! -f "$SRC" ]]; then
-  echo "Нет $SRC — сделайте git pull origin 26.05.26-ALL"
+  echo "Нет $SRC — сделайте: git fetch origin && git checkout 29.05.26-OPT-ALL && git pull"
   exit 1
 fi
 if [[ -f "$DST" ]]; then

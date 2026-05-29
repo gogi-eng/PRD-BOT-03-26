@@ -1,35 +1,24 @@
-# Скопируйте: copy config.example.yaml config.yaml
-# Ключи можно также задать в .env (BYBIT_*, TELEGRAM_*, TESTNET=true)
+# Скопируйте на сервере: bash scripts/install_production_config.sh
+# или: cp deploy/config.production.yaml config.yaml
+# Секреты: .env (BYBIT_*, TELEGRAM_*, OPENROUTER_API_KEY) — в yaml можно оставить пусто.
 
 bybit:
   api_key: ""
   api_secret: ""
-  testnet: false         # Боевая торговля (минимальный депозит). Testnet: true
+  testnet: false
   category: linear
 
 telegram:
   bot_token: ""
-  chat_id: ""            # личный чат для уведомлений и кнопок
-  channel_id: ""         # канал для bi-hourly (может = chat_id)
-  allowed_user_ids: []   # пусто = все; иначе список user id
-  # true — кнопки и таблица /panel (если 409 Conflict — поставьте false)
+  chat_id: ""
+  channel_id: ""
+  allowed_user_ids: []
   control_polling_enabled: true
 
 trading:
-  # Автоскан: пары с оборотом 24ч >= min_24h_volume_usdt (turnover24h на Bybit)
-  min_24h_volume_usdt: 10000000
-  max_scan_symbols: 12
-  symbol_rescan_interval_sec: 1800
-  # Всегда в списке скана (в начале), даже если объём ниже порога
-  symbols:
-    - BTCUSDT
-    - ETHUSDT
-  symbol_blacklist: []
-  symbol_blacklist_substrings:
-    - USDC
-    - USDE
+  auto_start: true
   leverage: 20
-  risk_pct_per_trade: 0.5
+  loop_interval_sec: 60
   max_positions: 5
   dynamic_leverage:
     enabled: true
@@ -40,21 +29,43 @@ trading:
   min_signal_confidence: 0.90
   min_own_agent_confidence: 0.90
   min_multi_agent_score: 0.4
-  loop_interval_sec: 60
-  auto_start: true   # старт торговли сразу при запуске run_unified.py
+  risk_pct_per_trade: 0.35
+  min_24h_volume_usdt: 10000000
+  max_scan_symbols: 12
+  symbol_rescan_interval_sec: 1800
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  symbol_blacklist: []
+  symbol_blacklist_substrings:
+    - USDC
+    - USDE
+    - PEPE
+    - PENG
+    - FART
+    - "1000"
+    - BILL
 
 risk:
-  max_daily_loss_pct: 5.0
-  max_daily_loss_usdt: 50.0
-  max_consecutive_losses: 4
-  max_trades_per_day: 20
-  cooldown_after_loss_sec: 300
+  cooldown_after_loss_sec: 600
   cooldown_after_stop_minutes: 30
   daily_loss_blocks_until_next_day: true
+  max_consecutive_losses: 4
+  max_daily_loss_pct: 5.0
+  max_daily_loss_usdt: 50
+  max_trades_per_day: 8
 
 signals:
   own_agents_enabled: true
   telegram_inbox_enabled: true
+  telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  telegram_inbox_only_approved: true
+  telegram_inbox_backlog_lines: 100
+  min_telegram_confidence: 0.90
+  min_analysis_confidence: 0.90
+  min_multi_agent_score: 0.4
+  signal_notify_cooldown_sec: 900
+  whale_news_enabled: true
 
 ta_scanner:
   enabled: true
@@ -67,29 +78,29 @@ ta_scanner:
   atr_sl_mult: 1.2
   atr_tp_mult: 2.5
   min_rr: 2.0
-  # Файл, куда пишет scripts/telegram_signal_agent.py (ОТДЕЛЬНЫЙ процесс на сервере!)
-  telegram_signals_jsonl: "reports/telegram_signals/signals_inbox.jsonl"
-  telegram_inbox_only_approved: true
-  telegram_inbox_backlog_lines: 100
-  min_telegram_confidence: 0.90
-  min_analysis_confidence: 0.90
-  min_multi_agent_score: 0.4
-  signal_notify_cooldown_sec: 900
-  whale_news_enabled: true
 
-# Сопровождение позиций с биржи (в т.ч. открытых вручную на Bybit)
 positions:
   adopt_manual: true
   trailing_enabled: true
-  # Когда начать подтягивать SL (% прибыли от входа)
   trailing_activation_pct: 0.85
   trailing_distance_pct: 1.25
   trailing_distance_atr_mult: 2.0
   trailing_min_distance_pct: 0.45
   breakeven_after_pct: 0.55
+  notify_trailing_telegram: false
   exit_management:
     enabled: true
+    time_stop_enabled: true
     time_stop_minutes: 120
+    time_stop_min_atr_progress: 0.25
+    close_on_time_stop: true
+    early_breakeven_enabled: true
+    early_breakeven_atr_mult: 0.65
+    early_breakeven_pct: 0.28
+    late_breakeven_enabled: true
+    late_breakeven_retrace_pct: 40
+    close_on_late_retrace: false
+    late_tighten_distance_factor: 0.75
   tp_progress_exit:
     enabled: true
     breakeven_at_progress_pct: 45
@@ -98,12 +109,8 @@ positions:
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
+    min_valid_tp_distance_pct: 0.08
 
-pullback_entry:
-  enabled: true
-  momentum_bars: 5
-
-# Поджатие SL/TP к зонам поддержки/сопротивления (FVG/OB/swing) перед ордером unified-бота
 execution_sr_zones:
   enabled: true
   kline_interval: "15"
@@ -113,61 +120,20 @@ execution_sr_zones:
   tp_extra_buffer_atr: 0.08
   preserve_min_rr: 0
 
-# Коллектор сигналов из Telegram-каналов (отдельная служба telegram_signal_agent)
-telegram_signal_agent:
+pullback_entry:
   enabled: true
-  auto_execute: false
-  notify_only_approved: true
-  audit_jsonl_enabled: false
-  inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
-  signal_parse_simple: true
-  signal_quality:
-    enabled: true
-    skip_noise_posts: true
-    min_structure_score: 58
-  session_name: telegram_user_signal_agent
-  allowed_chats: []
-  ignored_chats:
-    - FantastisheBot
-    - PocketOptions_1969_BOT
-  # Личный чат с trading_bot (TELEGRAM_CHAT_ID) подставляется из .env автоматически
-  # ignored_peer_ids: []
-  state_path: telegram_signal_agent_state.json
-  out_dir: reports/telegram_signals
-  lookback_hours: 6
-  duplicate_signal_cooldown_sec: 1800
-
-whale_news:
-  rss_urls:
-    - "https://feeds.feedburner.com/CoinDesk"
-    - "https://cointelegraph.com/rss"
-  liquidation_usd_threshold: 500000
-  oi_change_pct_threshold: 3.0
-  news_keywords_bull: ["etf approved", "rate cut", "institutional", "partnership", "upgrade"]
-  news_keywords_bear: ["hack", "exploit", "ban", "lawsuit", "sec", "crash", "liquidation"]
-
-reporter:
-  interval_hours: 2
-  high_confidence_threshold: 0.90
-
-self_improvement:
-  enabled: true
-  auto_apply_low_risk: true
-  require_approval_critical: true
-  sandbox_dir: "data/sandbox"
-  git_auto_commit: false
-  reload_config_after_apply: true
-
-global_analysis:
-  enabled: true
-  interval_hours: 6
+  momentum_bars: 5
 
 entry_guard:
   enabled: true
-  max_market_drift_pct: 0.004
-  max_limit_drift_pct: 0.008
-  max_skip_drift_pct: 0.012
+  max_market_drift_pct: 0.006
+  max_limit_drift_pct: 0.01
+  max_skip_drift_pct: 0.015
   telegram_limit_entry: true
+  telegram_sources:
+    - telegram
+    - tg
+    - tg_inbox
 
 trade_journal:
   rotate_max_mb: 8
@@ -176,11 +142,18 @@ trade_journal:
 quality_gate:
   enabled: true
   min_confidence: 0.90
-  min_rr_ratio: 2.0   # 2.5 режет все own_multi_agent (RR≈2.0) — сделок не будет
+  min_rr_ratio: 2.0
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
+  block_meme_symbol_substrings:
+    - USDC
+    - USDE
+    - PEPE
+    - PENG
+    - FART
+    - "1000"
+    - BILL
 
-# Агент-надсмотрщик: все позиции на бирже + виртуальные сделки + подстройка config каждые 2ч
 trade_supervisor:
   enabled: true
   interval_hours: 2
@@ -191,13 +164,18 @@ trade_supervisor:
     enabled: true
     min_confidence: 0.68
     min_rr: 1.8
+    min_edge: 0.35
+    confidence_weight: 0.45
+    checks_weight: 0.35
+    rr_weight: 0.20
+    virtual_wr_soft_cap: 40
+    virtual_wr_boost_cap: 55
 
-# Переобучение transformer (скрипт scripts/daily_feedback_retrain.sh в 00:00 UTC)
 feedback_loop:
   enabled: true
-  retrain_in_process: false          # false = обучение только вне бота (systemd timer)
+  retrain_in_process: false
   retrain_daily: true
-  retrain_hour_utc: 0                # для in-process; внешний timer всегда 00:00 UTC
+  retrain_hour_utc: 0
   min_new_labels_for_retrain: 50
   dataset_path: signal_only_feedback_data.json
   base_dataset_path: training_data.json
@@ -206,11 +184,53 @@ feedback_loop:
   train_lr: 0.002
   train_batch_size: 32
 
+telegram_signal_agent:
+  enabled: true
+  auto_execute: false
+  control_panel_enabled: false
+  inbox_jsonl_enabled: true
+  inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  session_name: telegram_user_signal_agent
+  ignore_bot_echo_messages: true
+  allowed_chats: []
+  ignored_substrings:
+    - pocket
+    - quotex
+    - binolla
+    - "binary option"
+  ignored_chats:
+    - FantastisheBot
+    - PocketOptions_1969_BOT
+  trusted_signal_sources: []
+  signal_quality:
+    enabled: true
+    skip_noise_posts: true
+    require_stop_loss: true
+    min_structure_score: 58
+  require_stop_loss: true
+  min_openrouter_confidence: 68
+
+reporter:
+  interval_hours: 2
+  high_confidence_threshold: 0.90
+
+self_improvement:
+  enabled: true
+  auto_apply_low_risk: true
+  require_approval_critical: true
+  sandbox_dir: data/sandbox
+  git_auto_commit: false
+  reload_config_after_apply: true
+
+global_analysis:
+  enabled: true
+  interval_hours: 6
+
 analytics:
   report_hours: 24
 
 ai:
-  provider: openrouter   # на сервере без FCC: openrouter; с fcc-server: fcc
+  provider: openrouter
 
 free_claude_code:
   enabled: false
@@ -220,7 +240,7 @@ free_claude_code:
   timeout_sec: 30
 
 openrouter:
-  api_key: ""   # или OPENROUTER_API_KEY в .env
+  api_key: ""
   model: google/gemini-2.0-flash-001
   timeout_sec: 30
 
@@ -228,3 +248,24 @@ macro_ai:
   enabled: true
   max_headlines: 8
   include_positions: true
+
+whale_news:
+  liquidation_usd_threshold: 500000
+  oi_change_pct_threshold: 3.0
+  news_keywords_bull:
+    - "etf approved"
+    - "rate cut"
+    - institutional
+    - partnership
+    - upgrade
+  news_keywords_bear:
+    - hack
+    - exploit
+    - ban
+    - lawsuit
+    - sec
+    - crash
+    - liquidation
+  rss_urls:
+    - https://feeds.feedburner.com/CoinDesk
+    - https://cointelegraph.com/rss
