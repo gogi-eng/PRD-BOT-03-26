@@ -56,6 +56,7 @@ class PositionSteward:
         self.activation_pct = float(p.get("trailing_activation_pct", 0.4))
         self.distance_pct = float(p.get("trailing_distance_pct", 0.35))
         self.distance_atr_mult = float(p.get("trailing_distance_atr_mult", 1.4))
+        self.min_distance_pct = float(p.get("trailing_min_distance_pct", 0.0))
         self.breakeven_pct = float(p.get("breakeven_after_pct", 0.25))
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
@@ -162,6 +163,8 @@ class PositionSteward:
         dist_pct = ref * self.distance_pct / 100 * distance_factor
         dist_atr = atr * self.distance_atr_mult * distance_factor if atr > 0 else 0.0
         dist = max(dist_pct, dist_atr)
+        if self.min_distance_pct > 0:
+            dist = max(dist, ref * self.min_distance_pct / 100)
         if dist <= 0:
             return None
 

@@ -19,6 +19,7 @@ class TpProgressExitConfig:
     be_fee_buffer_pct: float = 0.05
     sr_trail_enabled: bool = True
     sr_sl_buffer_atr: float = 0.15
+    sr_level_index: int = 1
     min_valid_tp_distance_pct: float = 0.08
 
     @classmethod
@@ -33,6 +34,7 @@ class TpProgressExitConfig:
             be_fee_buffer_pct=float(raw.get("be_fee_buffer_pct", 0.05) or 0.05),
             sr_trail_enabled=bool(raw.get("sr_trail_enabled", True)),
             sr_sl_buffer_atr=float(raw.get("sr_sl_buffer_atr", 0.15) or 0.15),
+            sr_level_index=int(raw.get("sr_level_index", 1) or 1),
             min_valid_tp_distance_pct=float(raw.get("min_valid_tp_distance_pct", 0.08) or 0.08),
         )
 
@@ -91,31 +93,29 @@ def breakeven_stop_price(side: str, entry: float, fee_buffer_pct: float) -> floa
     return entry - buf
 
 
-def _nearest_support_sl_long(price: float, zc, atr: float, buffer_atr: float) -> Optional[float]:
-    supports = sorted(
-        set(zc.support_levels)
-        | {z.low for z in zc.all_bullish_zones if not z.mitigated},
-    )
-    below = [s for s in supports if s < price]
+def _nearest_support_sl_long(
+    price: float, zc, atr: float, buffer_atr: float, level_index: int = 1
+) -> Optional[float]:
+    below = zc._support_levels_below(price)
     if below:
-        sl = max(below) - buffer_atr * atr
+        idx = min(max(0, int(level_index)), len(below) - 1)
+        sl = below[idx] - buffer_atr * atr
     else:
-        sl = zc.structural_sl_long(price, atr)
+        sl = zc.structural_sl_long(price, atr, level_index=level_index)
     if sl <= 0 or sl >= price:
         return None
     return sl
 
 
-def _nearest_resistance_sl_short(price: float, zc, atr: float, buffer_atr: float) -> Optional[float]:
-    resists = sorted(
-        set(zc.resistance_levels)
-        | {z.high for z in zc.all_bearish_zones if not z.mitigated},
-    )
-    above = [r for r in resists if r > price]
+def _nearest_resistance_sl_short(
+    price: float, zc, atr: float, buffer_atr: float, level_index: int = 1
+) -> Optional[float]:
+    above = zc._resistance_levels_above(price)
     if above:
-        sl = min(above) + buffer_atr * atr
+        idx = min(max(0, int(level_index)), len(above) - 1)
+        sl = above[idx] + buffer_atr * atr
     else:
-        sl = zc.structural_sl_short(price, atr)
+        sl = zc.structural_sl_short(price, atr, level_index=level_index)
     if sl <= 0 or sl <= price:
         return None
     return sl
@@ -128,6 +128,7 @@ def trailing_sl_behind_sr(
     *,
     atr: float = 0.0,
     buffer_atr: float = 0.15,
+    level_index: int = 1,
 ) -> Optional[float]:
     """SL за ближайшей поддержкой (LONG) или сопротивлением (SHORT) относительно текущей цены."""
     if len(klines) < 10 or price <= 0:
@@ -139,8 +140,8 @@ def trailing_sl_behind_sr(
     zc = StructureZoneAnalyzer().analyze(klines, price)
     is_buy = str(side).lower() in ("buy", "long")
     if is_buy:
-        return _nearest_support_sl_long(price, zc, atr, buffer_atr)
-    return _nearest_resistance_sl_short(price, zc, atr, buffer_atr)
+        return _nearest_support_sl_long(price, zc, atr, buffer_atr, level_index)
+    return _nearest_resistance_sl_short(price, zc, atr, buffer_atr, level_index)
 
 
 def tighten_stop(
@@ -213,6 +214,7 @@ def evaluate_tp_progress_exit(
             klines,
             atr=atr,
             buffer_atr=cfg.sr_sl_buffer_atr,
+            level_index=cfg.sr_level_index,
         )
         if sr_sl is not None:
             sr_tight = tighten_stop(side, current_sl, sr_sl, price)

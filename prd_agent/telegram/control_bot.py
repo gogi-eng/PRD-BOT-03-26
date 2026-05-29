@@ -11,7 +11,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-from prd_agent.risk.guard import GuardStatus
+from prd_agent.risk.guard import GuardStatus, StopKind
 
 if TYPE_CHECKING:
     from prd_agent.engine.orchestrator import UnifiedOrchestrator
@@ -44,23 +44,6 @@ class ControlBot:
             "✅ Включить трейлинг", callback_data="act:trailing_on"
         )
 
-    def _tp_progress_toggle_button(self) -> InlineKeyboardButton:
-        cfg = self.orch.position_steward.tp_progress_cfg
-        if cfg.enabled:
-            return InlineKeyboardButton(
-                "📐 Выход по TP: ВЫКЛ", callback_data="act:tp_progress_off"
-            )
-        return InlineKeyboardButton(
-            "📐 Выход по TP: ВКЛ", callback_data="act:tp_progress_on"
-        )
-
-    def _tp_be_cycle_button(self) -> InlineKeyboardButton:
-        pct = self.orch.position_steward.tp_progress_cfg.breakeven_at_progress_pct
-        return InlineKeyboardButton(
-            f"🎯 BE после {pct:.0f}% к TP",
-            callback_data="act:tp_progress_be_cycle",
-        )
-
     def _main_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             [
@@ -80,15 +63,16 @@ class ControlBot:
                     self._trailing_button(),
                 ],
                 [
-                    self._tp_progress_toggle_button(),
-                    self._tp_be_cycle_button(),
-                ],
-                [
                     InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
                 ],
                 [
                     InlineKeyboardButton("🛑 Emergency stop", callback_data="act:emergency"),
                     InlineKeyboardButton("♻️ Сброс риска", callback_data="act:reset_risk"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        "💰 Сбросить убыток", callback_data="act:reset_daily_loss"
+                    ),
                 ],
                 [
                     InlineKeyboardButton("↩️ Откат config", callback_data="act:rollback"),
@@ -152,11 +136,7 @@ class ControlBot:
                 return
             await query.answer()
             text = await self._handle_action(action)
-            html_reply = (
-                action in html_actions
-                or action.startswith("trailing_")
-                or action.startswith("tp_progress")
-            )
+            html_reply = action in html_actions or action.startswith("trailing_")
             await self._safe_edit(query, text, html=html_reply)
         except Exception as exc:
             logger.exception("on_button %s: %s", action, exc)
@@ -180,7 +160,14 @@ class ControlBot:
             self.orch.stop()
             return "EMERGENCY STOP: торговля и цикл остановлены."
         if action == "reset_risk":
-            return self.orch.reset_risk_guard()
+            self.orch.risk.status = GuardStatus.ACTIVE
+            self.orch.risk.stop_reason = ""
+            self.orch.risk.stop_kind = StopKind.NONE
+            self.orch.risk.auto_stop_time = None
+            self.orch._block_notify_sent = False
+            return "Риск-стоп сброшен (пауза/серия). Дневной убыток — кнопка «Сбросить убыток»."
+        if action == "reset_daily_loss":
+            return self.orch.reset_daily_loss()
         if action == "rollback":
             path = self.orch.improver.rollback_last_config()
             self.orch.reload_config()
@@ -206,12 +193,6 @@ class ControlBot:
             return self.orch.set_trailing_enabled(False)
         if action == "trailing_on":
             return self.orch.set_trailing_enabled(True)
-        if action == "tp_progress_off":
-            return self.orch.set_tp_progress_enabled(False)
-        if action == "tp_progress_on":
-            return self.orch.set_tp_progress_enabled(True)
-        if action == "tp_progress_be_cycle":
-            return self.orch.cycle_tp_progress_be_threshold()
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:

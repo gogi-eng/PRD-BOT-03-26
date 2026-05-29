@@ -42,7 +42,14 @@ class RiskGuard:
         self.max_trades_per_day = int(r.get("max_trades_per_day", 20))
         self.max_positions = int(cfg.get("trading", {}).get("max_positions", 3))
         self.cooldown_after_loss_sec = int(r.get("cooldown_after_loss_sec", 300))
-        self.cooldown_after_stop_hours = int(r.get("cooldown_after_stop_hours", 2))
+        if r.get("cooldown_after_stop_minutes") is not None:
+            self.cooldown_after_stop_sec = int(
+                float(r.get("cooldown_after_stop_minutes", 30)) * 60
+            )
+        else:
+            self.cooldown_after_stop_sec = int(
+                float(r.get("cooldown_after_stop_hours", 2)) * 3600
+            )
         # Дневной лимит: до полуночи UTC, а не «пауза 2–3 ч и снова стоп»
         self.daily_loss_blocks_until_next_day = bool(
             r.get("daily_loss_blocks_until_next_day", True)
@@ -73,6 +80,27 @@ class RiskGuard:
 
     def set_notify_callback(self, cb: Callable[[str], None]) -> None:
         self._notify = cb
+
+    def reset_daily_loss_counter(self) -> str:
+        """
+        Ручной сброс дневного PnL (кнопка Telegram).
+        Обнуляет накопленный убыток за сегодня и снимает блок по дневному лимиту.
+        Счётчик сделок за день не трогаем.
+        """
+        self._ensure_today()
+        prev_usdt = float(self.day_stats.net_pnl_usdt)
+        prev_pct = float(self.day_stats.net_pnl_pct)
+        self.day_stats.net_pnl_usdt = 0.0
+        self.day_stats.net_pnl_pct = 0.0
+        if self.stop_kind == StopKind.DAILY_LOSS:
+            self.status = GuardStatus.ACTIVE
+            self.stop_reason = ""
+            self.stop_kind = StopKind.NONE
+            self.auto_stop_time = None
+        return (
+            f"Дневной убыток сброшен: было ${prev_usdt:.2f} ({prev_pct:.2f}%). "
+            f"Сейчас $0.00. Лимит ${self.max_daily_loss_usdt:.0f} снова доступен."
+        )
 
     def _ensure_today(self) -> None:
         today = self._today_utc()
@@ -179,7 +207,7 @@ class RiskGuard:
                     return False, f"Лимит сделок на сегодня. Сброс через {h}ч {m}м"
 
             elapsed = (datetime.now(timezone.utc) - self.auto_stop_time).total_seconds()
-            pause_sec = self.cooldown_after_stop_hours * 3600
+            pause_sec = self.cooldown_after_stop_sec
             if elapsed < pause_sec:
                 left = int((pause_sec - elapsed) / 60)
                 return False, f"Пауза после стопа, осталось {left} мин"
@@ -216,35 +244,6 @@ class RiskGuard:
         max_notional = balance * 0.1 * leverage
         max_qty = max_notional / entry
         return min(qty, max_qty)
-
-    def reset_daily_state(self, *, clear_stop: bool = True) -> None:
-        """Сброс дневных счётчиков, убытка и стопа (кнопка Telegram / скрипт на сервере)."""
-        today = self._today_utc()
-        self.day_stats = DayStats(date=today)
-        self._consecutive_losses = 0
-        self.last_loss_time = None
-        if clear_stop:
-            self.status = GuardStatus.ACTIVE
-            self.stop_reason = ""
-            self.stop_kind = StopKind.NONE
-            self.auto_stop_time = None
-
-    def apply_risk_config(self, cfg: Dict) -> None:
-        """Подхватить лимиты из config.yaml без перезапуска (reload_config)."""
-        r = cfg.get("risk", {}) if isinstance(cfg.get("risk"), dict) else {}
-        self.max_consecutive_losses = int(r.get("max_consecutive_losses", self.max_consecutive_losses))
-        self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", self.max_daily_loss_pct))
-        self.max_daily_loss_usdt = float(r.get("max_daily_loss_usdt", self.max_daily_loss_usdt))
-        self.max_trades_per_day = int(r.get("max_trades_per_day", self.max_trades_per_day))
-        self.cooldown_after_loss_sec = int(r.get("cooldown_after_loss_sec", self.cooldown_after_loss_sec))
-        self.cooldown_after_stop_hours = int(r.get("cooldown_after_stop_hours", self.cooldown_after_stop_hours))
-        self.daily_loss_blocks_until_next_day = bool(
-            r.get("daily_loss_blocks_until_next_day", self.daily_loss_blocks_until_next_day)
-        )
-        self.reduce_after_losses = int(r.get("reduce_after_losses", self.reduce_after_losses))
-        self.reduction_factor = float(r.get("reduction_factor", self.reduction_factor))
-        t = cfg.get("trading", {}) if isinstance(cfg.get("trading"), dict) else {}
-        self.max_positions = int(t.get("max_positions", self.max_positions))
 
     def snapshot(self) -> Dict:
         self._ensure_today()

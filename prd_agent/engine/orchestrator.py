@@ -20,6 +20,7 @@ from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
 from prd_agent.risk.entry_guard import build_entry_execution_plan
+from prd_agent.risk.pullback_entry import check_pullback_entry
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import RiskGuard
@@ -27,11 +28,6 @@ from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
-from prd_agent.positions.tp_progress_exit import (
-    cycle_breakeven_threshold,
-    format_tp_progress_status,
-)
-from prd_agent.positions.trend_sl_buffer import TrendSlBufferConfig, apply_trend_sl_buffer
 from prd_agent.supervisor.trade_supervisor import TradeSupervisor
 from prd_agent.signals.confidence_filter import (
     PerSymbolSignalCooldown,
@@ -125,47 +121,7 @@ class UnifiedOrchestrator:
             if isinstance(q, dict):
                 preserve = float(q.get("min_rr_ratio", 2.0))
         self._sr_preserve_rr = preserve
-        self._trend_sl_cfg = TrendSlBufferConfig.from_cfg(self.cfg)
-
-    async def _apply_trend_sl_buffer(
-        self,
-        sig: UnifiedSignal,
-        entry: float,
-        stop_loss: float,
-        take_profit: float,
-    ) -> tuple[float, float]:
-        if not self._trend_sl_cfg.enabled:
-            return stop_loss, take_profit
-        try:
-            klines = await self.exchange.get_klines(
-                sig.symbol.upper(),
-                interval=self._sr_interval,
-                limit=self._sr_limit,
-            )
-            new_sl, new_tp, changed = apply_trend_sl_buffer(
-                entry=entry,
-                side=sig.side,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                klines=klines,
-                cfg=self._trend_sl_cfg,
-                signal_raw=sig.raw if isinstance(sig.raw, dict) else None,
-                preserve_min_rr=self._sr_preserve_rr,
-            )
-            if changed:
-                logger.info(
-                    "Trend SL buffer %s %s: SL %.6g→%.6g TP %.6g→%.6g (стоп дальше по тренду)",
-                    sig.symbol,
-                    sig.side,
-                    stop_loss,
-                    new_sl,
-                    take_profit,
-                    new_tp,
-                )
-            return new_sl, new_tp
-        except Exception as exc:
-            logger.warning("Trend SL buffer %s: %s", sig.symbol, exc)
-            return stop_loss, take_profit
+        self._sr_sl_level_index = max(0, int(sr.get("sl_sr_level_index", 1) or 1))
 
     async def _apply_sr_zones_to_levels(
         self,
@@ -192,6 +148,7 @@ class UnifiedOrchestrator:
                 sl_extra_atr=self._sr_sl_atr,
                 tp_extra_atr=self._sr_tp_atr,
                 preserve_min_rr=self._sr_preserve_rr,
+                sl_sr_level_index=self._sr_sl_level_index,
             )
             if changed:
                 logger.info(
@@ -231,7 +188,7 @@ class UnifiedOrchestrator:
                 t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf)),
             )
         )
-        self.position_steward.apply_config(self.cfg)
+        self.position_steward = PositionSteward(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
@@ -245,19 +202,11 @@ class UnifiedOrchestrator:
             load_signal_notify_cooldown_sec(self.cfg)
         )
         self._apply_sr_zones_config()
-        self._trend_sl_cfg = TrendSlBufferConfig.from_cfg(self.cfg)
         self.leverage = int(t.get("leverage", self.leverage))
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
         self.supervisor = TradeSupervisor(self.cfg, self.data_dir / "supervisor", self.improver)
         self.notifier._cfg = self.cfg
-        self.risk.apply_risk_config(self.cfg)
         logger.info("Config reloaded from disk")
-
-    def reset_risk_guard(self) -> str:
-        """Сброс дневного убытка, лимита сделок и AUTO-STOP в памяти."""
-        self.risk.reset_daily_state(clear_stop=True)
-        self._block_notify_sent = False
-        return "Риск сброшен: дневной PnL=0, сделок сегодня=0, стоп снят."
 
     async def _plan_order_levels(
         self, sig: UnifiedSignal
@@ -271,7 +220,6 @@ class UnifiedOrchestrator:
             entry * 1.01 if sig.side == "Buy" else entry * 0.99
         )
         sl, tp = await self._apply_sr_zones_to_levels(sig.symbol, sig.side, entry, sl, tp)
-        sl, tp = await self._apply_trend_sl_buffer(sig, entry, sl, tp)
         return entry, sl, tp
 
     def set_trailing_enabled(self, enabled: bool) -> str:
@@ -301,57 +249,12 @@ class UnifiedOrchestrator:
         logger.info("Trailing %s via Telegram", state)
         return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
 
-    def _save_positions_yaml_key(self, key: str, value: Any) -> str:
-        import shutil
-
-        import yaml
-
-        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
-        if not path.exists():
-            return "config.yaml не найден — только до перезапуска"
-        backup = (
-            self.improver.sandbox_dir
-            / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
-        )
-        shutil.copy2(path, backup)
-        with path.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        pos = data.setdefault("positions", {})
-        parts = key.split(".")
-        if len(parts) == 1:
-            pos[parts[0]] = value
-        else:
-            cur: Any = pos
-            for part in parts[:-1]:
-                nxt = cur.get(part)
-                if not isinstance(nxt, dict):
-                    nxt = {}
-                    cur[part] = nxt
-                cur = nxt
-            cur[parts[-1]] = value
-        with path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
-        self.reload_config()
-        return f"Резервная копия: {backup.name}"
-
-    def set_tp_progress_enabled(self, enabled: bool) -> str:
-        note = self._save_positions_yaml_key("tp_progress_exit.enabled", bool(enabled))
-        cfg = self.position_steward.tp_progress_cfg
-        state = "ВКЛ" if cfg.enabled else "ВЫКЛ"
-        return f"{format_tp_progress_status(cfg)}\n<i>{note}</i>"
-
-    def cycle_tp_progress_be_threshold(self) -> str:
-        cur = self.position_steward.tp_progress_cfg.breakeven_at_progress_pct
-        new_val = cycle_breakeven_threshold(cur)
-        note = self._save_positions_yaml_key(
-            "tp_progress_exit.breakeven_at_progress_pct", new_val
-        )
-        cfg = self.position_steward.tp_progress_cfg
-        return (
-            f"Порог безубытка: <b>{cfg.breakeven_at_progress_pct:.0f}%</b> пути к TP\n"
-            f"(следующее нажатие: 20 → 30 → 40)\n"
-            f"{format_tp_progress_status(cfg)}\n<i>{note}</i>"
-        )
+    def reset_daily_loss(self) -> str:
+        """Сброс дневного PnL и блокировки по дневному лимиту (кнопка Telegram)."""
+        msg = self.risk.reset_daily_loss_counter()
+        self._block_notify_sent = False
+        logger.info("Daily loss counter reset via Telegram")
+        return msg
 
     async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
         if not self.symbol_scanner.enabled():
@@ -491,9 +394,6 @@ class UnifiedOrchestrator:
             block_reason=block_reason,
             mode=mode,
             trailing_enabled=self.position_steward.enabled,
-            tp_progress_status=format_tp_progress_status(
-                self.position_steward.tp_progress_cfg
-            ),
         )
 
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
@@ -521,8 +421,6 @@ class UnifiedOrchestrator:
         await self._monitor_positions(positions)
         trail_notes = await self.position_steward.manage(self.exchange, positions)
         for note in trail_notes:
-            if "time-stop" in note.lower():
-                self.supervisor._log_note(note, event="exit_time_stop")
             if note.startswith("📌"):
                 await self.notifier.send(note)
         await self._sync_closed_pnl_to_risk()
@@ -651,6 +549,18 @@ class UnifiedOrchestrator:
             self.supervisor.note_signal_outcome(ledger_id, "skipped", q_reason)
             if not self._is_silent_skip(q_reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
+            return
+
+        klines_entry = await self.exchange.get_klines(
+            sig.symbol, interval=self._sr_interval, limit=self._sr_limit
+        )
+        pb_ok, pb_reason = check_pullback_entry(sig, klines_entry or [], self.cfg)
+        if not pb_ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, pb_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, pb_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", pb_reason)
+            if not self._is_silent_skip(pb_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, pb_reason)
             return
 
         exec_plan = await build_entry_execution_plan(

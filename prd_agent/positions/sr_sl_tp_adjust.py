@@ -87,6 +87,7 @@ def adjust_sl_tp_with_sr_zones(
     sl_extra_atr: float = 0.1,
     tp_extra_atr: float = 0.08,
     preserve_min_rr: float = 0.0,
+    sl_sr_level_index: int = 1,
 ) -> Tuple[float, float, bool]:
     """
     LONG: SL ниже поддержки, TP у сопротивления (+ отступ в ATR).
@@ -115,8 +116,9 @@ def adjust_sl_tp_with_sr_zones(
     sl_ex = max(0.0, float(sl_extra_atr or 0))
     tp_ex = max(0.0, float(tp_extra_atr or 0))
 
+    sl_idx = max(0, int(sl_sr_level_index))
     if side_u == "BUY":
-        sl_sr = zc.structural_sl_long(entry, atr) - sl_ex * atr
+        sl_sr = zc.structural_sl_long(entry, atr, level_index=sl_idx) - sl_ex * atr
         tp1, _ = zc.structural_tp_long(entry, atr)
         tp_sr = tp1 - tp_ex * atr
         if sl_sr >= entry or tp_sr <= entry:
@@ -126,7 +128,7 @@ def adjust_sl_tp_with_sr_zones(
         if new_sl <= 0 or new_tp <= 0 or new_sl >= entry or new_tp <= entry:
             return stop_loss, take_profit, False
     else:
-        sl_sr = zc.structural_sl_short(entry, atr) + sl_ex * atr
+        sl_sr = zc.structural_sl_short(entry, atr, level_index=sl_idx) + sl_ex * atr
         tp1, _ = zc.structural_tp_short(entry, atr)
         tp_sr = tp1 + tp_ex * atr
         if sl_sr <= entry or tp_sr >= entry:
