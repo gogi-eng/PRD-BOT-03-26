@@ -60,3 +60,27 @@ def test_evaluate_be_at_30_percent():
 def test_cycle_be_threshold():
     assert cycle_breakeven_threshold(20.0) == 30.0
     assert cycle_breakeven_threshold(40.0) == 20.0
+
+
+def test_be_blocked_until_min_profit_pct():
+    """45% пути к TP при малой прибыли — не подтягиваем SL (близкий TP)."""
+    cfg = TpProgressExitConfig(
+        enabled=True,
+        breakeven_at_progress_pct=45.0,
+        min_profit_pct_for_be=1.2,
+        sr_trail_enabled=False,
+    )
+    res = evaluate_tp_progress_exit(
+        cfg=cfg,
+        side="Buy",
+        entry=100.0,
+        price=100.5,
+        take_profit=101.0,
+        current_sl=98.0,
+        klines=[],
+        atr=1.0,
+    )
+    assert res.progress_pct is not None
+    assert res.progress_pct >= 45.0
+    assert res.suggested_sl is None
+    assert res.phase == "none"
