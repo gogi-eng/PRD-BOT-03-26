@@ -21,6 +21,7 @@ class TpProgressExitConfig:
     sr_sl_buffer_atr: float = 0.15
     sr_level_index: int = 1
     min_valid_tp_distance_pct: float = 0.08
+    min_profit_pct_for_be: float = 1.0
 
     @classmethod
     def from_cfg(cls, positions_cfg: Dict[str, Any]) -> TpProgressExitConfig:
@@ -36,6 +37,7 @@ class TpProgressExitConfig:
             sr_sl_buffer_atr=float(raw.get("sr_sl_buffer_atr", 0.15) or 0.15),
             sr_level_index=int(raw.get("sr_level_index", 1) or 1),
             min_valid_tp_distance_pct=float(raw.get("min_valid_tp_distance_pct", 0.08) or 0.08),
+            min_profit_pct_for_be=float(raw.get("min_profit_pct_for_be", 1.0) or 1.0),
         )
 
 
@@ -193,12 +195,20 @@ def evaluate_tp_progress_exit(
     if progress is None:
         return TpProgressResult(None, None, "no_progress", "не считается прогресс")
 
+    is_buy = str(side).lower() in ("buy", "long")
+    profit_pct = (
+        (price - entry) / entry * 100.0 if is_buy else (entry - price) / entry * 100.0
+    )
+
     be_sl = breakeven_stop_price(side, entry, cfg.be_fee_buffer_pct)
     suggested: Optional[float] = None
     phase = "none"
     note = f"прогресс {progress:.0f}% к TP"
 
-    if progress >= cfg.breakeven_at_progress_pct:
+    if (
+        progress >= cfg.breakeven_at_progress_pct
+        and profit_pct >= cfg.min_profit_pct_for_be
+    ):
         suggested = tighten_stop(side, current_sl, be_sl, price)
         phase = "breakeven"
         note = f"BE @ {progress:.0f}% пути к TP"
@@ -206,6 +216,7 @@ def evaluate_tp_progress_exit(
     if (
         cfg.sr_trail_enabled
         and progress >= cfg.sr_trail_at_progress_pct
+        and profit_pct >= cfg.min_profit_pct_for_be
         and klines
     ):
         sr_sl = trailing_sl_behind_sr(

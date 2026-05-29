@@ -18,11 +18,11 @@ risk:
 positions:
   adopt_manual: true
   trailing_enabled: true
-  trailing_activation_pct: 0.85
-  trailing_distance_pct: 1.25
-  trailing_distance_atr_mult: 2.0
-  trailing_min_distance_pct: 0.45
-  breakeven_after_pct: 0.55
+  trailing_activation_pct: 1.35
+  trailing_distance_pct: 1.55
+  trailing_distance_atr_mult: 2.5
+  trailing_min_distance_pct: 0.65
+  breakeven_after_pct: 1.05
   notify_trailing_telegram: false
   exit_management:
     enabled: true
@@ -30,17 +30,18 @@ positions:
     time_stop_minutes: 120
     time_stop_min_atr_progress: 0.25
     close_on_time_stop: true
-    early_breakeven_enabled: true
-    early_breakeven_atr_mult: 0.65
-    early_breakeven_pct: 0.28
+    early_breakeven_enabled: false
+    early_breakeven_atr_mult: 1.2
+    early_breakeven_pct: 0.9
     late_breakeven_enabled: true
     late_breakeven_retrace_pct: 40
     close_on_late_retrace: false
-    late_tighten_distance_factor: 0.75
+    late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_progress_pct: 45
-    sr_trail_at_progress_pct: 70
+    breakeven_at_progress_pct: 62
+    sr_trail_at_progress_pct: 80
+    min_profit_pct_for_be: 1.2
     be_fee_buffer_pct: 0.05
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22

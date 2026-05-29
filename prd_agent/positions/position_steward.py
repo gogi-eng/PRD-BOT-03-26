@@ -170,7 +170,8 @@ class PositionSteward:
 
         if is_long:
             new_sl = pos.best_price - dist
-            if p_pct >= be_pct:
+            # Безубыток у входа только после полного порога активации трейлинга (не early BE)
+            if p_pct >= self.activation_pct:
                 new_sl = max(new_sl, entry * 1.001)
             if pos.stop_loss > 0:
                 new_sl = max(new_sl, pos.stop_loss)
@@ -178,7 +179,7 @@ class PositionSteward:
                 return None
             return new_sl
         new_sl = pos.best_price + dist
-        if p_pct >= be_pct:
+        if p_pct >= self.activation_pct:
             new_sl = min(new_sl, entry * 0.999)
         if pos.stop_loss > 0:
             new_sl = min(new_sl, pos.stop_loss)
@@ -292,6 +293,10 @@ class PositionSteward:
                 current_profit_pct=p_pct,
             ):
                 dist_factor = self.exit_cfg.late_tighten_distance_factor
+
+            # Не двигаем SL, пока прибыль меньше порога активации трейлинга (защита от «мгновенного BE»)
+            if p_pct < self.activation_pct:
+                continue
 
             new_sl = None
             if self.tp_progress_cfg.enabled and pos.take_profit > 0:
