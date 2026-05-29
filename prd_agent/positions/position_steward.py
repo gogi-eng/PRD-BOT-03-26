@@ -19,10 +19,8 @@ from prd_agent.positions.exit_management import (
     profit_pct,
     progress_in_atr,
 )
-from prd_agent.positions.tp_progress_exit import (
-    TpProgressExitConfig,
-    evaluate_tp_progress_exit,
-)
+from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
+from prd_agent.signals.pump_dump_mode import TrailingProfile
 
 logger = logging.getLogger("prd_agent.positions")
 
@@ -40,6 +38,7 @@ class TrackedPosition:
     trailing_active: bool = False
     position_idx: int = 0
     origin: str = "manual"
+    pump_dump_mode: bool = False
     last_sl_sent: float = 0.0
     opened_at_utc: str = ""
     peak_profit_pct: float = 0.0
@@ -61,10 +60,19 @@ class PositionSteward:
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
-        self.tp_progress_cfg = TpProgressExitConfig.from_cfg(p)
+        self._default_profile = TrailingProfile.from_positions_cfg(p)
+        self._pump_dump_profile = TrailingProfile.from_positions_cfg(
+            p, subsection="pump_dump_trailing"
+        )
         self._tracked: Dict[str, TrackedPosition] = {}
         self._bot_symbols: set[str] = set()
+        self._pump_dump_symbols: set[str] = set()
         self._bot_levels: Dict[str, Dict[str, float]] = {}
+
+    def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
+        if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
+            return self._pump_dump_profile
+        return self._default_profile
 
     def mark_bot_opened(
         self,
@@ -72,9 +80,12 @@ class PositionSteward:
         *,
         take_profit: float = 0.0,
         stop_loss: float = 0.0,
+        pump_dump: bool = False,
     ) -> None:
         sym = symbol.upper()
         self._bot_symbols.add(sym)
+        if pump_dump:
+            self._pump_dump_symbols.add(sym)
         self._bot_levels[sym] = {
             "take_profit": float(take_profit or 0),
             "stop_loss": float(stop_loss or 0),
@@ -84,6 +95,8 @@ class PositionSteward:
                 self._tracked[sym].take_profit = take_profit
             if stop_loss > 0:
                 self._tracked[sym].stop_loss = stop_loss
+            if pump_dump:
+                self._tracked[sym].pump_dump_mode = True
 
     @staticmethod
     def _atr_from_klines(klines: List[Dict], period: int = 14) -> float:
@@ -132,6 +145,7 @@ class PositionSteward:
             best_price=mark,
             position_idx=int(row.get("positionIdx", 0) or 0),
             origin=origin,
+            pump_dump_mode=sym in self._pump_dump_symbols,
             last_sl_sent=sl,
             opened_at_utc=now_iso,
         )
@@ -141,6 +155,7 @@ class PositionSteward:
         pos: TrackedPosition,
         price: float,
         atr: float,
+        profile: TrailingProfile,
         *,
         be_pct_override: Optional[float] = None,
         distance_factor: float = 1.0,
@@ -153,25 +168,25 @@ class PositionSteward:
         else:
             pos.best_price = min(pos.best_price or entry, price)
 
-        be_pct = be_pct_override if be_pct_override is not None else self.breakeven_pct
+        be_pct = be_pct_override if be_pct_override is not None else profile.breakeven_pct
         if p_pct < be_pct:
             return None
-        if p_pct < self.activation_pct:
+        if p_pct < profile.activation_pct:
             return None
 
         ref = pos.best_price if pos.best_price > 0 else price
-        dist_pct = ref * self.distance_pct / 100 * distance_factor
-        dist_atr = atr * self.distance_atr_mult * distance_factor if atr > 0 else 0.0
+        dist_pct = ref * profile.distance_pct / 100 * distance_factor
+        dist_atr = atr * profile.distance_atr_mult * distance_factor if atr > 0 else 0.0
         dist = max(dist_pct, dist_atr)
-        if self.min_distance_pct > 0:
-            dist = max(dist, ref * self.min_distance_pct / 100)
+        if profile.min_distance_pct > 0:
+            dist = max(dist, ref * profile.min_distance_pct / 100)
         if dist <= 0:
             return None
 
         if is_long:
             new_sl = pos.best_price - dist
             # Безубыток у входа только после полного порога активации трейлинга (не early BE)
-            if p_pct >= self.activation_pct:
+            if p_pct >= profile.activation_pct:
                 new_sl = max(new_sl, entry * 1.001)
             if pos.stop_loss > 0:
                 new_sl = max(new_sl, pos.stop_loss)
@@ -179,7 +194,7 @@ class PositionSteward:
                 return None
             return new_sl
         new_sl = pos.best_price + dist
-        if p_pct >= self.activation_pct:
+        if p_pct >= profile.activation_pct:
             new_sl = min(new_sl, entry * 0.999)
         if pos.stop_loss > 0:
             new_sl = min(new_sl, pos.stop_loss)
@@ -220,7 +235,7 @@ class PositionSteward:
         if (
             not self.enabled
             and not self.exit_cfg.enabled
-            and not self.tp_progress_cfg.enabled
+            and not self._default_profile.tp_progress.enabled
         ):
             return []
         notes: List[str] = []
@@ -262,9 +277,10 @@ class PositionSteward:
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
             prog_atr = progress_in_atr(pos.side, pos.entry, price, atr)
+            profile = self._profile_for(pos)
 
             action, action_reason = evaluate_exit_actions(
-                cfg=self.exit_cfg,
+                cfg=profile.exit_management,
                 side=pos.side,
                 entry=pos.entry,
                 price=price,
@@ -282,26 +298,25 @@ class PositionSteward:
                 continue
 
             be_override = effective_breakeven_pct(
-                self.breakeven_pct,
-                cfg=self.exit_cfg,
+                profile.breakeven_pct,
+                cfg=profile.exit_management,
                 progress_atr=prog_atr,
             )
             dist_factor = 1.0
             if late_retrace_active(
-                cfg=self.exit_cfg,
+                cfg=profile.exit_management,
                 peak_profit_pct=pos.peak_profit_pct,
                 current_profit_pct=p_pct,
             ):
-                dist_factor = self.exit_cfg.late_tighten_distance_factor
+                dist_factor = profile.exit_management.late_tighten_distance_factor
 
-            # Не двигаем SL, пока прибыль меньше порога активации трейлинга (защита от «мгновенного BE»)
-            if p_pct < self.activation_pct:
+            if p_pct < profile.activation_pct:
                 continue
 
             new_sl = None
-            if self.tp_progress_cfg.enabled and pos.take_profit > 0:
+            if profile.tp_progress.enabled and pos.take_profit > 0:
                 tp_res = evaluate_tp_progress_exit(
-                    cfg=self.tp_progress_cfg,
+                    cfg=profile.tp_progress,
                     side=pos.side,
                     entry=pos.entry,
                     price=price,
@@ -327,6 +342,7 @@ class PositionSteward:
                     pos,
                     price,
                     atr,
+                    profile,
                     be_pct_override=be_override,
                     distance_factor=dist_factor,
                 )
@@ -351,7 +367,8 @@ class PositionSteward:
                 pos.last_sl_sent = new_sl
                 pos.trailing_active = True
                 age = age_minutes(pos.opened_at_utc)
-                msg = f"🔁 Трейлинг {sym} SL→{new_sl:.4f} ({pos.origin}, {age:.0f}m)"
+                mode = "pump/dump" if profile is self._pump_dump_profile else pos.origin
+                msg = f"🔁 Трейлинг {sym} SL→{new_sl:.4f} ({mode}, {age:.0f}m)"
                 if self.notify_trailing:
                     notes.append(msg)
                 logger.info(msg)

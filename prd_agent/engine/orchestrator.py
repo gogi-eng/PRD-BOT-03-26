@@ -21,6 +21,7 @@ from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
 from prd_agent.risk.entry_guard import build_entry_execution_plan
 from prd_agent.risk.pullback_entry import check_pullback_entry
+from prd_agent.signals.pump_dump_mode import is_pump_dump_signal
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import RiskGuard
@@ -555,6 +556,12 @@ class UnifiedOrchestrator:
             sig.symbol, interval=self._sr_interval, limit=self._sr_limit
         )
         pb_ok, pb_reason = check_pullback_entry(sig, klines_entry or [], self.cfg)
+        if is_pump_dump_signal(sig) and pb_ok and "pump_dump" in pb_reason:
+            logger.info(
+                "Pump/dump %s %s: вход без отката (быстрый режим)",
+                sig.symbol,
+                sig.side,
+            )
         if not pb_ok:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, pb_reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, pb_reason)
@@ -683,7 +690,10 @@ class UnifiedOrchestrator:
                 leverage=leverage,
             )
             self.position_steward.mark_bot_opened(
-                sig.symbol, take_profit=tp, stop_loss=sl
+                sig.symbol,
+                take_profit=tp,
+                stop_loss=sl,
+                pump_dump=is_pump_dump_signal(sig),
             )
             self.supervisor.note_signal_outcome(ledger_id, "executed", oid)
             await self.notifier.order_placed(

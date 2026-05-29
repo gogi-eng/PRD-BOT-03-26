@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
 
+from prd_agent.signals.pump_dump_mode import entry_drift_limits
 from prd_agent.signals.types import UnifiedSignal
 
 
@@ -123,7 +124,28 @@ async def build_entry_execution_plan(
     cfg: Dict[str, Any],
 ) -> EntryExecutionPlan:
     guard = EntryGuard(cfg)
+    pd_limits = entry_drift_limits(cfg, sig)
+    if pd_limits:
+        guard = EntryGuard(
+            {
+                **cfg,
+                "entry_guard": {
+                    **(cfg.get("entry_guard") or {}),
+                    **pd_limits,
+                    "telegram_limit_entry": False,
+                },
+            }
+        )
     market_price = float(await exchange.get_price(sig.symbol))
     if plan_entry <= 0:
         plan_entry = market_price
-    return guard.plan_execution(sig, plan_entry=plan_entry, market_price=market_price)
+    plan = guard.plan_execution(sig, plan_entry=plan_entry, market_price=market_price)
+    if pd_limits and plan.allowed:
+        return EntryExecutionPlan(
+            allowed=plan.allowed,
+            reason=f"pump_dump fast entry | {plan.reason}",
+            order_type="Market",
+            market_price=plan.market_price,
+            drift_pct=plan.drift_pct,
+        )
+    return plan

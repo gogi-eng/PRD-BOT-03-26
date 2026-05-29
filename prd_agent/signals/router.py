@@ -142,15 +142,24 @@ class SignalRouter:
             conf = float(parsed.get("confidence", parsed.get("score", 0.7)))
             if conf < self._min_tg_conf:
                 continue
+            raw_src = str(
+                parsed.get("source") or parsed.get("channel") or "telegram"
+            ).lower()
+            if "mirror_pump_dump" in raw_src or "pump_dump" in raw_src or "pumpdump" in raw_src:
+                source = "mirror_pump_dump_agent"
+                reason = str(parsed.get("reason") or parsed.get("channel") or source)
+            else:
+                source = "telegram"
+                reason = str(parsed.get("channel") or "telegram_inbox")
             sig = UnifiedSignal(
                 symbol=sym,
                 side=side,
                 confidence=conf,
-                source="telegram",
+                source=source,
                 entry=float(parsed.get("entry", 0) or 0),
                 stop_loss=float(parsed.get("stop_loss", parsed.get("sl", 0)) or 0),
                 take_profit=float(parsed.get("take_profit", parsed.get("tp", 0)) or 0),
-                reason=str(parsed.get("channel") or "telegram_inbox"),
+                reason=reason,
                 raw=parsed,
             )
             out.append(sig)
