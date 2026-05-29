@@ -49,7 +49,7 @@ risk:
   max_consecutive_losses: 4
   max_trades_per_day: 20
   cooldown_after_loss_sec: 300
-  cooldown_after_stop_hours: 2
+  cooldown_after_stop_minutes: 30
   daily_loss_blocks_until_next_day: true
 
 signals:
@@ -82,32 +82,36 @@ positions:
   adopt_manual: true
   trailing_enabled: true
   # Когда начать подтягивать SL (% прибыли от входа)
-  trailing_activation_pct: 0.5
-  # Отступ SL от лучшей цены: % от текущего пика (0.8 = 0.8%). Больше = дальше от графика
-  trailing_distance_pct: 0.8
-  # Минимум отступа в ATR (15m), если волатильность выше процента
-  trailing_distance_atr_mult: 1.4
-  breakeven_after_pct: 0.35
+  trailing_activation_pct: 0.85
+  trailing_distance_pct: 1.25
+  trailing_distance_atr_mult: 2.0
+  trailing_min_distance_pct: 0.45
+  breakeven_after_pct: 0.55
   exit_management:
     enabled: true
     time_stop_minutes: 120
-  # BE после N% пути к TP; трейлинг SL за S/R после 50% (кнопки /panel)
   tp_progress_exit:
     enabled: true
-    breakeven_at_progress_pct: 30
-    sr_trail_at_progress_pct: 50
+    breakeven_at_progress_pct: 45
+    sr_trail_at_progress_pct: 70
     be_fee_buffer_pct: 0.05
     sr_trail_enabled: true
-    sr_sl_buffer_atr: 0.15
+    sr_sl_buffer_atr: 0.22
+    sr_level_index: 1
+
+pullback_entry:
+  enabled: true
+  momentum_bars: 5
 
 # Поджатие SL/TP к зонам поддержки/сопротивления (FVG/OB/swing) перед ордером unified-бота
 execution_sr_zones:
   enabled: true
   kline_interval: "15"
   kline_limit: 120
-  sl_extra_buffer_atr: 0.1
+  sl_sr_level_index: 1
+  sl_extra_buffer_atr: 0.18
   tp_extra_buffer_atr: 0.08
-  preserve_min_rr: 0   # 0 = взять quality_gate.min_rr_ratio
+  preserve_min_rr: 0
 
 # Коллектор сигналов из Telegram-каналов (отдельная служба telegram_signal_agent)
 telegram_signal_agent:

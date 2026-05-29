@@ -58,27 +58,45 @@ class ZoneContext:
             return None
         return max(active, key=lambda z: z.strength)
 
-    def structural_sl_long(self, current_price: float, atr: float) -> float:
-        """SL for long = below nearest bullish zone low - buffer."""
-        candidates = [z.low for z in self.all_bullish_zones if not z.mitigated and z.low < current_price]
-        if candidates:
-            return max(candidates) - atr * 0.3
-        if self.support_levels:
-            below = [s for s in self.support_levels if s < current_price]
-            if below:
-                return max(below) - atr * 0.3
-        return current_price - atr * 1.8
+    def _support_levels_below(self, current_price: float) -> list[float]:
+        """Уровни поддержки ниже цены: от ближайшего к дальнему (index 0 = первый S/R)."""
+        levels = set(
+            z.low
+            for z in self.all_bullish_zones
+            if not z.mitigated and z.low < current_price
+        )
+        levels.update(s for s in self.support_levels if s < current_price)
+        return sorted(levels, reverse=True)
 
-    def structural_sl_short(self, current_price: float, atr: float) -> float:
-        """SL for short = above nearest bearish zone high + buffer."""
-        candidates = [z.high for z in self.all_bearish_zones if not z.mitigated and z.high > current_price]
-        if candidates:
-            return min(candidates) + atr * 0.3
-        if self.resistance_levels:
-            above = [r for r in self.resistance_levels if r > current_price]
-            if above:
-                return min(above) + atr * 0.3
-        return current_price + atr * 1.8
+    def _resistance_levels_above(self, current_price: float) -> list[float]:
+        """Уровни сопротивления выше цены: от ближайшего к дальнему."""
+        levels = set(
+            z.high
+            for z in self.all_bearish_zones
+            if not z.mitigated and z.high > current_price
+        )
+        levels.update(r for r in self.resistance_levels if r > current_price)
+        return sorted(levels)
+
+    def structural_sl_long(
+        self, current_price: float, atr: float, level_index: int = 0
+    ) -> float:
+        """SL для long: level_index 0 = ближайшая поддержка, 1 = вторая (шире стоп)."""
+        below = self._support_levels_below(current_price)
+        if below:
+            idx = min(max(0, int(level_index)), len(below) - 1)
+            return below[idx] - atr * 0.3
+        return current_price - atr * (1.8 + max(0, int(level_index)) * 0.4)
+
+    def structural_sl_short(
+        self, current_price: float, atr: float, level_index: int = 0
+    ) -> float:
+        """SL для short: level_index 0 = ближайшее сопротивление, 1 = второе (шире стоп)."""
+        above = self._resistance_levels_above(current_price)
+        if above:
+            idx = min(max(0, int(level_index)), len(above) - 1)
+            return above[idx] + atr * 0.3
+        return current_price + atr * (1.8 + max(0, int(level_index)) * 0.4)
 
     def structural_tp_long(self, current_price: float, atr: float) -> tuple[float, float]:
         """TP1 and TP2 for long = next resistance zones above."""
