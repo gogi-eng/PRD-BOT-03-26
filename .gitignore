@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 config.yaml
+ai4trade.credentials.json
 data/
 
 # Python
