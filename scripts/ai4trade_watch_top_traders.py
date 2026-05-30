@@ -35,11 +35,68 @@ logging.basicConfig(
 log = logging.getLogger("ai4trade.watch")
 
 
+def _parse_credentials_text(raw: str) -> dict:
+    """Разбор ai4trade.credentials.json — полный JSON или только токен одной строкой."""
+    text = raw.strip().lstrip("\ufeff")
+    if not text:
+        raise ValueError("файл пустой")
+
+    # Одна строка без { } — часто вставляют только токен
+    if "\n" not in text and not text.startswith("{"):
+        return {"token": text.strip().strip('"').strip("'")}
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        # Частая ошибка: "token": "xxx" без фигурных скобок
+        if '"token"' in text and not text.lstrip().startswith("{"):
+            wrapped = "{" + text.strip().strip(",") + "}"
+            try:
+                data = json.loads(wrapped)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(data, dict) and data.get("token"):
+                    return data
+        raise ValueError(
+            f"неверный JSON в {CREDS_PATH.name}: {exc}. "
+            "Скопируйте шаблон: cp ai4trade.credentials.example.json ai4trade.credentials.json"
+        ) from exc
+
+    if isinstance(data, str):
+        return {"token": data}
+    if not isinstance(data, dict):
+        raise ValueError("ожидается JSON-объект { ... } или одна строка с токеном")
+    if not data.get("token"):
+        raise ValueError('в JSON нет поля "token"')
+    return data
+
+
 def load_creds() -> dict:
     if not CREDS_PATH.exists():
-        log.error("Нет файла %s — сначала зарегистрируйте агента.", CREDS_PATH)
+        log.error("Нет файла %s — скопируйте ai4trade.credentials.example.json", CREDS_PATH)
         sys.exit(1)
-    return json.loads(CREDS_PATH.read_text(encoding="utf-8"))
+    try:
+        creds = _parse_credentials_text(CREDS_PATH.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
+    # Подтянуть agent_id / name с API, если в файле только token
+    if not creds.get("agent_id") or not creds.get("agent_name"):
+        try:
+            r = requests.get(
+                f"{BASE_URL}/claw/agents/me",
+                headers={"Authorization": f"Bearer {creds['token']}"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            me = r.json()
+            creds.setdefault("agent_id", me.get("id"))
+            creds.setdefault("agent_name", me.get("name"))
+            creds.setdefault("platform", "https://ai4trade.ai")
+        except requests.RequestException as exc:
+            log.warning("Не удалось получить /me: %s", exc)
+    return creds
 
 
 def headers(creds: dict) -> dict[str, str]:
