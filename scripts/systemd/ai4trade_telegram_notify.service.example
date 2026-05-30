@@ -15,6 +15,7 @@ Type=simple
 User=root
 WorkingDirectory=/root/PRD-BOT-ALL
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/PRD-BOT-ALL/.env
 ExecStart=/usr/bin/python3 /root/PRD-BOT-ALL/scripts/ai4trade_telegram_notify.py
 Restart=always
 RestartSec=15
