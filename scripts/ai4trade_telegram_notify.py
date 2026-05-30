@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prd_agent.config import load_config
-from prd_agent.telegram.resolve_credentials import resolve_telegram
+from prd_agent.integrations.telegram_credentials import resolve_telegram
 from prd_agent.integrations.ai4trade_client import (
     fetch_following_feed,
     fetch_signal_detail,

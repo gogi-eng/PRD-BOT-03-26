@@ -1,9 +1,9 @@
-"""Единая точка: token + chat_id для отправки в Telegram (config.yaml + .env + env)."""
+"""Token + chat_id для Telegram без зависимости от python-telegram-bot."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any
 
 _ENV_LOADED = False
 
@@ -40,7 +40,7 @@ def _first_env(*keys: str) -> str:
     return ""
 
 
-def resolve_telegram(cfg: dict[str, Any] | None = None, *, root: Path | None = None) -> Tuple[str, str]:
+def resolve_telegram(cfg: dict[str, Any] | None = None, *, root: Path | None = None) -> tuple[str, str]:
     """
     Возвращает (bot_token, chat_id).
     Порядок: config telegram → переменные окружения → .env в корне проекта.
