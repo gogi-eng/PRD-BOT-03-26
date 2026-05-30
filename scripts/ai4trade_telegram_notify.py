@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prd_agent.config import load_config
+from prd_agent.telegram.resolve_credentials import resolve_telegram
 from prd_agent.integrations.ai4trade_client import (
     fetch_following_feed,
     fetch_signal_detail,
@@ -155,11 +156,13 @@ def format_telegram_message(signal: dict[str, Any], *, msg_type: str = "") -> st
 
 
 def send_telegram(cfg: dict[str, Any], text: str) -> bool:
-    tg = cfg.get("telegram") or {}
-    token = (tg.get("bot_token") or "").strip()
-    chat_id = (tg.get("chat_id") or tg.get("channel_id") or "").strip()
+    root = Path(cfg.get("_root") or ROOT)
+    token, chat_id = resolve_telegram(cfg, root=root)
     if not token or not chat_id:
-        log.error("Telegram: задайте bot_token и chat_id в config.yaml или .env")
+        log.error(
+            "Telegram: нет bot_token/chat_id. Проверьте /root/PRD-BOT-ALL/.env "
+            "(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID) или telegram: в config.yaml"
+        )
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
@@ -291,6 +294,15 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    root = Path(cfg.get("_root") or ROOT)
+    tg_token, tg_chat = resolve_telegram(cfg, root=root)
+    if not tg_token or not tg_chat:
+        log.error(
+            "Перед запуском задайте TELEGRAM_TOKEN и TELEGRAM_CHAT_ID в %s/.env "
+            "(как у trading_bot)",
+            root,
+        )
+        sys.exit(1)
     notify = load_notify_cfg(cfg)
     if not notify.get("enabled", True):
         log.info("ai4trade_notify.enabled=false — выход")
@@ -306,7 +318,8 @@ def main() -> None:
     interval = int(notify.get("poll_interval_sec") or 45)
 
     log.info(
-        "Старт: BTC/ETH → Telegram, интервал %s сек, creds OK (agent %s)",
+        "Старт: BTC/ETH → Telegram chat_id=%s…, интервал %s сек, ai4trade=%s",
+        str(tg_chat)[:6],
         interval,
         creds.get("agent_name"),
     )
