@@ -1,0 +1,23 @@
+# Установка на сервере:
+#   sudo cp scripts/systemd/ai4trade_telegram_notify.service.example /etc/systemd/system/ai4trade_telegram_notify.service
+#   sudo nano /etc/systemd/system/ai4trade_telegram_notify.service   # проверьте пути
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ai4trade_telegram_notify
+#   sudo journalctl -u ai4trade_telegram_notify -f
+
+[Unit]
+Description=AI-Trader top traders to Telegram (BTC/ETH filter)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/PRD-BOT-ALL
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /root/PRD-BOT-ALL/scripts/ai4trade_telegram_notify.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

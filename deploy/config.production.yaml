@@ -306,6 +306,16 @@ macro_ai:
   max_headlines: 8
   include_positions: true
 
+ai4trade_notify:
+  enabled: true
+  credentials_path: ai4trade.credentials.json
+  poll_interval_sec: 45
+  feed_limit: 25
+  symbols_allow:
+    - BTC
+    - ETH
+  cooldown_sec: 90
+
 whale_news:
   liquidation_usd_threshold: 500000
   oi_change_pct_threshold: 3.0
