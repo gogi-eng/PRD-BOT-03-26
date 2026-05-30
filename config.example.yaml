@@ -138,6 +138,11 @@ execution_sr_zones:
 pullback_entry:
   enabled: true
   momentum_bars: 5
+  # Блок только если импульс за N свечей сильнее порога (%), не любой Δ в $
+  min_momentum_pct: 0.35
+  min_retrace_pct: 0.12
+  retrace_lookback_bars: 5
+  require_counter_bars: 1
   skip_for_pump_dump: true
 
 pump_dump_trade:
