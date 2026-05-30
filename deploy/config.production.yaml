@@ -316,6 +316,20 @@ ai4trade_notify:
     - ETH
   cooldown_sec: 90
 
+kronos:
+  enabled: false
+  kronos_home: /root/Kronos-master
+  model_id: NeoQuasar/Kronos-mini
+  tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  interval: "15"
+  lookback: 400
+  pred_len: 16
+  max_context: 512
+  device: cpu
+
 whale_news:
   liquidation_usd_threshold: 500000
   oi_change_pct_threshold: 3.0
