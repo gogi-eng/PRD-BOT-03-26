@@ -55,7 +55,10 @@ def main() -> None:
     cfg = load_config(args.config if args.config.exists() else ROOT / "config.example.yaml")
     k = cfg.setdefault("kronos", {})
     if not k.get("kronos_home"):
-        k["kronos_home"] = str(Path(__file__).resolve().parents[2] / "Kronos-master")
+        default_home = Path(__file__).resolve().parents[2] / "Kronos-master"
+        if not default_home.is_dir():
+            default_home = Path("/root/Kronos-master")
+        k["kronos_home"] = str(default_home)
 
     symbols = args.symbols or k.get("symbols") or ["BTCUSDT", "ETHUSDT"]
     lines: list[str] = []
