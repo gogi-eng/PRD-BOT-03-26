@@ -1,0 +1,460 @@
+ai:
+  provider: openrouter
+ai4trade_notify:
+  cooldown_sec: 90
+  credentials_path: ai4trade.credentials.json
+  enabled: true
+  feed_limit: 25
+  poll_interval_sec: 45
+  symbols_allow:
+  - BTC
+  - ETH
+analytics:
+  report_hours: 24
+bybit:
+  api_key: ''
+  api_secret: ''
+  category: linear
+  testnet: false
+entry_guard:
+  enabled: true
+  max_limit_drift_pct: 0.01
+  max_market_drift_pct: 0.006
+  max_skip_drift_pct: 0.015
+  telegram_limit_entry: true
+  telegram_sources:
+  - telegram
+  - tg
+  - tg_inbox
+execution_sr_zones:
+  enabled: true
+  kline_interval: '15'
+  kline_limit: 120
+  preserve_min_rr: 0
+  sl_extra_buffer_atr: 0.18
+  sl_sr_level_index: 1
+  tp_extra_buffer_atr: 0.08
+feedback_loop:
+  base_dataset_path: training_data.json
+  dataset_path: signal_only_feedback_data.json
+  enabled: true
+  min_new_labels_for_retrain: 50
+  retrain_daily: true
+  retrain_hour_utc: 0
+  retrain_in_process: false
+  train_batch_size: 32
+  train_epochs: 220
+  train_lr: 0.002
+  use_merged_dataset_for_retrain: true
+free_claude_code:
+  auth_token: freecc
+  base_url: http://127.0.0.1:8082
+  enabled: false
+  model: claude-3-5-haiku-20241022
+  timeout_sec: 30
+global_analysis:
+  enabled: true
+  interval_hours: 6
+kronos:
+  device: cpu
+  enabled: false
+  interval: '15'
+  kronos_home: ../Kronos-master
+  model_id: NeoQuasar/Kronos-mini
+  pred_len: 16
+  symbol_delay_sec: 3
+  symbols:
+  - BTCUSDT
+  - ETHUSDT
+macro_ai:
+  enabled: true
+  include_positions: true
+  max_headlines: 8
+openrouter:
+  api_key: ''
+  model: google/gemini-2.0-flash-001
+  timeout_sec: 30
+positions:
+  adopt_manual: true
+  lock_initial_sl: false
+  breakeven_after_pct: 1.05
+  exit_management:
+    close_on_late_retrace: false
+    close_on_time_stop: true
+    early_breakeven_atr_mult: 1.2
+    early_breakeven_enabled: false
+    early_breakeven_pct: 0.9
+    enabled: true
+    late_breakeven_enabled: true
+    late_breakeven_retrace_pct: 40
+    late_tighten_distance_factor: 0.85
+    time_stop_enabled: true
+    time_stop_min_atr_progress: 0.25
+    time_stop_minutes: 120
+  notify_trailing_telegram: false
+  pump_dump_trailing:
+    trailing_activation_pct: 1.0
+    trailing_distance_pct: 0.55
+    trailing_distance_atr_mult: 1.15
+    trailing_min_distance_pct: 0.35
+    breakeven_after_pct: 0.85
+    exit_management:
+      early_breakeven_enabled: false
+      late_tighten_distance_factor: 0.65
+    tp_progress_exit:
+      enabled: false
+  tp_progress_exit:
+    enabled: true
+    breakeven_at_profit_pct: 1.05
+    sr_trail_at_profit_pct: 1.8
+    be_fee_buffer_pct: 0.05
+    sr_trail_enabled: true
+    sr_sl_buffer_atr: 0.22
+    sr_level_index: 1
+    min_valid_tp_distance_pct: 0.08
+  trailing_activation_pct: 1.35
+  trailing_distance_atr_mult: 2.5
+  trailing_distance_pct: 1.55
+  trailing_enabled: true
+  trailing_min_distance_pct: 0.65
+pullback_entry:
+  enabled: true
+  min_momentum_pct: 0.35
+  min_retrace_pct: 0.12
+  momentum_bars: 5
+  require_counter_bars: 1
+  retrace_lookback_bars: 5
+  skip_for_pump_dump: true
+pump_dump_trade:
+  enabled: true
+  inbox_replay_sec: 7200
+  max_limit_drift_pct: 0.018
+  max_market_drift_pct: 0.012
+  max_skip_drift_pct: 0.03
+  min_confidence: 0.65
+  min_rr_ratio: 1.5
+quality_gate:
+  block_meme_symbol_substrings:
+  - USDC
+  - USDE
+  - PEPE
+  - PENG
+  - FART
+  - '1000'
+  - BILL
+  enabled: true
+  min_24h_volume_usdt: 10000000
+  min_confidence: 0.9
+  min_rr_ratio: 1.5
+  require_sl_tp: true
+reporter:
+  high_confidence_threshold: 0.9
+  interval_hours: 2
+risk:
+  cooldown_after_loss_sec: 900
+  cooldown_after_stop_minutes: 30
+  daily_loss_blocks_until_next_day: true
+  max_consecutive_losses: 4
+  max_daily_loss_pct: 5.0
+  max_daily_loss_usdt: 50
+  max_trades_per_day: 58
+self_improvement:
+  auto_apply_low_risk: true
+  enabled: true
+  git_auto_commit: false
+  reload_config_after_apply: true
+  require_approval_critical: true
+  sandbox_dir: data/sandbox
+signals:
+  min_analysis_confidence: 0.9
+  min_multi_agent_score: 0.4
+  min_telegram_confidence: 0.9
+  own_agents_enabled: true
+  signal_notify_cooldown_sec: 900
+  telegram_inbox_backlog_lines: 100
+  telegram_inbox_enabled: true
+  telegram_inbox_only_approved: true
+  telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  whale_news_enabled: true
+ta_scanner:
+  atr_sl_mult: 1.2
+  atr_tp_mult: 2.5
+  enabled: true
+  interval: '15'
+  kline_limit: 120
+  max_symbols: 15
+  min_24h_change_pct: 1.0
+  min_confidence: 0.9
+  min_intraday_range_pct: 0.8
+  min_rr: 2.0
+telegram:
+  allowed_user_ids: []
+  bot_token: ''
+  channel_id: ''
+  chat_id: ''
+  control_polling_enabled: true
+telegram_signal_agent:
+  allowed_chats:
+  - Cornix Trading Signals (free)
+  - FibTrader | Крипта, Сигналы, Копитрейдинг
+  - INVEX GROUP
+  - Евгений Ковалёв | NextGen
+  - Binance Killers®
+  auto_execute: true
+  control_panel_enabled: true
+  enabled: true
+  execute_min_score: 85
+  ignore_bot_echo_messages: true
+  ignored_chats:
+  - FantastisheBot
+  - PocketOptions_1969_BOT
+  - Pocket Option Bot Signals M1🤖
+  - Quotex Signals Bot M1 🤖
+  - BYBIT Комьюнити
+  - BYBIT Новости
+  - Bullrunsignals
+  - Cryptovolksignalbot
+  - Labuh25Bot
+  - Learn 2 Trade Crypto
+  - Crypto4room
+  - Sakura | Japan Trade
+  - Свеча Трейдера
+  - Wallstreet Queen Official®
+  - 3Commas Signals (OFFICIAL)
+  - Roman Robertovich
+  - Блумберг
+  - Ivan Medvedev
+  - TOP GUN х Петр Надеждин
+  - Bitcoin Bullets®
+  - Fed. Russian Insiders®
+  - Binance Killers®
+  - Сава Торгует
+  - Wolfx Signals
+  - Кибер-Миша | ИИ для бизнеса
+  - BBC News | Русская служба
+  - Белновости
+  - Трейдер [Лукас]
+  - Джо
+  - TTTakeeer
+  - Кондитерская
+  - Блог Родиона | Crypto
+  - Кто Дунул На Свечу?
+  - Whale Alert
+  - 𝗞𝗢𝗟𝗣𝗜𝗡 | 𝗜𝗡 𝗖𝗥𝗬𝗣𝗧𝗢
+  - KARATOFF - НЕЙРОТРЕЙД
+  - Крипто Киллер
+  - Щедрый Алиэкспресс
+  - EGOR TITOV | БЛОГ О КРИПТЕ
+  - MENSA TRADING
+  - Теория Вероятностей | TT
+  - Борман [TOP-20 TRADER]
+  - Говорит Минск
+  - KDV Capital by Denys Kononov
+  - Buzzer Academy
+  - '#CC | Alexander Finch ️'
+  - Мысли Эмилии
+  - Мудрый Криптан
+  - Sazonov / Official
+  - Ленивый Трейдер
+  - VST Audio Software
+  - The Экономист
+  - Hype Detector
+  - ST Crypto | Ilya Monk
+  - Золотое правило
+  - Минск Live
+  - take profit concept.
+  - Александр Власов пишет про звук
+  - Lúna | ICT
+  - ЛУДОМАНИЯ
+  - FORTUNA
+  - Крипто Гуру
+  - Игорь Мельников / Futures
+  - MATEMATIKA🧠
+  - Богема Трейдинга
+  - Стильные открытки
+  - INSIDER
+  - scalper
+  - Цифровой Журнал | IT, Neiroseti
+  - Серебрянка
+  - Onliner
+  - качество жизни(Gerda)
+  - YURA TRADE
+  - SIRIUS TRADE
+  - Dan News
+  - Artur|ICT
+  - INVESTCOIN
+  - Markus Trade
+  - SOM | trader 📈🎄
+  - Киллер-фича
+  - Хайдар Сабиев | Крипто Инсайдер
+  - Anton Kosmatov | FUNDED TRADER
+  - GOAT TRADING
+  - НЕВЗОРОВ
+  - Поздравления на каждый день
+  - МЧС Беларуси
+  - PRIS💥🔞ТИГР
+  - imjullls
+  - Evening Trader Group
+  - Хижина🔰Инвестора
+  - Вайб-кодинг
+  - ПРОСТОЙ ТРЕЙДИНГ
+  - ☞ᴷᵃⁿᵃˡ "Cᴿʸᴾᵀᴼ ᴾᴿᴵᴮᵁᴸᴱC"☜
+  - RAVEN Signals Pro - Crypto Forex 🐦‍⬛
+  - ITcour | Уроки программирования
+  - PIXEL
+  - FREE2EX | Новости
+  - Linux Academy
+  - СНН Финансы
+  - Молянов
+  - Crypto Volk-Trade 📈📖
+  - ЧП Беларусь 🚨 Будь в курсе
+  - ИИ-сотрудники Selarti | Автоматизация бизнес-процессов
+  - CA_Canal
+  - Konakoff Capital
+  - 'КОТОВ | #1 ПО ШОРТАМ'
+  - WEEX | Новости криптобиржи
+  - Инвестиции в будущее
+  - INVESTMAX News💰
+  - Wolf of Trading®
+  - МИНСККОММУНТЕПЛОСЕТЬ
+  - Klondike (Crypto Rush) ⚠️
+  - Следственный комитет Беларуси
+  - Департамент государственной инспекции труда Министерства труда и социальной защиты
+    Республики Беларусь
+  - SerCrypto
+  - Directed by Robert B. Weide
+  - Фибоначчи
+  - Brylyakov_Quantum_Bot
+  - MANIPULATOR
+  - Нейро́нити
+  - OpenAI Community
+  - one trade money
+  - Войти в IT | Лайфхаки, обучение
+  - Станислав Одинцов
+  - Ростислав Dept
+  - PRO101 по охране труда | Гурский Н.А. |BY|
+  - Популярная наука
+  - НейроЛена | Промпты и гайды по нейросетям
+  - Просто Эксель
+  - CryptoControlBot
+  - Глеб Кудрявцев про AI
+  - AltSignals.io 🥷👑
+  - Rekt Fencer
+  - Alex разумные инвестиции
+  - Антон Косматов | 10 лет в крипте
+  - Trading_time_fx_bot
+  - SPECULANTKA
+  - Антон Фомин про ИИ | Техно AI
+  - Midjourney | Диджитал
+  - Сигналы Quantum. Бесплатно
+  - Проп-трейдер | Hash Hedge
+  - Кукловод | Метод управления
+  - StudyAI | Нейросети
+  - ⚡️ZEVS⚡️
+  - AI Digest | Vukovic
+  - igorzuevichtelegrambot
+  - Илья Филиппов. Лаборатория нейросетей
+  - Excel Everyday
+  - Троянский конь | IT, технологии
+  - stocks_n_stuff_pro_bot
+  - Mr.Yerzhan AI
+  - Коненков Святослав | White Way
+  - ABV'invest 💰🚀
+  - Канал Игоря Зуевича
+  - Госдеп Серёги Иммигранта
+  - light6545052112280351cbot
+  - krakhmalev
+  ignored_substrings:
+  - pocket
+  - quotex
+  - binolla
+  - binary option
+  - fantastishe
+  - stationtrade
+  - bybit комьюнити
+  - bybit новости
+  - learn 2 trade
+  - cryptovolk
+  - bullrunsignals
+  inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  inbox_jsonl_enabled: true
+  min_openrouter_confidence: 68
+  require_stop_loss: true
+  session_name: telegram_user_signal_agent
+  signal_quality:
+    enabled: true
+    min_structure_score: 58
+    require_stop_loss: true
+    skip_noise_posts: true
+  trusted_signal_sources:
+  - Cornix Trading Signals (free)
+  - FibTrader | Крипта, Сигналы, Копитрейдинг
+  - INVEX GROUP
+  - Евгений Ковалёв | NextGen
+trade_journal:
+  rotate_keep_files: 14
+  rotate_max_mb: 8
+trade_supervisor:
+  enabled: true
+  interval_hours: 2
+  leverage_advisor:
+    checks_weight: 0.35
+    confidence_weight: 0.45
+    enabled: true
+    min_confidence: 0.68
+    min_edge: 0.35
+    min_rr: 1.8
+    rr_weight: 0.2
+    virtual_wr_boost_cap: 55
+    virtual_wr_soft_cap: 40
+  virtual_max_age_hours: 72
+  virtual_max_open: 40
+  virtual_trades_enabled: true
+trading:
+  auto_start: true
+  dynamic_leverage:
+    enabled: true
+    max: 50
+    max_confidence: 0.95
+    min: 20
+    min_confidence: 0.68
+  leverage: 20
+  loop_interval_sec: 60
+  max_positions: 5
+  max_scan_symbols: 12
+  min_24h_volume_usdt: 10000000
+  min_multi_agent_score: 0.4
+  min_own_agent_confidence: 0.9
+  min_signal_confidence: 0.85
+  risk_pct_per_trade: 0.35
+  symbol_blacklist: []
+  symbol_blacklist_substrings:
+  - USDC
+  - USDE
+  - PENG
+  - '1000'
+  - BILL
+  symbol_rescan_interval_sec: 1800
+  symbols:
+  - BTCUSDT
+  - ETHUSDT
+whale_news:
+  liquidation_usd_threshold: 500000
+  news_keywords_bear:
+  - hack
+  - exploit
+  - ban
+  - lawsuit
+  - sec
+  - crash
+  - liquidation
+  news_keywords_bull:
+  - etf approved
+  - rate cut
+  - institutional
+  - partnership
+  - upgrade
+  oi_change_pct_threshold: 3.0
+  rss_urls:
+  - https://feeds.feedburner.com/CoinDesk
+  - https://cointelegraph.com/rss

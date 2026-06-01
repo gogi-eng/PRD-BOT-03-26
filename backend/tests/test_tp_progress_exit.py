@@ -33,11 +33,11 @@ def test_tighten_long_only_moves_up():
     assert tighten_stop("Buy", 1005.0, 1001.0, 1010.0) is None
 
 
-def test_evaluate_be_at_30_percent():
+def test_evaluate_be_at_profit_pct_from_entry():
     cfg = TpProgressExitConfig(
         enabled=True,
-        breakeven_at_progress_pct=30.0,
-        sr_trail_at_progress_pct=80.0,
+        breakeven_at_profit_pct=5.0,
+        sr_trail_at_profit_pct=80.0,
         sr_trail_enabled=False,
     )
     res = evaluate_tp_progress_exit(
@@ -49,9 +49,9 @@ def test_evaluate_be_at_30_percent():
         current_sl=95.0,
         klines=[],
         atr=1.0,
+        min_activation_profit_pct=0.0,
     )
     assert res.progress_pct is not None
-    assert res.progress_pct >= 30.0
     assert res.suggested_sl is not None
     assert res.suggested_sl >= 100.0
     assert res.phase == "breakeven"
@@ -62,12 +62,11 @@ def test_cycle_be_threshold():
     assert cycle_breakeven_threshold(40.0) == 20.0
 
 
-def test_be_blocked_until_min_profit_pct():
-    """45% пути к TP при малой прибыли — не подтягиваем SL (близкий TP)."""
+def test_be_blocked_until_profit_from_entry():
+    """Большой % пути к TP, но прибыль от входа < порога — SL не двигаем."""
     cfg = TpProgressExitConfig(
         enabled=True,
-        breakeven_at_progress_pct=45.0,
-        min_profit_pct_for_be=1.2,
+        breakeven_at_profit_pct=1.2,
         sr_trail_enabled=False,
     )
     res = evaluate_tp_progress_exit(

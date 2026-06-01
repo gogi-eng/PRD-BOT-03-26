@@ -74,9 +74,14 @@ def effective_breakeven_pct(
     base_pct: float,
     *,
     cfg: ExitManagementConfig,
-    progress_atr: float,
+    profit_pct_from_entry: float,
 ) -> float:
-    if cfg.enabled and cfg.early_breakeven_enabled and progress_atr >= cfg.early_breakeven_atr_mult:
+    """Порог безубытка только от прибыли % от входа (не от ATR/времени)."""
+    if (
+        cfg.enabled
+        and cfg.early_breakeven_enabled
+        and profit_pct_from_entry >= cfg.early_breakeven_pct
+    ):
         return min(base_pct, cfg.early_breakeven_pct)
     return base_pct
 
