@@ -3,7 +3,7 @@ ai:
 ai4trade_notify:
   cooldown_sec: 300
   credentials_path: ai4trade.credentials.json
-  enabled: true
+  enabled: false
   feed_limit: 25
   max_messages_per_poll: 1
   poll_interval_sec: 120

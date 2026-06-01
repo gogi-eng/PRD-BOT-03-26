@@ -320,7 +320,7 @@ macro_ai:
   include_positions: true
 
 ai4trade_notify:
-  enabled: true
+  enabled: false
   credentials_path: ai4trade.credentials.json
   poll_interval_sec: 120
   feed_limit: 25
