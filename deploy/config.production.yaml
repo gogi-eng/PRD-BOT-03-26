@@ -26,7 +26,7 @@ trading:
     max: 50
     min_confidence: 0.68
     max_confidence: 0.95
-  min_signal_confidence: 0.90
+  min_signal_confidence: 0.85
   min_own_agent_confidence: 0.90
   min_multi_agent_score: 0.4
   risk_pct_per_trade: 0.35
@@ -53,7 +53,7 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 50
-  max_trades_per_day: 8
+  max_trades_per_day: 38
 
 signals:
   own_agents_enabled: true
@@ -61,7 +61,7 @@ signals:
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
-  min_telegram_confidence: 0.90
+  min_telegram_confidence: 0.80
   min_analysis_confidence: 0.90
   min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
@@ -168,7 +168,7 @@ trade_journal:
 
 quality_gate:
   enabled: true
-  min_confidence: 0.90
+  min_confidence: 0.85
   min_rr_ratio: 2.0
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
@@ -211,9 +211,23 @@ feedback_loop:
   train_lr: 0.002
   train_batch_size: 32
 
+market_scanner:
+  enabled: true
+  interval_sec: 600
+  run_loop_in_unified_bot: true
+  run_loop_in_signal_agent: false
+
 telegram_signal_agent:
   enabled: true
   auto_execute: false
+  market_scanner_enabled: true
+  telegram_notify: true
+  market_scanner_interval_sec: 600
+  market_scanner_min_score_to_notify: 58
+  market_scanner_execute_min_score: 75
+  market_scanner_symbol_cooldown_sec: 3600
+  market_scanner_top_n: 3
+  market_scanner_max_symbols: 60
   control_panel_enabled: false
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
@@ -308,12 +322,14 @@ macro_ai:
 ai4trade_notify:
   enabled: true
   credentials_path: ai4trade.credentials.json
-  poll_interval_sec: 45
+  poll_interval_sec: 120
   feed_limit: 25
   symbols_allow:
     - BTC
     - ETH
-  cooldown_sec: 90
+  cooldown_sec: 300
+  telegram_min_interval_sec: 1800
+  max_messages_per_poll: 1
 
 kronos:
   enabled: false
