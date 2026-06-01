@@ -1,14 +1,16 @@
 ai:
   provider: openrouter
 ai4trade_notify:
-  cooldown_sec: 90
+  cooldown_sec: 300
   credentials_path: ai4trade.credentials.json
   enabled: true
   feed_limit: 25
-  poll_interval_sec: 45
+  max_messages_per_poll: 1
+  poll_interval_sec: 120
   symbols_allow:
   - BTC
   - ETH
+  telegram_min_interval_sec: 1800
 analytics:
   report_hours: 24
 bybit:
@@ -59,24 +61,31 @@ kronos:
   device: cpu
   enabled: false
   interval: '15'
-  kronos_home: ../Kronos-master
+  kronos_home: /root/Kronos-master
+  lookback: 400
+  max_context: 512
   model_id: NeoQuasar/Kronos-mini
   pred_len: 16
   symbol_delay_sec: 3
   symbols:
   - BTCUSDT
   - ETHUSDT
+  tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
 macro_ai:
   enabled: true
   include_positions: true
   max_headlines: 8
+market_scanner:
+  enabled: true
+  interval_sec: 600
+  run_loop_in_signal_agent: false
+  run_loop_in_unified_bot: true
 openrouter:
   api_key: ''
   model: google/gemini-2.0-flash-001
   timeout_sec: 30
 positions:
   adopt_manual: true
-  lock_initial_sl: false
   breakeven_after_pct: 1.05
   exit_management:
     close_on_late_retrace: false
@@ -91,30 +100,31 @@ positions:
     time_stop_enabled: true
     time_stop_min_atr_progress: 0.25
     time_stop_minutes: 120
+  lock_initial_sl: false
   notify_trailing_telegram: false
   pump_dump_trailing:
-    trailing_activation_pct: 1.0
-    trailing_distance_pct: 0.55
-    trailing_distance_atr_mult: 1.15
-    trailing_min_distance_pct: 0.35
     breakeven_after_pct: 0.85
     exit_management:
       early_breakeven_enabled: false
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
       enabled: false
+    trailing_activation_pct: 1.0
+    trailing_distance_atr_mult: 1.15
+    trailing_distance_pct: 0.55
+    trailing_min_distance_pct: 0.35
   tp_progress_exit:
-    enabled: true
-    breakeven_at_profit_pct: 1.05
-    sr_trail_at_profit_pct: 1.8
     be_fee_buffer_pct: 0.05
-    sr_trail_enabled: true
-    sr_sl_buffer_atr: 0.22
-    sr_level_index: 1
+    breakeven_at_profit_pct: 1.05
+    enabled: true
     min_valid_tp_distance_pct: 0.08
+    sr_level_index: 1
+    sr_sl_buffer_atr: 0.22
+    sr_trail_at_profit_pct: 1.8
+    sr_trail_enabled: true
   trailing_activation_pct: 1.35
-  trailing_distance_atr_mult: 2.5
-  trailing_distance_pct: 1.55
+  trailing_distance_atr_mult: 2.2
+  trailing_distance_pct: 1.4
   trailing_enabled: true
   trailing_min_distance_pct: 0.65
 pullback_entry:
@@ -144,8 +154,8 @@ quality_gate:
   - BILL
   enabled: true
   min_24h_volume_usdt: 10000000
-  min_confidence: 0.9
-  min_rr_ratio: 1.5
+  min_confidence: 0.85
+  min_rr_ratio: 1.85
   require_sl_tp: true
 reporter:
   high_confidence_threshold: 0.9
@@ -157,7 +167,7 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 50
-  max_trades_per_day: 58
+  max_trades_per_day: 38
 self_improvement:
   auto_apply_low_risk: true
   enabled: true
@@ -168,7 +178,7 @@ self_improvement:
 signals:
   min_analysis_confidence: 0.9
   min_multi_agent_score: 0.4
-  min_telegram_confidence: 0.9
+  min_telegram_confidence: 0.8
   own_agents_enabled: true
   signal_notify_cooldown_sec: 900
   telegram_inbox_backlog_lines: 100
@@ -200,10 +210,9 @@ telegram_signal_agent:
   - INVEX GROUP
   - Евгений Ковалёв | NextGen
   - Binance Killers®
-  auto_execute: true
-  control_panel_enabled: true
+  auto_execute: false
+  control_panel_enabled: false
   enabled: true
-  execute_min_score: 85
   ignore_bot_echo_messages: true
   ignored_chats:
   - FantastisheBot
@@ -378,6 +387,13 @@ telegram_signal_agent:
   - bullrunsignals
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   inbox_jsonl_enabled: true
+  market_scanner_enabled: true
+  market_scanner_execute_min_score: 75
+  market_scanner_interval_sec: 600
+  market_scanner_max_symbols: 60
+  market_scanner_min_score_to_notify: 58
+  market_scanner_symbol_cooldown_sec: 3600
+  market_scanner_top_n: 3
   min_openrouter_confidence: 68
   require_stop_loss: true
   session_name: telegram_user_signal_agent
@@ -386,6 +402,7 @@ telegram_signal_agent:
     min_structure_score: 58
     require_stop_loss: true
     skip_noise_posts: true
+  telegram_notify: true
   trusted_signal_sources:
   - Cornix Trading Signals (free)
   - FibTrader | Крипта, Сигналы, Копитрейдинг
@@ -431,7 +448,9 @@ trading:
   symbol_blacklist_substrings:
   - USDC
   - USDE
+  - PEPE
   - PENG
+  - FART
   - '1000'
   - BILL
   symbol_rescan_interval_sec: 1800
