@@ -57,6 +57,7 @@ class PositionSteward:
         self.distance_atr_mult = float(p.get("trailing_distance_atr_mult", 1.4))
         self.min_distance_pct = float(p.get("trailing_min_distance_pct", 0.0))
         self.breakeven_pct = float(p.get("breakeven_after_pct", 0.25))
+        self.lock_initial_sl = bool(p.get("lock_initial_sl", False))
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
@@ -83,20 +84,25 @@ class PositionSteward:
         pump_dump: bool = False,
     ) -> None:
         sym = symbol.upper()
+        now_iso = datetime.now(timezone.utc).isoformat()
         self._bot_symbols.add(sym)
         if pump_dump:
             self._pump_dump_symbols.add(sym)
         self._bot_levels[sym] = {
             "take_profit": float(take_profit or 0),
             "stop_loss": float(stop_loss or 0),
+            "opened_at_utc": now_iso,
         }
         if sym in self._tracked:
             if take_profit > 0:
                 self._tracked[sym].take_profit = take_profit
             if stop_loss > 0:
                 self._tracked[sym].stop_loss = stop_loss
+                self._tracked[sym].last_sl_sent = stop_loss
             if pump_dump:
                 self._tracked[sym].pump_dump_mode = True
+            if not self._tracked[sym].opened_at_utc:
+                self._tracked[sym].opened_at_utc = now_iso
 
     @staticmethod
     def _atr_from_klines(klines: List[Dict], period: int = 14) -> float:
@@ -130,11 +136,11 @@ class PositionSteward:
             tp = float(levels.get("take_profit", 0) or 0)
         if sl <= 0:
             sl = float(levels.get("stop_loss", 0) or 0)
+        opened_iso = str(levels.get("opened_at_utc") or "") or datetime.now(timezone.utc).isoformat()
         origin = "bot" if sym in self._bot_symbols else "manual"
         if origin == "manual" and not self.adopt_manual:
             return None
         mark = float(row.get("markPrice") or entry)
-        now_iso = datetime.now(timezone.utc).isoformat()
         return TrackedPosition(
             symbol=sym,
             side=side,
@@ -147,7 +153,7 @@ class PositionSteward:
             origin=origin,
             pump_dump_mode=sym in self._pump_dump_symbols,
             last_sl_sent=sl,
-            opened_at_utc=now_iso,
+            opened_at_utc=opened_iso,
         )
 
     def _calc_trailing_sl(
@@ -262,8 +268,8 @@ class PositionSteward:
                 t = self._tracked[sym]
                 t.qty = adopted.qty
                 t.entry = adopted.entry
-                if adopted.stop_loss > 0:
-                    t.stop_loss = adopted.stop_loss
+                if adopted.opened_at_utc and not t.opened_at_utc:
+                    t.opened_at_utc = adopted.opened_at_utc
                 if adopted.take_profit > 0:
                     t.take_profit = adopted.take_profit
 
@@ -300,7 +306,7 @@ class PositionSteward:
             be_override = effective_breakeven_pct(
                 profile.breakeven_pct,
                 cfg=profile.exit_management,
-                progress_atr=prog_atr,
+                profit_pct_from_entry=p_pct,
             )
             dist_factor = 1.0
             if late_retrace_active(
@@ -310,6 +316,10 @@ class PositionSteward:
             ):
                 dist_factor = profile.exit_management.late_tighten_distance_factor
 
+            if self.lock_initial_sl:
+                continue
+
+            # Любой перенос SL — только когда прибыль от цены входа >= trailing_activation_pct
             if p_pct < profile.activation_pct:
                 continue
 
@@ -324,17 +334,18 @@ class PositionSteward:
                     current_sl=pos.stop_loss,
                     klines=klines or [],
                     atr=atr,
+                    opened_at_iso=pos.opened_at_utc,
+                    min_activation_profit_pct=profile.activation_pct,
                 )
                 if tp_res.suggested_sl is not None:
                     new_sl = tp_res.suggested_sl
                     if tp_res.phase and tp_res.phase != pos.tp_progress_phase:
                         pos.tp_progress_phase = tp_res.phase
                         logger.info(
-                            "TP progress %s %s: %s (%.0f%%)",
+                            "TP progress %s %s: %s",
                             sym,
                             pos.side,
                             tp_res.note,
-                            tp_res.progress_pct or 0,
                         )
 
             if self.enabled:

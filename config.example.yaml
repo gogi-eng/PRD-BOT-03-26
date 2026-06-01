@@ -82,6 +82,7 @@ ta_scanner:
 positions:
   adopt_manual: true
   trailing_enabled: true
+  lock_initial_sl: false
   trailing_activation_pct: 1.35
   trailing_distance_pct: 1.55
   trailing_distance_atr_mult: 2.5
@@ -103,28 +104,24 @@ positions:
     late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_progress_pct: 62
-    sr_trail_at_progress_pct: 80
-    min_profit_pct_for_be: 1.2
+    breakeven_at_profit_pct: 1.05
+    sr_trail_at_profit_pct: 1.8
     be_fee_buffer_pct: 0.05
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
     min_valid_tp_distance_pct: 0.08
   pump_dump_trailing:
-    trailing_activation_pct: 0.42
-    trailing_distance_pct: 0.52
+    trailing_activation_pct: 1.0
+    trailing_distance_pct: 0.55
     trailing_distance_atr_mult: 1.15
-    trailing_min_distance_pct: 0.28
-    breakeven_after_pct: 0.38
+    trailing_min_distance_pct: 0.35
+    breakeven_after_pct: 0.85
     exit_management:
       early_breakeven_enabled: false
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
-      breakeven_at_progress_pct: 32
-      sr_trail_at_progress_pct: 52
-      min_profit_pct_for_be: 0.42
-      sr_sl_buffer_atr: 0.15
+      enabled: false
 
 execution_sr_zones:
   enabled: true
@@ -147,6 +144,9 @@ pullback_entry:
 
 pump_dump_trade:
   enabled: true
+  min_confidence: 0.65
+  min_rr_ratio: 1.5
+  inbox_replay_sec: 7200
   max_market_drift_pct: 0.012
   max_limit_drift_pct: 0.018
   max_skip_drift_pct: 0.03
@@ -299,6 +299,7 @@ kronos:
   pred_len: 16
   max_context: 512
   device: cpu
+  symbol_delay_sec: 3
 
 whale_news:
   liquidation_usd_threshold: 500000

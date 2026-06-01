@@ -1,5 +1,5 @@
 """
-Выход по прогрессу к take profit: безубыток на 20–40% пути, трейлинг SL за S/R после 50%+.
+Выход по TP: перенос SL только по прибыли % от цены входа (не по времени и не по «% пути к TP»).
 """
 from __future__ import annotations
 
@@ -14,13 +14,16 @@ from prd_agent.positions.sr_sl_tp_adjust import _simple_atr
 @dataclass
 class TpProgressExitConfig:
     enabled: bool = True
-    breakeven_at_progress_pct: float = 30.0
-    sr_trail_at_progress_pct: float = 50.0
+    breakeven_at_profit_pct: float = 1.05
+    sr_trail_at_profit_pct: float = 1.8
     be_fee_buffer_pct: float = 0.05
     sr_trail_enabled: bool = True
     sr_sl_buffer_atr: float = 0.15
     sr_level_index: int = 1
     min_valid_tp_distance_pct: float = 0.08
+    # Устаревшие ключи (только для чтения старых config): breakeven_at_progress_pct, min_profit_pct_for_be
+    breakeven_at_progress_pct: float = 30.0
+    sr_trail_at_progress_pct: float = 50.0
     min_profit_pct_for_be: float = 1.0
 
     @classmethod
@@ -28,16 +31,27 @@ class TpProgressExitConfig:
         raw = positions_cfg.get("tp_progress_exit")
         if not isinstance(raw, dict):
             raw = {}
+        legacy_be = float(raw.get("min_profit_pct_for_be", 1.0) or 1.0)
+        if "breakeven_at_profit_pct" in raw:
+            be_profit = float(raw.get("breakeven_at_profit_pct") or legacy_be)
+        else:
+            be_profit = legacy_be
+        if "sr_trail_at_profit_pct" in raw:
+            sr_profit = float(raw.get("sr_trail_at_profit_pct") or be_profit + 0.5)
+        else:
+            sr_profit = max(be_profit + 0.45, legacy_be + 0.45)
         return cls(
             enabled=bool(raw.get("enabled", True)),
-            breakeven_at_progress_pct=float(raw.get("breakeven_at_progress_pct", 30) or 30),
-            sr_trail_at_progress_pct=float(raw.get("sr_trail_at_progress_pct", 50) or 50),
+            breakeven_at_profit_pct=be_profit,
+            sr_trail_at_profit_pct=sr_profit,
             be_fee_buffer_pct=float(raw.get("be_fee_buffer_pct", 0.05) or 0.05),
             sr_trail_enabled=bool(raw.get("sr_trail_enabled", True)),
             sr_sl_buffer_atr=float(raw.get("sr_sl_buffer_atr", 0.15) or 0.15),
             sr_level_index=int(raw.get("sr_level_index", 1) or 1),
             min_valid_tp_distance_pct=float(raw.get("min_valid_tp_distance_pct", 0.08) or 0.08),
-            min_profit_pct_for_be=float(raw.get("min_profit_pct_for_be", 1.0) or 1.0),
+            breakeven_at_progress_pct=float(raw.get("breakeven_at_progress_pct", 30) or 30),
+            sr_trail_at_progress_pct=float(raw.get("sr_trail_at_progress_pct", 50) or 50),
+            min_profit_pct_for_be=legacy_be,
         )
 
 
@@ -179,9 +193,14 @@ def evaluate_tp_progress_exit(
     current_sl: float,
     klines: List[dict],
     atr: float,
+    opened_at_iso: str = "",
+    min_activation_profit_pct: float = 0.0,
 ) -> TpProgressResult:
+    del opened_at_iso  # SL только от % прибыли от входа, не от времени
     if not cfg.enabled:
         return TpProgressResult(None, None, "off", "tp_progress disabled")
+
+    from prd_agent.positions.exit_management import profit_pct
 
     if not is_take_profit_valid(
         side,
@@ -195,30 +214,26 @@ def evaluate_tp_progress_exit(
     if progress is None:
         return TpProgressResult(None, None, "no_progress", "не считается прогресс")
 
-    is_buy = str(side).lower() in ("buy", "long")
-    profit_pct = (
-        (price - entry) / entry * 100.0 if is_buy else (entry - price) / entry * 100.0
-    )
+    profit_pct_val = profit_pct(side, entry, price)
+    if min_activation_profit_pct > 0 and profit_pct_val < min_activation_profit_pct:
+        return TpProgressResult(
+            progress,
+            None,
+            "wait_activation",
+            f"прибыль от входа {profit_pct_val:.2f}% < {min_activation_profit_pct:.2f}% (старт SL)",
+        )
 
     be_sl = breakeven_stop_price(side, entry, cfg.be_fee_buffer_pct)
     suggested: Optional[float] = None
     phase = "none"
-    note = f"прогресс {progress:.0f}% к TP"
+    note = f"прибыль от входа {profit_pct_val:.2f}%"
 
-    if (
-        progress >= cfg.breakeven_at_progress_pct
-        and profit_pct >= cfg.min_profit_pct_for_be
-    ):
+    if profit_pct_val >= cfg.breakeven_at_profit_pct:
         suggested = tighten_stop(side, current_sl, be_sl, price)
         phase = "breakeven"
-        note = f"BE @ {progress:.0f}% пути к TP"
+        note = f"BE: прибыль {profit_pct_val:.2f}% >= {cfg.breakeven_at_profit_pct:.2f}% от входа"
 
-    if (
-        cfg.sr_trail_enabled
-        and progress >= cfg.sr_trail_at_progress_pct
-        and profit_pct >= cfg.min_profit_pct_for_be
-        and klines
-    ):
+    if cfg.sr_trail_enabled and profit_pct_val >= cfg.sr_trail_at_profit_pct and klines:
         sr_sl = trailing_sl_behind_sr(
             side,
             price,
@@ -237,7 +252,10 @@ def evaluate_tp_progress_exit(
                 else:
                     suggested = min(suggested, sr_tight)
                 phase = "sr_trail"
-                note = f"S/R трейл @ {progress:.0f}% к TP"
+                note = (
+                    f"S/R трейл: прибыль {profit_pct_val:.2f}% "
+                    f">= {cfg.sr_trail_at_profit_pct:.2f}% от входа"
+                )
 
     return TpProgressResult(progress, suggested, phase, note)
 
@@ -255,6 +273,6 @@ def format_tp_progress_status(cfg: TpProgressExitConfig) -> str:
     state = "ВКЛ" if cfg.enabled else "ВЫКЛ"
     return (
         f"Выход по TP: <b>{state}</b>\n"
-        f"BE после <code>{cfg.breakeven_at_progress_pct:.0f}%</code> пути к цели\n"
-        f"S/R трейл после <code>{cfg.sr_trail_at_progress_pct:.0f}%</code>"
+        f"BE при прибыли от входа <code>{cfg.breakeven_at_profit_pct:.2f}%</code>\n"
+        f"S/R трейл при <code>{cfg.sr_trail_at_profit_pct:.2f}%</code> от входа"
     )
