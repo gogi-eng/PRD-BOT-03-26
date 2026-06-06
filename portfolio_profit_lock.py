@@ -66,6 +66,7 @@ class PortfolioProfitLock:
         decline_duration_sec: float = 300.0,
         cooldown_sec: float = 3600.0,
         dry_run: bool = False,
+        skip_manual_positions: bool = True,
     ):
         self.client = client
         self.tg = tg
@@ -74,6 +75,7 @@ class PortfolioProfitLock:
         self.decline_duration_sec = decline_duration_sec
         self.cooldown_sec = cooldown_sec
         self.dry_run = dry_run
+        self.skip_manual_positions = skip_manual_positions
 
         self.state = LockState()
         self._initial_balance: float = 0.0
@@ -208,6 +210,7 @@ class PortfolioProfitLock:
             Список закрытых символов или None
         """
         async with self._lock:
+            positions = self._filter_positions(positions)
             if not positions:
                 if self.state.status not in (LockStatus.INACTIVE, LockStatus.COOLDOWN):
                     self.state = LockState()

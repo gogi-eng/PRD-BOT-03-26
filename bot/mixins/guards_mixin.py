@@ -70,6 +70,9 @@ class TradingBotGuardsMixin:
             pos = self.position_manager.get(symbol)
             if not pos:
                 continue
+            if getattr(pos, "origin", "") == "manual":
+                logger.warning(f"SESSION FLATTEN: skip {symbol} (origin=manual)")
+                continue
             try:
                 current_price = await self.client.get_price(symbol)
                 close_result = await self.execution_engine.execute_close(
@@ -86,25 +89,46 @@ class TradingBotGuardsMixin:
             except Exception as exc:
                 logger.warning(f"SESSION FLATTEN close failed for {symbol}: {exc}")
 
+    def _positions_for_portfolio_tp(self) -> dict:
+        """Позиции для портфельного TP (без ручных, если skip_manual включён)."""
+        positions = self.position_manager.all_positions()
+        if not getattr(self, "portfolio_tp_skip_manual", True):
+            return positions
+        return {
+            symbol: pos
+            for symbol, pos in positions.items()
+            if getattr(pos, "origin", "") != "manual"
+        }
+
     async def _check_portfolio_take_profit(self, total_unrealized: float):
-        if not self.portfolio_tp_enabled or total_unrealized <= 0 or self.position_manager.count() < 2:
+        if not self.portfolio_tp_enabled:
+            return
+        positions = self._positions_for_portfolio_tp()
+        min_positions = int(getattr(self, "portfolio_tp_min_bot_positions", 2))
+        if len(positions) < min_positions:
+            return
+        bot_unrealized = sum(float(getattr(pos, "unrealized_pnl", 0.0) or 0.0) for pos in positions.values())
+        if bot_unrealized <= 0:
             return
         balance = self.controls.get_balance()
         if balance <= 0:
             return
         target = balance * (self.portfolio_tp_target_pct / 100)
-        if total_unrealized + 1e-9 < target:
+        if bot_unrealized + 1e-9 < target:
             return
-        logger.info(f"PORTFOLIO TP HIT: unrealized=${total_unrealized:.2f} target=${target:.2f}")
+        logger.info(
+            f"PORTFOLIO TP HIT: bot_unrealized=${bot_unrealized:.2f} target=${target:.2f} "
+            f"({len(positions)} bot positions, manual skipped)"
+        )
         if self.tg:
             await self.tg.send_message(
                 f"<b>СУММАРНЫЙ TP ДОСТИГНУТ</b>\n\n"
-                f"Нереализованный PnL: <code>${total_unrealized:.2f}</code>\n"
+                f"Нереализованный PnL (только бот): <code>${bot_unrealized:.2f}</code>\n"
                 f"Цель: <code>${target:.2f}</code>\n"
-                f"Закрываю все позиции аккаунта."
+                f"Закрываю позиции бота ({len(positions)} шт.). Ручные не трогаю."
             )
-        for symbol in list(self.position_manager.symbols()):
-            pos = self.position_manager.get(symbol)
+        for symbol in list(positions.keys()):
+            pos = positions.get(symbol)
             if not pos:
                 continue
             current_price = await self.client.get_price(symbol)
@@ -211,6 +235,9 @@ class TradingBotGuardsMixin:
         for symbol in list(self.position_manager.symbols()):
             pos = self.position_manager.get(symbol)
             if not pos:
+                continue
+            if getattr(pos, "origin", "") == "manual":
+                logger.warning(f"BASKET TOTAL DRAWDOWN: skip {symbol} (origin=manual)")
                 continue
             current_price = await self.client.get_price(symbol)
             close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="basket_total_drawdown", position_idx=pos.position_idx)

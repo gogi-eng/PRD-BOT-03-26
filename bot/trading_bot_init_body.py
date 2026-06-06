@@ -213,6 +213,7 @@
             decline_duration_sec=self.cfg.get("profit_lock", "decline_duration_sec", default=300.0),
             cooldown_sec=self.cfg.get("profit_lock", "cooldown_sec", default=3600.0),
             dry_run=self.controls.dry_run,
+            skip_manual_positions=self.cfg.get("profit_lock", "skip_manual_positions", default=True),
         )
         self._running = False
         self._stop_event = threading.Event()
@@ -510,7 +511,7 @@
             "adaptive_regime_presets", "range_strict_htf_mode", default=True
         )
         self.adaptive_range_volatility_floor_atr_pct = float(
-            self.cfg.get("adaptive_regime_presets", "range_volatility_floor_atr_pct", default=1.0)
+            self.cfg.get("adaptive_regime_presets", "range_volatility_floor_atr_pct", default=0.02)
         )
         self.adaptive_range_require_4h_trend = bool(
             self.cfg.get(
@@ -594,6 +595,15 @@
         self.partial_tp_move_stop_to_entry = self.cfg.get("partial_tp", "move_stop_to_entry", default=True)
         self.portfolio_tp_enabled = self.cfg.get("portfolio_tp", "enabled", default=True)
         self.portfolio_tp_target_pct = self.cfg.get("portfolio_tp", "target_profit_pct", default=2.0)
+        self.portfolio_tp_skip_manual = bool(
+            self.cfg.get("portfolio_tp", "skip_manual_positions", default=True)
+        )
+        self.portfolio_tp_min_bot_positions = int(
+            self.cfg.get("portfolio_tp", "min_bot_positions", default=2)
+        )
+        self.profit_lock_skip_manual = bool(
+            self.cfg.get("profit_lock", "skip_manual_positions", default=True)
+        )
         self.basket_profit_guard_enabled = self.cfg.get("basket_profit_guard", "enabled", default=True)
         self.basket_profit_min_positions = self.cfg.get("basket_profit_guard", "min_positions", default=3)
         self.basket_profit_window_sec = self.cfg.get("basket_profit_guard", "monitor_window_sec", default=900)
