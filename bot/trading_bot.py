@@ -258,6 +258,9 @@ class TradingBot(
             decline_threshold_pct=self.cfg.get("profit_lock", "decline_threshold_pct", default=20.0),
             decline_duration_sec=self.cfg.get("profit_lock", "decline_duration_sec", default=300.0),
             cooldown_sec=self.cfg.get("profit_lock", "cooldown_sec", default=3600.0),
+            include_manual_positions=bool(
+                self.cfg.get("profit_lock", "include_manual_positions", default=False)
+            ),
             dry_run=self.controls.dry_run,
         )
         self._running = False
@@ -721,6 +724,9 @@ class TradingBot(
             self.cfg.get("manual_management", "allow_profit_drawdown_close", default=False)
         )
         self.manual_preserve_existing_tp = self.cfg.get("manual_management", "preserve_existing_tp", default=True)
+        self.manual_set_exchange_tp_on_adopt = bool(
+            self.cfg.get("manual_management", "set_exchange_tp_on_adopt", default=False)
+        )
         self.manual_trailing_activation_atr = self.cfg.get("manual_management", "trailing_activation_atr", default=1.6)
         self.manual_trailing_distance_atr = self.cfg.get("manual_management", "trailing_distance_atr", default=2.4)
         self.manual_trailing_min_distance_pct = float(

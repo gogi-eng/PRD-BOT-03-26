@@ -37,6 +37,7 @@ execution_sr_zones:
   sl_sr_level_index: 1
   tp_extra_buffer_atr: 0.08
 feedback_loop:
+  augment_wins_factor: 1
   base_dataset_path: training_data.json
   dataset_path: signal_only_feedback_data.json
   enabled: true
@@ -72,7 +73,7 @@ kronos:
   - ETHUSDT
   tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
 macro_ai:
-  enabled: true
+  enabled: false
   include_positions: true
   max_headlines: 8
 market_scanner:
@@ -86,7 +87,7 @@ openrouter:
   timeout_sec: 30
 positions:
   adopt_manual: true
-  breakeven_after_pct: 1.05
+  breakeven_after_pct: 1.9
   exit_management:
     close_on_late_retrace: false
     close_on_time_stop: true
@@ -122,13 +123,37 @@ positions:
     sr_sl_buffer_atr: 0.22
     sr_trail_at_profit_pct: 1.8
     sr_trail_enabled: true
-  trailing_activation_pct: 1.35
-  trailing_distance_atr_mult: 2.2
-  trailing_distance_pct: 1.4
+  trailing_activation_pct: 2.5
+  trailing_distance_atr_mult: 1.5
+  trailing_distance_pct: 3.0
   trailing_enabled: true
-  trailing_min_distance_pct: 0.65
+  trailing_min_distance_pct: 1.0
+manual_management:
+  allow_bot_close_manual: false
+  allow_trailing_exit: false
+  allow_tp_cap: false
+  allow_partial_tp: false
+  allow_profit_drawdown_close: false
+  allow_hard_sl_close: false
+  preserve_existing_tp: true
+  set_exchange_tp_on_adopt: false
+  close_grace_minutes: 60
+  notify_on_adopt: true
+position_sync:
+  preserve_existing_sl_tp: true
+portfolio_tp:
+  enabled: true
+  target_profit_pct: 2.0
+profit_lock:
+  include_manual_positions: false
+  min_profit_pct: 5.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600
 pullback_entry:
   enabled: true
+  kline_interval: '5'
+  kline_limit: 120
   min_momentum_pct: 0.35
   min_retrace_pct: 0.12
   momentum_bars: 5
@@ -155,7 +180,7 @@ quality_gate:
   enabled: true
   min_24h_volume_usdt: 10000000
   min_confidence: 0.85
-  min_rr_ratio: 1.85
+  min_rr_ratio: 1.5
   require_sl_tp: true
 reporter:
   high_confidence_threshold: 0.9
@@ -169,14 +194,17 @@ risk:
   max_daily_loss_usdt: 50
   max_trades_per_day: 38
 self_improvement:
+  auto_apply_allowed_files:
+  - config.yaml
+  auto_apply_critical: true
   auto_apply_low_risk: true
   enabled: true
-  git_auto_commit: false
+  git_auto_commit: true
   reload_config_after_apply: true
-  require_approval_critical: true
+  require_approval_critical: false
   sandbox_dir: data/sandbox
 signals:
-  min_analysis_confidence: 0.9
+  min_analysis_confidence: 0.95
   min_multi_agent_score: 0.4
   min_telegram_confidence: 0.8
   own_agents_enabled: true
@@ -190,7 +218,7 @@ ta_scanner:
   atr_sl_mult: 1.2
   atr_tp_mult: 2.5
   enabled: true
-  interval: '15'
+  interval: '5'
   kline_limit: 120
   max_symbols: 15
   min_24h_change_pct: 1.0
@@ -236,7 +264,6 @@ telegram_signal_agent:
   - TOP GUN х Петр Надеждин
   - Bitcoin Bullets®
   - Fed. Russian Insiders®
-  - Binance Killers®
   - Сава Торгует
   - Wolfx Signals
   - Кибер-Миша | ИИ для бизнеса
@@ -428,7 +455,16 @@ trade_supervisor:
   virtual_max_open: 40
   virtual_trades_enabled: true
 trading:
+  active_engine: classic
   auto_start: true
+  block_entry_utc_hours:
+  - 0
+  - 7
+  - 12
+  - 17
+  - 18
+  - 21
+  - 22
   dynamic_leverage:
     enabled: true
     max: 50
@@ -443,8 +479,13 @@ trading:
   min_multi_agent_score: 0.4
   min_own_agent_confidence: 0.9
   min_signal_confidence: 0.85
-  risk_pct_per_trade: 0.35
-  symbol_blacklist: []
+  risk_pct_per_trade: 0.1
+  symbol_blacklist:
+  - SOLUSDT
+  - CLOUSDT
+  - ATUSDT
+  - ZECUSDT
+  - DUSKUSDT
   symbol_blacklist_substrings:
   - USDC
   - USDE

@@ -120,7 +120,11 @@ class TradingBotSyncManualMixin:
         self.position_manager.add(adopted)
 
         if not self.controls.dry_run:
-            if float(exchange_position.get("takeProfit", 0) or 0) <= 0 and take_profit > 0:
+            if (
+                self.manual_set_exchange_tp_on_adopt
+                and float(exchange_position.get("takeProfit", 0) or 0) <= 0
+                and take_profit > 0
+            ):
                 await self.execution_engine.update_tp(symbol, take_profit, position_idx=position_idx)
         if self.tg and self.manual_notify_on_adopt:
             sl_info = f"${adopted.stop_loss:.4f}" if adopted.stop_loss > 0 else "НЕТ (ждём trailing)"
@@ -259,10 +263,18 @@ class TradingBotSyncManualMixin:
         return True, f"age={age_min:.1f}m pnl={pnl_pct:.2f}% R={r_mult:.2f}"
 
 
+    def _bot_may_close_position(self, pos: Position) -> bool:
+        if getattr(pos, "origin", "") != "manual":
+            return True
+        return bool(self.manual_allow_bot_close)
+
     def _manual_trailing_management_allowed(self, pos: Position, current_price: float) -> tuple[bool, str]:
         if pos.origin != "manual":
             return True, ""
-        return self._manual_profit_gate_ok(pos, current_price)
+        age_min = self._manual_position_age_minutes(pos)
+        if age_min + 1e-9 < self.manual_close_grace_minutes:
+            return False, f"age={age_min:.1f}m < grace={self.manual_close_grace_minutes:.1f}m"
+        return True, f"age={age_min:.1f}m trailing_ok"
 
 
     def _manual_exit_allowed(self, pos: Position, current_price: float, reason: ExitReason | None) -> tuple[bool, str]:
