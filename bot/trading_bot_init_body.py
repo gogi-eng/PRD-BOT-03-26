@@ -481,7 +481,7 @@
         self.strict_htf_mode = self.cfg.get("entry", "strict_htf_mode", default=True)
         self.volatility_floor_enabled = self.cfg.get("entry", "volatility_floor_enabled", default=True)
         self.volatility_floor_atr_pct = float(
-            self.cfg.get("entry", "volatility_floor_atr_pct", default=0.8)
+            self.cfg.get("entry", "volatility_floor_atr_pct", default=0.06)
         )
         self.adaptive_regime_presets_enabled = self.cfg.get("adaptive_regime_presets", "enabled", default=True)
         self.adaptive_regime_presets_interval_sec = int(
@@ -497,7 +497,7 @@
             "adaptive_regime_presets", "trend_strict_htf_mode", default=True
         )
         self.adaptive_trend_volatility_floor_atr_pct = float(
-            self.cfg.get("adaptive_regime_presets", "trend_volatility_floor_atr_pct", default=0.8)
+            self.cfg.get("adaptive_regime_presets", "trend_volatility_floor_atr_pct", default=0.06)
         )
         self.adaptive_trend_require_4h_trend = bool(
             self.cfg.get(
