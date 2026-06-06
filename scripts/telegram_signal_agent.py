@@ -3080,7 +3080,8 @@ class TelegramSignalAgent:
         if not isinstance(rows, dict):
             self.state["market_scanner_notified"] = {}
             return False
-        key = f"{symbol}:{scenario}"
+        # Кулдаун по символу (не по сценарию): один алерт на монету за период.
+        key = str(symbol).upper()
         try:
             last = datetime.fromisoformat(str(rows.get(key, "")))
             if last.tzinfo is None:
@@ -3093,7 +3094,7 @@ class TelegramSignalAgent:
     def _mark_market_scanner_notified(self, setup: MarketSetup) -> None:
         rows = self.state.setdefault("market_scanner_notified", {})
         if isinstance(rows, dict):
-            rows[f"{setup.symbol}:{setup.scenario}"] = utc_now().isoformat()
+            rows[str(setup.symbol).upper()] = utc_now().isoformat()
             cutoff = utc_now() - timedelta(seconds=max(self.market_scanner_symbol_cooldown_sec * 3, 86400))
             for key, value in list(rows.items()):
                 try:
@@ -3172,15 +3173,26 @@ class TelegramSignalAgent:
         buffer = self.market_scanner_bos_buffer_pct / 100.0
         bos_up = price > range_high * (1.0 + buffer)
         bos_down = price < range_low * (1.0 - buffer)
-        near_high = price >= range_high * (1.0 - buffer * 2.0)
-        near_low = price <= range_low * (1.0 + buffer * 2.0)
-
-        if bos_up or (near_high and not near_low):
+        span = max(range_high - range_low, 1e-12)
+        pos_in_range = (price - range_low) / span
+        # Без подтверждённого BOS — только явная сторона диапазона (гистерезис),
+        # иначе в узком боковике за 10 мин приходят и PUMP и DUMP на одну монету.
+        if bos_up:
             scenario = "PUMP"
             bos_level = range_high
             invalidation = range_low
             target = max(range_high + (range_high - range_low) * 0.7, price * 1.012)
-        elif bos_down or near_low:
+        elif bos_down:
+            scenario = "DUMP"
+            bos_level = range_low
+            invalidation = range_high
+            target = min(range_low - (range_high - range_low) * 0.7, price * 0.988)
+        elif pos_in_range >= 0.62:
+            scenario = "PUMP"
+            bos_level = range_high
+            invalidation = range_low
+            target = max(range_high + (range_high - range_low) * 0.7, price * 1.012)
+        elif pos_in_range <= 0.38:
             scenario = "DUMP"
             bos_level = range_low
             invalidation = range_high
@@ -3266,11 +3278,18 @@ class TelegramSignalAgent:
             f"наблюдение | если score≥{self.market_scanner_execute_min_score}: "
             f"{'попытка ордера Bybit возможна (сканер→Bybit вкл)' if exec_on else 'ордер по сканеру выкл (/panel)'}"
         )
+        watch_note = ""
+        if not bool(getattr(setup, "confirmed_bos", False)):
+            watch_note = (
+                "⚠️ Наблюдение у границы диапазона — это НЕ вход и НЕ гарантия движения. "
+                "Ждём подтверждение BOS (пробой уровня).\n"
+            )
         text = (
             "MARKET SCANNER\n"
             f"Статус: {status_line}\n"
             f"Монета: {setup.symbol}\n"
             f"Сценарий: {direction_arrow} возможный {setup.scenario}\n"
+            f"{watch_note}"
             f"Уверенность (скорер наблюдения, не OpenRouter): {setup.score}/100\n"
             f"Оборот 24ч: {setup.turnover_24h / 1_000_000:.1f}M USDT\n"
             f"Цена: {setup.price:.8g}\n"
@@ -3429,6 +3448,12 @@ class TelegramSignalAgent:
             await self._try_execute_market_setup(setup)
         if setups or notified:
             self._save_state()
+        if setups and notified == 0:
+            LOG.info(
+                "Market scan: %s сетапов, в Telegram 0 (cooldown %ss или уже видели)",
+                len(setups),
+                int(self.market_scanner_symbol_cooldown_sec),
+            )
         LOG.info(
             "Market scan done: candidates=%s setups=%s notified=%s "
             "| active_thresholds score>=%s vol_ratio>=%.2f range%%<=%.2f atr%%<=%.2f "
@@ -3667,8 +3692,15 @@ class TelegramSignalAgent:
                         rating_task = asyncio.create_task(self._rating_monitor_loop())
                     if self.channel_daily_report_enabled:
                         daily_task = asyncio.create_task(self._daily_channel_report_loop())
-                    if self.market_scanner_enabled:
+                    mc_root = self.cfg.get("market_scanner") or {}
+                    run_scan_loop = bool(mc_root.get("run_loop_in_signal_agent", True))
+                    if self.market_scanner_enabled and run_scan_loop:
                         scanner_task = asyncio.create_task(self._market_scanner_loop())
+                    elif self.market_scanner_enabled and not run_scan_loop:
+                        LOG.info(
+                            "Market scanner loop skipped (market_scanner.run_loop_in_signal_agent=false; "
+                            "ожидается цикл в run_unified / trading_bot)"
+                        )
                     if self.agent_world_enabled:
                         world_task = asyncio.create_task(self._world_feed_loop())
                     if self.control_panel_enabled and os.getenv("TELEGRAM_TOKEN", "").strip():
@@ -3746,14 +3778,26 @@ async def amain() -> int:
         LOG.info("disabled by config")
         return 0
 
+    if args.market_scan_once:
+        try:
+            await agent.run_market_scan_once()
+        except Exception:
+            LOG.exception("FATAL: market scan failed")
+            return 1
+        finally:
+            if agent is not None:
+                try:
+                    await agent.close()
+                except Exception:
+                    LOG.exception("agent.close() завершился ошибкой")
+        return 0
+
     if TelegramClient is None or events is None:
         LOG.error("FATAL: пакет telethon не установлен в этом venv. Запустите: pip install telethon")
         return 1
 
     try:
-        if args.market_scan_once:
-            await agent.run_market_scan_once()
-        elif args.once:
+        if args.once:
             if args.max_chats is not None:
                 agent.max_chats_once = max(1, int(args.max_chats))
             await agent.run_once(args.limit)

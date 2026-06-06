@@ -57,13 +57,14 @@ class LiveControls:
             "consecutive_losses": 0,
         }
 
-    def add_trade(self, pnl: float, symbol: str = "", side: str = "", reason: str = ""):
+    def add_trade(self, pnl: float, symbol: str = "", side: str = "", reason: str = "", origin: str = "bot"):
         with self._lock:
             self._session_trades += 1
             self._session_pnl += pnl
             self._trade_history.append({
                 "time": datetime.now(), "symbol": symbol,
                 "side": side, "pnl": pnl, "reason": reason,
+                "origin": str(origin or "bot"),
             })
             if len(self._trade_history) > 100:
                 self._trade_history.pop(0)
@@ -177,23 +178,34 @@ class LiveControls:
         now = datetime.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         hour_ago = now - timedelta(hours=1)
-        pnl_today = pnl_hour = 0.0
-        wins = losses = 0
-
-        for trade in history:
-            t = trade.get("time", now)
-            p = trade.get("pnl", 0)
-            if t >= today_start:
-                pnl_today += p
+        def _bucket(trades: list, since: datetime | None = None) -> dict:
+            pnl_sum = 0.0
+            wins = losses = 0
+            for trade in trades:
+                t = trade.get("time", now)
+                if since is not None and t < since:
+                    continue
+                p = float(trade.get("pnl", 0) or 0)
+                pnl_sum += p
                 if p > 0:
                     wins += 1
                 elif p < 0:
                     losses += 1
-            if t >= hour_ago:
-                pnl_hour += p
+            total = wins + losses
+            return {
+                "pnl": pnl_sum,
+                "wins": wins,
+                "losses": losses,
+                "winrate": (wins / total * 100) if total > 0 else 0.0,
+                "n": total,
+            }
 
-        total = wins + losses
-        winrate = (wins / total * 100) if total > 0 else 0
+        all_today = _bucket(history, today_start)
+        all_hour = _bucket(history, hour_ago)
+        bot_hist = [t for t in history if str(t.get("origin", "bot")) != "manual"]
+        manual_hist = [t for t in history if str(t.get("origin", "bot")) == "manual"]
+        bot_today = _bucket(bot_hist, today_start)
+        manual_today = _bucket(manual_hist, today_start)
         last5 = history[-5:]
 
         lines = [
@@ -201,12 +213,22 @@ class LiveControls:
             f"Баланс: <code>${balance:.2f}</code>",
             f"Нереализованный: <code>${unrealized:+.2f}</code>",
             f"Итого: <code>${balance + unrealized:.2f}</code>",
-            f"\nPnL сессия: <code>${session_pnl:+.2f}</code>",
-            f"PnL сегодня: <code>${pnl_today:+.2f}</code>",
-            f"PnL за час: <code>${pnl_hour:+.2f}</code>",
-            f"\nСделок: <code>{session_trades}</code>",
-            f"Побед/Поражений: <code>{wins}/{losses}</code>",
-            f"Winrate: <code>{winrate:.1f}%</code>",
+            f"\nPnL сессия (все): <code>${session_pnl:+.2f}</code>",
+            f"PnL сегодня (все): <code>${all_today['pnl']:+.2f}</code>",
+            f"PnL за час (все): <code>${all_hour['pnl']:+.2f}</code>",
+            f"\nСделок сессии: <code>{session_trades}</code>",
+            f"Сегодня W/L (все): <code>{all_today['wins']}/{all_today['losses']}</code> | "
+            f"WR <code>{all_today['winrate']:.1f}%</code>",
+            "",
+            "<b>Только БОТ (сегодня)</b>",
+            f"PnL: <code>${bot_today['pnl']:+.2f}</code> | "
+            f"W/L: <code>{bot_today['wins']}/{bot_today['losses']}</code> | "
+            f"WR: <code>{bot_today['winrate']:.1f}%</code>",
+            "",
+            "<b>Только РУЧНЫЕ (сегодня)</b>",
+            f"PnL: <code>${manual_today['pnl']:+.2f}</code> | "
+            f"W/L: <code>{manual_today['wins']}/{manual_today['losses']}</code> | "
+            f"WR: <code>{manual_today['winrate']:.1f}%</code>",
         ]
         if self._candidate_snapshots:
             lines.append("\n<b>ТОП КАНДИДАТЫ</b>")

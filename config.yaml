@@ -32,8 +32,8 @@ entry_guard:
 bot:
   signal_cooldown_sec: 5400
 entry:
-  entry_threshold: 0.64
-  entry_threshold_soft: 0.60
+  entry_threshold: 0.58
+  entry_threshold_soft: 0.55
   min_volatility_pct: 0.06
   volatility_floor_enabled: true
   volatility_floor_atr_pct: 0.06
@@ -125,6 +125,17 @@ openrouter:
   api_key: ''
   model: google/gemini-2.0-flash-001
   timeout_sec: 30
+portfolio_tp:
+  enabled: true
+  target_profit_pct: 2.0
+  skip_manual_positions: true
+  min_bot_positions: 2
+profit_lock:
+  min_profit_pct: 5.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600
+  skip_manual_positions: true
 positions:
   adopt_manual: true
   breakeven_after_pct: 2.0

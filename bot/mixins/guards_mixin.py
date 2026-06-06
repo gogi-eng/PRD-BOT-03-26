@@ -131,11 +131,16 @@ class TradingBotGuardsMixin:
             pos = positions.get(symbol)
             if not pos:
                 continue
-            current_price = await self.client.get_price(symbol)
-            close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="portfolio_total_tp", position_idx=pos.position_idx)
-            if close_result.get("success"):
-                pnl = self._calc_pnl(pos, current_price, pos.qty)
-                await self._finalize_full_close(symbol, pos, current_price, pnl, "portfolio_total_tp")
+            try:
+                current_price = await self.client.get_price(symbol)
+                close_result = await self.execution_engine.execute_close(
+                    symbol, pos.side, reason="portfolio_total_tp", position_idx=pos.position_idx
+                )
+                if close_result.get("success"):
+                    pnl = self._calc_pnl(pos, current_price, pos.qty)
+                    await self._finalize_full_close(symbol, pos, current_price, pnl, "portfolio_total_tp")
+            except Exception as exc:
+                logger.error("PORTFOLIO TP close failed for %s: %s", symbol, exc, exc_info=True)
         self._reset_basket_profit_state()
 
 

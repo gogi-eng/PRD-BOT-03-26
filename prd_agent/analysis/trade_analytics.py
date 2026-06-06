@@ -118,16 +118,38 @@ def format_telegram_report(
             lines.append(
                 f"• {r['name']}: n={r['n']}, PnL={r['pnl']:+.2f}, WR={r['winrate']:.0f}%"
             )
+        lines.append("")
     return "\n".join(lines)
+
+
+def _origin_bucket(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Разделяет bot vs manual (поле origin или source)."""
+    mapped: List[Dict[str, Any]] = []
+    for r in rows:
+        row = dict(r)
+        origin = str(row.get("origin") or row.get("source") or "bot").lower()
+        row["origin_group"] = "manual" if origin == "manual" else "bot"
+        mapped.append(row)
+    return _bucket_stats(mapped, "origin_group")
 
 
 def build_report(journal_path: Path, hours: float = 24.0) -> str:
     rows = load_closed_trades(journal_path, hours)
     summary = summarize_trades(rows)
-    return format_telegram_report(
+    by_origin = _origin_bucket(rows)
+    text = format_telegram_report(
         summary,
         hours=hours,
         by_source=_bucket_stats(rows, "source"),
         by_symbol=_bucket_stats(rows, "symbol"),
         by_reason=_bucket_stats(rows, "reason"),
     )
+    if by_origin:
+        extra = ["<b>По типу сделки</b>"]
+        for r in by_origin:
+            label = "Ручные" if r["name"] == "manual" else "Бот"
+            extra.append(
+                f"• {label}: n={r['n']}, PnL={r['pnl']:+.2f}, WR={r['winrate']:.0f}%"
+            )
+        text = text + "\n" + "\n".join(extra)
+    return text

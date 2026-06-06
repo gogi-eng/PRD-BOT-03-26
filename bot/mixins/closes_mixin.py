@@ -4,6 +4,15 @@ from __future__ import annotations
 from bot.trading_bot_imports import *  # noqa: F401,F403
 
 class TradingBotClosesMixin:
+    @staticmethod
+    def _normalize_entry_context(raw) -> dict | None:
+        """entry_context иногда строка (старые позиции) — не вызывать .get() напрямую."""
+        if isinstance(raw, dict):
+            return raw if raw else None
+        if isinstance(raw, str) and raw.strip():
+            return {"source": raw.strip()}
+        return None
+
     async def _finalize_full_close(self, symbol: str, pos: Position, exit_price: float, pnl: float, reason: str, already_removed: bool = False):
         self._missing_exchange_cycles.pop(symbol, None)
         if reason == "exchange_closed" or reason.startswith("exchange_closed_"):
@@ -12,7 +21,7 @@ class TradingBotClosesMixin:
             self.position_manager.remove(symbol)
         close_meta = self._pop_exchange_close_meta(symbol)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
-        self.controls.add_trade(pnl, symbol, pos.side, reason)
+        self.controls.add_trade(pnl, symbol, pos.side, reason, origin=getattr(pos, "origin", "bot"))
         bal = self.controls.get_balance()
         if getattr(self, "meta_controller_enabled", False) or getattr(self, "rl_meta_enabled", False):
             self._meta_stack_update_pnl(pnl)
@@ -29,7 +38,7 @@ class TradingBotClosesMixin:
             origin=pos.origin,
             exchange_close_meta=close_meta,
             entry_time=getattr(pos, "entry_time", None),
-            entry_context=getattr(pos, "entry_context", None),
+            entry_context=self._normalize_entry_context(getattr(pos, "entry_context", None)),
         )
         logger.info(f"CLOSED {symbol}: pnl=${pnl:.2f} reason={reason}")
         if self.tg:
@@ -51,7 +60,7 @@ class TradingBotClosesMixin:
     async def _finalize_partial_close(self, symbol: str, pos: Position, exit_price: float, qty: float, reason: str):
         pnl = self._calc_pnl(pos, exit_price, qty)
         self.risk_guard.record_trade(pnl, symbol, reason=reason)
-        self.controls.add_trade(pnl, symbol, pos.side, reason)
+        self.controls.add_trade(pnl, symbol, pos.side, reason, origin=getattr(pos, "origin", "bot"))
         if getattr(self, "meta_controller_enabled", False) or getattr(self, "rl_meta_enabled", False):
             self._meta_stack_update_pnl(pnl)
         self._save_trade(
@@ -64,7 +73,7 @@ class TradingBotClosesMixin:
             reason,
             origin=pos.origin,
             entry_time=getattr(pos, "entry_time", None),
-            entry_context=getattr(pos, "entry_context", None),
+            entry_context=self._normalize_entry_context(getattr(pos, "entry_context", None)),
         )
         self.position_manager.reduce(symbol, qty)
         logger.info(f"REDUCED {symbol}: qty={qty:.6f} pnl=${pnl:.2f} reason={reason}")
