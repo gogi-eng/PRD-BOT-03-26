@@ -187,8 +187,8 @@ bot:
   signal_cooldown_sec: 5400
 
 entry:
-  entry_threshold: 0.64
-  entry_threshold_soft: 0.60
+  entry_threshold: 0.58
+  entry_threshold_soft: 0.55
   min_volatility_pct: 0.06
   volatility_floor_enabled: true
   volatility_floor_atr_pct: 0.06
