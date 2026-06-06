@@ -27,12 +27,12 @@ trading:
     min_confidence: 0.68
     max_confidence: 0.95
   min_signal_confidence: 0.85
-  min_own_agent_confidence: 0.90
+  min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
   risk_pct_per_trade: 0.35
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
-  symbol_rescan_interval_sec: 1800
+  symbol_rescan_interval_sec: 900
   symbols:
     - BTCUSDT
     - ETHUSDT
@@ -62,7 +62,7 @@ signals:
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
   min_telegram_confidence: 0.80
-  min_analysis_confidence: 0.90
+  min_analysis_confidence: 0.88
   min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
   whale_news_enabled: true
@@ -74,7 +74,7 @@ ta_scanner:
   max_symbols: 15
   interval: "15"
   kline_limit: 120
-  min_confidence: 0.90
+  min_confidence: 0.82
   atr_sl_mult: 1.2
   atr_tp_mult: 2.5
   min_rr: 2.0
@@ -171,6 +171,48 @@ entry_guard:
     - telegram
     - tg
     - tg_inbox
+
+bot:
+  signal_cooldown_sec: 5400
+
+entry:
+  entry_threshold: 0.64
+  entry_threshold_soft: 0.60
+  min_volatility_pct: 0.06
+  volatility_floor_enabled: true
+  volatility_floor_atr_pct: 0.06
+  require_4h_trend: false
+  strict_htf_mode: true
+  min_orderflow_imbalance: 1.24
+  min_smc_score: 0.60
+  ema_guard_min_diff_pct: 0.30
+  momentum_guard_min_pct: 0.15
+  buy_momentum_guard_min_pct: 0.35
+  sell_momentum_guard_min_pct: 0.15
+  volume_guard_min_ratio: 0.35
+  buy_volume_guard_min_ratio: 0.50
+  sell_volume_guard_min_ratio: 0.35
+  impulse_min_body_atr: 0.45
+  retest_max_body_ratio: 0.85
+  early_exit_bars: 45
+  early_exit_min_profit_atr: 0.35
+  ema_exit_confirm_bars: 3
+  trained_model_enabled: true
+  trained_model_min_prob: 0.52
+  trained_model_blend: 0.15
+  trained_model_weights_path: transformer_weights.pt
+
+adaptive_regime_presets:
+  enabled: true
+  switch_interval_sec: 900
+  notify_on_switch: true
+  benchmark_symbol: BTCUSDT
+  trend_strict_htf_mode: true
+  trend_volatility_floor_atr_pct: 0.06
+  trend_require_4h_trend: false
+  range_strict_htf_mode: false
+  range_volatility_floor_atr_pct: 0.02
+  range_require_4h_trend: false
 
 trade_journal:
   rotate_max_mb: 8
