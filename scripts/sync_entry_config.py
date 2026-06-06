@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy" / "config.production.yaml"
 CONFIG = ROOT / "config.yaml"
 
-TOP_KEYS = ("bot", "entry", "adaptive_regime_presets")
+TOP_KEYS = ("bot", "entry", "adaptive_regime_presets", "portfolio_tp", "profit_lock")
 TRADING_PATCH = {
     "min_own_agent_confidence": 0.82,
     "symbol_rescan_interval_sec": 900,

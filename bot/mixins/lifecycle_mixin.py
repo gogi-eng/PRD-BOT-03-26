@@ -278,11 +278,21 @@ class TradingBotLifecycleMixin:
                         if self.basket_profit_guard_enabled and self.position_manager.count() >= self.basket_profit_min_positions:
                             await self._check_basket_profit_guard(total_unrealized)
 
-                        if self.portfolio_tp_enabled and self.position_manager.count() >= 2:
-                            await self._check_portfolio_take_profit(total_unrealized)
+                        if self.portfolio_tp_enabled:
+                            bot_tp_positions = self._positions_for_portfolio_tp()
+                            min_bot = int(getattr(self, "portfolio_tp_min_bot_positions", 2))
+                            if len(bot_tp_positions) >= min_bot:
+                                await self._check_portfolio_take_profit(total_unrealized)
 
-                        if self.position_manager.count() > 0:
-                            closed_symbols = await self.profit_lock.check(self.position_manager.all_positions()) or []
+                        profit_lock_positions = self.position_manager.all_positions()
+                        if getattr(self, "profit_lock_skip_manual", True):
+                            profit_lock_positions = {
+                                symbol: pos
+                                for symbol, pos in profit_lock_positions.items()
+                                if getattr(pos, "origin", "") != "manual"
+                            }
+                        if profit_lock_positions:
+                            closed_symbols = await self.profit_lock.check(profit_lock_positions) or []
                             for symbol in closed_symbols:
                                 pos = self.position_manager.get(symbol)
                                 if pos:

@@ -79,6 +79,17 @@ ta_scanner:
   atr_tp_mult: 2.5
   min_rr: 2.0
 
+portfolio_tp:
+  enabled: true
+  target_profit_pct: 2.0
+  skip_manual_positions: true
+  min_bot_positions: 2
+profit_lock:
+  min_profit_pct: 5.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600
+  skip_manual_positions: true
 positions:
   adopt_manual: true
   trailing_enabled: true
