@@ -87,7 +87,7 @@ openrouter:
   timeout_sec: 30
 positions:
   adopt_manual: true
-  breakeven_after_pct: 1.9
+  breakeven_after_pct: 2.0
   exit_management:
     close_on_late_retrace: false
     close_on_time_stop: true
@@ -123,33 +123,16 @@ positions:
     sr_sl_buffer_atr: 0.22
     sr_trail_at_profit_pct: 1.8
     sr_trail_enabled: true
-  trailing_activation_pct: 2.5
-  trailing_distance_atr_mult: 1.5
-  trailing_distance_pct: 3.0
+  trailing_activation_pct: 3.0
+  trailing_distance_atr_mult: 2.8
+  trailing_distance_pct: 4.0
   trailing_enabled: true
-  trailing_min_distance_pct: 1.0
+  trailing_min_distance_pct: 1.5
 manual_management:
-  allow_bot_close_manual: false
-  allow_trailing_exit: false
-  allow_tp_cap: false
-  allow_partial_tp: false
-  allow_profit_drawdown_close: false
-  allow_hard_sl_close: false
-  preserve_existing_tp: true
-  set_exchange_tp_on_adopt: false
-  close_grace_minutes: 60
-  notify_on_adopt: true
-position_sync:
-  preserve_existing_sl_tp: true
-portfolio_tp:
-  enabled: true
-  target_profit_pct: 2.0
-profit_lock:
-  include_manual_positions: false
-  min_profit_pct: 5.0
-  decline_threshold_pct: 20.0
-  decline_duration_sec: 300
-  cooldown_sec: 3600
+  set_exchange_levels_on_adopt: false
+  manual_trailing_activation_atr: 2.2
+  manual_trailing_distance_atr: 3.5
+  manual_trailing_min_distance_pct: 0.55
 pullback_entry:
   enabled: true
   kline_interval: '5'

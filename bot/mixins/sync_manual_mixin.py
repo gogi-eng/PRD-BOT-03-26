@@ -55,12 +55,20 @@ class TradingBotSyncManualMixin:
         if liq_analysis.target_level <= 0:
             liq_analysis = self._build_directional_liq_fallback(current_price, market, orderflow, atr_val)
         zone_context = self.structure_zone_analyzer.analyze(klines, current_price)
-        derived_sl, derived_tp, partial_tp = self._derive_manual_position_levels(side, current_price, stop_loss, take_profit, atr_val, liq_analysis=liq_analysis, klines=klines, zone_context=zone_context)
-        stop_loss = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else derived_sl
-        take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
+        partial_tp = 0.0
+        if self.manual_set_exchange_levels_on_adopt:
+            derived_sl, derived_tp, partial_tp = self._derive_manual_position_levels(
+                side, current_price, stop_loss, take_profit, atr_val,
+                liq_analysis=liq_analysis, klines=klines, zone_context=zone_context,
+            )
+            stop_loss = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else derived_sl
+            take_profit = take_profit if take_profit > 0 and self.preserve_existing_sl_tp else derived_tp
+        else:
+            stop_loss = float(exchange_position.get("stopLoss", 0) or 0)
+            take_profit = float(exchange_position.get("takeProfit", 0) or 0)
 
         external_tp_locked = bool(take_profit > 0 and self.manual_preserve_existing_tp)
-        stop_loss_for_tracking = stop_loss if stop_loss > 0 and self.preserve_existing_sl_tp else 0.0
+        stop_loss_for_tracking = stop_loss if stop_loss > 0 else 0.0
         adopted_at = datetime.now(timezone.utc)
         entry_time = adopted_at
         raw_entry_ts = exchange_position.get("createdTime") or exchange_position.get("updatedTime")
@@ -119,13 +127,13 @@ class TradingBotSyncManualMixin:
             adopted.partial_tp_price = partial_tp
         self.position_manager.add(adopted)
 
-        if not self.controls.dry_run:
-            if (
-                self.manual_set_exchange_tp_on_adopt
-                and float(exchange_position.get("takeProfit", 0) or 0) <= 0
-                and take_profit > 0
-            ):
+        if not self.controls.dry_run and self.manual_set_exchange_levels_on_adopt:
+            if float(exchange_position.get("takeProfit", 0) or 0) <= 0 and take_profit > 0:
                 await self.execution_engine.update_tp(symbol, take_profit, position_idx=position_idx)
+            if float(exchange_position.get("stopLoss", 0) or 0) <= 0 and stop_loss_for_tracking > 0:
+                await self.execution_engine.update_sl(
+                    symbol, stop_loss_for_tracking, position_idx=position_idx
+                )
         if self.tg and self.manual_notify_on_adopt:
             sl_info = f"${adopted.stop_loss:.4f}" if adopted.stop_loss > 0 else "НЕТ (ждём trailing)"
             await self.tg.send_message(
@@ -263,18 +271,10 @@ class TradingBotSyncManualMixin:
         return True, f"age={age_min:.1f}m pnl={pnl_pct:.2f}% R={r_mult:.2f}"
 
 
-    def _bot_may_close_position(self, pos: Position) -> bool:
-        if getattr(pos, "origin", "") != "manual":
-            return True
-        return bool(self.manual_allow_bot_close)
-
     def _manual_trailing_management_allowed(self, pos: Position, current_price: float) -> tuple[bool, str]:
         if pos.origin != "manual":
             return True, ""
-        age_min = self._manual_position_age_minutes(pos)
-        if age_min + 1e-9 < self.manual_close_grace_minutes:
-            return False, f"age={age_min:.1f}m < grace={self.manual_close_grace_minutes:.1f}m"
-        return True, f"age={age_min:.1f}m trailing_ok"
+        return self._manual_profit_gate_ok(pos, current_price)
 
 
     def _manual_exit_allowed(self, pos: Position, current_price: float, reason: ExitReason | None) -> tuple[bool, str]:

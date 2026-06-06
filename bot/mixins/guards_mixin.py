@@ -70,9 +70,6 @@ class TradingBotGuardsMixin:
             pos = self.position_manager.get(symbol)
             if not pos:
                 continue
-            if getattr(pos, "origin", "") == "manual":
-                logger.info(f"SESSION FLATTEN: skip {symbol} (origin=manual)")
-                continue
             try:
                 current_price = await self.client.get_price(symbol)
                 close_result = await self.execution_engine.execute_close(
@@ -104,14 +101,11 @@ class TradingBotGuardsMixin:
                 f"<b>СУММАРНЫЙ TP ДОСТИГНУТ</b>\n\n"
                 f"Нереализованный PnL: <code>${total_unrealized:.2f}</code>\n"
                 f"Цель: <code>${target:.2f}</code>\n"
-                f"Закрываю только позиции бота (ручные не трогаю)."
+                f"Закрываю все позиции аккаунта."
             )
         for symbol in list(self.position_manager.symbols()):
             pos = self.position_manager.get(symbol)
             if not pos:
-                continue
-            if getattr(pos, "origin", "") == "manual":
-                logger.info(f"PORTFOLIO TP: skip {symbol} (origin=manual)")
                 continue
             current_price = await self.client.get_price(symbol)
             close_result = await self.execution_engine.execute_close(symbol, pos.side, reason="portfolio_total_tp", position_idx=pos.position_idx)

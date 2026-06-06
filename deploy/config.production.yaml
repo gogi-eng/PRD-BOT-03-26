@@ -83,11 +83,11 @@ positions:
   adopt_manual: true
   trailing_enabled: true
   lock_initial_sl: false
-  trailing_activation_pct: 1.35
-  trailing_distance_pct: 1.55
-  trailing_distance_atr_mult: 2.5
-  trailing_min_distance_pct: 0.65
-  breakeven_after_pct: 1.05
+  trailing_activation_pct: 3.0
+  trailing_distance_pct: 4.0
+  trailing_distance_atr_mult: 2.8
+  trailing_min_distance_pct: 1.5
+  breakeven_after_pct: 2.0
   notify_trailing_telegram: false
   exit_management:
     enabled: true
@@ -123,32 +123,12 @@ positions:
     tp_progress_exit:
       enabled: false
 
-# Ручные позиции: подхватываем, но не закрываем и не ставим TP на бирже
+# Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
 manual_management:
-  allow_bot_close_manual: false
-  allow_trailing_exit: false
-  allow_tp_cap: false
-  allow_partial_tp: false
-  allow_profit_drawdown_close: false
-  allow_hard_sl_close: false
-  preserve_existing_tp: true
-  set_exchange_tp_on_adopt: false
-  close_grace_minutes: 60
-  notify_on_adopt: true
-
-position_sync:
-  preserve_existing_sl_tp: true
-
-portfolio_tp:
-  enabled: true
-  target_profit_pct: 2.0
-
-profit_lock:
-  include_manual_positions: false
-  min_profit_pct: 5.0
-  decline_threshold_pct: 20.0
-  decline_duration_sec: 300
-  cooldown_sec: 3600
+  set_exchange_levels_on_adopt: false
+  manual_trailing_activation_atr: 2.2
+  manual_trailing_distance_atr: 3.5
+  manual_trailing_min_distance_pct: 0.55
 
 execution_sr_zones:
   enabled: true

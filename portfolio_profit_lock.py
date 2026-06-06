@@ -66,7 +66,6 @@ class PortfolioProfitLock:
         decline_duration_sec: float = 300.0,
         cooldown_sec: float = 3600.0,
         dry_run: bool = False,
-        include_manual_positions: bool = False,
     ):
         self.client = client
         self.tg = tg
@@ -75,7 +74,6 @@ class PortfolioProfitLock:
         self.decline_duration_sec = decline_duration_sec
         self.cooldown_sec = cooldown_sec
         self.dry_run = dry_run
-        self.include_manual_positions = bool(include_manual_positions)
 
         self.state = LockState()
         self._initial_balance: float = 0.0
@@ -137,10 +135,6 @@ class PortfolioProfitLock:
             try:
                 if pos.qty <= 0:
                     continue
-                if getattr(pos, "origin", "") == "manual" and not self.include_manual_positions:
-                    print(f"   [SKIP] {symbol} origin=manual (profit_lock manual excluded)")
-                    continue
-
                 pnl = await self._get_position_pnl(symbol, pos)
 
                 if self.dry_run:
@@ -290,15 +284,8 @@ class PortfolioProfitLock:
 
                         # ТАЙМЕР ИСТЁК — ЗАКРЫВАЕМ ВСЁ
                         if self.state.decline_duration_sec >= self.decline_duration_sec:
-                            print("[PROFIT_LOCK] ТАЙМЕР ИСТЁК! Закрываем позиции...")
-                            closed_symbols = [
-                                sym
-                                for sym, p in positions.items()
-                                if not (
-                                    getattr(p, "origin", "") == "manual"
-                                    and not self.include_manual_positions
-                                )
-                            ]
+                            print("[PROFIT_LOCK] ТАЙМЕР ИСТЁК! Закрываем все позиции...")
+                            closed_symbols = list(positions.keys())
                             closed_count, total_pnl = await self._close_all_positions(positions)
 
                             self._total_closures += 1
