@@ -73,7 +73,7 @@ kronos:
   - ETHUSDT
   tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
 macro_ai:
-  enabled: false
+  enabled: true
   include_positions: true
   max_headlines: 8
 market_scanner:
@@ -133,6 +133,8 @@ manual_management:
   manual_trailing_activation_atr: 2.2
   manual_trailing_distance_atr: 3.5
   manual_trailing_min_distance_pct: 0.55
+position_sync:
+  preserve_existing_sl_tp: true
 pullback_entry:
   enabled: true
   kline_interval: '5'
@@ -163,7 +165,7 @@ quality_gate:
   enabled: true
   min_24h_volume_usdt: 10000000
   min_confidence: 0.85
-  min_rr_ratio: 1.5
+  min_rr_ratio: 2.0
   require_sl_tp: true
 reporter:
   high_confidence_threshold: 0.9
@@ -462,7 +464,7 @@ trading:
   min_multi_agent_score: 0.4
   min_own_agent_confidence: 0.9
   min_signal_confidence: 0.85
-  risk_pct_per_trade: 0.1
+  risk_pct_per_trade: 0.35
   symbol_blacklist:
   - SOLUSDT
   - CLOUSDT

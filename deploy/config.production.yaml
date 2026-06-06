@@ -130,6 +130,9 @@ manual_management:
   manual_trailing_distance_atr: 3.5
   manual_trailing_min_distance_pct: 0.55
 
+position_sync:
+  preserve_existing_sl_tp: true
+
 execution_sr_zones:
   enabled: true
   kline_interval: "15"
