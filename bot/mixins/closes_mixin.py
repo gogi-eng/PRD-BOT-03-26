@@ -130,6 +130,8 @@ class TradingBotClosesMixin:
                 pass
         if isinstance(entry_context, dict) and entry_context:
             trade["entry_context"] = entry_context
+        elif isinstance(entry_context, str) and entry_context.strip():
+            trade["entry_context_raw"] = entry_context.strip()
         if exchange_close_meta:
             trade["exchange_close_meta"] = exchange_close_meta
         history_path = resolve_bot_dir() / "trade_history.json"

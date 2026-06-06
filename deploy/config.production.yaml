@@ -123,6 +123,33 @@ positions:
     tp_progress_exit:
       enabled: false
 
+# Ручные позиции: подхватываем, но не закрываем и не ставим TP на бирже
+manual_management:
+  allow_bot_close_manual: false
+  allow_trailing_exit: false
+  allow_tp_cap: false
+  allow_partial_tp: false
+  allow_profit_drawdown_close: false
+  allow_hard_sl_close: false
+  preserve_existing_tp: true
+  set_exchange_tp_on_adopt: false
+  close_grace_minutes: 60
+  notify_on_adopt: true
+
+position_sync:
+  preserve_existing_sl_tp: true
+
+portfolio_tp:
+  enabled: true
+  target_profit_pct: 2.0
+
+profit_lock:
+  include_manual_positions: false
+  min_profit_pct: 5.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600
+
 execution_sr_zones:
   enabled: true
   kline_interval: "15"

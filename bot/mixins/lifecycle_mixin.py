@@ -285,9 +285,15 @@ class TradingBotLifecycleMixin:
                             closed_symbols = await self.profit_lock.check(self.position_manager.all_positions()) or []
                             for symbol in closed_symbols:
                                 pos = self.position_manager.get(symbol)
-                                if pos:
-                                    current_price = await self.client.get_price(symbol)
-                                    await self._finalize_full_close(symbol, pos, current_price, 0.0, "profit_lock")
+                                if not pos:
+                                    continue
+                                if not self._bot_may_close_position(pos):
+                                    logger.info(
+                                        f"PROFIT LOCK: skip finalize {symbol} (origin=manual, bot close disabled)"
+                                    )
+                                    continue
+                                current_price = await self.client.get_price(symbol)
+                                await self._finalize_full_close(symbol, pos, current_price, 0.0, "profit_lock")
 
                     if self.controls.enabled and not self.controls.emergency:
                         can_trade, reason = self.risk_guard.can_trade()
