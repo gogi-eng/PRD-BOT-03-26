@@ -274,6 +274,23 @@ feedback_loop:
   train_lr: 0.002
   train_batch_size: 32
 
+agent_world:
+  enabled: true
+  rss_urls:
+    - "https://cointelegraph.com/rss"
+    - "https://www.coindesk.com/arc/outboundfeeds/rss/"
+    - "https://feeds.feedburner.com/CoinDesk"
+  queue_path: "reports/world/world_events.jsonl"
+  writer_state_path: "reports/world/agent_world_writer_state.json"
+  max_items_per_feed: 15
+  poll_interval_sec: 120
+  max_summary_chars: 2200
+  allow_auto_execute: true
+  max_market_drift_pct: 0.015
+  max_limit_drift_pct: 0.022
+  max_skip_drift_pct: 0.035
+  openrouter_daily_budget_usd: 0
+
 market_scanner:
   enabled: true
   interval_sec: 600

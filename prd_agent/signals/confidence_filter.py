@@ -121,7 +121,7 @@ def passes_emit_gate(sig: Union[UnifiedSignal, Dict[str, Any]], cfg: Dict[str, A
     sig_cfg = cfg.get("signals", {}) if isinstance(cfg.get("signals"), dict) else {}
     min_tg = float(sig_cfg.get("min_telegram_confidence", 0.65))
     src = source.lower()
-    if src == "telegram" and meets_threshold(conf, min_tg):
+    if src in ("telegram", "agent_world") and meets_threshold(conf, min_tg):
         return True
 
     if meets_threshold(conf, min_conf):

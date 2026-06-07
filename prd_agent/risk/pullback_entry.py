@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
-from prd_agent.signals.pump_dump_mode import is_pump_dump_signal, pump_dump_trade_enabled
+from prd_agent.signals.pump_dump_mode import (
+    is_agent_world_signal,
+    is_pump_dump_signal,
+    pump_dump_trade_enabled,
+)
 from prd_agent.signals.types import UnifiedSignal
 
 
@@ -90,6 +94,9 @@ def check_pullback_entry(
     skip_pd = bool(pe.get("skip_for_pump_dump", True))
     if skip_pd and pump_dump_trade_enabled(cfg) and is_pump_dump_signal(sig):
         return True, "pump_dump: вход без ожидания отката (быстрый импульс)"
+
+    if bool(pe.get("skip_for_agent_world", True)) and is_agent_world_signal(sig):
+        return True, "agent_world: вход по новости без ожидания отката"
 
     bars = max(3, int(pe.get("momentum_bars", 5) or 5))
     min_momentum_pct = float(pe.get("min_momentum_pct", 0.35) or 0.35)
