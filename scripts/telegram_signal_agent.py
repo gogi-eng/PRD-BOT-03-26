@@ -30,11 +30,17 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Iterator
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover — Windows dev
+    fcntl = None  # type: ignore
 
 try:
     import yaml
@@ -1050,7 +1056,12 @@ class TelegramSignalAgent:
         self.max_notional_usdt = float(self.agent_cfg.get("max_notional_usdt", 30.0))
         self.execution_balance_reserve_pct = float(self.agent_cfg.get("execution_balance_reserve_pct", 18))
         self.market_scan_post_exec_delay_sec = float(self.agent_cfg.get("market_scan_post_exec_delay_sec", 2.0))
-        self.auto_execute_max_open_positions = int(self.agent_cfg.get("auto_execute_max_open_positions", 0) or 0)
+        _trading_max_pos = int((self.cfg.get("trading") or {}).get("max_positions", 0) or 0)
+        _cap_raw = self.agent_cfg.get("auto_execute_max_open_positions")
+        if _cap_raw is None:
+            self.auto_execute_max_open_positions = _trading_max_pos
+        else:
+            self.auto_execute_max_open_positions = int(_cap_raw or 0)
         self.default_sl_pct = float(self.agent_cfg.get("default_sl_pct", 1.2))
         self.default_tp_pct = float(self.agent_cfg.get("default_tp_pct", 2.4))
         self.require_stop_loss = bool(self.agent_cfg.get("require_stop_loss", True))
@@ -2235,6 +2246,9 @@ class TelegramSignalAgent:
     async def _try_execute_market_setup(self, setup: MarketSetup) -> None:
         if not self._effective_market_scanner_auto_execute():
             return
+        if await self._symbol_has_open_position(setup.symbol):
+            LOG.info("Market scanner exec skipped: position already open %s", setup.symbol)
+            return
         if int(setup.score or 0) < int(self.market_scanner_execute_min_score):
             LOG.info(
                 "Market scanner exec skipped: score=%s < min_exec=%s",
@@ -3078,6 +3092,77 @@ class TelegramSignalAgent:
         )
         telegram_send(token, chat_id, text, max_retries=1)
 
+    @contextmanager
+    def _market_scan_cross_process_lock(self) -> Iterator[bool]:
+        """Один проход сканера на все процессы (tg_agent + unified bot)."""
+        if fcntl is None:
+            yield True
+            return
+        lock_path = self.repo_dir / "reports" / "telegram_signals" / ".market_scan.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "w", encoding="utf-8")
+        acquired = False
+        try:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError:
+                LOG.info("Market scan skipped: lock held by another process")
+                yield False
+                return
+            yield True
+        finally:
+            if acquired:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+            handle.close()
+
+    def _reload_market_scanner_notified_from_disk(self) -> None:
+        if not self.state_path.exists():
+            return
+        try:
+            with open(self.state_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        disk = data.get("market_scanner_notified")
+        if not isinstance(disk, dict):
+            return
+        rows = self.state.setdefault("market_scanner_notified", {})
+        if not isinstance(rows, dict):
+            rows = {}
+            self.state["market_scanner_notified"] = rows
+        for key, value in disk.items():
+            if key not in rows:
+                rows[key] = value
+                continue
+            try:
+                old_ts = datetime.fromisoformat(str(rows[key]))
+                new_ts = datetime.fromisoformat(str(value))
+                if old_ts.tzinfo is None:
+                    old_ts = old_ts.replace(tzinfo=timezone.utc)
+                if new_ts.tzinfo is None:
+                    new_ts = new_ts.replace(tzinfo=timezone.utc)
+                if new_ts > old_ts.astimezone(timezone.utc):
+                    rows[key] = value
+            except Exception:
+                rows[key] = value
+
+    async def _symbol_has_open_position(self, symbol: str) -> bool:
+        await self._ensure_execution()
+        assert self.bybit is not None
+        sym = str(symbol).upper()
+        for pos in await self.bybit.get_positions():
+            if str(pos.get("symbol", "")).upper() != sym:
+                continue
+            if float(pos.get("size", 0) or 0) > 0:
+                return True
+        return False
+
     def _market_scanner_on_cooldown(self, symbol: str, scenario: str) -> bool:
         if self.market_scanner_symbol_cooldown_sec <= 0:
             return False
@@ -3410,6 +3495,13 @@ class TelegramSignalAgent:
     async def run_market_scan_once(self) -> list[MarketSetup]:
         if not self.market_scanner_enabled:
             return []
+        with self._market_scan_cross_process_lock() as acquired:
+            if not acquired:
+                return []
+            return await self._run_market_scan_once_locked()
+
+    async def _run_market_scan_once_locked(self) -> list[MarketSetup]:
+        self._reload_market_scanner_notified_from_disk()
         await self._ensure_execution()
         assert self.bybit is not None
         await self._evaluate_pending_market_setups()
@@ -3446,8 +3538,9 @@ class TelegramSignalAgent:
         for setup in setups[: max(1, self.market_scanner_top_n)]:
             if self._market_scanner_on_cooldown(setup.symbol, setup.scenario):
                 continue
-            self._notify_market_setup(setup)
             self._mark_market_scanner_notified(setup)
+            self._save_state()
+            self._notify_market_setup(setup)
             self._track_market_setup_for_learning(setup)
             notified += 1
             await self._try_execute_market_setup(setup)

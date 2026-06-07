@@ -19,7 +19,7 @@ trading:
   auto_start: true
   leverage: 20
   loop_interval_sec: 60
-  max_positions: 5
+  max_positions: 6
   dynamic_leverage:
     enabled: true
     min: 20
@@ -294,12 +294,13 @@ agent_world:
 market_scanner:
   enabled: true
   interval_sec: 300
-  run_loop_in_unified_bot: true
+  run_loop_in_unified_bot: false
   run_loop_in_signal_agent: true
 
 telegram_signal_agent:
   enabled: true
   auto_execute: true
+  auto_execute_max_open_positions: 6
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true
