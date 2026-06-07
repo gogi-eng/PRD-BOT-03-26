@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 
 class GuardStatus(Enum):
@@ -116,11 +116,65 @@ class RiskGuard:
 
     def _daily_loss_exceeded(self) -> bool:
         s = self.day_stats
-        if self.max_daily_loss_pct > 0 and s.net_pnl_pct <= -self.max_daily_loss_pct:
-            return True
+        # День в плюсе по закрытым сделкам на бирже — дневной лимит убытка не применяем
+        if s.net_pnl_usdt >= 0:
+            return False
         if self.max_daily_loss_usdt > 0 and s.net_pnl_usdt <= -self.max_daily_loss_usdt:
             return True
+        if self.max_daily_loss_pct > 0 and s.net_pnl_pct <= -self.max_daily_loss_pct:
+            return True
         return False
+
+    def _maybe_clear_daily_loss_stop(self) -> None:
+        """Снять устаревший дневной стоп, если PnL уже восстановился (ручная торговля и т.д.)."""
+        if self._daily_loss_exceeded():
+            return
+        if self.stop_kind != StopKind.DAILY_LOSS and self.status == GuardStatus.ACTIVE:
+            return
+        if self.stop_kind == StopKind.DAILY_LOSS or (
+            self.status == GuardStatus.STOPPED
+            and "дневн" in (self.stop_reason or "").lower()
+        ):
+            self.status = GuardStatus.ACTIVE
+            self.stop_reason = ""
+            self.stop_kind = StopKind.NONE
+            self.auto_stop_time = None
+
+    def reconcile_from_closed_rows(
+        self, rows: List[Dict], *, balance: float = 0.0
+    ) -> None:
+        """
+        Сверка дневного PnL с Bybit (источник правды для отчётов и лимита).
+        Иначе внутренний счётчик мог остаться на −6% при +91 USDT на бирже.
+        """
+        self._ensure_today()
+        today = self._today_utc()
+        start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+        start_ms = int(start.timestamp() * 1000)
+        total = 0.0
+        wins = 0
+        losses = 0
+        for r in rows:
+            ts = int(r.get("updatedTime") or r.get("createdTime") or 0)
+            if ts and ts < start_ms:
+                continue
+            pnl = float(r.get("closedPnl", 0) or 0)
+            total += pnl
+            if pnl >= 0:
+                wins += 1
+            else:
+                losses += 1
+        s = self.day_stats
+        s.net_pnl_usdt = total
+        s.wins = wins
+        s.losses = losses
+        s.trades = wins + losses
+        base = self.initial_balance if self.initial_balance > 0 else float(balance)
+        if base > 0:
+            s.net_pnl_pct = (total / base) * 100.0
+        else:
+            s.net_pnl_pct = 0.0
+        self._maybe_clear_daily_loss_stop()
 
     def _daily_loss_reason(self) -> str:
         s = self.day_stats
@@ -144,6 +198,7 @@ class RiskGuard:
             s.consecutive_losses = self._consecutive_losses
             self.last_loss_time = datetime.now(timezone.utc)
         self._check_auto_stop()
+        self._maybe_clear_daily_loss_stop()
 
     def _check_auto_stop(self) -> None:
         if self._consecutive_losses >= self.max_consecutive_losses:
@@ -171,6 +226,7 @@ class RiskGuard:
 
     def can_trade(self, symbol: str = "") -> Tuple[bool, str]:
         self._ensure_today()
+        self._maybe_clear_daily_loss_stop()
 
         if self.status == GuardStatus.EMERGENCY:
             return False, f"EMERGENCY: {self.stop_reason}"
@@ -247,11 +303,15 @@ class RiskGuard:
 
     def snapshot(self) -> Dict:
         self._ensure_today()
+        self._maybe_clear_daily_loss_stop()
         s = self.day_stats
-        blocked = self.status != GuardStatus.ACTIVE or self._daily_loss_exceeded()
-        reason = self.stop_reason if blocked else ""
-        if blocked and self._daily_loss_exceeded() and not reason:
+        loss_exceeded = self._daily_loss_exceeded()
+        blocked = self.status != GuardStatus.ACTIVE or loss_exceeded
+        reason = ""
+        if loss_exceeded:
             reason = self._daily_loss_reason()
+        elif self.status != GuardStatus.ACTIVE:
+            reason = self.stop_reason or ""
         return {
             "pnl_today_usdt": round(s.net_pnl_usdt, 2),
             "pnl_today_pct": round(s.net_pnl_pct, 2),
