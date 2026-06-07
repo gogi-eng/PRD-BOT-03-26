@@ -2,8 +2,9 @@
 
 telegram_signal_agent:
   enabled: true
-  auto_execute: false
-  market_scanner_enabled: false
+  auto_execute: true
+  photo_ocr_enabled: true
+  market_scanner_enabled: true
   control_panel_enabled: false
   telegram_notify: true
   notify_only_approved: true
@@ -11,17 +12,8 @@ telegram_signal_agent:
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   session_name: telegram_user_signal_agent
-  # Пустой [] = слушать ВСЕ подписки (263+ канала — шум). Укажите только рабочие сигнальные каналы:
-  allowed_chats:
-    - "FibTrader | Крипта, Сигналы, Копитрейдинг"
-    - "INVEX GROUP"
-    - "Евгений Ковалёв | NextGen"
-    - "Binance Killers®"
-    - "Crypto Inner Circle®"
-    - "Cornix Trading Signals (free)"
-    - "Fed. Russian Insiders®"
-    - "Wallstreet Queen Official®"
-    - "Wolf of Trading®"
+  # Пустой [] = слушать ВСЕ подписки кроме ignored_chats / ignored_substrings
+  allowed_chats: []
   ignored_substrings:
     - pocket
     - quotex
@@ -46,7 +38,6 @@ telegram_signal_agent:
     - "BYBIT Комьюнити"
     - "BYBIT Новости"
     - BotFather
-    - Bullrunsignals
     - Cryptovolksignalbot
     - Labuh25Bot
   signal_parse_simple: true

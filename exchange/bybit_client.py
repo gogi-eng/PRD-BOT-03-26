@@ -357,6 +357,10 @@ class BybitClient:
         snap = await self.get_wallet_snapshot()
         return snap.get("wallet_balance", 0.0)
 
+    async def get_usdt_available_balance(self) -> float:
+        """Алиас для telegram_signal_agent и старых вызовов."""
+        return await self.get_available_balance()
+
     async def get_available_balance(self) -> float:
         """Свободная маржа для нового ордера (не walletBalance — он включает занятую маржу)."""
         snap = await self.get_wallet_snapshot()
