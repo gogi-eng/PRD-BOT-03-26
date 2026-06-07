@@ -135,8 +135,8 @@ agent_world:
   openrouter_daily_budget_usd: 0
 market_scanner:
   enabled: true
-  interval_sec: 600
-  run_loop_in_signal_agent: false
+  interval_sec: 300
+  run_loop_in_signal_agent: true
   run_loop_in_unified_bot: true
 openrouter:
   api_key: ''
@@ -274,11 +274,12 @@ ta_scanner:
   enabled: true
   interval: '5'
   kline_limit: 120
-  max_symbols: 15
-  min_24h_change_pct: 1.0
-  min_confidence: 0.82
-  min_intraday_range_pct: 0.8
-  min_rr: 2.0
+  max_symbols: 20
+  min_24h_change_pct: 0.8
+  min_24h_volume_usdt: 5000000
+  min_confidence: 0.78
+  min_intraday_range_pct: 0.7
+  min_rr: 1.8
 telegram:
   allowed_user_ids: []
   bot_token: ''
@@ -463,12 +464,21 @@ telegram_signal_agent:
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   inbox_jsonl_enabled: true
   market_scanner_enabled: true
-  market_scanner_execute_min_score: 75
-  market_scanner_interval_sec: 600
-  market_scanner_max_symbols: 60
+  market_scanner_auto_execute: true
+  market_scanner_execute_min_score: 72
+  market_scanner_interval_sec: 300
+  market_scanner_interval: '5'
+  market_scanner_klines_limit: 120
+  market_scanner_consolidation_bars: 36
+  market_scanner_min_24h_volume_usdt: 5000000
+  market_scanner_max_symbols: 80
+  market_scanner_max_range_pct: 4.5
+  market_scanner_max_atr_pct: 0.75
+  market_scanner_min_volume_ratio: 1.25
   market_scanner_min_score_to_notify: 58
   market_scanner_symbol_cooldown_sec: 3600
-  market_scanner_top_n: 3
+  market_scanner_top_n: 5
+  market_scanner_learning_enabled: true
   min_openrouter_confidence: 68
   require_stop_loss: true
   session_name: telegram_user_signal_agent
