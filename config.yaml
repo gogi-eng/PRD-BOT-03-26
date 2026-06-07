@@ -242,7 +242,7 @@ self_improvement:
 signals:
   min_analysis_confidence: 0.88
   min_multi_agent_score: 0.4
-  min_telegram_confidence: 0.8
+  min_telegram_confidence: 0.65
   own_agents_enabled: true
   signal_notify_cooldown_sec: 900
   telegram_inbox_backlog_lines: 100
@@ -271,9 +271,13 @@ telegram_signal_agent:
   allowed_chats: []
   auto_execute: true
   photo_ocr_enabled: true
+  audit_jsonl_enabled: true
+  market_scanner_auto_execute: true
   control_panel_enabled: false
   enabled: true
   ignore_bot_echo_messages: true
+  signal_parse_simple: true
+  infer_side_from_sr: true
   ignored_chats:
   - FantastisheBot
   - PocketOptions_1969_BOT
@@ -454,12 +458,24 @@ telegram_signal_agent:
     min_structure_score: 58
     require_stop_loss: true
     skip_noise_posts: true
+    prefer_rule_based_when_structured: true
+    openrouter_skip_if_structure_score_ge: 78
+    openrouter_min_structure_score: 48
   telegram_notify: true
   trusted_signal_sources:
   - Cornix Trading Signals (free)
   - FibTrader | Крипта, Сигналы, Копитрейдинг
   - INVEX GROUP
   - Евгений Ковалёв | NextGen
+  - Binance Killers®
+  - Bullrunsignals
+  - Evening Trader Group
+  - Wallstreet Queen Official®
+  - Learn 2 Trade Crypto
+  - Мудрый Криптан
+  - Crypto Inner Circle®
+  - Fed. Russian Insiders®
+  - Wolf of Trading®
 trade_journal:
   rotate_keep_files: 14
   rotate_max_mb: 8

@@ -61,7 +61,7 @@ signals:
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
-  min_telegram_confidence: 0.80
+  min_telegram_confidence: 0.65
   min_analysis_confidence: 0.88
   min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
@@ -284,7 +284,11 @@ telegram_signal_agent:
   enabled: true
   auto_execute: true
   photo_ocr_enabled: true
+  audit_jsonl_enabled: true
+  market_scanner_auto_execute: true
   market_scanner_enabled: true
+  signal_parse_simple: true
+  infer_side_from_sr: true
   telegram_notify: true
   market_scanner_interval_sec: 600
   market_scanner_min_score_to_notify: 58
@@ -326,6 +330,15 @@ telegram_signal_agent:
     - "FibTrader | Крипта, Сигналы, Копитрейдинг"
     - "INVEX GROUP"
     - "Евгений Ковалёв | NextGen"
+    - "Binance Killers®"
+    - "Bullrunsignals"
+    - "Evening Trader Group"
+    - "Wallstreet Queen Official®"
+    - "Learn 2 Trade Crypto"
+    - "Мудрый Криптан"
+    - "Crypto Inner Circle®"
+    - "Fed. Russian Insiders®"
+    - "Wolf of Trading®"
   signal_quality:
     enabled: true
     skip_noise_posts: true

@@ -4,6 +4,8 @@ telegram_signal_agent:
   enabled: true
   auto_execute: true
   photo_ocr_enabled: true
+  audit_jsonl_enabled: true
+  market_scanner_auto_execute: true
   market_scanner_enabled: true
   control_panel_enabled: false
   telegram_notify: true
@@ -53,9 +55,19 @@ telegram_signal_agent:
     openrouter_skip_if_structure_score_ge: 78
     openrouter_min_structure_score: 48
   trusted_signal_sources:
+    - "Cornix Trading Signals (free)"
     - "FibTrader | Крипта, Сигналы, Копитрейдинг"
     - "INVEX GROUP"
     - "Евгений Ковалёв | NextGen"
+    - "Binance Killers®"
+    - "Bullrunsignals"
+    - "Evening Trader Group"
+    - "Wallstreet Queen Official®"
+    - "Learn 2 Trade Crypto"
+    - "Мудрый Криптан"
+    - "Crypto Inner Circle®"
+    - "Fed. Russian Insiders®"
+    - "Wolf of Trading®"
   channel_prune:
     enabled: true
     inactive_hours: 24
