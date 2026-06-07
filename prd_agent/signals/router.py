@@ -145,7 +145,10 @@ class SignalRouter:
             raw_src = str(
                 parsed.get("source") or parsed.get("channel") or "telegram"
             ).lower()
-            if "mirror_pump_dump" in raw_src or "pump_dump" in raw_src or "pumpdump" in raw_src:
+            if "agent-world" in raw_src or "agent_world" in raw_src:
+                source = "agent_world"
+                reason = str(parsed.get("reason") or parsed.get("channel") or source)
+            elif "mirror_pump_dump" in raw_src or "pump_dump" in raw_src or "pumpdump" in raw_src:
                 source = "mirror_pump_dump_agent"
                 reason = str(parsed.get("reason") or parsed.get("channel") or source)
             else:

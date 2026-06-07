@@ -21,7 +21,7 @@ from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
 from prd_agent.risk.entry_guard import build_entry_execution_plan
 from prd_agent.risk.pullback_entry import check_pullback_entry
-from prd_agent.signals.pump_dump_mode import is_pump_dump_signal
+from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import RiskGuard
@@ -601,6 +601,12 @@ class UnifiedOrchestrator:
         if is_pump_dump_signal(sig) and pb_ok and "pump_dump" in pb_reason:
             logger.info(
                 "Pump/dump %s %s: вход без отката (быстрый режим)",
+                sig.symbol,
+                sig.side,
+            )
+        if is_agent_world_signal(sig) and pb_ok and "agent_world" in pb_reason:
+            logger.info(
+                "AGENT-WORLD %s %s: вход по новости без отката",
                 sig.symbol,
                 sig.side,
             )

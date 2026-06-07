@@ -14,6 +14,23 @@ _PUMP_DUMP_SOURCE_MARKERS = (
     "pumpdump",
     "pump/dump",
 )
+_AGENT_WORLD_MARKERS = (
+    "agent_world",
+    "agent-world",
+)
+
+
+def is_agent_world_signal(sig: UnifiedSignal) -> bool:
+    """Сигнал из RSS-новостей AGENT-WORLD (срочный вход по событию)."""
+    src = str(sig.source or "").lower()
+    if any(m in src for m in _AGENT_WORLD_MARKERS):
+        return True
+    raw = sig.raw if isinstance(sig.raw, dict) else {}
+    for key in ("source", "channel"):
+        val = str(raw.get(key, "") or "").lower()
+        if any(m in val for m in _AGENT_WORLD_MARKERS):
+            return True
+    return False
 
 
 def is_pump_dump_signal(sig: UnifiedSignal) -> bool:
@@ -105,7 +122,16 @@ class TrailingProfile:
 def entry_drift_limits(
     cfg: Mapping[str, Any], sig: UnifiedSignal
 ) -> Optional[Dict[str, float]]:
-    """Пороги entry_guard для памп/дамп (шире drift) или None = обычные."""
+    """Пороги entry_guard для памп/дамп или AGENT-WORLD (шире drift) или None = обычные."""
+    aw = cfg.get("agent_world", {})
+    aw_block = aw if isinstance(aw, dict) else {}
+    aw_fast = bool(aw_block.get("enabled", False)) and is_agent_world_signal(sig)
+    if aw_fast:
+        return {
+            "max_market_drift_pct": float(aw_block.get("max_market_drift_pct", 0.015)),
+            "max_limit_drift_pct": float(aw_block.get("max_limit_drift_pct", 0.022)),
+            "max_skip_drift_pct": float(aw_block.get("max_skip_drift_pct", 0.035)),
+        }
     if not pump_dump_trade_enabled(cfg) or not is_pump_dump_signal(sig):
         return None
     block = cfg.get("pump_dump_trade", {})
