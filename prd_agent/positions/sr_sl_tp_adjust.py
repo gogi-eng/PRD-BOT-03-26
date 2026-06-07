@@ -88,6 +88,7 @@ def adjust_sl_tp_with_sr_zones(
     tp_extra_atr: float = 0.08,
     preserve_min_rr: float = 0.0,
     sl_sr_level_index: int = 1,
+    min_tp_distance_pct: float = 1.0,
 ) -> Tuple[float, float, bool]:
     """
     LONG: SL ниже поддержки, TP у сопротивления (+ отступ в ATR).
@@ -137,6 +138,19 @@ def adjust_sl_tp_with_sr_zones(
         new_tp = _merge_tp_short(orig_tp, tp_sr, entry)
         if new_sl <= 0 or new_tp <= 0 or new_sl <= entry or new_tp >= entry:
             return stop_loss, take_profit, False
+
+    min_tp_pct = max(0.0, float(min_tp_distance_pct or 0))
+    if min_tp_pct > 0:
+        if side_u == "BUY":
+            tp_dist_pct = (new_tp - entry) / entry * 100.0
+            if tp_dist_pct < min_tp_pct:
+                floor_tp = entry * (1.0 + min_tp_pct / 100.0)
+                new_tp = orig_tp if orig_tp > floor_tp else floor_tp
+        else:
+            tp_dist_pct = (entry - new_tp) / entry * 100.0
+            if tp_dist_pct < min_tp_pct:
+                floor_tp = entry * (1.0 - min_tp_pct / 100.0)
+                new_tp = orig_tp if 0 < orig_tp < floor_tp else floor_tp
 
     tol = max(abs(entry) * 1e-12, 1e-12)
     if abs(new_sl - orig_sl) < tol and abs(new_tp - orig_tp) < tol:

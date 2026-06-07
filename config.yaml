@@ -73,9 +73,10 @@ execution_sr_zones:
   kline_interval: '15'
   kline_limit: 120
   preserve_min_rr: 0
+  min_tp_distance_pct: 1.2
   sl_extra_buffer_atr: 0.18
   sl_sr_level_index: 1
-  tp_extra_buffer_atr: 0.08
+  tp_extra_buffer_atr: 0.25
 feedback_loop:
   augment_wins_factor: 1
   base_dataset_path: training_data.json
