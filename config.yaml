@@ -273,6 +273,7 @@ telegram_signal_agent:
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true
+  runtime_controls_sync_yaml: true
   control_panel_enabled: false
   enabled: true
   ignore_bot_echo_messages: true
