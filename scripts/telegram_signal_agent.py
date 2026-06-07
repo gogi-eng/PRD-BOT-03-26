@@ -1274,11 +1274,16 @@ class TelegramSignalAgent:
         return blank
 
     def _ensure_runtime_controls_defaults(self) -> None:
-        """Персистентные флаги (панель + рестарт). Не перетирают уже сохранённые ключи."""
+        """Персистентные флаги (панель + рестарт). По умолчанию синхронизируются из config.yaml при старте."""
         rtc = self._runtime_controls_dict()
         rtc.setdefault("pause_all_execution", False)
-        rtc.setdefault("channel_auto_execute", bool(self.auto_execute))
-        rtc.setdefault("market_scanner_auto_execute", bool(self.market_scanner_auto_execute_default))
+        sync_yaml = bool(self.agent_cfg.get("runtime_controls_sync_yaml", True))
+        if sync_yaml:
+            rtc["channel_auto_execute"] = bool(self.auto_execute)
+            rtc["market_scanner_auto_execute"] = bool(self.market_scanner_auto_execute_default)
+        else:
+            rtc.setdefault("channel_auto_execute", bool(self.auto_execute))
+            rtc.setdefault("market_scanner_auto_execute", bool(self.market_scanner_auto_execute_default))
 
     def _effective_channel_auto_execute(self) -> bool:
         rtc = self._runtime_controls_dict()
