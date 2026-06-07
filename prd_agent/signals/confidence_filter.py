@@ -5,6 +5,7 @@ import re
 import time
 from typing import Any, Dict, List, Tuple, Union
 
+from prd_agent.signals.pump_dump_mode import is_pump_dump_signal
 from prd_agent.signals.types import UnifiedSignal
 
 _SCORE_RE = re.compile(r"multi-agent\s+score\s*=\s*([+-]?[0-9.]+)", re.I)
@@ -100,10 +101,32 @@ def passes_emit_gate(sig: Union[UnifiedSignal, Dict[str, Any]], cfg: Dict[str, A
 
     min_conf = load_min_analysis_confidence(cfg)
     min_score = load_min_multi_agent_score(cfg)
+
+    if isinstance(sig, UnifiedSignal):
+        pump_probe = sig
+    else:
+        pump_probe = UnifiedSignal(
+            symbol=str(sig.get("symbol", "")),
+            side=str(sig.get("side", "")),
+            confidence=conf,
+            source=source,
+            reason=reason,
+            raw=raw,
+        )
+    if is_pump_dump_signal(pump_probe):
+        pd_min = float((cfg.get("pump_dump_trade") or {}).get("min_confidence", 0.65))
+        if meets_threshold(conf, pd_min):
+            return True
+
+    sig_cfg = cfg.get("signals", {}) if isinstance(cfg.get("signals"), dict) else {}
+    min_tg = float(sig_cfg.get("min_telegram_confidence", 0.65))
+    src = source.lower()
+    if src == "telegram" and meets_threshold(conf, min_tg):
+        return True
+
     if meets_threshold(conf, min_conf):
         return True
 
-    src = source.lower()
     if src == "own_multi_agent":
         return extract_multi_agent_score(probe) > min_score
     if src == "hybrid":

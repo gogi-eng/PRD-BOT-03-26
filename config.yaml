@@ -240,7 +240,7 @@ self_improvement:
   require_approval_critical: false
   sandbox_dir: data/sandbox
 signals:
-  min_analysis_confidence: 0.88
+  min_analysis_confidence: 0.82
   min_multi_agent_score: 0.4
   min_telegram_confidence: 0.65
   own_agents_enabled: true
