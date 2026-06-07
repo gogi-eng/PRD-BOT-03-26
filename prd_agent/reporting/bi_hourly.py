@@ -43,6 +43,8 @@ class BiHourlyReporter:
         code_changes: List[Dict],
         risk_snapshot: Dict[str, Any],
         balance: float,
+        exchange_pnl_today_usdt: Optional[float] = None,
+        exchange_pnl_today_pct: Optional[float] = None,
         supervisor_summary: Optional[Dict[str, Any]] = None,
     ) -> str:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -50,11 +52,34 @@ class BiHourlyReporter:
             f"<b>📊 PRD Agent — отчёт за 2ч</b> ({now})",
             "",
             f"<b>Баланс USDT:</b> {balance:.2f}",
-            f"<b>Риск:</b> {risk_snapshot.get('status', '?')} | "
-            f"PnL сегодня: {risk_snapshot.get('pnl_today_usdt', 0):+.2f} USDT",
         ]
+        ex_usdt = (
+            exchange_pnl_today_usdt
+            if exchange_pnl_today_usdt is not None
+            else risk_snapshot.get("pnl_today_usdt", 0)
+        )
+        ex_pct = (
+            exchange_pnl_today_pct
+            if exchange_pnl_today_pct is not None
+            else risk_snapshot.get("pnl_today_pct", 0)
+        )
+        lines.append(
+            f"<b>PnL сегодня (биржа, UTC):</b> {float(ex_usdt):+.2f} USDT "
+            f"({float(ex_pct):+.2f}%)"
+        )
+        lines.append(
+            f"<b>Риск-статус:</b> {risk_snapshot.get('status', '?')} | "
+            f"сделок закрыто: {risk_snapshot.get('trades_today', 0)}"
+        )
         if risk_snapshot.get("blocked"):
-            lines.append(f"⚠️ <b>Торговля заблокирована:</b> {risk_snapshot.get('block_reason', '')}")
+            reason = risk_snapshot.get("block_reason", "")
+            if float(ex_usdt) >= 0 and "дневн" in str(reason).lower():
+                lines.append(
+                    "⚠️ <b>Внимание:</b> день на бирже в плюсе, но риск ещё показывает блок. "
+                    "Нажмите в боте «💰 Сбросить убыток» или дождитесь следующего цикла."
+                )
+            else:
+                lines.append(f"⚠️ <b>Торговля заблокирована:</b> {reason}")
 
         lines.extend(["", "<b>Результаты за 2 часа</b>"])
         lines.append(
