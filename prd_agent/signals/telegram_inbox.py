@@ -17,6 +17,7 @@ SIDE_RE = re.compile(r"\b(LONG|SHORT|BUY|SELL|ЛОНГ|ШОРТ)\b", re.I)
 SYMBOL_RE = re.compile(r"\b([A-Z]{2,10}USDT)\b")
 
 _INBOX_ACTIONS = frozenset({"approved_notify", "analyze_only", "executed"})
+_PUMP_DUMP_MARKERS = ("mirror_pump_dump", "pump_dump", "pumpdump", "pump/dump")
 
 
 class TelegramInbox:
@@ -50,9 +51,10 @@ class TelegramInbox:
             try:
                 row = json.loads(line)
                 uid = self._row_uid(row, line)
+                if self._normalize_row(row):
+                    self._seen_ids.add(uid)
             except json.JSONDecodeError:
-                uid = str(hash(line))
-            self._seen_ids.add(uid)
+                pass
         self._offset = self.path.stat().st_size
 
     @staticmethod
@@ -64,6 +66,15 @@ class TelegramInbox:
             or row.get("id")
             or hash(line)
         )
+
+    @staticmethod
+    def _is_pump_dump_row(row: Dict[str, Any]) -> bool:
+        for key in ("source", "channel", "id"):
+            val = str(row.get(key, "") or "").lower()
+            if any(m in val for m in _PUMP_DUMP_MARKERS):
+                return True
+        reason = str(row.get("reason", "") or "").lower()
+        return "pattern_score=" in reason and "fast-exec" in reason
 
     def _normalize_row(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Плоская строка inbox или audit {signal, review, action}."""
@@ -77,8 +88,14 @@ class TelegramInbox:
                 "stop_loss": float(flat.get("stop_loss", 0) or 0),
                 "take_profit": float(flat.get("take_profit", 0) or 0),
             }
-            ok_lv, _ = signal_levels_plausible(probe)
+            max_tp = 15.0 if self._is_pump_dump_row(flat) else 2.5
+            ok_lv, _ = signal_levels_plausible(probe, max_tp_pct=max_tp)
             if not ok_lv:
+                return None
+            conf = float(flat.get("confidence", 0) or 0)
+            if conf > 1:
+                conf /= 100.0
+            if conf > 0 and conf < self._min_conf:
                 return None
             return flat
         nested = row.get("signal")
