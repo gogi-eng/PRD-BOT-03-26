@@ -68,7 +68,15 @@ class TradeMonitor:
             all_rows.extend(rows)
             if not cursor:
                 break
-        return all_rows
+        filtered: List[Dict] = []
+        for r in all_rows:
+            ts = int(r.get("updatedTime") or r.get("createdTime") or 0)
+            if ts and ts < start_ms:
+                continue
+            if ts and ts > end_ms:
+                continue
+            filtered.append(r)
+        return filtered
 
     def summarize_pnl_rows(self, rows: List[Dict]) -> PeriodStats:
         stats = PeriodStats(hours=0)

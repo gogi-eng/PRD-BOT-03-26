@@ -583,13 +583,37 @@ class BybitClient:
         }
 
     async def get_closed_pnl(self, symbol: str = None, limit: int = 50) -> List[Dict]:
-        params = {"category": self.category, "limit": limit}
+        rows, _ = await self.get_closed_pnl_page(symbol=symbol, limit=limit)
+        return rows
+
+    async def get_closed_pnl_page(
+        self,
+        *,
+        symbol: Optional[str] = None,
+        start_time_ms: Optional[int] = None,
+        end_time_ms: Optional[int] = None,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+    ) -> Tuple[List[Dict], str]:
+        """Закрытый PnL с окном времени (для отчётов 2ч / 24ч)."""
+        params: Dict[str, Any] = {
+            "category": self.category,
+            "limit": min(100, max(1, int(limit))),
+        }
         if symbol:
             params["symbol"] = symbol
+        if start_time_ms is not None:
+            params["startTime"] = int(start_time_ms)
+        if end_time_ms is not None:
+            params["endTime"] = int(end_time_ms)
+        if cursor:
+            params["cursor"] = cursor
         result = await self._request("GET", "/v5/position/closed-pnl", params, private=True)
-        if result and result.get("list"):
-            return result["list"]
-        return []
+        if not result:
+            return [], ""
+        rows = list(result.get("list") or [])
+        next_cursor = str(result.get("nextPageCursor") or "")
+        return rows, next_cursor
 
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
         """Получить текущий funding rate из тикера."""
