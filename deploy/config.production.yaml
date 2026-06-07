@@ -293,9 +293,9 @@ agent_world:
 
 market_scanner:
   enabled: true
-  interval_sec: 600
+  interval_sec: 300
   run_loop_in_unified_bot: true
-  run_loop_in_signal_agent: false
+  run_loop_in_signal_agent: true
 
 telegram_signal_agent:
   enabled: true
