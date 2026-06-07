@@ -26,6 +26,11 @@ from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import RiskGuard
 from prd_agent.risk.quality_gate import QualityGate
+from prd_agent.market.market_scanner_bridge import (
+    market_scanner_cfg,
+    run_market_scan_once,
+    unified_should_run_market_scan,
+)
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -92,6 +97,9 @@ class UnifiedOrchestrator:
         self._last_upnl: Dict[str, float] = {}
         self._notify_loop: Optional[asyncio.AbstractEventLoop] = None
         self._block_notify_sent = False
+        _mc = market_scanner_cfg(cfg)
+        self._market_scan_interval_sec = float(_mc.get("interval_sec", 600))
+        self._market_scan_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -123,6 +131,7 @@ class UnifiedOrchestrator:
                 preserve = float(q.get("min_rr_ratio", 2.0))
         self._sr_preserve_rr = preserve
         self._sr_sl_level_index = max(0, int(sr.get("sl_sr_level_index", 1) or 1))
+        self._sr_min_tp_distance_pct = float(sr.get("min_tp_distance_pct", 1.0) or 1.0)
 
     async def _apply_sr_zones_to_levels(
         self,
@@ -150,6 +159,7 @@ class UnifiedOrchestrator:
                 tp_extra_atr=self._sr_tp_atr,
                 preserve_min_rr=self._sr_preserve_rr,
                 sl_sr_level_index=self._sr_sl_level_index,
+                min_tp_distance_pct=self._sr_min_tp_distance_pct,
             )
             if changed:
                 logger.info(
@@ -281,6 +291,12 @@ class UnifiedOrchestrator:
         table = await self.build_status_table(positions=positions, block_reason="")
         await self.notifier.send(f"🚀 <b>Unified Agent</b> запущен\n\n{table}")
         logger.info("Unified started balance=%.2f testnet=%s", balance, self.exchange.is_testnet)
+        if unified_should_run_market_scan(self.cfg):
+            self._market_scan_task = asyncio.create_task(self._market_scanner_loop())
+            logger.info(
+                "MARKET SCANNER: цикл в unified-боте, интервал %.0f сек",
+                self._market_scan_interval_sec,
+            )
         while self._running:
             try:
                 await self._cycle()
@@ -291,10 +307,33 @@ class UnifiedOrchestrator:
 
     def stop(self) -> None:
         self._running = False
+        if self._market_scan_task is not None:
+            self._market_scan_task.cancel()
+            self._market_scan_task = None
 
     async def close(self) -> None:
         self.stop()
+        if self._market_scan_task is not None:
+            try:
+                await self._market_scan_task
+            except asyncio.CancelledError:
+                pass
+            self._market_scan_task = None
         await self.exchange.close()
+
+    async def _market_scanner_loop(self) -> None:
+        """Уведомления MARKET SCANNER в Telegram (PUMP/DUMP наблюдения)."""
+        await asyncio.sleep(15)
+        while self._running:
+            try:
+                setups = await run_market_scan_once(self.root, self.cfg)
+                if setups:
+                    logger.info("MARKET SCANNER: отправлено/найдено сетапов: %s", len(setups))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("MARKET SCANNER: %s", exc)
+            await asyncio.sleep(max(120.0, self._market_scan_interval_sec))
 
     async def _sync_closed_pnl_to_risk(self) -> None:
         """Только новые закрытия с биржи; дедуп на диске — иначе после рестарта убыток «удваивается»."""
@@ -424,7 +463,10 @@ class UnifiedOrchestrator:
         for note in trail_notes:
             if note.startswith("📌"):
                 await self.notifier.send(note)
+        closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
         await self._sync_closed_pnl_to_risk()
+        balance_now = await self.exchange.get_balance()
+        self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)
         await self.supervisor.run_cycle_tick(
             self.exchange, self.position_steward._bot_symbols
         )
@@ -744,14 +786,19 @@ class UnifiedOrchestrator:
         for ch in applied_main:
             await self.notifier.config_change(ch.get("summary", ""), ch.get("justification", ""))
         balance = await self.exchange.get_balance()
+        closed_today = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
+        self.risk.reconcile_from_closed_rows(closed_today, balance=balance)
+        risk_snap = self.risk.snapshot()
         await self.reporter.publish_full_report(
             positions=positions,
             report_2h=report_2h,
             report_24h=report_24h,
             high_conf_signals=high_conf,
             code_changes=code_changes,
-            risk_snapshot=self.risk.snapshot(),
+            risk_snapshot=risk_snap,
             balance=balance,
+            exchange_pnl_today_usdt=risk_snap.get("pnl_today_usdt", 0),
+            exchange_pnl_today_pct=risk_snap.get("pnl_today_pct", 0),
             supervisor_summary=sup_summary,
         )
 
