@@ -268,13 +268,9 @@ telegram:
   chat_id: ''
   control_polling_enabled: true
 telegram_signal_agent:
-  allowed_chats:
-  - Cornix Trading Signals (free)
-  - FibTrader | Крипта, Сигналы, Копитрейдинг
-  - INVEX GROUP
-  - Евгений Ковалёв | NextGen
-  - Binance Killers®
-  auto_execute: false
+  allowed_chats: []
+  auto_execute: true
+  photo_ocr_enabled: true
   control_panel_enabled: false
   enabled: true
   ignore_bot_echo_messages: true
@@ -285,14 +281,11 @@ telegram_signal_agent:
   - Quotex Signals Bot M1 🤖
   - BYBIT Комьюнити
   - BYBIT Новости
-  - Bullrunsignals
   - Cryptovolksignalbot
   - Labuh25Bot
-  - Learn 2 Trade Crypto
   - Crypto4room
   - Sakura | Japan Trade
   - Свеча Трейдера
-  - Wallstreet Queen Official®
   - 3Commas Signals (OFFICIAL)
   - Roman Robertovich
   - Блумберг
@@ -325,7 +318,6 @@ telegram_signal_agent:
   - Buzzer Academy
   - '#CC | Alexander Finch ️'
   - Мысли Эмилии
-  - Мудрый Криптан
   - Sazonov / Official
   - Ленивый Трейдер
   - VST Audio Software
@@ -366,7 +358,6 @@ telegram_signal_agent:
   - МЧС Беларуси
   - PRIS💥🔞ТИГР
   - imjullls
-  - Evening Trader Group
   - Хижина🔰Инвестора
   - Вайб-кодинг
   - ПРОСТОЙ ТРЕЙДИНГ
@@ -445,9 +436,7 @@ telegram_signal_agent:
   - stationtrade
   - bybit комьюнити
   - bybit новости
-  - learn 2 trade
   - cryptovolk
-  - bullrunsignals
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   inbox_jsonl_enabled: true
   market_scanner_enabled: true

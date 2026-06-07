@@ -282,7 +282,8 @@ market_scanner:
 
 telegram_signal_agent:
   enabled: true
-  auto_execute: false
+  auto_execute: true
+  photo_ocr_enabled: true
   market_scanner_enabled: true
   telegram_notify: true
   market_scanner_interval_sec: 600
@@ -296,12 +297,7 @@ telegram_signal_agent:
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   session_name: telegram_user_signal_agent
   ignore_bot_echo_messages: true
-  allowed_chats:
-    - "Cornix Trading Signals (free)"
-    - "FibTrader | Крипта, Сигналы, Копитрейдинг"
-    - "INVEX GROUP"
-    - "Евгений Ковалёв | NextGen"
-    - "Binance Killers®"
+  allowed_chats: []
   ignored_substrings:
     - pocket
     - quotex
@@ -311,9 +307,7 @@ telegram_signal_agent:
     - stationtrade
     - "bybit комьюнити"
     - "bybit новости"
-    - "learn 2 trade"
     - cryptovolk
-    - bullrunsignals
   ignored_chats:
     - FantastisheBot
     - PocketOptions_1969_BOT
@@ -321,14 +315,11 @@ telegram_signal_agent:
     - "Quotex Signals Bot M1 🤖"
     - "BYBIT Комьюнити"
     - "BYBIT Новости"
-    - Bullrunsignals
     - Cryptovolksignalbot
     - Labuh25Bot
-    - "Learn 2 Trade Crypto"
     - Crypto4room
     - "Sakura | Japan Trade"
     - "Свеча Трейдера"
-    - "Wallstreet Queen Official®"
     - "3Commas Signals (OFFICIAL)"
   trusted_signal_sources:
     - "Cornix Trading Signals (free)"
