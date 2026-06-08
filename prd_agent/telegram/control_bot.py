@@ -104,17 +104,48 @@ class ControlBot:
         )
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not update.effective_user or not self._allowed(update.effective_user.id):
+        if not update.effective_user:
             return
-        table = await self.orch.build_status_table()
+        if not self._allowed(update.effective_user.id):
+            if update.message:
+                await update.message.reply_text(
+                    "Доступ запрещён: ваш Telegram ID не в telegram.allowed_user_ids."
+                )
+            return
+        if not update.message:
+            return
         flags = runtime_controls_status_text(self.orch.root)
-        await update.message.reply_html(
-            table
-            + "\n\n<b>Панель управления ботом</b>\n"
-            + flags
-            + "\n\n<i>🤖 Bot Manager — советы по управлению (не торгует сам).</i>",
+        msg = await update.message.reply_html(
+            "⏳ Загружаю статус Bybit…\n\n"
+            f"<b>Панель управления ботом</b>\n{flags}\n\n"
+            "<i>Кнопки ниже работают. «Совет менеджера» — отдельно (нужен OpenRouter).</i>",
             reply_markup=self._main_keyboard(),
         )
+        try:
+            table = await asyncio.wait_for(self.orch.build_status_table(), timeout=20.0)
+            await msg.edit_text(
+                table
+                + "\n\n<b>Панель управления ботом</b>\n"
+                + flags
+                + "\n\n<i>🤖 Bot Manager — советы по управлению (не торгует сам).</i>",
+                parse_mode="HTML",
+                reply_markup=self._main_keyboard(),
+            )
+        except asyncio.TimeoutError:
+            await msg.edit_text(
+                "⚠️ Bybit не ответил за 20 сек. Нажмите «📊 Статус» позже.\n\n"
+                f"<b>Панель управления ботом</b>\n{flags}",
+                parse_mode="HTML",
+                reply_markup=self._main_keyboard(),
+            )
+        except Exception as exc:
+            logger.exception("cmd_start/panel: %s", exc)
+            await msg.edit_text(
+                f"⚠️ Ошибка статуса: <code>{str(exc)[:400]}</code>\n\n"
+                f"<b>Панель управления ботом</b>\n{flags}",
+                parse_mode="HTML",
+                reply_markup=self._main_keyboard(),
+            )
 
     def _app_ready(self) -> bool:
         app = self.app
