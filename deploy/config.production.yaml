@@ -14,6 +14,13 @@ telegram:
   channel_id: ""
   allowed_user_ids: []
   control_polling_enabled: true
+  unified_control_panel: true
+
+bot_manager:
+  enabled: true
+  interval_sec: 3600
+  notify_telegram: true
+  log_tail_lines: 35
 
 trading:
   auto_start: true
