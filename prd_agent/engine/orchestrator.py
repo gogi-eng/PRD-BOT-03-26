@@ -361,7 +361,7 @@ class UnifiedOrchestrator:
         while self._running:
             try:
                 text = await self.bot_manager.maybe_scheduled_review(self)
-                if text and notify:
+                if text and notify and "⚠️ AI:" not in text and "⚠️ Модель AI" not in text:
                     await self.notifier.send(text)
             except asyncio.CancelledError:
                 raise

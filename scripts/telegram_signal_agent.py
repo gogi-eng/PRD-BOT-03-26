@@ -1175,7 +1175,7 @@ class TelegramSignalAgent:
         }
         self.openrouter_model = str(
             self.agent_cfg.get("openrouter_model")
-            or get_cfg(self.cfg, "openrouter", "model", "google/gemini-2.0-flash-001")
+            or get_cfg(self.cfg, "openrouter", "model", "google/gemini-2.5-flash")
         )
         self.openrouter_timeout_sec = float(self.agent_cfg.get("openrouter_timeout_sec", 25))
         _p1k = self.agent_cfg.get("openrouter_price_per_1k_tokens_usd")
