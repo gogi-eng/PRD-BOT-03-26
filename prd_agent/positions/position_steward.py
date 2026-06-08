@@ -3,10 +3,12 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -46,7 +48,14 @@ class TrackedPosition:
 
 class PositionSteward:
     def __init__(self, cfg: Dict[str, Any]):
+        root = Path(str(cfg.get("_root", ".")))
+        self._registry_path = root / "data" / "bot_position_registry.json"
+        self._bot_symbols: Set[str] = set()
+        self._pump_dump_symbols: Set[str] = set()
+        self._bot_levels: Dict[str, Dict[str, Any]] = {}
+        self._tracked: Dict[str, TrackedPosition] = {}
         self.apply_config(cfg)
+        self._load_registry()
 
     def apply_config(self, cfg: Dict[str, Any]) -> None:
         p = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
@@ -65,10 +74,104 @@ class PositionSteward:
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing"
         )
-        self._tracked: Dict[str, TrackedPosition] = {}
-        self._bot_symbols: set[str] = set()
-        self._pump_dump_symbols: set[str] = set()
-        self._bot_levels: Dict[str, Dict[str, float]] = {}
+        # _bot_symbols / _bot_levels переживают reload_config и рестарт (см. registry JSON).
+
+    def _load_registry(self) -> None:
+        if not self._registry_path.exists():
+            return
+        try:
+            data = json.loads(self._registry_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("bot_position_registry read: %s", exc)
+            return
+        if not isinstance(data, dict):
+            return
+        for sym in data.get("symbols") or []:
+            if sym:
+                self._bot_symbols.add(str(sym).upper())
+        for sym in data.get("pump_dump") or []:
+            if sym:
+                self._pump_dump_symbols.add(str(sym).upper())
+        levels = data.get("levels")
+        if isinstance(levels, dict):
+            for sym, node in levels.items():
+                if isinstance(node, dict):
+                    self._bot_levels[str(sym).upper()] = dict(node)
+        if self._bot_symbols:
+            logger.info(
+                "Restored bot positions from registry: %s",
+                ", ".join(sorted(self._bot_symbols)),
+            )
+
+    def _save_registry(self) -> None:
+        try:
+            self._registry_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "symbols": sorted(self._bot_symbols),
+                "pump_dump": sorted(self._pump_dump_symbols),
+                "levels": self._bot_levels,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self._registry_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.warning("bot_position_registry write: %s", exc)
+
+    def hydrate_open_symbols_from_journal(self, journal_path: Path) -> None:
+        """Дополняет registry из trade_history.jsonl (entered без closed)."""
+        if not journal_path.exists():
+            return
+        open_by_key: Dict[str, str] = {}
+        try:
+            lines = journal_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception as exc:
+            logger.warning("journal hydrate read: %s", exc)
+            return
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            sym = str(row.get("symbol", "")).upper()
+            side = str(row.get("side", "")).strip()
+            if not sym:
+                continue
+            key = f"{sym}:{side}" if side else sym
+            event = str(row.get("event", "")).lower()
+            if event == "entered":
+                open_by_key[key] = sym
+            elif event == "closed":
+                open_by_key.pop(key, None)
+                open_by_key.pop(sym, None)
+        added = 0
+        for sym in set(open_by_key.values()):
+            if sym not in self._bot_symbols:
+                self._bot_symbols.add(sym)
+                added += 1
+        if added:
+            logger.info(
+                "Hydrated %s bot symbol(s) from trade journal: %s",
+                added,
+                ", ".join(sorted(self._bot_symbols)),
+            )
+            self._save_registry()
+
+    def unmark_bot_closed(self, symbol: str) -> None:
+        sym = symbol.upper()
+        if sym not in self._bot_symbols:
+            return
+        self._bot_symbols.discard(sym)
+        self._pump_dump_symbols.discard(sym)
+        self._bot_levels.pop(sym, None)
+        self._save_registry()
+        logger.info("Bot registry: removed closed %s", sym)
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
@@ -103,6 +206,8 @@ class PositionSteward:
                 self._tracked[sym].pump_dump_mode = True
             if not self._tracked[sym].opened_at_utc:
                 self._tracked[sym].opened_at_utc = now_iso
+            self._tracked[sym].origin = "bot"
+        self._save_registry()
 
     @staticmethod
     def _atr_from_klines(klines: List[Dict], period: int = 14) -> float:
@@ -253,6 +358,7 @@ class PositionSteward:
 
         for sym in list(self._tracked.keys()):
             if sym not in live_syms:
+                self.unmark_bot_closed(sym)
                 del self._tracked[sym]
 
         for row in positions:
@@ -268,6 +374,7 @@ class PositionSteward:
                 t = self._tracked[sym]
                 t.qty = adopted.qty
                 t.entry = adopted.entry
+                t.origin = adopted.origin
                 if adopted.opened_at_utc and not t.opened_at_utc:
                     t.opened_at_utc = adopted.opened_at_utc
                 if adopted.take_profit > 0:
@@ -300,6 +407,7 @@ class PositionSteward:
                     if self.notify_trailing or action == "close_time_stop":
                         notes.append(closed_msg)
                     self._log_note_close(pos, action, action_reason)
+                    self.unmark_bot_closed(sym)
                     del self._tracked[sym]
                 continue
 
