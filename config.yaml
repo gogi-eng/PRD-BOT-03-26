@@ -113,6 +113,11 @@ kronos:
   - BTCUSDT
   - ETHUSDT
   tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
+bot_manager:
+  enabled: true
+  interval_sec: 3600
+  notify_telegram: true
+  log_tail_lines: 35
 macro_ai:
   enabled: true
   include_positions: true
@@ -286,6 +291,7 @@ telegram:
   channel_id: ''
   chat_id: ''
   control_polling_enabled: true
+  unified_control_panel: true
 telegram_signal_agent:
   allowed_chats: []
   auto_execute: true

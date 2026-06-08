@@ -11,6 +11,11 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
+from prd_agent.ops.runtime_controls import (
+    load_runtime_controls,
+    runtime_controls_status_text,
+    toggle_runtime_flag,
+)
 from prd_agent.risk.guard import GuardStatus, StopKind
 
 if TYPE_CHECKING:
@@ -44,7 +49,19 @@ class ControlBot:
             "✅ Включить трейлинг", callback_data="act:trailing_on"
         )
 
+    def _runtime_button_labels(self) -> tuple[str, str, str]:
+        rtc = load_runtime_controls(self.orch.root)
+        ch = "ВКЛ" if rtc.get("channel_auto_execute") else "ВЫКЛ"
+        sc = "ВКЛ" if rtc.get("market_scanner_auto_execute") else "ВЫКЛ"
+        pause = "ВКЛ" if rtc.get("pause_all_execution") else "ВЫКЛ"
+        return (
+            f"📣 Каналы auto: {ch}",
+            f"📡 Сканер auto: {sc}",
+            f"⏸ Пауза входов: {pause}",
+        )
+
     def _main_keyboard(self) -> InlineKeyboardMarkup:
+        ch_lbl, sc_lbl, pause_lbl = self._runtime_button_labels()
         return InlineKeyboardMarkup(
             [
                 [
@@ -56,14 +73,20 @@ class ControlBot:
                     InlineKeyboardButton("📈 Статистика", callback_data="act:stats"),
                 ],
                 [
+                    InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
+                    InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
+                ],
+                [InlineKeyboardButton(pause_lbl, callback_data="act:toggle_pause")],
+                [
+                    InlineKeyboardButton("🤖 Совет менеджера", callback_data="act:bot_manager"),
+                    InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
+                ],
+                [
                     InlineKeyboardButton("📉 TA-скан", callback_data="act:ta_scan"),
                     InlineKeyboardButton("🧠 Макро", callback_data="act:macro"),
                 ],
                 [
                     self._trailing_button(),
-                ],
-                [
-                    InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
                 ],
                 [
                     InlineKeyboardButton("🛑 Emergency stop", callback_data="act:emergency"),
@@ -84,8 +107,12 @@ class ControlBot:
         if not update.effective_user or not self._allowed(update.effective_user.id):
             return
         table = await self.orch.build_status_table()
+        flags = runtime_controls_status_text(self.orch.root)
         await update.message.reply_html(
-            table + "\n\n<i>Кнопки управления:</i>",
+            table
+            + "\n\n<b>Панель управления ботом</b>\n"
+            + flags
+            + "\n\n<i>🤖 Bot Manager — советы по управлению (не торгует сам).</i>",
             reply_markup=self._main_keyboard(),
         )
 
@@ -117,8 +144,33 @@ class ControlBot:
         if not query or not query.from_user or not self._allowed(query.from_user.id):
             return
         action = (query.data or "").split(":", 1)[-1]
-        html_actions = {"status", "stats", "macro", "ta_scan"}
+        html_actions = {"status", "stats", "macro", "ta_scan", "bot_manager", "panel_flags"}
         try:
+            if action == "bot_manager":
+                await query.answer("🤖 Менеджер анализирует…")
+                await self._safe_edit(
+                    query,
+                    "⏳ <b>Bot Manager</b>\n\nЧитаю логи, позиции и риск…",
+                    html=True,
+                )
+                text = await self.orch.get_bot_manager_review()
+                await self._safe_edit(query, text, html=True)
+                return
+            if action in ("toggle_channel", "toggle_scanner", "toggle_pause"):
+                key_map = {
+                    "toggle_channel": "channel_auto_execute",
+                    "toggle_scanner": "market_scanner_auto_execute",
+                    "toggle_pause": "pause_all_execution",
+                }
+                new_val, _ = toggle_runtime_flag(self.orch.root, key_map[action])
+                await query.answer("Переключено")
+                flags = runtime_controls_status_text(self.orch.root)
+                await self._safe_edit(
+                    query,
+                    f"<b>Панель агента</b>\n\n{flags}\n\n<i>Флаги сохранены в state JSON.</i>",
+                    html=True,
+                )
+                return
             if action == "ta_scan":
                 await query.answer("📉 TA-скан")
                 cache_age = self.orch.ta_cache_age_sec()
@@ -193,6 +245,17 @@ class ControlBot:
             return self.orch.set_trailing_enabled(False)
         if action == "trailing_on":
             return self.orch.set_trailing_enabled(True)
+        if action == "bot_manager":
+            return await self.orch.get_bot_manager_review()
+        if action == "toggle_channel":
+            toggle_runtime_flag(self.orch.root, "channel_auto_execute")
+            return runtime_controls_status_text(self.orch.root)
+        if action == "toggle_scanner":
+            toggle_runtime_flag(self.orch.root, "market_scanner_auto_execute")
+            return runtime_controls_status_text(self.orch.root)
+        if action == "toggle_pause":
+            toggle_runtime_flag(self.orch.root, "pause_all_execution")
+            return runtime_controls_status_text(self.orch.root)
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:

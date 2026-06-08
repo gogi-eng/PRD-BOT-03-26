@@ -31,6 +31,7 @@ from prd_agent.market.market_scanner_bridge import (
     run_market_scan_once,
     unified_should_run_market_scan,
 )
+from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -77,6 +78,7 @@ class UnifiedOrchestrator:
         self.position_steward = PositionSteward(cfg)
         self.quality_gate = QualityGate(cfg)
         self.macro_ai = MacroAI(cfg)
+        self.bot_manager = BotManagerAgent(cfg)
         an = cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", 24))
 
@@ -100,6 +102,7 @@ class UnifiedOrchestrator:
         _mc = market_scanner_cfg(cfg)
         self._market_scan_interval_sec = float(_mc.get("interval_sec", 600))
         self._market_scan_task: Optional[asyncio.Task] = None
+        self._bot_manager_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -297,6 +300,12 @@ class UnifiedOrchestrator:
                 "MARKET SCANNER: цикл в unified-боте, интервал %.0f сек",
                 self._market_scan_interval_sec,
             )
+        if self.bot_manager.enabled:
+            self._bot_manager_task = asyncio.create_task(self._bot_manager_loop())
+            logger.info(
+                "BOT MANAGER: цикл советов, интервал %.0f сек",
+                self.bot_manager.interval_sec,
+            )
         while self._running:
             try:
                 await self._cycle()
@@ -310,6 +319,9 @@ class UnifiedOrchestrator:
         if self._market_scan_task is not None:
             self._market_scan_task.cancel()
             self._market_scan_task = None
+        if self._bot_manager_task is not None:
+            self._bot_manager_task.cancel()
+            self._bot_manager_task = None
 
     async def close(self) -> None:
         self.stop()
@@ -319,6 +331,12 @@ class UnifiedOrchestrator:
             except asyncio.CancelledError:
                 pass
             self._market_scan_task = None
+        if self._bot_manager_task is not None:
+            try:
+                await self._bot_manager_task
+            except asyncio.CancelledError:
+                pass
+            self._bot_manager_task = None
         await self.exchange.close()
 
     async def _market_scanner_loop(self) -> None:
@@ -334,6 +352,25 @@ class UnifiedOrchestrator:
             except Exception as exc:
                 logger.warning("MARKET SCANNER: %s", exc)
             await asyncio.sleep(max(120.0, self._market_scan_interval_sec))
+
+    async def _bot_manager_loop(self) -> None:
+        """Периодический AI-обзор состояния бота (без торговли)."""
+        await asyncio.sleep(90)
+        bm_cfg = self.cfg.get("bot_manager", {}) or {}
+        notify = bool(bm_cfg.get("notify_telegram", True))
+        while self._running:
+            try:
+                text = await self.bot_manager.maybe_scheduled_review(self)
+                if text and notify:
+                    await self.notifier.send(text)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("BOT MANAGER: %s", exc)
+            await asyncio.sleep(max(300.0, self.bot_manager.interval_sec))
+
+    async def get_bot_manager_review(self) -> str:
+        return await self.bot_manager.run_review(self)
 
     async def _sync_closed_pnl_to_risk(self) -> None:
         """Только новые закрытия с биржи; дедуп на диске — иначе после рестарта убыток «удваивается»."""
