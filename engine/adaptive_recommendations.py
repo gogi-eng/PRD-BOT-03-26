@@ -63,9 +63,9 @@ class AdaptiveRecommendationEngine:
             cfg.get(
                 "adaptive_recommendations",
                 "ai_approval_model",
-                default=cfg.get("openrouter", "model", default="google/gemini-2.0-flash-001"),
+                default=cfg.get("openrouter", "model", default="google/gemini-2.5-flash"),
             )
-            or "google/gemini-2.0-flash-001"
+            or "google/gemini-2.5-flash"
         )
         raw_models = cfg.get("adaptive_recommendations", "ai_approval_models", default=[]) or []
         if isinstance(raw_models, str):
