@@ -39,8 +39,7 @@ from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
-from prd_agent.supervisor.meta_supervisor_v3 import MetaSupervisorV3
-from prd_agent.supervisor.trade_supervisor import TradeSupervisor
+from prd_agent.supervisor.supervisor_v4 import SupervisorV4
 from prd_agent.signals.confidence_filter import (
     PerSymbolSignalCooldown,
     filter_signal_dicts,
@@ -76,8 +75,7 @@ class UnifiedOrchestrator:
         self.reporter = BiHourlyReporter(cfg)
         self.reporter.high_conf = self._min_analysis_conf
         self.improver = SelfImprover(cfg, self.root, on_config_reload=self.reload_config)
-        self.supervisor = TradeSupervisor(cfg, self.data_dir / "supervisor", self.improver)
-        self.meta_supervisor = MetaSupervisorV3(cfg, self.data_dir)
+        self.supervisor = SupervisorV4(cfg, self.data_dir, self.improver)
         self.notifier = TelegramNotifier(cfg)
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
@@ -225,8 +223,7 @@ class UnifiedOrchestrator:
         self._apply_sr_zones_config()
         self.leverage = int(t.get("leverage", self.leverage))
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
-        self.supervisor = TradeSupervisor(self.cfg, self.data_dir / "supervisor", self.improver)
-        self.meta_supervisor = MetaSupervisorV3(self.cfg, self.data_dir)
+        self.supervisor = SupervisorV4(self.cfg, self.data_dir, self.improver)
         self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
 
@@ -512,27 +509,20 @@ class UnifiedOrchestrator:
         await self._sync_closed_pnl_to_risk()
         balance_now = await self.exchange.get_balance()
         self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)
-        await self.supervisor.run_cycle_tick(
-            self.exchange, self.position_steward._bot_symbols
-        )
-
         self._cycle_num += 1
-        if (
-            self.meta_supervisor.enabled
-            and self._cycle_num % max(1, self.meta_supervisor.tick_every_cycles) == 0
-        ):
-            risk_snap = self.risk.snapshot()
-            recent = load_closed_trades(self.trade_journal.path, hours=24)
-            recent_sum = summarize_trades(recent)
-            meta_snap = self.meta_supervisor.tick(
-                day_pnl_usdt=float(risk_snap.get("pnl_today_usdt", 0)),
-                consecutive_losses=int(risk_snap.get("consecutive_losses", 0)),
-                recent_wr_pct=float(recent_sum.get("winrate", 0)),
-                recent_trades=int(recent_sum.get("n", 0)),
-            )
-            line = MetaSupervisorV3.format_status_line(meta_snap)
-            if line:
-                logger.info(line)
+        risk_snap = self.risk.snapshot()
+        recent = load_closed_trades(self.trade_journal.path, hours=24)
+        recent_sum = summarize_trades(recent)
+        await self.supervisor.run_cycle_tick(
+            self.exchange,
+            self.position_steward._bot_symbols,
+            cycle_num=self._cycle_num,
+            day_pnl_usdt=float(risk_snap.get("pnl_today_usdt", 0)),
+            consecutive_losses=int(risk_snap.get("consecutive_losses", 0)),
+            recent_wr_pct=float(recent_sum.get("winrate", 0)),
+            recent_trades=int(recent_sum.get("n", 0)),
+        )
+        await self.supervisor.run_skipped_backtests_if_due(self.ledger, self.exchange)
 
         open_symbols = self._symbols_with_open_positions(positions)
         can_trade, block_reason = self.risk.can_trade()
@@ -562,7 +552,7 @@ class UnifiedOrchestrator:
             if sym in open_symbols:
                 await self._skip_if_position_open(sig)
                 continue
-            meta_ok, meta_reason = self.meta_supervisor.can_enter(sym)
+            meta_ok, meta_reason = self.supervisor.can_enter(sym)
             if not meta_ok:
                 self.ledger.record(
                     symbol=sig.symbol,
@@ -637,7 +627,7 @@ class UnifiedOrchestrator:
         if await self._skip_if_position_open(sig, ledger_id):
             self.supervisor.note_signal_outcome(ledger_id, "skipped", "position_open")
             return
-        meta_ok, meta_reason = self.meta_supervisor.can_enter(sig.symbol)
+        meta_ok, meta_reason = self.supervisor.can_enter(sig.symbol)
         if not meta_ok:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, meta_reason)
@@ -771,7 +761,7 @@ class UnifiedOrchestrator:
             )
         balance = await self.exchange.get_balance()
         available = await self.exchange.get_available_balance()
-        eff_risk = self.meta_supervisor.effective_risk_pct(self.risk_pct)
+        eff_risk = self.supervisor.effective_risk_pct(self.risk_pct)
         qty = self.risk.calculate_position_size(balance, eff_risk, eff_entry, sl, leverage)
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")

@@ -142,14 +142,6 @@ class BotManagerAgent:
                 max_tokens=900,
             )
             if err:
-                if "404" in err and "gemini" in err.lower():
-                    return (
-                        "<b>🤖 Bot Manager</b>\n\n"
-                        "⚠️ Модель AI устарела (gemini-2.0 снята с OpenRouter 01.06.2026).\n"
-                        "Обновите код и config: <code>openrouter.model: google/gemini-2.5-flash</code>, "
-                        "затем <code>sudo systemctl restart trading_bot</code>.\n\n"
-                        f"<i>Технически: {err[:200]}</i>"
-                    )
                 return f"<b>🤖 Bot Manager</b>\n\n⚠️ AI: {err}"
             body = (text or "").strip()
             if not body:

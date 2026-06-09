@@ -262,12 +262,16 @@ quality_gate:
     - "1000"
     - BILL
 
-meta_supervisor_v3:
+supervisor_v4:
   enabled: true
+  interval_hours: 2
   tick_every_cycles: 15
   mode_cooldown_minutes: 120
   min_risk_pct: 0.1
   lookback_hours: 168
+  virtual_trades_enabled: true
+  virtual_max_open: 40
+  virtual_max_age_hours: 72
   seed_blocked_symbols:
     - ATUSDT
     - CLOUSDT
@@ -285,13 +289,16 @@ meta_supervisor_v3:
   panic_consecutive_losses: 3
   panic_minutes: 90
   defensive_day_loss_usdt: -15
-
-trade_supervisor:
-  enabled: true
-  interval_hours: 2
-  virtual_trades_enabled: true
-  virtual_max_open: 40
-  virtual_max_age_hours: 72
+  skipped_backtest_interval_hours: 3.5
+  skipped_signal_backtest:
+    enabled: true
+    auto_tune_filters: true
+    auto_tune_min_samples: 5
+    lookback_hours: 72
+    max_per_run: 40
+    min_age_minutes: 30
+    kline_interval: "15"
+    max_kline_limit: 200
   leverage_advisor:
     enabled: true
     min_confidence: 0.68

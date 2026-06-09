@@ -19,16 +19,6 @@ import aiohttp
 logger = logging.getLogger("prd_agent.llm")
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash"
-_RETIRED_MODEL_FALLBACKS = {
-    "google/gemini-2.0-flash-001": DEFAULT_OPENROUTER_MODEL,
-    "google/gemini-2.0-flash": DEFAULT_OPENROUTER_MODEL,
-}
-
-
-def resolve_openrouter_model(model: str) -> str:
-    m = (model or "").strip() or DEFAULT_OPENROUTER_MODEL
-    return _RETIRED_MODEL_FALLBACKS.get(m, m)
 
 
 @dataclass
@@ -63,9 +53,7 @@ def load_llm_settings(cfg: Dict[str, Any]) -> LLMSettings:
             f.get("timeout_sec", o.get("timeout_sec", ai.get("timeout_sec", 30))) or 30
         ),
         openrouter_api_key=str(o.get("api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")).strip(),
-        openrouter_model=resolve_openrouter_model(
-            str(o.get("model", DEFAULT_OPENROUTER_MODEL))
-        ),
+        openrouter_model=str(o.get("model", "google/gemini-2.0-flash-001")),
         fcc_base_url=str(f.get("base_url", "http://127.0.0.1:8082")).rstrip("/"),
         fcc_auth_token=str(
             f.get("auth_token", "") or os.environ.get("FCC_AUTH_TOKEN", "freecc")
@@ -156,57 +144,35 @@ async def _chat_openrouter_async(
 ) -> Tuple[str, Optional[str]]:
     if not settings.openrouter_api_key:
         return "", "OpenRouter API key не задан"
-    models = [settings.openrouter_model]
-    fallback = resolve_openrouter_model(settings.openrouter_model)
-    if fallback not in models:
-        models.append(fallback)
-    if DEFAULT_OPENROUTER_MODEL not in models:
-        models.append(DEFAULT_OPENROUTER_MODEL)
+    payload = {
+        "model": settings.openrouter_model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
         "X-Title": title,
     }
-    last_err = ""
     try:
         async with aiohttp.ClientSession() as session:
-            for model in models:
-                payload = {
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                }
-                async with session.post(
-                    _OPENROUTER_URL,
-                    json=payload,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=settings.timeout_sec),
-                ) as resp:
-                    body = await resp.json()
-                    if resp.status >= 400:
-                        last_err = f"OpenRouter HTTP {resp.status}: {str(body)[:300]}"
-                        if resp.status == 404 and model != models[-1]:
-                            logger.warning("openrouter model %s unavailable, retry next", model)
-                            continue
-                        return "", last_err
-                    text = str(
-                        ((body.get("choices") or [{}])[0].get("message") or {}).get(
-                            "content"
-                        )
-                        or ""
-                    ).strip()
-                    if model != settings.openrouter_model:
-                        logger.info(
-                            "openrouter: использован fallback model=%s (был %s)",
-                            model,
-                            settings.openrouter_model,
-                        )
-                    return text, None
-        return "", last_err or "OpenRouter: нет доступной модели"
+            async with session.post(
+                _OPENROUTER_URL,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=settings.timeout_sec),
+            ) as resp:
+                body = await resp.json()
+                if resp.status >= 400:
+                    return "", f"OpenRouter HTTP {resp.status}: {str(body)[:300]}"
+                text = str(
+                    ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                ).strip()
+                return text, None
     except Exception as exc:
         logger.exception("openrouter async: %s", exc)
         return "", str(exc)
@@ -282,52 +248,34 @@ def _chat_openrouter_sync(
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     if not settings.openrouter_api_key:
         return None, "OpenRouter key not set"
-    models = [settings.openrouter_model]
-    fallback = resolve_openrouter_model(settings.openrouter_model)
-    if fallback not in models:
-        models.append(fallback)
-    if DEFAULT_OPENROUTER_MODEL not in models:
-        models.append(DEFAULT_OPENROUTER_MODEL)
-    last_err: Optional[str] = None
-    for model in models:
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        req = urllib.request.Request(
-            _OPENROUTER_URL,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {settings.openrouter_api_key}",
-                "Content-Type": "application/json",
-                "X-Title": title,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-                if model != settings.openrouter_model:
-                    logger.info(
-                        "openrouter sync: fallback model=%s (был %s)",
-                        model,
-                        settings.openrouter_model,
-                    )
-                return body, None
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:300]
-            last_err = f"OpenRouter HTTP {exc.code}: {detail}"
-            if exc.code == 404 and model != models[-1]:
-                continue
-            return None, last_err
-        except Exception as exc:
-            return None, str(exc)
-    return None, last_err or "OpenRouter: нет доступной модели"
+    payload = {
+        "model": settings.openrouter_model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    req = urllib.request.Request(
+        _OPENROUTER_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "X-Title": title,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+            return body, None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:300]
+        return None, f"OpenRouter HTTP {exc.code}: {detail}"
+    except Exception as exc:
+        return None, str(exc)
 
 
 def _chat_fcc_sync(
