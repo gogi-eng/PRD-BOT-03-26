@@ -96,8 +96,9 @@ class UnifiedOrchestrator:
         ga = cfg.get("global_analysis", {})
         self.global_interval_sec = float(ga.get("interval_hours", 6)) * 3600
         self._running = False
-        self._last_report_at = 0.0
-        self._last_global_at = 0.0
+        _boot_ts = datetime.now(timezone.utc).timestamp()
+        self._last_report_at = _boot_ts
+        self._last_global_at = _boot_ts
         self._loop_sec = float(t.get("loop_interval_sec", 60))
         self._closed_pnl_dedup = ClosedPnlDedup(self.data_dir / "risk_seen_closed.json")
         self._last_upnl: Dict[str, float] = {}
@@ -224,7 +225,12 @@ class UnifiedOrchestrator:
         self._apply_sr_zones_config()
         self.leverage = int(t.get("leverage", self.leverage))
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
+        prev_skipped_bt_at = float(
+            getattr(self.supervisor, "_last_skipped_bt_at", 0.0) or 0.0
+        )
         self.supervisor = SupervisorV4(self.cfg, self.data_dir, self.improver)
+        if prev_skipped_bt_at > 0:
+            self.supervisor._last_skipped_bt_at = prev_skipped_bt_at
         self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
 

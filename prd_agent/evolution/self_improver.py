@@ -198,7 +198,7 @@ class SelfImprover:
             cur = cur.setdefault(key, {})
         cur[path[-1]] = value
 
-    def apply_low_risk_proposal(self, proposal: Dict[str, Any]) -> bool:
+    def apply_low_risk_proposal(self, proposal: Dict[str, Any], *, reload: bool = True) -> bool:
         path_tuple = tuple(proposal["path"])
         if path_tuple not in LOW_RISK_TUNING:
             return False
@@ -256,7 +256,7 @@ class SelfImprover:
                 )
             except (subprocess.CalledProcessError, FileNotFoundError):
                 pass
-        if self.reload_after_apply and self._on_reload:
+        if reload and self.reload_after_apply and self._on_reload:
             self._on_reload()
         return True
 
@@ -320,7 +320,7 @@ class SelfImprover:
         applied: List[Dict[str, Any]] = []
         for p in proposals:
             if p.get("risk") == "low" and self.auto_low:
-                if self.apply_low_risk_proposal(p):
+                if self.apply_low_risk_proposal(p, reload=False):
                     applied.append(p)
             elif p.get("risk") == "critical" and self.require_approval:
                 self.queue_critical_patch(
@@ -328,6 +328,8 @@ class SelfImprover:
                     p.get("justification", ""),
                     p.get("files", {}),
                 )
+        if applied and self.reload_after_apply and self._on_reload:
+            self._on_reload()
         return applied
 
     def rollback_last_config(self) -> Optional[str]:

@@ -143,7 +143,7 @@ class SupervisorV4:
             )
         )
         self._auto_tune_min_samples = int(sb_cfg.get("auto_tune_min_samples", 5))
-        self._last_skipped_bt_at = 0.0
+        self._last_skipped_bt_at = datetime.now(timezone.utc).timestamp()
         self._last_skipped_bt_summary: Dict[str, Any] = {}
         self._last_filter_tunes: List[Dict[str, Any]] = []
         self._meta = self._load_meta_state()
