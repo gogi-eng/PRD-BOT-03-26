@@ -46,6 +46,10 @@ class TrackedPosition:
 
 class PositionSteward:
     def __init__(self, cfg: Dict[str, Any]):
+        self._tracked: Dict[str, TrackedPosition] = {}
+        self._bot_symbols: set[str] = set()
+        self._pump_dump_symbols: set[str] = set()
+        self._bot_levels: Dict[str, Dict[str, float]] = {}
         self.apply_config(cfg)
 
     def apply_config(self, cfg: Dict[str, Any]) -> None:
@@ -65,10 +69,6 @@ class PositionSteward:
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing"
         )
-        self._tracked: Dict[str, TrackedPosition] = {}
-        self._bot_symbols: set[str] = set()
-        self._pump_dump_symbols: set[str] = set()
-        self._bot_levels: Dict[str, Dict[str, float]] = {}
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
