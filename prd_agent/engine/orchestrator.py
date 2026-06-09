@@ -12,7 +12,11 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import SignalLedger, SignalStatus
-from prd_agent.analysis.trade_analytics import build_report as build_trade_stats_report
+from prd_agent.analysis.trade_analytics import (
+    build_report as build_trade_stats_report,
+    load_closed_trades,
+    summarize_trades,
+)
 from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
@@ -35,6 +39,7 @@ from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
+from prd_agent.supervisor.meta_supervisor_v3 import MetaSupervisorV3
 from prd_agent.supervisor.trade_supervisor import TradeSupervisor
 from prd_agent.signals.confidence_filter import (
     PerSymbolSignalCooldown,
@@ -72,11 +77,11 @@ class UnifiedOrchestrator:
         self.reporter.high_conf = self._min_analysis_conf
         self.improver = SelfImprover(cfg, self.root, on_config_reload=self.reload_config)
         self.supervisor = TradeSupervisor(cfg, self.data_dir / "supervisor", self.improver)
+        self.meta_supervisor = MetaSupervisorV3(cfg, self.data_dir)
         self.notifier = TelegramNotifier(cfg)
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
-        self.position_steward.hydrate_open_symbols_from_journal(self.trade_journal.path)
         self.quality_gate = QualityGate(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bot_manager = BotManagerAgent(cfg)
@@ -100,6 +105,7 @@ class UnifiedOrchestrator:
         self._last_upnl: Dict[str, float] = {}
         self._notify_loop: Optional[asyncio.AbstractEventLoop] = None
         self._block_notify_sent = False
+        self._cycle_num = 0
         _mc = market_scanner_cfg(cfg)
         self._market_scan_interval_sec = float(_mc.get("interval_sec", 600))
         self._market_scan_task: Optional[asyncio.Task] = None
@@ -204,7 +210,6 @@ class UnifiedOrchestrator:
             )
         )
         self.position_steward = PositionSteward(self.cfg)
-        self.position_steward.hydrate_open_symbols_from_journal(self.trade_journal.path)
         self.quality_gate = QualityGate(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
@@ -221,6 +226,7 @@ class UnifiedOrchestrator:
         self.leverage = int(t.get("leverage", self.leverage))
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
         self.supervisor = TradeSupervisor(self.cfg, self.data_dir / "supervisor", self.improver)
+        self.meta_supervisor = MetaSupervisorV3(self.cfg, self.data_dir)
         self.notifier._cfg = self.cfg
         logger.info("Config reloaded from disk")
 
@@ -363,7 +369,7 @@ class UnifiedOrchestrator:
         while self._running:
             try:
                 text = await self.bot_manager.maybe_scheduled_review(self)
-                if text and notify and "⚠️ AI:" not in text and "⚠️ Модель AI" not in text:
+                if text and notify:
                     await self.notifier.send(text)
             except asyncio.CancelledError:
                 raise
@@ -510,6 +516,24 @@ class UnifiedOrchestrator:
             self.exchange, self.position_steward._bot_symbols
         )
 
+        self._cycle_num += 1
+        if (
+            self.meta_supervisor.enabled
+            and self._cycle_num % max(1, self.meta_supervisor.tick_every_cycles) == 0
+        ):
+            risk_snap = self.risk.snapshot()
+            recent = load_closed_trades(self.trade_journal.path, hours=24)
+            recent_sum = summarize_trades(recent)
+            meta_snap = self.meta_supervisor.tick(
+                day_pnl_usdt=float(risk_snap.get("pnl_today_usdt", 0)),
+                consecutive_losses=int(risk_snap.get("consecutive_losses", 0)),
+                recent_wr_pct=float(recent_sum.get("winrate", 0)),
+                recent_trades=int(recent_sum.get("n", 0)),
+            )
+            line = MetaSupervisorV3.format_status_line(meta_snap)
+            if line:
+                logger.info(line)
+
         open_symbols = self._symbols_with_open_positions(positions)
         can_trade, block_reason = self.risk.can_trade()
         if can_trade:
@@ -537,6 +561,22 @@ class UnifiedOrchestrator:
                 continue
             if sym in open_symbols:
                 await self._skip_if_position_open(sig)
+                continue
+            meta_ok, meta_reason = self.meta_supervisor.can_enter(sym)
+            if not meta_ok:
+                self.ledger.record(
+                    symbol=sig.symbol,
+                    side=sig.side,
+                    confidence=sig.confidence,
+                    source=sig.source,
+                    status=SignalStatus.SKIPPED,
+                    reason=meta_reason,
+                    entry=sig.entry,
+                    stop_loss=sig.stop_loss,
+                    take_profit=sig.take_profit,
+                    raw=sig.raw,
+                )
+                logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
                 continue
             if not can_trade:
                 self.ledger.record(
@@ -597,6 +637,14 @@ class UnifiedOrchestrator:
         if await self._skip_if_position_open(sig, ledger_id):
             self.supervisor.note_signal_outcome(ledger_id, "skipped", "position_open")
             return
+        meta_ok, meta_reason = self.meta_supervisor.can_enter(sig.symbol)
+        if not meta_ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, meta_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", meta_reason)
+            if not self._is_silent_skip(meta_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, meta_reason)
+            return
         ok, reason = self.risk.can_trade(sig.symbol)
         if not ok:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
@@ -621,17 +669,6 @@ class UnifiedOrchestrator:
             return
 
         entry, sl, tp = plan_entry, plan_sl, plan_tp
-
-        q_ok, q_reason = await self.quality_gate.check(
-            sig, self.exchange, entry=entry, sl=sl, tp=tp
-        )
-        if not q_ok:
-            logger.info("Skip %s %s: %s", sig.symbol, sig.side, q_reason)
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason)
-            self.supervisor.note_signal_outcome(ledger_id, "skipped", q_reason)
-            if not self._is_silent_skip(q_reason):
-                await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
-            return
 
         klines_entry = await self.exchange.get_klines(
             sig.symbol, interval=self._sr_interval, limit=self._sr_limit
@@ -670,6 +707,32 @@ class UnifiedOrchestrator:
 
         order_type = exec_plan.order_type
         limit_price = exec_plan.limit_price if order_type == "Limit" else None
+        if order_type == "Limit" and limit_price and limit_price > 0:
+            eff_entry = float(limit_price)
+        elif exec_plan.market_price > 0:
+            eff_entry = float(exec_plan.market_price)
+        else:
+            eff_entry = entry
+
+        q_ok, q_reason = await self.quality_gate.check(
+            sig, self.exchange, entry=eff_entry, sl=sl, tp=tp
+        )
+        if not q_ok:
+            logger.info(
+                "Skip %s %s: %s (entry_plan=%.6g entry_eff=%.6g sl=%.6g tp=%.6g)",
+                sig.symbol,
+                sig.side,
+                q_reason,
+                entry,
+                eff_entry,
+                sl,
+                tp,
+            )
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", q_reason)
+            if not self._is_silent_skip(q_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
+            return
 
         await self.notifier.signal_received(
             sig.symbol,
@@ -708,7 +771,8 @@ class UnifiedOrchestrator:
             )
         balance = await self.exchange.get_balance()
         available = await self.exchange.get_available_balance()
-        qty = self.risk.calculate_position_size(balance, self.risk_pct, entry, sl, leverage)
+        eff_risk = self.meta_supervisor.effective_risk_pct(self.risk_pct)
+        qty = self.risk.calculate_position_size(balance, eff_risk, eff_entry, sl, leverage)
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
             return
@@ -737,6 +801,25 @@ class UnifiedOrchestrator:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
             if not self._is_silent_skip(prep_err):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
+            return
+
+        q_ok2, q_reason2 = await self.quality_gate.check(
+            sig, self.exchange, entry=eff_entry, sl=float(sl or 0), tp=float(tp or 0)
+        )
+        if not q_ok2:
+            logger.info(
+                "Skip %s %s: %s после округления SL/TP (eff_entry=%.6g sl=%.6g tp=%.6g)",
+                sig.symbol,
+                sig.side,
+                q_reason2,
+                eff_entry,
+                sl,
+                tp,
+            )
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, q_reason2)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", q_reason2)
+            if not self._is_silent_skip(q_reason2):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason2)
             return
 
         result = await self.exchange.place_order(
@@ -769,7 +852,7 @@ class UnifiedOrchestrator:
                 side=sig.side,
                 source=sig.source,
                 qty=qty,
-                entry=entry,
+                entry=eff_entry,
                 order_id=oid,
                 stop_loss=sl,
                 take_profit=tp,
