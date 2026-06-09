@@ -473,6 +473,7 @@ telegram_signal_agent:
   market_scanner_enabled: true
   market_scanner_auto_execute: true
   market_scanner_execute_min_score: 72
+  market_scanner_execute_require_confirmed_bos: true
   market_scanner_interval_sec: 300
   market_scanner_interval: '5'
   market_scanner_klines_limit: 120
