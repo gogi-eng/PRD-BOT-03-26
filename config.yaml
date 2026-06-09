@@ -145,7 +145,7 @@ market_scanner:
   run_loop_in_unified_bot: false
 openrouter:
   api_key: ''
-  model: google/gemini-2.0-flash-001
+  model: google/gemini-2.5-flash
   timeout_sec: 30
 portfolio_tp:
   enabled: true
