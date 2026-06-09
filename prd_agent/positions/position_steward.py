@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -20,6 +21,12 @@ from prd_agent.positions.exit_management import (
     progress_in_atr,
 )
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
+from prd_agent.positions.bot_position_registry import (
+    bot_levels_from_registry,
+    merge_open_sources,
+    register_bot_open,
+    unregister_bot_symbol,
+)
 from prd_agent.signals.pump_dump_mode import TrailingProfile
 
 logger = logging.getLogger("prd_agent.positions")
@@ -50,9 +57,40 @@ class PositionSteward:
         self._bot_symbols: set[str] = set()
         self._pump_dump_symbols: set[str] = set()
         self._bot_levels: Dict[str, Dict[str, float]] = {}
+        root = Path(str(cfg.get("_root", ".")))
+        self._data_dir = root / "data"
+        self._data_dir.mkdir(parents=True, exist_ok=True)
         self.apply_config(cfg)
+        self._load_bot_registry()
+
+    def _telegram_audit_path(self) -> Path:
+        cfg = getattr(self, "cfg", {}) or {}
+        agent = cfg.get("telegram_signal_agent", {}) if isinstance(cfg.get("telegram_signal_agent"), dict) else {}
+        out = str(agent.get("out_dir", "reports/telegram_signals") or "reports/telegram_signals")
+        return Path(str(cfg.get("_root", "."))) / out / "signals.jsonl"
+
+    def _load_bot_registry(self) -> None:
+        journal = self._data_dir / "trades" / "trade_history.jsonl"
+        audit = self._telegram_audit_path()
+        merged = merge_open_sources(
+            self._data_dir,
+            journal_path=journal,
+            telegram_audit_path=audit if audit.exists() else None,
+        )
+        self._bot_symbols |= merged
+        for sym, levels in bot_levels_from_registry(self._data_dir).items():
+            self._bot_levels[sym] = levels
+
+    def hydrate_open_symbols_from_journal(self, journal_path: Path) -> None:
+        merged = merge_open_sources(
+            self._data_dir,
+            journal_path=journal_path,
+            telegram_audit_path=None,
+        )
+        self._bot_symbols |= merged
 
     def apply_config(self, cfg: Dict[str, Any]) -> None:
+        self.cfg = cfg
         p = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
         self.enabled = bool(p.get("trailing_enabled", True))
         self.adopt_manual = bool(p.get("adopt_manual", True))
@@ -93,6 +131,14 @@ class PositionSteward:
             "stop_loss": float(stop_loss or 0),
             "opened_at_utc": now_iso,
         }
+        register_bot_open(
+            self._data_dir,
+            sym,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            source="orchestrator",
+            pump_dump=pump_dump,
+        )
         if sym in self._tracked:
             if take_profit > 0:
                 self._tracked[sym].take_profit = take_profit
@@ -254,6 +300,9 @@ class PositionSteward:
         for sym in list(self._tracked.keys()):
             if sym not in live_syms:
                 del self._tracked[sym]
+                if sym in self._bot_symbols:
+                    self._bot_symbols.discard(sym)
+                    unregister_bot_symbol(self._data_dir, sym)
 
         for row in positions:
             adopted = self._adopt_from_exchange(row)

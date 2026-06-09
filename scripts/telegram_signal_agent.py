@@ -2193,6 +2193,19 @@ class TelegramSignalAgent:
             reason=f"telegram_signal:{signal.source}",
             preferred_price=price,
         )
+        if result.get("success"):
+            try:
+                from prd_agent.positions.bot_position_registry import register_bot_open
+
+                register_bot_open(
+                    self.repo_dir / "data",
+                    signal.symbol,
+                    stop_loss=float(signal.stop_loss or 0),
+                    take_profit=float(signal.take_profit or 0),
+                    source=str(signal.source or "telegram_signal"),
+                )
+            except Exception as exc:
+                LOG.warning("bot position registry: %s", exc)
         if str(signal.source) == "MARKET_SCANNER" and self.market_scan_post_exec_delay_sec > 0:
             await asyncio.sleep(self.market_scan_post_exec_delay_sec)
         return result
