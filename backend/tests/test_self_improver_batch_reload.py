@@ -37,4 +37,10 @@ def test_process_proposals_reloads_config_once(tmp_path: Path) -> None:
     ]
     applied = imp.process_proposals(proposals)
     assert len(applied) == 2
+    assert len(reloads) == 0
+    assert imp.flush_reload() is True
+    assert len(reloads) == 1
+
+    reloads.clear()
+    imp.process_proposals(proposals, reload=True)
     assert len(reloads) == 1

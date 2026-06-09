@@ -232,7 +232,6 @@ class UnifiedOrchestrator:
         if prev_skipped_bt_at > 0:
             self.supervisor._last_skipped_bt_at = prev_skipped_bt_at
         self.notifier._cfg = self.cfg
-        logger.info("Config reloaded from disk")
 
     async def _plan_order_levels(
         self, sig: UnifiedSignal
@@ -622,6 +621,8 @@ class UnifiedOrchestrator:
         if now - self._last_global_at >= self.global_interval_sec:
             await self._global_analysis()
             self._last_global_at = now
+        if self.improver.flush_reload():
+            logger.info("Config reloaded from disk (end of cycle)")
 
     async def _maybe_execute(
         self,
