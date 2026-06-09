@@ -24,6 +24,7 @@ from prd_agent.supervisor.position_tracker import PositionTracker
 from prd_agent.supervisor.trade_advisor import LeverageAdvice, TradeAdvisor
 from prd_agent.supervisor.skipped_signal_backtest import SkippedSignalBacktester
 from prd_agent.supervisor.virtual_trade_engine import VirtualTradeEngine
+from prd_agent.time_hours import entry_check_hour, format_blocked_hour_label, read_timezone_offset
 
 logger = logging.getLogger("prd_agent.supervisor.v4")
 
@@ -72,6 +73,7 @@ class SupervisorV4:
     ):
         self.cfg = cfg
         self.improver = improver
+        self._timezone_offset = read_timezone_offset(cfg)
         sup = load_supervisor_config(cfg)
 
         self.enabled = bool(sup.get("enabled", True))
@@ -272,7 +274,7 @@ class SupervisorV4:
             ts_raw = str(r.get("ts", ""))
             try:
                 ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                by_hour[ts.hour].append(pnl)
+                by_hour[entry_check_hour(ts.hour, self._timezone_offset)].append(pnl)
             except ValueError:
                 pass
         learned_syms: Set[str] = set()
@@ -496,7 +498,8 @@ class SupervisorV4:
         if not self.enabled:
             return True, ""
         sym = str(symbol or "").upper()
-        hour = utc_hour if utc_hour is not None else datetime.now(timezone.utc).hour
+        utc_hour = utc_hour if utc_hour is not None else datetime.now(timezone.utc).hour
+        check_hour = entry_check_hour(utc_hour, self._timezone_offset)
 
         if self._meta.panic_until and datetime.now(timezone.utc) < self._meta.panic_until:
             return False, "supervisor_v4: протокол восстановления после серии убытков"
@@ -504,17 +507,22 @@ class SupervisorV4:
         if sym and sym in self.blocked_symbols():
             return False, f"supervisor_v4: символ {sym} в чёрном списке"
 
-        if hour in self.blocked_hours():
-            if self._meta.mode != SupervisorMode.AGGRESSIVE or hour not in self._preferred_hours:
+        if check_hour in self.blocked_hours():
+            if self._meta.mode != SupervisorMode.AGGRESSIVE or check_hour not in self._preferred_hours:
+                hour_label = format_blocked_hour_label(utc_hour, check_hour, self._timezone_offset)
                 return False, (
-                    f"supervisor_v4: UTC час {hour} заблокирован "
+                    f"supervisor_v4: {hour_label} заблокирован "
                     f"(режим {self._meta.mode.value})"
                 )
 
-        if self._meta.mode == SupervisorMode.DEFENSIVE and hour not in self._preferred_hours:
+        if self._meta.mode == SupervisorMode.DEFENSIVE and check_hour not in self._preferred_hours:
+            pref_label = (
+                f"UTC+{self._timezone_offset} {sorted(self._preferred_hours)}"
+                if self._timezone_offset
+                else f"{sorted(self._preferred_hours)} UTC"
+            )
             return False, (
-                f"supervisor_v4: DEFENSIVE — торговля только в часы "
-                f"{sorted(self._preferred_hours)} UTC"
+                f"supervisor_v4: DEFENSIVE — торговля только в часы {pref_label}"
             )
 
         return True, ""
@@ -523,10 +531,11 @@ class SupervisorV4:
         if not self.enabled:
             return base_risk_pct
         mult = _MODE_RISK_MULT.get(self._meta.mode, 1.0)
-        hour = datetime.now(timezone.utc).hour
-        if hour in self.blocked_hours():
+        utc_hour = datetime.now(timezone.utc).hour
+        check_hour = entry_check_hour(utc_hour, self._timezone_offset)
+        if check_hour in self.blocked_hours():
             mult = min(mult, 0.15)
-        if hour not in self._preferred_hours and self._meta.mode == SupervisorMode.DEFENSIVE:
+        if check_hour not in self._preferred_hours and self._meta.mode == SupervisorMode.DEFENSIVE:
             mult = min(mult, 0.2)
         scaled = base_risk_pct * mult
         scaled = max(self.min_risk_pct, scaled)
@@ -539,6 +548,8 @@ class SupervisorV4:
             "blocked_symbols": sorted(self.blocked_symbols()),
             "blocked_hours": sorted(self.blocked_hours()),
             "preferred_hours": sorted(self._preferred_hours),
+            "timezone_offset": self._timezone_offset,
+            "blocked_hours_are_local": bool(self._timezone_offset),
             "panic_active": bool(
                 self._meta.panic_until
                 and datetime.now(timezone.utc) < self._meta.panic_until
@@ -931,7 +942,8 @@ class SupervisorV4:
             "<b>🧭 Supervisor V4</b>",
             f"• Режим: <b>{meta.get('mode', 'NORMAL')}</b>"
             + (" 🛑" if meta.get("panic_active") else ""),
-            f"• Блок: {len(meta.get('blocked_hours', []))} ч UTC, "
+            f"• Блок: {len(meta.get('blocked_hours', []))} ч "
+            f"{'местн.' if meta.get('blocked_hours_are_local') else 'UTC'}, "
             f"{len(meta.get('blocked_symbols', []))} символов",
             "",
             "<b>🧪 Виртуальные сделки (по сигналам бота)</b>",

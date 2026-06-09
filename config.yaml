@@ -18,6 +18,8 @@ bybit:
   api_secret: ''
   category: linear
   testnet: false
+# Местное время для block_entry_utc_hours и supervisor (UTC+3 = Москва/Минск)
+timezone_offset: 3
 entry_guard:
   enabled: true
   max_limit_drift_pct: 0.01
@@ -536,6 +538,7 @@ trade_supervisor:
 trading:
   active_engine: classic
   auto_start: true
+  # Часы ниже — местное время (см. timezone_offset), не UTC
   block_entry_utc_hours:
   - 0
   - 7
