@@ -53,7 +53,7 @@ def load_llm_settings(cfg: Dict[str, Any]) -> LLMSettings:
             f.get("timeout_sec", o.get("timeout_sec", ai.get("timeout_sec", 30))) or 30
         ),
         openrouter_api_key=str(o.get("api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")).strip(),
-        openrouter_model=str(o.get("model", "google/gemini-2.0-flash-001")),
+        openrouter_model=str(o.get("model", "google/gemini-2.5-flash")),
         fcc_base_url=str(f.get("base_url", "http://127.0.0.1:8082")).rstrip("/"),
         fcc_auth_token=str(
             f.get("auth_token", "") or os.environ.get("FCC_AUTH_TOKEN", "freecc")

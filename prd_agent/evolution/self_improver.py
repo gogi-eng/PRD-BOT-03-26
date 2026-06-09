@@ -52,6 +52,7 @@ class SelfImprover:
         self.log_path = root / "data" / "self_improvement_log.jsonl"
         self.pending_path = root / "data" / "pending_patches.json"
         self._on_reload = on_config_reload
+        self._pending_reload = False
         self.sandbox_dir.mkdir(parents=True, exist_ok=True)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -313,7 +314,12 @@ class SelfImprover:
                 resolved.append(p)
         return resolved
 
-    def process_proposals(self, proposals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def process_proposals(
+        self,
+        proposals: List[Dict[str, Any]],
+        *,
+        reload: bool = False,
+    ) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
         proposals = self._resolve_conflicting_proposals(proposals)
@@ -328,9 +334,21 @@ class SelfImprover:
                     p.get("justification", ""),
                     p.get("files", {}),
                 )
-        if applied and self.reload_after_apply and self._on_reload:
-            self._on_reload()
+        if applied:
+            if reload and self.reload_after_apply and self._on_reload:
+                self._on_reload()
+            else:
+                self._pending_reload = True
         return applied
+
+    def flush_reload(self) -> bool:
+        """Один reload после пакета правок (конец цикла бота)."""
+        if not self._pending_reload or not self.reload_after_apply or not self._on_reload:
+            self._pending_reload = False
+            return False
+        self._pending_reload = False
+        self._on_reload()
+        return True
 
     def rollback_last_config(self) -> Optional[str]:
         backups = sorted(self.sandbox_dir.glob("config_backup_*.yaml"))
