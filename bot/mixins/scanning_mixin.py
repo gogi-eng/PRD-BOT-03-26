@@ -2,16 +2,22 @@
 from __future__ import annotations
 
 from bot.trading_bot_imports import *  # noqa: F401,F403
+from prd_agent.time_hours import entry_check_hour, format_blocked_hour_label, read_timezone_offset
 
 class TradingBotScanningMixin:
     async def _scan_entries(self, symbols: list):
         candidates = []
         reject_counts: dict[str, int] = {}
         blocked_hours = set(getattr(self, "block_entry_utc_hours", set()) or set())
+        tz_offset = read_timezone_offset(getattr(self, "cfg", {}) or {})
+        if not tz_offset:
+            tz_offset = int(getattr(getattr(self, "scalp_strategy", None), "timezone_offset", 0) or 0)
         current_utc_hour = datetime.now(timezone.utc).hour
-        if blocked_hours and current_utc_hour in blocked_hours:
+        check_hour = entry_check_hour(current_utc_hour, tz_offset)
+        if blocked_hours and check_hour in blocked_hours:
+            hour_label = format_blocked_hour_label(current_utc_hour, check_hour, tz_offset)
             logger.warning(
-                f"ENTRY SCAN BLOCKED: utc_hour={current_utc_hour} in block_entry_utc_hours={sorted(blocked_hours)}"
+                f"ENTRY SCAN BLOCKED: {hour_label} in block_entry_utc_hours={sorted(blocked_hours)}"
             )
             logger.info(
                 f"SCAN SUMMARY: symbols={len(symbols)} candidates=0 rejects[blocked_utc_hour={len(symbols)}]"

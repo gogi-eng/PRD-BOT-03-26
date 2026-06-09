@@ -46,6 +46,21 @@ def test_blocks_seed_symbol_and_hour(tmp_path: Path) -> None:
     assert "2" in reason
 
 
+def test_blocks_local_hours_with_timezone_offset(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    cfg["timezone_offset"] = 3
+    cfg["supervisor_v4"]["seed_blocked_utc_hours"] = [18]
+    imp = SelfImprover(cfg, tmp_path)
+    sup = SupervisorV4(cfg, tmp_path / "data", imp)
+    # UTC 15:00 = местный 18:00 — блок
+    ok, reason = sup.can_enter("BTCUSDT", utc_hour=15)
+    assert not ok
+    assert "18" in reason
+    # UTC 18:00 = местный 21:00 — не блок (18 местный не совпадает)
+    ok, reason = sup.can_enter("BTCUSDT", utc_hour=18)
+    assert ok, reason
+
+
 def test_defensive_only_preferred_hours(tmp_path: Path) -> None:
     sup = _make(tmp_path)
     sup._meta.mode = SupervisorMode.DEFENSIVE
