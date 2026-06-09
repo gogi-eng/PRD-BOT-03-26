@@ -35,6 +35,27 @@ def test_registry_restores_bot_origin_after_restart(tmp_path: Path):
     assert adopted.origin == "bot"
 
 
+def test_apply_config_keeps_tracked_positions(tmp_path: Path):
+    cfg = _cfg(tmp_path)
+    steward = PositionSteward(cfg)
+    row = {
+        "symbol": "SOLUSDT",
+        "side": "Buy",
+        "size": 1.0,
+        "avgPrice": 150.0,
+        "markPrice": 151.0,
+        "stopLoss": 145.0,
+        "takeProfit": 160.0,
+    }
+    adopted = steward._adopt_from_exchange(row)
+    assert adopted is not None
+    steward._tracked["SOLUSDT"] = adopted
+    cfg["positions"]["trailing_activation_pct"] = 0.55
+    steward.apply_config(cfg)
+    assert "SOLUSDT" in steward._tracked
+    assert steward.activation_pct == 0.55
+
+
 def test_journal_hydrates_open_bot_symbols(tmp_path: Path):
     journal = tmp_path / "data" / "trades" / "trade_history.jsonl"
     journal.parent.mkdir(parents=True)

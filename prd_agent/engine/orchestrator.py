@@ -207,7 +207,8 @@ class UnifiedOrchestrator:
                 t.get("min_telegram_confidence", getattr(self.signals, "_min_tg_conf", self.signals._min_conf)),
             )
         )
-        self.position_steward = PositionSteward(self.cfg)
+        # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
+        self.position_steward.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
