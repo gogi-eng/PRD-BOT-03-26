@@ -63,8 +63,17 @@ class _Pos:
     origin: str
 
 
-def test_sync_guard_alerts_registry_without_exchange():
+def test_sync_guard_skips_registry_mismatch_by_default():
     guard = PositionSyncGuard(cooldown_sec=60)
+    assert guard.check(
+        bot_symbols={"ETHUSDT"},
+        live_symbols=set(),
+        tracked={},
+    ) == []
+
+
+def test_sync_guard_alerts_registry_when_explicitly_enabled():
+    guard = PositionSyncGuard(cooldown_sec=60, alert_registry_mismatch=True)
     alerts = guard.check(
         bot_symbols={"ETHUSDT"},
         live_symbols=set(),
@@ -95,7 +104,9 @@ def test_sync_guard_alerts_tracked_bot_position_gone():
 
 
 def test_sync_guard_batches_many_symbols_one_message():
-    guard = PositionSyncGuard(cooldown_sec=60, max_symbols_in_message=3)
+    guard = PositionSyncGuard(
+        cooldown_sec=60, max_symbols_in_message=3, alert_registry_mismatch=True
+    )
     symbols = {f"SYM{i}USDT" for i in range(10)}
     alerts = guard.check(
         bot_symbols=symbols,
@@ -104,6 +115,23 @@ def test_sync_guard_batches_many_symbols_one_message():
     )
     assert len(alerts) == 1
     assert "+ещё" in alerts[0]
+
+
+def test_close_journal_ghosts_appends_closed_events(tmp_path):
+    from prd_agent.positions.bot_position_registry import (
+        close_journal_ghosts,
+        symbols_open_in_journal,
+    )
+
+    journal = tmp_path / "trade_history.jsonl"
+    journal.write_text(
+        '{"event":"entered","symbol":"AAAUSDT"}\n'
+        '{"event":"entered","symbol":"BBBUSDT"}\n',
+        encoding="utf-8",
+    )
+    closed = close_journal_ghosts(journal, live_symbols=["BBBUSDT"])
+    assert closed == ["AAAUSDT"]
+    assert symbols_open_in_journal(journal) == {"BBBUSDT"}
 
 
 def test_reconcile_registry_removes_stale_not_on_exchange(tmp_path):

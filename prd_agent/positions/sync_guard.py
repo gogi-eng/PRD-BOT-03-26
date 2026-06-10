@@ -1,8 +1,11 @@
-"""Алерты при рассинхроне позиций бота и биржи (батч, без спама)."""
+"""Алерты при рассинхроне позиций бота и биржи (только активное сопровождение)."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Dict, List, Set
+
+logger = logging.getLogger("prd_agent.positions.sync")
 
 
 class PositionSyncGuard:
@@ -11,10 +14,12 @@ class PositionSyncGuard:
         *,
         cooldown_sec: float = 3600.0,
         enabled: bool = True,
+        alert_registry_mismatch: bool = False,
         max_alerts_per_cycle: int = 1,
         max_symbols_in_message: int = 8,
     ):
         self.enabled = bool(enabled)
+        self.alert_registry_mismatch = bool(alert_registry_mismatch)
         self.cooldown_sec = max(300.0, float(cooldown_sec))
         self.max_alerts_per_cycle = max(1, int(max_alerts_per_cycle))
         self.max_symbols_in_message = max(3, int(max_symbols_in_message))
@@ -47,15 +52,22 @@ class PositionSyncGuard:
         now = time.time()
         alerts: List[str] = []
 
-        registry_missing = sorted(
-            sym for sym in bot_symbols if sym and sym not in live_symbols
-        )
-        if registry_missing and self._due("registry_batch", now):
-            alerts.append(
-                "⚠️ Рассинхрон позиций: в журнале бота, на Bybit нет — "
-                f"{self._format_symbol_list(registry_missing, self.max_symbols_in_message)}. "
-                "Проверьте биржу; устаревшие записи реестра очищаются автоматически."
+        if self.alert_registry_mismatch:
+            registry_missing = sorted(
+                sym for sym in bot_symbols if sym and sym not in live_symbols
             )
+            if registry_missing:
+                if self._due("registry_batch", now):
+                    alerts.append(
+                        "⚠️ Рассинхрон позиций: в журнале бота, на Bybit нет — "
+                        f"{self._format_symbol_list(registry_missing, self.max_symbols_in_message)}. "
+                        "Устаревшие записи очищаются автоматически."
+                    )
+                else:
+                    logger.debug(
+                        "Registry mismatch suppressed (%d symbol(s))",
+                        len(registry_missing),
+                    )
 
         tracked_gone = []
         for sym, pos in tracked.items():
@@ -67,7 +79,7 @@ class PositionSyncGuard:
             tracked_gone.append(sym)
         if tracked_gone and self._due("tracked_batch", now):
             alerts.append(
-                "⚠️ Рассинхрон: бот снимал сопровождение, на бирже позиции уже нет — "
+                "⚠️ Рассинхрон: бот сопровождал позицию, на бирже её уже нет — "
                 f"{self._format_symbol_list(sorted(tracked_gone), self.max_symbols_in_message)}."
             )
 

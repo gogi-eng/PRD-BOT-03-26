@@ -24,6 +24,7 @@ from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
     bot_symbols_from_registry,
+    close_journal_ghosts,
     merge_open_sources,
     reconcile_registry_with_exchange,
     register_bot_open,
@@ -114,6 +115,9 @@ class PositionSteward:
         )
         ps = cfg.get("position_sync", {}) if isinstance(cfg.get("position_sync"), dict) else {}
         self._sync_guard.enabled = bool(ps.get("alert_on_mismatch", True))
+        self._sync_guard.alert_registry_mismatch = bool(
+            ps.get("alert_registry_mismatch", False)
+        )
         self._sync_guard.cooldown_sec = max(
             300.0, float(ps.get("alert_cooldown_sec", 3600))
         )
@@ -121,6 +125,7 @@ class PositionSteward:
             1, int(ps.get("max_mismatch_alerts_per_cycle", 1))
         )
         self._auto_clean_stale_registry = bool(ps.get("auto_clean_stale_registry", True))
+        self._auto_close_journal_ghosts = bool(ps.get("auto_close_journal_ghosts", True))
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
@@ -312,10 +317,14 @@ class PositionSteward:
                 live_syms.add(sym)
 
         journal = self._data_dir / "trades" / "trade_history.jsonl"
-        if getattr(self, "_auto_clean_stale_registry", True):
-            removed = reconcile_registry_with_exchange(
-                self._data_dir, live_syms, journal_path=journal
+        if getattr(self, "_auto_close_journal_ghosts", True):
+            close_journal_ghosts(
+                journal,
+                live_syms,
+                protect_symbols=set(self._tracked.keys()),
             )
+        if getattr(self, "_auto_clean_stale_registry", True):
+            removed = reconcile_registry_with_exchange(self._data_dir, live_syms)
             for sym in removed:
                 self._bot_symbols.discard(sym)
         self._bot_symbols = set(bot_symbols_from_registry(self._data_dir)) | symbols_open_in_journal(
