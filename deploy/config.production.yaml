@@ -8,6 +8,14 @@ bybit:
   testnet: false
   category: linear
 
+# Фаза A: кеш read-запросов Bybit (цена, свечи, тикеры) + лимит параллелизма
+api_cache:
+  enabled: true
+  price_ttl_sec: 8
+  klines_ttl_sec: 45
+  tickers_ttl_sec: 30
+  max_parallel_requests: 6
+
 timezone_offset: 3
 
 telegram:
@@ -164,6 +172,8 @@ manual_management:
 
 position_sync:
   preserve_existing_sl_tp: true
+  alert_on_mismatch: true
+  alert_cooldown_sec: 600
 
 execution_sr_zones:
   enabled: true

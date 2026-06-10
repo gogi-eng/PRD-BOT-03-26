@@ -27,6 +27,7 @@ from prd_agent.positions.bot_position_registry import (
     register_bot_open,
     unregister_bot_symbol,
 )
+from prd_agent.positions.sync_guard import PositionSyncGuard
 from prd_agent.signals.pump_dump_mode import TrailingProfile
 
 logger = logging.getLogger("prd_agent.positions")
@@ -106,6 +107,11 @@ class PositionSteward:
         self._default_profile = TrailingProfile.from_positions_cfg(p)
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing"
+        )
+        ps = cfg.get("position_sync", {}) if isinstance(cfg.get("position_sync"), dict) else {}
+        self._sync_guard = PositionSyncGuard(
+            enabled=bool(ps.get("alert_on_mismatch", True)),
+            cooldown_sec=float(ps.get("alert_cooldown_sec", 600)),
         )
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
@@ -296,6 +302,14 @@ class PositionSteward:
             sym = str(row.get("symbol", "")).upper()
             if sym:
                 live_syms.add(sym)
+
+        notes.extend(
+            self._sync_guard.check(
+                bot_symbols=set(self._bot_symbols),
+                live_symbols=live_syms,
+                tracked=self._tracked,
+            )
+        )
 
         for sym in list(self._tracked.keys()):
             if sym not in live_syms:

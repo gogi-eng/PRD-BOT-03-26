@@ -509,7 +509,7 @@ class UnifiedOrchestrator:
         await self._monitor_positions(positions)
         trail_notes = await self.position_steward.manage(self.exchange, positions)
         for note in trail_notes:
-            if note.startswith("📌"):
+            if note.startswith("📌") or note.startswith("⚠️"):
                 await self.notifier.send(note)
         closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
         await self._sync_closed_pnl_to_risk()
