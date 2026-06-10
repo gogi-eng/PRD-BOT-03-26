@@ -162,6 +162,43 @@ def symbols_from_telegram_audit(audit_path: Path) -> Set[str]:
     return {sym for sym, ok in last_ok.items() if ok}
 
 
+def close_journal_ghosts(
+    journal_path: Path,
+    live_symbols: Iterable[str],
+    *,
+    protect_symbols: Optional[Iterable[str]] = None,
+) -> List[str]:
+    """
+    Закрывает в журнале «зависшие» entered без closed, если позиции нет на бирже.
+    Символы из protect_symbols (активное сопровождение) не трогаем.
+    """
+    if not journal_path.exists():
+        return []
+    live = {str(s).upper() for s in live_symbols if str(s).strip()}
+    protect = {str(s).upper() for s in (protect_symbols or []) if str(s).strip()}
+    open_syms = symbols_open_in_journal(journal_path)
+    ghosts = sorted(sym for sym in open_syms if sym not in live and sym not in protect)
+    if not ghosts:
+        return []
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with journal_path.open("a", encoding="utf-8") as f:
+            for sym in ghosts:
+                row = {
+                    "event": "closed",
+                    "symbol": sym,
+                    "reason": "sync_ghost_cleanup",
+                    "pnl": 0.0,
+                    "source": "sync",
+                    "ts": now,
+                }
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        return []
+    logger.info("Journal ghost cleanup: closed %d stale open(s)", len(ghosts))
+    return ghosts
+
+
 def reconcile_registry_with_exchange(
     data_dir: Path,
     live_symbols: Iterable[str],
@@ -169,11 +206,10 @@ def reconcile_registry_with_exchange(
     journal_path: Optional[Path] = None,
 ) -> List[str]:
     """
-    Удаляет из реестра символы, которых нет на бирже и нет открытой записи в журнале.
+    Удаляет из реестра символы, которых нет на бирже.
     Возвращает список удалённых символов.
     """
     live = {str(s).upper() for s in live_symbols if str(s).strip()}
-    journal_open = symbols_open_in_journal(journal_path) if journal_path else set()
     data = load_registry(data_dir)
     symbols = data.get("symbols")
     if not isinstance(symbols, dict):
@@ -182,8 +218,6 @@ def reconcile_registry_with_exchange(
     for sym in list(symbols.keys()):
         sym_u = str(sym).upper()
         if sym_u in live:
-            continue
-        if sym_u in journal_open:
             continue
         symbols.pop(sym, None)
         removed.append(sym_u)
