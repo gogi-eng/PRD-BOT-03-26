@@ -98,6 +98,11 @@ class ControlBot:
                     ),
                 ],
                 [
+                    InlineKeyboardButton("🛡 Консерв", callback_data="act:preset_conservative"),
+                    InlineKeyboardButton("⚖️ Норма", callback_data="act:preset_normal"),
+                    InlineKeyboardButton("🚀 Агресс", callback_data="act:preset_aggressive"),
+                ],
+                [
                     InlineKeyboardButton("↩️ Откат config", callback_data="act:rollback"),
                 ],
             ]
@@ -144,7 +149,17 @@ class ControlBot:
         if not query or not query.from_user or not self._allowed(query.from_user.id):
             return
         action = (query.data or "").split(":", 1)[-1]
-        html_actions = {"status", "stats", "macro", "ta_scan", "bot_manager", "panel_flags"}
+        html_actions = {
+            "status",
+            "stats",
+            "macro",
+            "ta_scan",
+            "bot_manager",
+            "panel_flags",
+            "preset_conservative",
+            "preset_normal",
+            "preset_aggressive",
+        }
         try:
             if action == "bot_manager":
                 await query.answer("🤖 Менеджер анализирует…")
@@ -224,6 +239,12 @@ class ControlBot:
             path = self.orch.improver.rollback_last_config()
             self.orch.reload_config()
             return f"Откат config: {path or 'нет резервной копии'}"
+        if action == "preset_conservative":
+            return self.orch.apply_risk_preset("conservative")
+        if action == "preset_normal":
+            return self.orch.apply_risk_preset("normal")
+        if action == "preset_aggressive":
+            return self.orch.apply_risk_preset("aggressive")
         if action == "status":
             can_trade, block_reason = self.orch.risk.can_trade()
             pos = await self.orch.exchange.get_positions()

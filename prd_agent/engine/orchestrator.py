@@ -20,6 +20,8 @@ from prd_agent.analysis.trade_analytics import (
 from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
+from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
+from prd_agent.engine.adaptive_loop import compute_loop_interval_sec
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -105,6 +107,8 @@ class UnifiedOrchestrator:
         self._notify_loop: Optional[asyncio.AbstractEventLoop] = None
         self._block_notify_sent = False
         self._cycle_num = 0
+        self._last_market_activity_at = _boot_ts
+        self._last_loop_interval_logged = 0.0
         _mc = market_scanner_cfg(cfg)
         self._market_scan_interval_sec = float(_mc.get("interval_sec", 600))
         self._market_scan_task: Optional[asyncio.Task] = None
@@ -223,6 +227,8 @@ class UnifiedOrchestrator:
             load_signal_notify_cooldown_sec(self.cfg)
         )
         self._apply_sr_zones_config()
+        t = self.cfg.get("trading", {})
+        self._loop_sec = float(t.get("loop_interval_sec", self._loop_sec))
         self.leverage = int(t.get("leverage", self.leverage))
         self.risk.max_positions = int(t.get("max_positions", self.risk.max_positions))
         prev_skipped_bt_at = float(
@@ -624,6 +630,46 @@ class UnifiedOrchestrator:
         if self.improver.flush_reload():
             logger.info("Config reloaded from disk (end of cycle)")
 
+        emit_count = sum(1 for s in all_signals if passes_emit_gate(s, self.cfg))
+        if len(positions) > 0 or emit_count > 0:
+            self._last_market_activity_at = now
+        new_loop = compute_loop_interval_sec(
+            self.cfg,
+            open_positions=len(positions),
+            signals_this_cycle=emit_count,
+            seconds_since_activity=max(0.0, now - self._last_market_activity_at),
+        )
+        if abs(new_loop - self._loop_sec) >= 5:
+            logger.info(
+                "Adaptive loop: %.0fs → %.0fs (open=%d signals=%d)",
+                self._loop_sec,
+                new_loop,
+                len(positions),
+                emit_count,
+            )
+        self._loop_sec = new_loop
+
+    def apply_risk_preset(self, name: str) -> str:
+        if name not in ALLOWED_PRESETS:
+            return f"Неизвестный пресет: {name}"
+        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        try:
+            changes, backup = apply_risk_preset(path, self.cfg, name)
+            self.reload_config()
+            lines = ", ".join(changes[:6]) if changes else "без изменений"
+            labels = {
+                "conservative": "Консервативный",
+                "normal": "Нормальный",
+                "aggressive": "Агрессивный",
+            }
+            return (
+                f"Пресет: <b>{labels.get(name, name)}</b>\n"
+                f"Изменено: {lines}\n"
+                f"Резервная копия: {Path(backup).name}"
+            )
+        except ValueError as exc:
+            return f"⚠️ {exc}"
+
     async def _maybe_execute(
         self,
         sig: UnifiedSignal,
@@ -926,6 +972,7 @@ class UnifiedOrchestrator:
             exchange_pnl_today_usdt=risk_snap.get("pnl_today_usdt", 0),
             exchange_pnl_today_pct=risk_snap.get("pnl_today_pct", 0),
             supervisor_summary=sup_summary,
+            trade_journal_path=self.trade_journal.path,
         )
 
     async def _global_analysis(self) -> None:

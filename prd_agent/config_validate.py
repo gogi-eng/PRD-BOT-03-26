@@ -72,6 +72,11 @@ def validate_config_data(data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     _num(errors, api_cache, "klines_ttl_sec", lo=5, hi=300, path="api_cache")
     _num(errors, api_cache, "max_parallel_requests", lo=1, hi=20, path="api_cache", integer=True)
 
+    al = _section(trading, "adaptive_loop")
+    _num(errors, al, "base_sec", lo=15, hi=600, path="trading.adaptive_loop")
+    _num(errors, al, "active_sec", lo=15, hi=300, path="trading.adaptive_loop")
+    _num(errors, al, "idle_sec", lo=30, hi=900, path="trading.adaptive_loop")
+
     pos_sync = _section(data, "position_sync")
     _num(errors, pos_sync, "alert_cooldown_sec", lo=60, hi=7200, path="position_sync")
 
