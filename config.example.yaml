@@ -31,6 +31,12 @@ trading:
   auto_start: true
   leverage: 20
   loop_interval_sec: 60
+  adaptive_loop:
+    enabled: true
+    base_sec: 60
+    active_sec: 45
+    idle_sec: 120
+    idle_after_quiet_min: 60
   max_positions: 5
   dynamic_leverage:
     enabled: true
@@ -66,6 +72,29 @@ risk:
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 50
   max_trades_per_day: 38
+
+risk_presets:
+  conservative:
+    trading:
+      min_signal_confidence: 0.88
+      risk_pct_per_trade: 0.25
+    quality_gate:
+      min_rr_ratio: 2.2
+      min_confidence: 0.88
+  normal:
+    trading:
+      min_signal_confidence: 0.85
+      risk_pct_per_trade: 0.35
+    quality_gate:
+      min_rr_ratio: 2.0
+      min_confidence: 0.85
+  aggressive:
+    trading:
+      min_signal_confidence: 0.80
+      risk_pct_per_trade: 0.45
+    quality_gate:
+      min_rr_ratio: 1.8
+      min_confidence: 0.80
 
 signals:
   own_agents_enabled: true

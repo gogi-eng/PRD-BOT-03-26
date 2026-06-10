@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+
+from prd_agent.analysis.trade_analytics import _bucket_stats, load_closed_trades
 
 
 class BiHourlyReporter:
@@ -46,6 +49,7 @@ class BiHourlyReporter:
         exchange_pnl_today_usdt: Optional[float] = None,
         exchange_pnl_today_pct: Optional[float] = None,
         supervisor_summary: Optional[Dict[str, Any]] = None,
+        trade_journal_path: Optional[Path] = None,
     ) -> str:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         lines = [
@@ -98,6 +102,16 @@ class BiHourlyReporter:
             f"закрыто: {report_24h.get('closed_trades', 0)} | "
             f"win rate: {report_24h.get('win_rate_pct', 0)}%"
         )
+
+        if trade_journal_path is not None:
+            closed_2h = load_closed_trades(trade_journal_path, hours=2)
+            by_source = _bucket_stats(closed_2h, "source", limit=8)
+            if by_source:
+                lines.extend(["", "<b>📡 Источники сигналов (2ч)</b>"])
+                for r in sorted(by_source, key=lambda x: -x["pnl"]):
+                    lines.append(
+                        f"• {r['name']}: n={r['n']}, PnL={r['pnl']:+.2f}, WR={r['winrate']:.0f}%"
+                    )
 
         lines.extend(["", "<b>🔥 Сигналы с высокой уверенностью</b>"])
         if high_conf_signals:

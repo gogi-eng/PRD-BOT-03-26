@@ -36,6 +36,12 @@ trading:
   auto_start: true
   leverage: 20
   loop_interval_sec: 60
+  adaptive_loop:
+    enabled: true
+    base_sec: 60
+    active_sec: 45
+    idle_sec: 120
+    idle_after_quiet_min: 60
   max_positions: 6
   dynamic_leverage:
     enabled: true
@@ -84,6 +90,36 @@ risk:
   max_daily_loss_usdt: 50
   max_trades_per_day: 38
 
+# Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
+risk_presets:
+  conservative:
+    trading:
+      min_signal_confidence: 0.88
+      risk_pct_per_trade: 0.25
+    quality_gate:
+      min_rr_ratio: 2.2
+      min_confidence: 0.88
+    signals:
+      min_analysis_confidence: 0.90
+  normal:
+    trading:
+      min_signal_confidence: 0.85
+      risk_pct_per_trade: 0.35
+    quality_gate:
+      min_rr_ratio: 2.0
+      min_confidence: 0.85
+    signals:
+      min_analysis_confidence: 0.88
+  aggressive:
+    trading:
+      min_signal_confidence: 0.80
+      risk_pct_per_trade: 0.45
+    quality_gate:
+      min_rr_ratio: 1.8
+      min_confidence: 0.80
+    signals:
+      min_analysis_confidence: 0.85
+
 signals:
   own_agents_enabled: true
   telegram_inbox_enabled: true
@@ -103,10 +139,15 @@ ta_scanner:
   max_symbols: 15
   interval: "15"
   kline_limit: 120
+  parallel_klines: 5
   min_confidence: 0.82
   atr_sl_mult: 1.2
   atr_tp_mult: 2.5
   min_rr: 2.0
+  rsi_buy_min: 38
+  rsi_buy_max: 68
+  rsi_sell_min: 32
+  rsi_sell_max: 62
 
 portfolio_tp:
   enabled: true
