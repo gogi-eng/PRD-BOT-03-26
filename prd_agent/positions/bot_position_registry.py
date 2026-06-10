@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 logger = logging.getLogger("prd_agent.positions.registry")
 
@@ -162,18 +162,48 @@ def symbols_from_telegram_audit(audit_path: Path) -> Set[str]:
     return {sym for sym, ok in last_ok.items() if ok}
 
 
+def reconcile_registry_with_exchange(
+    data_dir: Path,
+    live_symbols: Iterable[str],
+    *,
+    journal_path: Optional[Path] = None,
+) -> List[str]:
+    """
+    Удаляет из реестра символы, которых нет на бирже и нет открытой записи в журнале.
+    Возвращает список удалённых символов.
+    """
+    live = {str(s).upper() for s in live_symbols if str(s).strip()}
+    journal_open = symbols_open_in_journal(journal_path) if journal_path else set()
+    data = load_registry(data_dir)
+    symbols = data.get("symbols")
+    if not isinstance(symbols, dict):
+        return []
+    removed: List[str] = []
+    for sym in list(symbols.keys()):
+        sym_u = str(sym).upper()
+        if sym_u in live:
+            continue
+        if sym_u in journal_open:
+            continue
+        symbols.pop(sym, None)
+        removed.append(sym_u)
+    if removed:
+        save_registry(data_dir, data)
+        logger.info("Registry reconcile: removed %d stale symbol(s)", len(removed))
+    return removed
+
+
 def merge_open_sources(
     data_dir: Path,
     *,
     journal_path: Optional[Path] = None,
     telegram_audit_path: Optional[Path] = None,
+    include_telegram_audit: bool = False,
 ) -> Set[str]:
-    """Объединяет реестр + журнал + audit Telegram agent."""
+    """Объединяет реестр + журнал (audit Telegram — только если явно включён)."""
     found: Set[str] = set(bot_symbols_from_registry(data_dir))
     if journal_path:
         found |= symbols_open_in_journal(journal_path)
-    if telegram_audit_path:
+    if include_telegram_audit and telegram_audit_path:
         found |= symbols_from_telegram_audit(telegram_audit_path)
-    for sym in sorted(found):
-        register_bot_open(data_dir, sym, source="hydrate")
     return found

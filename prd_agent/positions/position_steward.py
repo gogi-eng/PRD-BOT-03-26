@@ -23,8 +23,11 @@ from prd_agent.positions.exit_management import (
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
+    bot_symbols_from_registry,
     merge_open_sources,
+    reconcile_registry_with_exchange,
     register_bot_open,
+    symbols_open_in_journal,
     unregister_bot_symbol,
 )
 from prd_agent.positions.sync_guard import PositionSyncGuard
@@ -61,6 +64,7 @@ class PositionSteward:
         root = Path(str(cfg.get("_root", ".")))
         self._data_dir = root / "data"
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._sync_guard = PositionSyncGuard()
         self.apply_config(cfg)
         self._load_bot_registry()
 
@@ -109,10 +113,14 @@ class PositionSteward:
             p, subsection="pump_dump_trailing"
         )
         ps = cfg.get("position_sync", {}) if isinstance(cfg.get("position_sync"), dict) else {}
-        self._sync_guard = PositionSyncGuard(
-            enabled=bool(ps.get("alert_on_mismatch", True)),
-            cooldown_sec=float(ps.get("alert_cooldown_sec", 600)),
+        self._sync_guard.enabled = bool(ps.get("alert_on_mismatch", True))
+        self._sync_guard.cooldown_sec = max(
+            300.0, float(ps.get("alert_cooldown_sec", 3600))
         )
+        self._sync_guard.max_alerts_per_cycle = max(
+            1, int(ps.get("max_mismatch_alerts_per_cycle", 1))
+        )
+        self._auto_clean_stale_registry = bool(ps.get("auto_clean_stale_registry", True))
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
@@ -302,6 +310,17 @@ class PositionSteward:
             sym = str(row.get("symbol", "")).upper()
             if sym:
                 live_syms.add(sym)
+
+        journal = self._data_dir / "trades" / "trade_history.jsonl"
+        if getattr(self, "_auto_clean_stale_registry", True):
+            removed = reconcile_registry_with_exchange(
+                self._data_dir, live_syms, journal_path=journal
+            )
+            for sym in removed:
+                self._bot_symbols.discard(sym)
+        self._bot_symbols = set(bot_symbols_from_registry(self._data_dir)) | symbols_open_in_journal(
+            journal
+        )
 
         notes.extend(
             self._sync_guard.check(

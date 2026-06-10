@@ -92,3 +92,55 @@ def test_sync_guard_alerts_tracked_bot_position_gone():
         live_symbols=set(),
         tracked={"SOLUSDT": _Pos(origin="bot")},
     ) == []
+
+
+def test_sync_guard_batches_many_symbols_one_message():
+    guard = PositionSyncGuard(cooldown_sec=60, max_symbols_in_message=3)
+    symbols = {f"SYM{i}USDT" for i in range(10)}
+    alerts = guard.check(
+        bot_symbols=symbols,
+        live_symbols=set(),
+        tracked={},
+    )
+    assert len(alerts) == 1
+    assert "+ещё" in alerts[0]
+
+
+def test_reconcile_registry_removes_stale_not_on_exchange(tmp_path):
+    from prd_agent.positions.bot_position_registry import (
+        load_registry,
+        reconcile_registry_with_exchange,
+        register_bot_open,
+        save_registry,
+    )
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    register_bot_open(data_dir, "BTCUSDT", source="test")
+    register_bot_open(data_dir, "ETHUSDT", source="test")
+    register_bot_open(data_dir, "SOLUSDT", source="test")
+
+    removed = reconcile_registry_with_exchange(
+        data_dir, live_symbols=["BTCUSDT"], journal_path=None
+    )
+    assert set(removed) == {"ETHUSDT", "SOLUSDT"}
+    remaining = set(load_registry(data_dir).get("symbols", {}).keys())
+    assert remaining == {"BTCUSDT"}
+
+
+def test_merge_open_sources_skips_telegram_audit_by_default(tmp_path):
+    from prd_agent.positions.bot_position_registry import merge_open_sources
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text(
+        '{"symbol":"FAKEUSDT","status":"executed","success":true}\n',
+        encoding="utf-8",
+    )
+    merged = merge_open_sources(
+        data_dir,
+        journal_path=None,
+        telegram_audit_path=audit,
+    )
+    assert "FAKEUSDT" not in merged
