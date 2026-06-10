@@ -214,7 +214,9 @@ manual_management:
 position_sync:
   preserve_existing_sl_tp: true
   alert_on_mismatch: true
-  alert_cooldown_sec: 600
+  auto_clean_stale_registry: true
+  alert_cooldown_sec: 3600
+  max_mismatch_alerts_per_cycle: 1
 
 execution_sr_zones:
   enabled: true
