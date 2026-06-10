@@ -7,6 +7,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CFG = ROOT / "config.yaml"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from prd_agent.config_validate import validate_config_data  # noqa: E402
 
 
 def main() -> int:
@@ -28,7 +32,7 @@ def main() -> int:
         return 1
     text = cfg_path.read_text(encoding="utf-8")
     try:
-        yaml.safe_load(text)
+        data = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         print("ОШИБКА в config.yaml:")
         print(exc)
@@ -40,6 +44,12 @@ def main() -> int:
         for i, line in enumerate(text.splitlines(), 1):
             if 8 <= i <= 18:
                 print(f"{i:3}: {line}")
+        return 1
+    ok, errors = validate_config_data(data or {})
+    if not ok:
+        print("ОШИБКА проверки параметров config.yaml:")
+        for err in errors:
+            print(f"  • {err}")
         return 1
     print(f"OK: {cfg_path}")
     return 0

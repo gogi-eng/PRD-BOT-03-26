@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from prd_agent.exchange.api_cache import load_api_cache_settings
+
 
 def _import_local_client(root: Path):
     root_s = str(root.resolve())
@@ -43,6 +45,7 @@ class BybitAdapter:
                 api_secret=b["api_secret"],
                 testnet=bool(b.get("testnet", False)),
             )
+        self._cache = load_api_cache_settings(cfg)
 
     async def close(self) -> None:
         if hasattr(self._client, "close"):
@@ -66,17 +69,25 @@ class BybitAdapter:
         return len(rows) > 0
 
     async def get_price(self, symbol: str) -> float:
-        return float(await self._client.get_price(symbol))
+        return await self._cache.get_price(
+            symbol,
+            lambda: self._client.get_price(symbol),
+        )
 
     async def get_klines(self, symbol: str, interval: str = "15", limit: int = 200):
-        if hasattr(self._client, "get_klines"):
-            return await self._client.get_klines(symbol, interval=interval, limit=limit)
-        return []
+        if not hasattr(self._client, "get_klines"):
+            return []
+        return await self._cache.get_klines(
+            symbol,
+            interval,
+            limit,
+            lambda: self._client.get_klines(symbol, interval=interval, limit=limit),
+        )
 
     async def get_tickers(self) -> List[Dict]:
-        if hasattr(self._client, "get_tickers"):
-            return list(await self._client.get_tickers())
-        return []
+        if not hasattr(self._client, "get_tickers"):
+            return []
+        return await self._cache.get_tickers(lambda: self._client.get_tickers())
 
     async def set_liquidation_symbols(self, symbols: List[str]) -> None:
         if hasattr(self._client, "set_liquidation_symbols"):

@@ -8,6 +8,18 @@ bybit:
   testnet: false
   category: linear
 
+api_cache:
+  enabled: true
+  price_ttl_sec: 8
+  klines_ttl_sec: 45
+  tickers_ttl_sec: 30
+  max_parallel_requests: 6
+
+position_sync:
+  preserve_existing_sl_tp: true
+  alert_on_mismatch: true
+  alert_cooldown_sec: 600
+
 telegram:
   bot_token: ""
   chat_id: ""

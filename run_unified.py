@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prd_agent.config import load_config
+from prd_agent.config_validate import validate_config_data
 from prd_agent.engine.orchestrator import UnifiedOrchestrator
 from prd_agent.telegram.control_bot import ControlBot
 
@@ -58,7 +59,13 @@ def setup_logging() -> None:
 
 async def async_main() -> None:
     setup_logging()
+    log = logging.getLogger("prd_agent")
     cfg = load_config(ROOT / "config.yaml")
+    ok, cfg_errors = validate_config_data(cfg)
+    if not ok:
+        for err in cfg_errors:
+            log.error("config: %s", err)
+        raise SystemExit("config.yaml не прошёл проверку — исправьте и перезапустите бота")
     orch = UnifiedOrchestrator(cfg)
     tg = ControlBot(cfg, orch)
 
@@ -74,7 +81,6 @@ async def async_main() -> None:
         except NotImplementedError:
             pass
 
-    log = logging.getLogger("prd_agent")
     tg_poll = bool(cfg.get("telegram", {}).get("control_polling_enabled", True))
     poll_task = None
     if tg_poll:
