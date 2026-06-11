@@ -22,6 +22,8 @@ from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
 from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
 from prd_agent.engine.adaptive_loop import compute_loop_interval_sec
+from prd_agent.entry.entry_engine_bridge import EntryEngineBridge, should_apply_zone_entry
+from prd_agent.entry.impulse_retest import check_impulse_retest_confirmation
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -126,6 +128,9 @@ class UnifiedOrchestrator:
             "Bybit circuit",
             "circuit open",
         )
+        self.zone_entry = EntryEngineBridge(cfg)
+        _ze = cfg.get("zone_entry", {}) if isinstance(cfg.get("zone_entry"), dict) else {}
+        self._zone_kline_interval = str(_ze.get("kline_interval", "15"))
         self._apply_sr_zones_config()
 
     def _apply_sr_zones_config(self) -> None:
@@ -238,11 +243,14 @@ class UnifiedOrchestrator:
         if prev_skipped_bt_at > 0:
             self.supervisor._last_skipped_bt_at = prev_skipped_bt_at
         self.notifier._cfg = self.cfg
+        self.zone_entry = EntryEngineBridge(self.cfg)
+        ze = self.cfg.get("zone_entry", {}) if isinstance(self.cfg.get("zone_entry"), dict) else {}
+        self._zone_kline_interval = str(ze.get("kline_interval", "15"))
 
     async def _plan_order_levels(
         self, sig: UnifiedSignal
-    ) -> tuple[float, float, float]:
-        """Цены входа/SL/TP как для реального ордера (включая SR-зоны)."""
+    ) -> tuple[float, float, float, str]:
+        """Цены входа/SL/TP: зона/BOS/ретест + SR-зоны для SL/TP."""
         entry = float(sig.entry or 0) or await self.exchange.get_price(sig.symbol)
         sl = float(sig.stop_loss or 0) or (
             entry * 0.995 if sig.side == "Buy" else entry * 1.005
@@ -250,8 +258,32 @@ class UnifiedOrchestrator:
         tp = float(sig.take_profit or 0) or (
             entry * 1.01 if sig.side == "Buy" else entry * 0.99
         )
+        block_reason = ""
+
+        if should_apply_zone_entry(sig, self.cfg):
+            klines = await self.exchange.get_klines(
+                sig.symbol,
+                interval=self._zone_kline_interval,
+                limit=120,
+            )
+            htf = await self.exchange.get_klines(sig.symbol, interval="240", limit=120)
+            plan = self.zone_entry.plan_levels(
+                sig,
+                klines=klines or [],
+                htf_klines=htf,
+                market_price=entry,
+            )
+            if not plan.ok:
+                block_reason = plan.block_reason or "zone_entry: вход заблокирован"
+            else:
+                entry = float(plan.entry or entry)
+                if plan.stop_loss > 0:
+                    sl = float(plan.stop_loss)
+                if plan.take_profit > 0:
+                    tp = float(plan.take_profit)
+
         sl, tp = await self._apply_sr_zones_to_levels(sig.symbol, sig.side, entry, sl, tp)
-        return entry, sl, tp
+        return entry, sl, tp, block_reason
 
     def set_trailing_enabled(self, enabled: bool) -> str:
         """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
@@ -607,7 +639,14 @@ class UnifiedOrchestrator:
                 raw=sig.raw,
             )
             self._signal_cooldown.mark_handled(sym, sig.side)
-            plan_entry, plan_sl, plan_tp = await self._plan_order_levels(sig)
+            plan_entry, plan_sl, plan_tp, plan_block = await self._plan_order_levels(sig)
+            if plan_block:
+                self.ledger.update_status(entry.id, SignalStatus.SKIPPED, plan_block)
+                self.supervisor.note_signal_outcome(entry.id, "skipped", plan_block)
+                logger.info("Skip %s %s: %s", sig.symbol, sig.side, plan_block)
+                if not self._is_silent_skip(plan_block):
+                    await self.notifier.signal_skipped(sig.symbol, sig.side, plan_block)
+                continue
             self.supervisor.register_virtual_signal(
                 symbol=sig.symbol,
                 side=sig.side,
@@ -717,7 +756,34 @@ class UnifiedOrchestrator:
         klines_entry = await self.exchange.get_klines(
             sig.symbol, interval=self._sr_interval, limit=self._sr_limit
         )
-        pb_ok, pb_reason = check_pullback_entry(sig, klines_entry or [], self.cfg)
+        pb_ok, pb_reason = True, ""
+        if should_apply_zone_entry(sig, self.cfg):
+            atr_v = 0.0
+            if klines_entry and len(klines_entry) >= 3:
+                from prd_agent.entry.entry_engine_bridge import atr_from_klines
+
+                atr_v = atr_from_klines(klines_entry)
+            ir_ok, ir_reason = check_impulse_retest_confirmation(
+                side=sig.side,
+                klines=klines_entry or [],
+                atr_value=atr_v,
+                confidence=float(sig.confidence),
+                cfg=self.cfg,
+            )
+            if not ir_ok:
+                logger.info("Skip %s %s: %s", sig.symbol, sig.side, ir_reason)
+                self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, ir_reason)
+                self.supervisor.note_signal_outcome(ledger_id, "skipped", ir_reason)
+                if not self._is_silent_skip(ir_reason):
+                    await self.notifier.signal_skipped(sig.symbol, sig.side, ir_reason)
+                return
+            ze = self.cfg.get("zone_entry", {}) if isinstance(self.cfg.get("zone_entry"), dict) else {}
+            if bool(ze.get("skip_pullback_when_retest_ok", True)):
+                pb_reason = ir_reason
+            else:
+                pb_ok, pb_reason = check_pullback_entry(sig, klines_entry or [], self.cfg)
+        else:
+            pb_ok, pb_reason = check_pullback_entry(sig, klines_entry or [], self.cfg)
         if is_pump_dump_signal(sig) and pb_ok and "pump_dump" in pb_reason:
             logger.info(
                 "Pump/dump %s %s: вход без отката (быстрый режим)",

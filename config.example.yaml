@@ -168,6 +168,24 @@ positions:
     tp_progress_exit:
       enabled: false
 
+zone_entry:
+  enabled: true
+  kline_interval: "15"
+  prefer_bos_retest: true
+  entry_at_zone: edge
+  require_impulse_retest: true
+  skip_pullback_when_retest_ok: true
+  require_entry_engine_pass: false
+  block_if_no_zone: false
+  sources:
+    - own_multi_agent
+    - ta_volatility
+    - hybrid
+  skip_sources_with_levels:
+    - telegram
+    - tg
+    - mirror_pump_dump
+
 execution_sr_zones:
   enabled: true
   kline_interval: "15"

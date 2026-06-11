@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from prd_agent.entry.entry_engine_bridge import EntryEngineBridge, should_apply_zone_entry
 from prd_agent.signals.telegram_inbox import TelegramInbox
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.signals.whale_news_agent import WhaleNewsAgent, MacroSignal
@@ -52,6 +53,7 @@ class SignalRouter:
             if cfg.get("signals", {}).get("telegram_inbox_enabled", True)
             else None
         )
+        self._zone_entry = EntryEngineBridge(cfg)
         self._init_own_agents()
 
     @staticmethod
@@ -122,6 +124,9 @@ class SignalRouter:
                 reason=f"multi-agent score={score:.3f}",
                 raw={"agent_outputs": outputs, "aggregate": score},
             )
+            if should_apply_zone_entry(sig, self.cfg):
+                htf = await exchange.get_klines(sym, interval="240", limit=120)
+                sig = self._zone_entry.enrich_signal(sig, klines=klines, htf_klines=htf)
             out.append(sig)
             self._persist(sig)
         return out
@@ -176,6 +181,10 @@ class SignalRouter:
         for sig in await self._ta_vol.collect(exchange):
             if sig.confidence < self._min_own_conf:
                 continue
+            if should_apply_zone_entry(sig, self.cfg):
+                klines = await exchange.get_klines(sig.symbol, interval="15", limit=120)
+                htf = await exchange.get_klines(sig.symbol, interval="240", limit=120)
+                sig = self._zone_entry.enrich_signal(sig, klines=klines or [], htf_klines=htf)
             out.append(sig)
             self._persist(sig)
         return out
