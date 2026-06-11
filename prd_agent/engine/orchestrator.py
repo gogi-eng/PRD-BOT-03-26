@@ -41,6 +41,7 @@ from prd_agent.market.market_scanner_bridge import (
 )
 from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.market.symbol_scanner import SymbolScanner
+from prd_agent.positions.bot_position_registry import resolve_closed_origin
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 from prd_agent.supervisor.supervisor_v4 import SupervisorV4
@@ -336,7 +337,7 @@ class UnifiedOrchestrator:
         self._notify_loop = asyncio.get_running_loop()
         self.risk.set_notify_callback(self._risk_notify)
         balance = await self.exchange.get_balance()
-        self.risk.initial_balance = balance
+        self.risk.update_balance_reference(balance)
         await self._refresh_symbols_if_due(force=True)
         mode = "TESTNET" if self.exchange.is_testnet else "LIVE"
         positions = await self.exchange.get_positions()
@@ -424,6 +425,9 @@ class UnifiedOrchestrator:
     async def _sync_closed_pnl_to_risk(self) -> None:
         """Только новые закрытия с биржи; дедуп на диске — иначе после рестарта убыток «удваивается»."""
         rows = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
+        journal_path = self.trade_journal.path
+        audit_path = self.position_steward._telegram_audit_path()
+        bot_symbols = set(self.position_steward._bot_symbols)
         for r in rows:
             oid = str(r.get("orderId") or r.get("id") or "")
             if not oid or not self._closed_pnl_dedup.is_new(oid):
@@ -431,7 +435,15 @@ class UnifiedOrchestrator:
             pnl = float(r.get("closedPnl", 0) or 0)
             self.risk.record_trade(pnl)
             self._closed_pnl_dedup.mark(oid)
-            origin = "bot" if str(r.get("symbol", "")).upper() in self.position_steward._bot_symbols else "manual"
+            sym = str(r.get("symbol", "")).upper()
+            origin = resolve_closed_origin(
+                self.root / "data",
+                sym,
+                order_id=oid,
+                journal_path=journal_path,
+                telegram_audit_path=audit_path if audit_path.exists() else None,
+                bot_symbols=bot_symbols,
+            )
             self.trade_journal.record_closed_from_exchange(r, origin=origin)
 
     @staticmethod
@@ -545,13 +557,14 @@ class UnifiedOrchestrator:
         positions = await self.exchange.get_positions()
         self.risk.open_positions_count = len(positions)
         await self._monitor_positions(positions)
+        closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
+        await self._sync_closed_pnl_to_risk()
         trail_notes = await self.position_steward.manage(self.exchange, positions)
         for note in trail_notes:
             if note.startswith("📌") or note.startswith("⚠️"):
                 await self.notifier.send(note)
-        closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
-        await self._sync_closed_pnl_to_risk()
         balance_now = await self.exchange.get_balance()
+        self.risk.update_balance_reference(balance_now)
         self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)
         self._cycle_num += 1
         risk_snap = self.risk.snapshot()
@@ -968,6 +981,7 @@ class UnifiedOrchestrator:
                 take_profit=tp,
                 confidence=sig.confidence,
                 leverage=leverage,
+                origin="bot",
             )
             self.position_steward.mark_bot_opened(
                 sig.symbol,
@@ -1025,6 +1039,7 @@ class UnifiedOrchestrator:
             await self.notifier.config_change(ch.get("summary", ""), ch.get("justification", ""))
         balance = await self.exchange.get_balance()
         closed_today = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
+        self.risk.update_balance_reference(balance)
         self.risk.reconcile_from_closed_rows(closed_today, balance=balance)
         risk_snap = self.risk.snapshot()
         await self.reporter.publish_full_report(
@@ -1050,7 +1065,13 @@ class UnifiedOrchestrator:
 
     def get_trade_stats_report(self, hours: Optional[float] = None) -> str:
         h = float(hours if hours is not None else self._stats_hours)
-        return build_trade_stats_report(self.trade_journal.path, h)
+        audit = self.position_steward._telegram_audit_path()
+        return build_trade_stats_report(
+            self.trade_journal.path,
+            h,
+            data_dir=self.root / "data",
+            telegram_audit_path=audit if audit.exists() else None,
+        )
 
     async def get_macro_briefing(self) -> str:
         positions: List[Dict] = []
