@@ -55,6 +55,9 @@ class RiskGuard:
             r.get("daily_loss_blocks_until_next_day", True)
         )
         self.initial_balance = initial_balance
+        # Баланс на начало UTC-дня — база для net_pnl_pct (не «замороженный» initial_balance).
+        self.day_start_balance: float = 0.0
+        self._last_balance: float = 0.0
         self.reduce_after_losses = int(r.get("reduce_after_losses", 2))
         self.reduction_factor = float(r.get("reduction_factor", 0.5))
 
@@ -102,9 +105,44 @@ class RiskGuard:
             f"Сейчас $0.00. Лимит ${self.max_daily_loss_usdt:.0f} снова доступен."
         )
 
+    def update_balance_reference(self, balance: float) -> None:
+        """Обновляет опорный баланс для расчёта дневного PnL %."""
+        bal = float(balance or 0)
+        if bal <= 0:
+            return
+        self._last_balance = bal
+        if self.initial_balance <= 0:
+            self.initial_balance = bal
+        self._ensure_today()
+        if self.day_start_balance <= 0:
+            self.day_start_balance = bal
+
+    def _pct_base(self, balance: float = 0.0) -> float:
+        if self.day_start_balance > 0:
+            return self.day_start_balance
+        bal = float(balance or 0) or self._last_balance
+        if bal > 0:
+            return bal
+        if self.initial_balance > 0:
+            return self.initial_balance
+        return 0.0
+
+    def _recalc_day_pnl_pct(self, balance: float = 0.0) -> None:
+        base = self._pct_base(balance)
+        if base > 0:
+            self.day_stats.net_pnl_pct = (self.day_stats.net_pnl_usdt / base) * 100.0
+        else:
+            self.day_stats.net_pnl_pct = 0.0
+
     def _ensure_today(self) -> None:
         today = self._today_utc()
         if self.day_stats.date != today:
+            if self._last_balance > 0:
+                self.day_start_balance = self._last_balance
+            elif self.initial_balance > 0:
+                self.day_start_balance = self.initial_balance
+            else:
+                self.day_start_balance = 0.0
             self.day_stats = DayStats(date=today)
             self._consecutive_losses = 0
             self.last_loss_time = None
@@ -169,11 +207,9 @@ class RiskGuard:
         s.wins = wins
         s.losses = losses
         s.trades = wins + losses
-        base = self.initial_balance if self.initial_balance > 0 else float(balance)
-        if base > 0:
-            s.net_pnl_pct = (total / base) * 100.0
-        else:
-            s.net_pnl_pct = 0.0
+        if balance > 0:
+            self.update_balance_reference(balance)
+        self._recalc_day_pnl_pct(balance)
         self._maybe_clear_daily_loss_stop()
 
     def _daily_loss_reason(self) -> str:
@@ -187,8 +223,7 @@ class RiskGuard:
         s = self.day_stats
         s.trades += 1
         s.net_pnl_usdt += pnl
-        if self.initial_balance > 0:
-            s.net_pnl_pct = (s.net_pnl_usdt / self.initial_balance) * 100
+        self._recalc_day_pnl_pct()
         if pnl > 0:
             s.wins += 1
             self._consecutive_losses = 0

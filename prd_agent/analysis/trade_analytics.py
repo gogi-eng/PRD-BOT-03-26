@@ -7,7 +7,16 @@ import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
+
+from prd_agent.positions.bot_position_registry import (
+    bot_symbols_from_registry,
+    bot_symbols_from_trade_log,
+    had_bot_entered_before,
+    resolve_closed_origin,
+    source_implies_bot,
+    symbols_from_telegram_audit,
+)
 
 
 def _parse_ts(raw: str) -> Optional[datetime]:
@@ -122,21 +131,79 @@ def format_telegram_report(
     return "\n".join(lines)
 
 
-def _origin_bucket(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Разделяет bot vs manual (поле origin или source)."""
+def _origin_bucket(
+    rows: List[Dict[str, Any]],
+    *,
+    journal_path: Optional[Path] = None,
+    data_dir: Optional[Path] = None,
+    telegram_audit_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Разделяет bot vs manual (поле origin, журнал, реестр бота)."""
+    audit_syms: Set[str] = set()
+    if telegram_audit_path and telegram_audit_path.exists():
+        audit_syms = symbols_from_telegram_audit(telegram_audit_path)
+    registry_syms: Set[str] = set()
+    trade_log_syms: Set[str] = set()
+    if data_dir is not None:
+        registry_syms = bot_symbols_from_registry(data_dir)
+        trade_log_syms = bot_symbols_from_trade_log(data_dir)
+
     mapped: List[Dict[str, Any]] = []
     for r in rows:
         row = dict(r)
-        origin = str(row.get("origin") or row.get("source") or "bot").lower()
-        row["origin_group"] = "manual" if origin == "manual" else "bot"
+        stored = str(row.get("origin") or "").strip().lower()
+        sym = str(row.get("symbol", "") or "").upper()
+        oid = str(row.get("order_id", "") or "")
+
+        if stored == "bot":
+            group = "bot"
+        elif stored == "manual":
+            if sym in registry_syms or sym in audit_syms or sym in trade_log_syms:
+                group = "bot"
+            elif source_implies_bot(str(row.get("source") or "")):
+                group = "bot"
+            elif journal_path and data_dir is not None:
+                resolved = resolve_closed_origin(
+                    data_dir,
+                    sym,
+                    order_id=oid,
+                    journal_path=journal_path,
+                    telegram_audit_path=telegram_audit_path,
+                )
+                if resolved == "bot":
+                    group = "bot"
+                else:
+                    closed_ts = _parse_ts(str(row.get("ts", "")))
+                    if closed_ts and had_bot_entered_before(journal_path, sym, closed_ts):
+                        group = "bot"
+                    else:
+                        group = "manual"
+            else:
+                group = "manual"
+        else:
+            source = str(row.get("source") or row.get("origin") or "bot").lower()
+            group = "manual" if source == "manual" else "bot"
+        row["origin_group"] = group
         mapped.append(row)
     return _bucket_stats(mapped, "origin_group")
 
 
-def build_report(journal_path: Path, hours: float = 24.0) -> str:
+def build_report(
+    journal_path: Path,
+    hours: float = 24.0,
+    *,
+    data_dir: Optional[Path] = None,
+    telegram_audit_path: Optional[Path] = None,
+) -> str:
     rows = load_closed_trades(journal_path, hours)
     summary = summarize_trades(rows)
-    by_origin = _origin_bucket(rows)
+    resolved_data_dir = data_dir if data_dir is not None else journal_path.parent.parent
+    by_origin = _origin_bucket(
+        rows,
+        journal_path=journal_path,
+        data_dir=resolved_data_dir,
+        telegram_audit_path=telegram_audit_path,
+    )
     text = format_telegram_report(
         summary,
         hours=hours,
