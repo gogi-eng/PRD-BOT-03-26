@@ -227,12 +227,7 @@ class ControlBot:
             self.orch.stop()
             return "EMERGENCY STOP: торговля и цикл остановлены."
         if action == "reset_risk":
-            self.orch.risk.status = GuardStatus.ACTIVE
-            self.orch.risk.stop_reason = ""
-            self.orch.risk.stop_kind = StopKind.NONE
-            self.orch.risk.auto_stop_time = None
-            self.orch._block_notify_sent = False
-            return "Риск-стоп сброшен (пауза/серия). Дневной убыток — кнопка «Сбросить убыток»."
+            return self.orch.reset_risk_stops()
         if action == "reset_daily_loss":
             return self.orch.reset_daily_loss()
         if action == "rollback":

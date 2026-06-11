@@ -105,6 +105,17 @@ class RiskGuard:
             f"Сейчас $0.00. Лимит ${self.max_daily_loss_usdt:.0f} снова доступен."
         )
 
+    def reset_streak_counters(self) -> None:
+        """Сброс серии убытков подряд (для Supervisor panic и risk cooldown)."""
+        self._consecutive_losses = 0
+        self.day_stats.consecutive_losses = 0
+        self.last_loss_time = None
+        if self.stop_kind == StopKind.CONSECUTIVE:
+            self.status = GuardStatus.ACTIVE
+            self.stop_reason = ""
+            self.stop_kind = StopKind.NONE
+            self.auto_stop_time = None
+
     def update_balance_reference(self, balance: float) -> None:
         """Обновляет опорный баланс для расчёта дневного PnL %."""
         bal = float(balance or 0)

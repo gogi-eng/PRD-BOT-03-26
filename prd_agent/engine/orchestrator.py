@@ -32,7 +32,7 @@ from prd_agent.risk.pullback_entry import check_pullback_entry
 from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
-from prd_agent.risk.guard import RiskGuard
+from prd_agent.risk.guard import GuardStatus, RiskGuard, StopKind
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.market_scanner_bridge import (
     market_scanner_cfg,
@@ -314,11 +314,25 @@ class UnifiedOrchestrator:
         return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
 
     def reset_daily_loss(self) -> str:
-        """Сброс дневного PnL и блокировки по дневному лимиту (кнопка Telegram)."""
+        """Сброс дневного PnL, блокировки по лимиту и протокола Supervisor."""
         msg = self.risk.reset_daily_loss_counter()
+        self.risk.reset_streak_counters()
+        sup_msg = self.supervisor.clear_recovery_protocol()
         self._block_notify_sent = False
-        logger.info("Daily loss counter reset via Telegram")
-        return msg
+        logger.info("Daily loss + supervisor recovery reset via Telegram")
+        return f"{msg}\n{sup_msg}"
+
+    def reset_risk_stops(self) -> str:
+        """Сброс risk-стопов и протокола восстановления Supervisor (кнопка «Сброс риска»)."""
+        self.risk.status = GuardStatus.ACTIVE
+        self.risk.stop_reason = ""
+        self.risk.stop_kind = StopKind.NONE
+        self.risk.auto_stop_time = None
+        self.risk.reset_streak_counters()
+        sup_msg = self.supervisor.clear_recovery_protocol()
+        self._block_notify_sent = False
+        logger.info("Risk stops + supervisor recovery reset via Telegram")
+        return f"Риск-стоп сброшен (пауза/серия). {sup_msg}"
 
     async def _refresh_symbols_if_due(self, *, force: bool = False) -> None:
         if not self.symbol_scanner.enabled():
