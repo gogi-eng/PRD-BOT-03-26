@@ -219,6 +219,22 @@ class SupervisorV4:
             encoding="utf-8",
         )
 
+    def clear_recovery_protocol(self, *, resume_mode: SupervisorMode = SupervisorMode.NORMAL) -> str:
+        """
+        Снимает panic (протокол восстановления после серии убытков).
+        Вызывается из Telegram при сбросе риска/убытка.
+        """
+        had_panic = bool(
+            self._meta.panic_until and datetime.now(timezone.utc) < self._meta.panic_until
+        )
+        self._meta.panic_until = None
+        if had_panic or self._meta.mode == SupervisorMode.DEFENSIVE:
+            self._set_mode(resume_mode, "ручной сброс протокола восстановления")
+        self._save_meta_state()
+        if had_panic:
+            return "Supervisor: протокол восстановления снят."
+        return "Supervisor: режим обновлён (panic не был активен)."
+
     def _log_note(self, text: str, **extra: Any) -> None:
         row = {
             "ts": datetime.now(timezone.utc).isoformat(),
