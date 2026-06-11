@@ -220,6 +220,25 @@ position_sync:
   alert_cooldown_sec: 3600
   max_mismatch_alerts_per_cycle: 1
 
+# Вход по зонам SMC / BOS / ретест (engine/entry_engine → prd_agent)
+zone_entry:
+  enabled: true
+  kline_interval: "15"
+  prefer_bos_retest: true
+  entry_at_zone: edge
+  require_impulse_retest: true
+  skip_pullback_when_retest_ok: true
+  require_entry_engine_pass: false
+  block_if_no_zone: false
+  sources:
+    - own_multi_agent
+    - ta_volatility
+    - hybrid
+  skip_sources_with_levels:
+    - telegram
+    - tg
+    - mirror_pump_dump
+
 execution_sr_zones:
   enabled: true
   kline_interval: "15"

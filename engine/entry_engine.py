@@ -558,6 +558,7 @@ class EntryEngine:
         htf_4h_trend: int = 0,
         abs_change_24h_dec: float | None = None,
         oi_features: Optional[Dict] = None,
+        forced_side: Optional[str] = None,
     ) -> EntrySignal:
         signal = EntrySignal(entry_price=current_price)
 
@@ -775,33 +776,41 @@ class EntryEngine:
             }
             return signal
 
-        # Determine side from strongest signals
-        bull_signals = (1 if htf_4h_trend > 0 else 0) + (1 if norm_imb > 0.05 else 0) + \
-                       (1 if transformer_prob_up > transformer_prob_down else 0)
-        bear_signals = (1 if htf_4h_trend < 0 else 0) + (1 if norm_imb < -0.05 else 0) + \
-                       (1 if transformer_prob_down > transformer_prob_up else 0)
-
-        if bull_signals > bear_signals:
+        # Determine side (unified-bot may force side from upstream signal)
+        forced = str(forced_side or "").strip().upper()
+        if forced in ("BUY", "LONG"):
             is_long = True
-        elif bear_signals > bull_signals:
+            side = "BUY"
+        elif forced in ("SELL", "SHORT"):
             is_long = False
-        elif htf_4h_trend != 0:
-            is_long = htf_4h_trend > 0
+            side = "SELL"
         else:
-            prob_gap = abs(transformer_prob_up - transformer_prob_down)
-            if prob_gap >= max(0.0, float(self.direction_tiebreaker_prob_gap)):
-                is_long = transformer_prob_up > transformer_prob_down
-            else:
-                signal.metadata = {
-                    "reject_reason": f"no_direction_consensus (score={composite})",
-                    "composite_score": composite,
-                    "trend_score": round(trend_score, 3),
-                    "orderflow_score": round(orderflow_score, 3),
-                    "ai_score": round(ai_score, 3),
-                }
-                return signal
+            bull_signals = (1 if htf_4h_trend > 0 else 0) + (1 if norm_imb > 0.05 else 0) + \
+                           (1 if transformer_prob_up > transformer_prob_down else 0)
+            bear_signals = (1 if htf_4h_trend < 0 else 0) + (1 if norm_imb < -0.05 else 0) + \
+                           (1 if transformer_prob_down > transformer_prob_up else 0)
 
-        side = "BUY" if is_long else "SELL"
+            if bull_signals > bear_signals:
+                is_long = True
+            elif bear_signals > bull_signals:
+                is_long = False
+            elif htf_4h_trend != 0:
+                is_long = htf_4h_trend > 0
+            else:
+                prob_gap = abs(transformer_prob_up - transformer_prob_down)
+                if prob_gap >= max(0.0, float(self.direction_tiebreaker_prob_gap)):
+                    is_long = transformer_prob_up > transformer_prob_down
+                else:
+                    signal.metadata = {
+                        "reject_reason": f"no_direction_consensus (score={composite})",
+                        "composite_score": composite,
+                        "trend_score": round(trend_score, 3),
+                        "orderflow_score": round(orderflow_score, 3),
+                        "ai_score": round(ai_score, 3),
+                    }
+                    return signal
+
+            side = "BUY" if is_long else "SELL"
 
         oi_risk_mult = 1.0
         oi_snap: Dict[str, float] = {}
