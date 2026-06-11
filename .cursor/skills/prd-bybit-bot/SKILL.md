@@ -16,7 +16,7 @@ description: PRD-BOT-ALL — unified Bybit linear perpetual bot with Telegram bu
 ## Сервер
 
 - Путь: `/root/PRD-BOT-ALL`
-- Ветка: `23.05.26-ALL`
+- **Ветка: каждый день новая** — `ДД.ММ.ГГ-OPT-ALL` (сегодня: `11.06.26-OPT-ALL`)
 - Repo: `gogi-eng/PRD-BOT-03-26`
 - Python: `venv/bin/python3 run_unified.py`
 - systemd: `deploy/trading_bot.service`, отдельно `telegram_signal_agent`
@@ -26,12 +26,14 @@ description: PRD-BOT-ALL — unified Bybit linear perpetual bot with Telegram bu
 ```bash
 cd /root/PRD-BOT-ALL
 git fetch origin
-git checkout 23.05.26-ALL
-git reset --hard origin/23.05.26-ALL
-bash scripts/rebuild_venv.sh
+git checkout 11.06.26-OPT-ALL
+git reset --hard origin/11.06.26-OPT-ALL
+bash scripts/install_production_config.sh
 sudo systemctl restart trading_bot
 sudo systemctl restart telegram_signal_agent   # если включён
 ```
+
+**Правило веток:** в конце дня / перед деплоем — новая ветка `ДД.ММ.ГГ-OPT-ALL` от вчерашней, push на GitHub, на сервере `checkout` именно сегодняшней даты.
 
 Проверка: один процесс `run_unified`, в логах `getUpdates 200 OK`.
 
