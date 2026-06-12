@@ -14,6 +14,8 @@ api_cache:
   price_ttl_sec: 8
   klines_ttl_sec: 45
   tickers_ttl_sec: 30
+  orderbook_ttl_sec: 12
+  trades_ttl_sec: 15
   max_parallel_requests: 6
 
 timezone_offset: 3
@@ -53,6 +55,9 @@ trading:
   min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
   risk_pct_per_trade: 0.35
+  active_strategy: swing
+  strategies:
+    scalp_hours_utc: [14, 15, 16, 17, 18, 19, 20, 21]
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
   symbol_rescan_interval_sec: 900
@@ -91,6 +96,10 @@ risk:
   max_trades_per_day: 38
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
+entry_pipeline:
+  enabled: true
+  mode: balanced
+
 risk_presets:
   conservative:
     trading:
@@ -101,6 +110,8 @@ risk_presets:
       min_confidence: 0.88
     signals:
       min_analysis_confidence: 0.90
+    entry_pipeline:
+      mode: strict
   normal:
     trading:
       min_signal_confidence: 0.85
@@ -110,6 +121,8 @@ risk_presets:
       min_confidence: 0.85
     signals:
       min_analysis_confidence: 0.88
+    entry_pipeline:
+      mode: balanced
   aggressive:
     trading:
       min_signal_confidence: 0.80
@@ -119,6 +132,8 @@ risk_presets:
       min_confidence: 0.80
     signals:
       min_analysis_confidence: 0.85
+    entry_pipeline:
+      mode: aggressive
 
 signals:
   own_agents_enabled: true
@@ -226,6 +241,10 @@ zone_entry:
   kline_interval: "15"
   prefer_bos_retest: true
   entry_at_zone: edge
+  retest_watchlist:
+    enabled: true
+    ttl_minutes: 90
+    scan_candles: 12
   require_impulse_retest: true
   skip_pullback_when_retest_ok: true
   require_entry_engine_pass: false
