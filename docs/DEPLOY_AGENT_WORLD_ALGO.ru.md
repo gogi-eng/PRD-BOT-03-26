@@ -43,7 +43,25 @@ git reset --hard FETCH_HEAD
 sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD 12.06.26-ALGO
 ```
 
-## 3. Проверка
+## 3. Ошибка 203/EXEC (нет venv/bin/python3)
+
+На старых копиях AGENT-WORLD Python в `.venv`, а служба искала `venv`:
+
+```bash
+cd /root/AGENT-WORLD
+ln -sfn .venv venv
+sudo sed -i 's|venv/bin/python3|.venv/bin/python3|g' /etc/systemd/system/trading_bot_agent_world.service
+sudo systemctl daemon-reload
+sudo systemctl restart trading_bot_agent_world
+```
+
+Или повторите деплой (скрипт сам создаёт симлинк и путь в unit):
+
+```bash
+sudo bash scripts/deploy_agent_world_algo.sh
+```
+
+## 4. Проверка
 
 ```bash
 sudo systemctl status trading_bot_agent_world --no-pager

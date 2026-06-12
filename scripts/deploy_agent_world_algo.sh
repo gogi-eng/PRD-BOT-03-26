@@ -50,6 +50,19 @@ if [[ -z "$PYTHON" ]]; then
   fi
 fi
 
+# systemd unit ожидает venv/ — на старых копиях AGENT-WORLD бывает только .venv/
+if [[ ! -x "$REPO_DIR/venv/bin/python3" && -x "$REPO_DIR/.venv/bin/python3" ]]; then
+  echo "Симлинк venv → .venv (для systemd ExecStart)"
+  ln -sfn .venv "$REPO_DIR/venv"
+  PYTHON="$REPO_DIR/venv/bin/python3"
+fi
+
+if [[ ! -x "$PYTHON" ]]; then
+  echo "error: не найден интерпретатор: $PYTHON" >&2
+  exit 1
+fi
+echo "✓ Python: $PYTHON"
+
 bash scripts/install_agent_world_config.sh
 
 mkdir -p reports/world reports/telegram_signals data/ledger data/trades
@@ -65,7 +78,10 @@ if [[ ! -f .env ]]; then
 fi
 
 if [[ -f deploy/trading_bot_agent_world.service ]]; then
-  cp deploy/trading_bot_agent_world.service /etc/systemd/system/trading_bot_agent_world.service
+  UNIT="/etc/systemd/system/trading_bot_agent_world.service"
+  sed -e "s|@REPO_DIR@|$REPO_DIR|g" \
+      -e "s|@PYTHON@|$PYTHON|g" \
+      deploy/trading_bot_agent_world.service > "$UNIT"
   systemctl daemon-reload
   systemctl enable trading_bot_agent_world
   systemctl restart trading_bot_agent_world
