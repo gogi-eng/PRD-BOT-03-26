@@ -32,13 +32,26 @@ class QualityGate:
         )
         self.meme_subs = tuple(str(x).upper() for x in subs if x)
         self._volume_cache: Dict[str, float] = {}
+        self._tickers_map: Dict[str, Dict] = {}
+
+    def set_tickers_map(self, tickers_map: Optional[Dict[str, Dict]]) -> None:
+        """Один get_tickers() на цикл — словарь из orchestrator."""
+        self._tickers_map = dict(tickers_map or {})
+        self._volume_cache.clear()
 
     async def _symbol_volume(self, exchange, symbol: str) -> float:
         sym = symbol.upper()
         if sym in self._volume_cache:
             return self._volume_cache[sym]
         vol = 0.0
-        if hasattr(exchange, "get_tickers"):
+        ticker = self._tickers_map.get(sym)
+        if ticker:
+            vol = float(ticker.get("turnover24h", 0) or 0)
+        elif hasattr(exchange, "get_tickers_map"):
+            tmap = exchange.get_tickers_map()
+            if sym in tmap:
+                vol = float(tmap[sym].get("turnover24h", 0) or 0)
+        elif hasattr(exchange, "get_tickers"):
             try:
                 for t in await exchange.get_tickers():
                     if str(t.get("symbol", "")).upper() == sym:

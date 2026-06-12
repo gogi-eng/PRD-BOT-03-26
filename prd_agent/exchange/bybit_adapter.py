@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from prd_agent.exchange.api_cache import load_api_cache_settings
+from prd_agent.exchange.api_stats import ApiCallJournal
 
 
 def _import_local_client(root: Path):
@@ -45,13 +46,41 @@ class BybitAdapter:
                 api_secret=b["api_secret"],
                 testnet=bool(b.get("testnet", False)),
             )
+        self._api_stats = ApiCallJournal()
         self._cache = load_api_cache_settings(cfg)
+        self._cache._on_fetch = self._on_cache_fetch  # noqa: SLF001
+        self._cycle_tickers: Dict[str, Dict] = {}
+
+    def _on_cache_fetch(self, key: str, cached: bool) -> None:
+        ep = str(key).split(":", 1)[0] if key else "unknown"
+        self._api_stats.record(ep, cached=cached)
+
+    def begin_api_cycle(self, cycle_num: int) -> None:
+        self._api_stats.begin_cycle(cycle_num)
+
+    def end_api_cycle(self) -> Dict:
+        return self._api_stats.end_cycle()
+
+    def api_stats_snapshot(self) -> Dict:
+        return self._api_stats.snapshot()
+
+    async def refresh_cycle_tickers(self) -> Dict[str, Dict]:
+        """Один get_tickers() на цикл → словарь symbol → ticker."""
+        rows = await self.get_tickers()
+        self._cycle_tickers = {
+            str(t.get("symbol", "")).upper(): t for t in rows if t.get("symbol")
+        }
+        return dict(self._cycle_tickers)
+
+    def get_tickers_map(self) -> Dict[str, Dict]:
+        return dict(self._cycle_tickers)
 
     async def close(self) -> None:
         if hasattr(self._client, "close"):
             await self._client.close()
 
     async def get_balance(self) -> float:
+        self._api_stats.record("balance")
         return float(await self._client.get_balance())
 
     async def get_available_balance(self) -> float:
@@ -60,6 +89,7 @@ class BybitAdapter:
         return float(await self._client.get_balance())
 
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
+        self._api_stats.record("positions")
         return list(await self._client.get_positions(symbol))
 
     async def has_open_position(self, symbol: str) -> bool:
@@ -88,6 +118,45 @@ class BybitAdapter:
         if not hasattr(self._client, "get_tickers"):
             return []
         return await self._cache.get_tickers(lambda: self._client.get_tickers())
+
+    async def get_orderbook(
+        self,
+        symbol: str,
+        limit: int = 50,
+        *,
+        lazy: bool = True,
+        signal_passed_cheap_filters: bool = False,
+    ) -> Dict:
+        """Lazy: orderbook только если сигнал прошёл дешёвые фильтры."""
+        if lazy and not signal_passed_cheap_filters:
+            return {}
+        if not hasattr(self._client, "get_orderbook"):
+            return {}
+        sym = str(symbol).upper()
+        return await self._cache.get_orderbook(
+            sym,
+            limit,
+            lambda: self._client.get_orderbook(sym, limit=limit),
+        )
+
+    async def get_recent_trades(
+        self,
+        symbol: str,
+        limit: int = 100,
+        *,
+        lazy: bool = True,
+        signal_passed_cheap_filters: bool = False,
+    ) -> List[Dict]:
+        if lazy and not signal_passed_cheap_filters:
+            return []
+        if not hasattr(self._client, "get_recent_trades"):
+            return []
+        sym = str(symbol).upper()
+        return await self._cache.get_recent_trades(
+            sym,
+            limit,
+            lambda: self._client.get_recent_trades(sym, limit=limit),
+        )
 
     async def set_liquidation_symbols(self, symbols: List[str]) -> None:
         if hasattr(self._client, "set_liquidation_symbols"):

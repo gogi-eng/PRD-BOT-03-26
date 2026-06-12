@@ -50,6 +50,9 @@ class BiHourlyReporter:
         exchange_pnl_today_pct: Optional[float] = None,
         supervisor_summary: Optional[Dict[str, Any]] = None,
         trade_journal_path: Optional[Path] = None,
+        api_stats: Optional[Dict[str, Any]] = None,
+        skip_baseline: Optional[Dict[str, Any]] = None,
+        active_strategy: Optional[str] = None,
     ) -> str:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         lines = [
@@ -151,6 +154,26 @@ class BiHourlyReporter:
                 lines.extend(TradeSupervisor.format_report_section(supervisor_summary))
             except Exception:
                 pass
+
+        if api_stats:
+            lines.extend(["", "<b>📡 API-нагрузка</b>"])
+            lines.append(
+                f"• Последний цикл: {api_stats.get('last_cycle_calls', 0)} REST | "
+                f"всего с запуска: {api_stats.get('total_since_boot', 0)}"
+            )
+
+        if skip_baseline and skip_baseline.get("skipped", 0) > 0:
+            lines.extend(["", "<b>⏭ SKIP baseline (ledger)</b>"])
+            lines.append(
+                f"• {skip_baseline.get('skipped', 0)}/{skip_baseline.get('total_signals', 0)} "
+                f"({skip_baseline.get('pct_skipped_of_total', 0)}%)"
+            )
+            for bucket, cnt in skip_baseline.get("top_buckets", [])[:6]:
+                pct = skip_baseline.get("pct_of_skips_by_bucket", {}).get(bucket, 0)
+                lines.append(f"  — {bucket}: {cnt} ({pct}%)")
+
+        if active_strategy:
+            lines.extend(["", f"<b>🎯 Стратегия:</b> {active_strategy}"])
 
         lines.append("")
         lines.append(
