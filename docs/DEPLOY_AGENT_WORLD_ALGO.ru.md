@@ -37,7 +37,9 @@ sudo bash -c 'curl -fsSL https://raw.githubusercontent.com/gogi-eng/PRD-BOT-03-2
 ```bash
 cd /root/AGENT-WORLD
 git fetch origin 12.06.26-ALGO
-git reset --hard origin/12.06.26-ALGO
+# Если пишет "unknown revision origin/12.06.26-ALGO" — так:
+git checkout -B 12.06.26-ALGO FETCH_HEAD
+git reset --hard FETCH_HEAD
 sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD 12.06.26-ALGO
 ```
 
