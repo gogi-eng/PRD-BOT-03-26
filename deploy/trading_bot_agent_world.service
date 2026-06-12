@@ -1,0 +1,22 @@
+# Песочница ALGO на субаккаунте (/root/AGENT-WORLD).
+# Не конфликтует с trading_bot: кнопки Telegram отключены в config (control_polling_enabled: false).
+#
+#   sudo cp deploy/trading_bot_agent_world.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now trading_bot_agent_world
+[Unit]
+Description=PRD AGENT-WORLD sandbox (ALGO branch, sub-account)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/AGENT-WORLD
+Environment=PRD_LOG_STDERR=1
+Environment=PRD_AGENT_WORLD=1
+ExecStart=/root/AGENT-WORLD/venv/bin/python3 /root/AGENT-WORLD/run_unified.py
+Restart=always
+RestartSec=20
+
+[Install]
+WantedBy=multi-user.target
