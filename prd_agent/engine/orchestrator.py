@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -383,7 +384,15 @@ class UnifiedOrchestrator:
         mode = "TESTNET" if self.exchange.is_testnet else "LIVE"
         positions = await self.exchange.get_positions()
         table = await self.build_status_table(positions=positions, block_reason="")
-        await self.notifier.send(f"🚀 <b>Unified Agent</b> запущен\n\n{table}")
+        label = "AGENT-WORLD (ALGO sandbox)" if os.environ.get("PRD_AGENT_WORLD", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ) else "Unified Agent"
+        sent = await self.notifier.send(f"🚀 <b>{label}</b> запущен\n\n{table}")
+        if not sent:
+            logger.warning("Стартовая таблица в Telegram не отправлена — проверьте .env TELEGRAM_*")
         logger.info("Unified started balance=%.2f testnet=%s", balance, self.exchange.is_testnet)
         if unified_should_run_market_scan(self.cfg):
             self._market_scan_task = asyncio.create_task(self._market_scanner_loop())

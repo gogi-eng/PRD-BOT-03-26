@@ -1,9 +1,12 @@
 """Telegram-уведомления о всех действиях бота."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 import aiohttp
+
+logger = logging.getLogger("prd_agent.telegram")
 
 
 class TelegramNotifier:
@@ -15,6 +18,11 @@ class TelegramNotifier:
 
     async def send(self, text: str, *, silent: bool = False) -> bool:
         if not self.token or not self.chat_id:
+            logger.warning(
+                "Telegram send пропущен: нет token=%s chat_id=%s",
+                bool(self.token),
+                bool(self.chat_id),
+            )
             return False
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         payload = {
@@ -27,8 +35,15 @@ class TelegramNotifier:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=25)) as r:
                     data = await r.json()
-                    return bool(data.get("ok"))
-        except Exception:
+                    if not data.get("ok"):
+                        logger.warning(
+                            "Telegram send failed: %s",
+                            data.get("description", data),
+                        )
+                        return False
+                    return True
+        except Exception as exc:
+            logger.warning("Telegram send error: %s", exc)
             return False
 
     async def signal_received(
