@@ -10,9 +10,9 @@ BRANCH="${2:-12.06.26-ALGO}"
 REMOTE="${3:-https://github.com/gogi-eng/PRD-BOT-03-26.git}"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
-  echo "Клонируем репозиторий в $REPO_DIR ..."
+  echo "Клонируем репозиторий в $REPO_DIR (ветка $BRANCH) ..."
   mkdir -p "$(dirname "$REPO_DIR")"
-  git clone "$REMOTE" "$REPO_DIR"
+  git clone -b "$BRANCH" "$REMOTE" "$REPO_DIR"
 fi
 
 cd "$REPO_DIR"
@@ -21,9 +21,15 @@ if [[ -f config.yaml ]]; then
   cp config.yaml "/root/config.agent_world.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
 fi
 
+git remote get-url origin >/dev/null 2>&1 || git remote add origin "$REMOTE"
 git fetch origin "$BRANCH"
-git checkout -B "$BRANCH" "origin/$BRANCH"
-git reset --hard "origin/$BRANCH"
+REF="origin/$BRANCH"
+if ! git rev-parse --verify "$REF" >/dev/null 2>&1; then
+  echo "⚠️  $REF не найден — используем FETCH_HEAD (после git fetch origin $BRANCH)"
+  REF="FETCH_HEAD"
+fi
+git checkout -B "$BRANCH" "$REF"
+git reset --hard "$REF"
 echo "✓ Код: $(git rev-parse --short HEAD) ветка $(git branch --show-current)"
 
 PYTHON=""
