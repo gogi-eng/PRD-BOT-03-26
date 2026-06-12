@@ -1,0 +1,601 @@
+# AGENT-WORLD sandbox — ветка 12.06.26-ALGO, субаккаунт Bybit.
+# Путь на сервере: /root/AGENT-WORLD
+# Установка: bash scripts/install_agent_world_config.sh
+# .env: BYBIT_API_KEY/SECRET = ключи СУБАККАУНТА (отдельные от основного PRD-BOT-ALL).
+
+bybit:
+  api_key: ""
+  api_secret: ""
+  testnet: false
+  category: linear
+
+# Фаза A: кеш read-запросов Bybit (цена, свечи, тикеры) + лимит параллелизма
+api_cache:
+  enabled: true
+  price_ttl_sec: 8
+  klines_ttl_sec: 45
+  tickers_ttl_sec: 30
+  orderbook_ttl_sec: 12
+  trades_ttl_sec: 15
+  max_parallel_requests: 6
+
+timezone_offset: 3
+
+telegram:
+  bot_token: ""
+  chat_id: ""
+  channel_id: ""
+  allowed_user_ids: []
+  control_polling_enabled: false
+  unified_control_panel: false
+
+bot_manager:
+  enabled: false
+  interval_sec: 3600
+  notify_telegram: true
+  log_tail_lines: 35
+
+trading:
+  auto_start: true
+  leverage: 10
+  loop_interval_sec: 60
+  adaptive_loop:
+    enabled: true
+    base_sec: 60
+    active_sec: 45
+    idle_sec: 120
+    idle_after_quiet_min: 60
+  max_positions: 2
+  dynamic_leverage:
+    enabled: true
+    min: 5
+    max: 15
+    min_confidence: 0.68
+    max_confidence: 0.95
+  min_signal_confidence: 0.85
+  min_own_agent_confidence: 0.82
+  min_multi_agent_score: 0.4
+  risk_pct_per_trade: 0.15
+  active_strategy: swing
+  strategies:
+    scalp_hours_utc: [14, 15, 16, 17, 18, 19, 20, 21]
+  min_24h_volume_usdt: 10000000
+  max_scan_symbols: 12
+  symbol_rescan_interval_sec: 900
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  symbol_blacklist:
+    - ATUSDT
+    - CLOUSDT
+    - DUSKUSDT
+  block_entry_utc_hours:
+    # местное UTC+3 (см. timezone_offset), не UTC
+    - 0
+    - 3
+    - 7
+    - 11
+    - 12
+    - 17
+    - 18
+  symbol_blacklist_substrings:
+    - USDC
+    - USDE
+    - PEPE
+    - PENG
+    - FART
+    - "1000"
+    - BILL
+
+risk:
+  cooldown_after_loss_sec: 600
+  cooldown_after_stop_minutes: 30
+  daily_loss_blocks_until_next_day: true
+  max_consecutive_losses: 4
+  max_daily_loss_pct: 5.0
+  max_daily_loss_usdt: 15
+  max_trades_per_day: 12
+
+# Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
+entry_pipeline:
+  enabled: true
+  mode: balanced
+
+risk_presets:
+  conservative:
+    trading:
+      min_signal_confidence: 0.88
+      risk_pct_per_trade: 0.25
+    quality_gate:
+      min_rr_ratio: 2.2
+      min_confidence: 0.88
+    signals:
+      min_analysis_confidence: 0.90
+    entry_pipeline:
+      mode: strict
+  normal:
+    trading:
+      min_signal_confidence: 0.85
+      risk_pct_per_trade: 0.35
+    quality_gate:
+      min_rr_ratio: 2.0
+      min_confidence: 0.85
+    signals:
+      min_analysis_confidence: 0.88
+    entry_pipeline:
+      mode: balanced
+  aggressive:
+    trading:
+      min_signal_confidence: 0.80
+      risk_pct_per_trade: 0.45
+    quality_gate:
+      min_rr_ratio: 1.8
+      min_confidence: 0.80
+    signals:
+      min_analysis_confidence: 0.85
+    entry_pipeline:
+      mode: aggressive
+
+signals:
+  own_agents_enabled: true
+  telegram_inbox_enabled: true
+  telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  telegram_inbox_only_approved: true
+  telegram_inbox_backlog_lines: 100
+  min_telegram_confidence: 0.65
+  min_analysis_confidence: 0.88
+  min_multi_agent_score: 0.4
+  signal_notify_cooldown_sec: 900
+  whale_news_enabled: true
+
+ta_scanner:
+  enabled: true
+  min_24h_change_pct: 1.0
+  min_intraday_range_pct: 0.8
+  max_symbols: 15
+  interval: "15"
+  kline_limit: 120
+  parallel_klines: 5
+  min_confidence: 0.82
+  atr_sl_mult: 1.2
+  atr_tp_mult: 2.5
+  min_rr: 2.0
+  rsi_buy_min: 38
+  rsi_buy_max: 68
+  rsi_sell_min: 32
+  rsi_sell_max: 62
+
+portfolio_tp:
+  enabled: true
+  target_profit_pct: 2.0
+  skip_manual_positions: true
+  min_bot_positions: 2
+profit_lock:
+  min_profit_pct: 5.0
+  decline_threshold_pct: 20.0
+  decline_duration_sec: 300
+  cooldown_sec: 3600
+  skip_manual_positions: true
+positions:
+  adopt_manual: true
+  trailing_enabled: true
+  lock_initial_sl: false
+  trailing_activation_pct: 3.0
+  trailing_distance_pct: 4.0
+  trailing_distance_atr_mult: 2.8
+  trailing_min_distance_pct: 1.5
+  breakeven_after_pct: 2.0
+  notify_trailing_telegram: false
+  exit_management:
+    enabled: true
+    time_stop_enabled: true
+    time_stop_minutes: 120
+    time_stop_min_atr_progress: 0.25
+    close_on_time_stop: true
+    early_breakeven_enabled: false
+    early_breakeven_atr_mult: 1.2
+    early_breakeven_pct: 0.9
+    late_breakeven_enabled: true
+    late_breakeven_retrace_pct: 40
+    close_on_late_retrace: false
+    late_tighten_distance_factor: 0.85
+  tp_progress_exit:
+    enabled: true
+    breakeven_at_profit_pct: 1.05
+    sr_trail_at_profit_pct: 1.8
+    be_fee_buffer_pct: 0.05
+    sr_trail_enabled: true
+    sr_sl_buffer_atr: 0.22
+    sr_level_index: 1
+    min_valid_tp_distance_pct: 0.08
+  pump_dump_trailing:
+    trailing_activation_pct: 1.0
+    trailing_distance_pct: 0.55
+    trailing_distance_atr_mult: 1.15
+    trailing_min_distance_pct: 0.35
+    breakeven_after_pct: 0.85
+    exit_management:
+      early_breakeven_enabled: false
+      late_tighten_distance_factor: 0.65
+    tp_progress_exit:
+      enabled: false
+
+# Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
+manual_management:
+  set_exchange_levels_on_adopt: false
+  manual_trailing_activation_atr: 2.2
+  manual_trailing_distance_atr: 3.5
+  manual_trailing_min_distance_pct: 0.55
+
+position_sync:
+  preserve_existing_sl_tp: true
+  alert_on_mismatch: true
+  alert_registry_mismatch: false
+  auto_clean_stale_registry: true
+  auto_close_journal_ghosts: true
+  alert_cooldown_sec: 3600
+  max_mismatch_alerts_per_cycle: 1
+
+# Вход по зонам SMC / BOS / ретест (engine/entry_engine → prd_agent)
+zone_entry:
+  enabled: true
+  kline_interval: "15"
+  prefer_bos_retest: true
+  entry_at_zone: edge
+  retest_watchlist:
+    enabled: true
+    ttl_minutes: 90
+    scan_candles: 12
+  require_impulse_retest: true
+  skip_pullback_when_retest_ok: true
+  require_entry_engine_pass: false
+  block_if_no_zone: false
+  sources:
+    - own_multi_agent
+    - ta_volatility
+    - hybrid
+  skip_sources_with_levels:
+    - telegram
+    - tg
+    - mirror_pump_dump
+
+execution_sr_zones:
+  enabled: true
+  kline_interval: "15"
+  kline_limit: 120
+  sl_sr_level_index: 1
+  sl_extra_buffer_atr: 0.18
+  tp_extra_buffer_atr: 0.08
+  preserve_min_rr: 2.0
+
+pullback_entry:
+  enabled: true
+  momentum_bars: 5
+  min_momentum_pct: 0.35
+  min_retrace_pct: 0.12
+  retrace_lookback_bars: 5
+  require_counter_bars: 1
+  skip_for_pump_dump: true
+
+# Сигналы Mirror pump/dump: без отката, market-вход, быстрый трейлинг
+pump_dump_trade:
+  enabled: true
+  min_confidence: 0.65
+  min_rr_ratio: 1.5
+  inbox_replay_sec: 7200
+  max_market_drift_pct: 0.012
+  max_limit_drift_pct: 0.018
+  max_skip_drift_pct: 0.03
+
+entry_guard:
+  enabled: true
+  max_market_drift_pct: 0.006
+  max_limit_drift_pct: 0.01
+  max_skip_drift_pct: 0.015
+  telegram_limit_entry: true
+  telegram_sources:
+    - telegram
+    - tg
+    - tg_inbox
+
+bot:
+  signal_cooldown_sec: 5400
+
+entry:
+  entry_threshold: 0.58
+  entry_threshold_soft: 0.55
+  min_volatility_pct: 0.06
+  volatility_floor_enabled: true
+  volatility_floor_atr_pct: 0.06
+  require_4h_trend: false
+  strict_htf_mode: true
+  min_orderflow_imbalance: 1.24
+  min_smc_score: 0.60
+  ema_guard_min_diff_pct: 0.30
+  momentum_guard_min_pct: 0.15
+  buy_momentum_guard_min_pct: 0.35
+  sell_momentum_guard_min_pct: 0.15
+  volume_guard_min_ratio: 0.35
+  buy_volume_guard_min_ratio: 0.50
+  sell_volume_guard_min_ratio: 0.35
+  impulse_min_body_atr: 0.45
+  retest_max_body_ratio: 0.85
+  early_exit_bars: 45
+  early_exit_min_profit_atr: 0.35
+  ema_exit_confirm_bars: 3
+  trained_model_enabled: true
+  trained_model_min_prob: 0.52
+  trained_model_blend: 0.15
+  trained_model_weights_path: transformer_weights.pt
+
+adaptive_regime_presets:
+  enabled: true
+  switch_interval_sec: 900
+  notify_on_switch: true
+  benchmark_symbol: BTCUSDT
+  trend_strict_htf_mode: true
+  trend_volatility_floor_atr_pct: 0.06
+  trend_require_4h_trend: false
+  range_strict_htf_mode: false
+  range_volatility_floor_atr_pct: 0.02
+  range_require_4h_trend: false
+
+trade_journal:
+  rotate_max_mb: 8
+  rotate_keep_files: 14
+
+quality_gate:
+  enabled: true
+  min_confidence: 0.85
+  min_rr_ratio: 2.0
+  require_sl_tp: true
+  min_24h_volume_usdt: 10000000
+  block_meme_symbol_substrings:
+    - USDC
+    - USDE
+    - PEPE
+    - PENG
+    - FART
+    - "1000"
+    - BILL
+
+supervisor_v4:
+  enabled: true
+  interval_hours: 2
+  tick_every_cycles: 15
+  mode_cooldown_minutes: 120
+  min_risk_pct: 0.1
+  lookback_hours: 168
+  virtual_trades_enabled: true
+  virtual_max_open: 40
+  virtual_max_age_hours: 72
+  seed_blocked_symbols:
+    - ATUSDT
+    - CLOUSDT
+    - DUSKUSDT
+  seed_blocked_utc_hours:
+    # местное UTC+3 (см. timezone_offset), не UTC
+    - 0
+    - 3
+    - 7
+    - 11
+    - 12
+    - 17
+    - 18
+  preferred_utc_hours:
+    - 4
+  panic_consecutive_losses: 3
+  panic_minutes: 90
+  defensive_day_loss_usdt: -15
+  skipped_backtest_interval_hours: 3.5
+  skipped_signal_backtest:
+    enabled: true
+    auto_tune_filters: true
+    auto_tune_min_samples: 5
+    lookback_hours: 72
+    max_per_run: 40
+    min_age_minutes: 30
+    kline_interval: "15"
+    max_kline_limit: 200
+  leverage_advisor:
+    enabled: true
+    min_confidence: 0.68
+    min_rr: 1.8
+    min_edge: 0.35
+    confidence_weight: 0.45
+    checks_weight: 0.35
+    rr_weight: 0.20
+    virtual_wr_soft_cap: 40
+    virtual_wr_boost_cap: 55
+
+feedback_loop:
+  enabled: true
+  retrain_in_process: false
+  retrain_daily: true
+  retrain_hour_utc: 0
+  min_new_labels_for_retrain: 50
+  dataset_path: signal_only_feedback_data.json
+  base_dataset_path: training_data.json
+  use_merged_dataset_for_retrain: true
+  train_epochs: 220
+  train_lr: 0.002
+  train_batch_size: 32
+
+agent_world:
+  enabled: true
+  rss_urls:
+    - "https://cointelegraph.com/rss"
+    - "https://www.coindesk.com/arc/outboundfeeds/rss/"
+    - "https://feeds.feedburner.com/CoinDesk"
+  queue_path: "reports/world/world_events.jsonl"
+  writer_state_path: "reports/world/agent_world_writer_state.json"
+  max_items_per_feed: 15
+  poll_interval_sec: 120
+  max_summary_chars: 2200
+  allow_auto_execute: true
+  max_market_drift_pct: 0.015
+  max_limit_drift_pct: 0.022
+  max_skip_drift_pct: 0.035
+  openrouter_daily_budget_usd: 0
+
+market_scanner:
+  enabled: true
+  interval_sec: 300
+  run_loop_in_unified_bot: true
+  run_loop_in_signal_agent: false
+
+telegram_signal_agent:
+  enabled: false
+  auto_execute: false
+  auto_execute_max_open_positions: 6
+  photo_ocr_enabled: true
+  audit_jsonl_enabled: true
+  market_scanner_auto_execute: true
+  market_scanner_enabled: true
+  signal_parse_simple: true
+  infer_side_from_sr: true
+  telegram_notify: true
+  market_scanner_interval_sec: 600
+  market_scanner_min_score_to_notify: 58
+  market_scanner_execute_min_score: 75
+  market_scanner_execute_require_confirmed_bos: true
+  market_scanner_symbol_cooldown_sec: 3600
+  market_scanner_top_n: 3
+  market_scanner_max_symbols: 60
+  control_panel_enabled: false
+  inbox_jsonl_enabled: true
+  inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
+  session_name: telegram_user_signal_agent
+  ignore_bot_echo_messages: true
+  allowed_chats: []
+  ignored_substrings:
+    - pocket
+    - quotex
+    - binolla
+    - "binary option"
+    - fantastishe
+    - stationtrade
+    - "bybit комьюнити"
+    - "bybit новости"
+    - cryptovolk
+  ignored_chats:
+    - FantastisheBot
+    - PocketOptions_1969_BOT
+    - "Pocket Option Bot Signals M1🤖"
+    - "Quotex Signals Bot M1 🤖"
+    - "BYBIT Комьюнити"
+    - "BYBIT Новости"
+    - Cryptovolksignalbot
+    - Labuh25Bot
+    - Crypto4room
+    - "Sakura | Japan Trade"
+    - "Свеча Трейдера"
+    - "3Commas Signals (OFFICIAL)"
+  trusted_signal_sources:
+    - "Cornix Trading Signals (free)"
+    - "FibTrader | Крипта, Сигналы, Копитрейдинг"
+    - "INVEX GROUP"
+    - "Евгений Ковалёв | NextGen"
+    - "Binance Killers®"
+    - "Bullrunsignals"
+    - "Evening Trader Group"
+    - "Wallstreet Queen Official®"
+    - "Learn 2 Trade Crypto"
+    - "Мудрый Криптан"
+    - "Crypto Inner Circle®"
+    - "Fed. Russian Insiders®"
+    - "Wolf of Trading®"
+  signal_quality:
+    enabled: true
+    skip_noise_posts: true
+    require_stop_loss: true
+    min_structure_score: 58
+  require_stop_loss: true
+  min_openrouter_confidence: 68
+
+reporter:
+  interval_hours: 2
+  high_confidence_threshold: 0.90
+
+self_improvement:
+  enabled: true
+  auto_apply_low_risk: true
+  require_approval_critical: true
+  sandbox_dir: data/sandbox
+  git_auto_commit: false
+  reload_config_after_apply: true
+
+global_analysis:
+  enabled: true
+  interval_hours: 6
+
+analytics:
+  report_hours: 24
+
+ai:
+  provider: openrouter
+
+free_claude_code:
+  enabled: false
+  base_url: http://127.0.0.1:8082
+  auth_token: freecc
+  model: claude-3-5-haiku-20241022
+  timeout_sec: 30
+
+openrouter:
+  api_key: ""
+  model: google/gemini-2.5-flash
+  timeout_sec: 30
+
+macro_ai:
+  enabled: true
+  max_headlines: 8
+  include_positions: true
+
+ai4trade_notify:
+  enabled: false
+  credentials_path: ai4trade.credentials.json
+  poll_interval_sec: 120
+  feed_limit: 25
+  symbols_allow:
+    - BTC
+    - ETH
+  cooldown_sec: 300
+  telegram_min_interval_sec: 1800
+  max_messages_per_poll: 1
+
+kronos:
+  enabled: false
+  kronos_home: /root/Kronos-master
+  model_id: NeoQuasar/Kronos-mini
+  tokenizer_id: NeoQuasar/Kronos-Tokenizer-2k
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  interval: "15"
+  lookback: 400
+  pred_len: 16
+  max_context: 512
+  device: cpu
+  symbol_delay_sec: 3
+
+whale_news:
+  liquidation_usd_threshold: 500000
+  oi_change_pct_threshold: 3.0
+  news_keywords_bull:
+    - "etf approved"
+    - "rate cut"
+    - institutional
+    - partnership
+    - upgrade
+  news_keywords_bear:
+    - hack
+    - exploit
+    - ban
+    - lawsuit
+    - sec
+    - crash
+    - liquidation
+  rss_urls:
+    - https://feeds.feedburner.com/CoinDesk
+    - https://cointelegraph.com/rss
