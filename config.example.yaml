@@ -77,6 +77,10 @@ risk:
   max_daily_loss_usdt: 50
   max_trades_per_day: 38
 
+entry_pipeline:
+  enabled: true
+  mode: balanced
+
 risk_presets:
   conservative:
     trading:

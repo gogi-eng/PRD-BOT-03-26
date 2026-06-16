@@ -306,6 +306,8 @@ class EntryEngineBridge:
         md = dict(entry_sig.metadata) if isinstance(entry_sig.metadata, dict) else {}
         md["zone_entry_mode"] = entry_mode
         md["has_bos"] = has_bos
+        if has_bos and structure.last_bos is not None:
+            md["bos_level"] = float(structure.last_bos.broken_level or 0)
         md["entry_zone"] = md.get("entry_zone", "no_zone")
 
         if entry_sig.should_enter:

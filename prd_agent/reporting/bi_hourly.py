@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 
 from prd_agent.analysis.trade_analytics import _bucket_stats, load_closed_trades
+from prd_agent.exchange.api_stats import format_api_stats_lines
 
 
 class BiHourlyReporter:
@@ -50,7 +51,7 @@ class BiHourlyReporter:
         exchange_pnl_today_pct: Optional[float] = None,
         supervisor_summary: Optional[Dict[str, Any]] = None,
         trade_journal_path: Optional[Path] = None,
-        api_stats: Optional[Dict[str, Any]] = None,
+        api_stats_snapshot: Optional[Dict[str, Any]] = None,
         skip_baseline: Optional[Dict[str, Any]] = None,
         active_strategy: Optional[str] = None,
     ) -> str:
@@ -98,6 +99,26 @@ class BiHourlyReporter:
             f"• Сигналов: {report_2h.get('signals_total', 0)} "
             f"(высокая уверенность: {report_2h.get('high_confidence_signals', 0)})"
         )
+        if report_2h.get("ledger_not_opened"):
+            lines.append(f"• Не открыто (ledger SKIP): {report_2h.get('ledger_not_opened', 0)}")
+
+        if api_stats_snapshot:
+            lines.extend(["", "<b>📡 API (последний цикл)</b>"])
+            for line in format_api_stats_lines(api_stats_snapshot):
+                lines.append(line)
+
+        if skip_baseline and int(skip_baseline.get("total_signals", 0) or 0) > 0:
+            lines.extend(["", "<b>⏭ SKIP (2ч, ledger)</b>"])
+            lines.append(
+                f"• {skip_baseline.get('skipped', 0)}/{skip_baseline.get('total_signals', 0)} "
+                f"({skip_baseline.get('pct_skipped_of_total', 0)}%)"
+            )
+            for bucket, cnt in skip_baseline.get("top_buckets", [])[:6]:
+                pct = skip_baseline.get("pct_of_skips_by_bucket", {}).get(bucket, 0)
+                lines.append(f"  ↳ {bucket}: {cnt} ({pct}% skips)")
+
+        if active_strategy:
+            lines.append(f"<b>Стратегия:</b> {active_strategy}")
 
         lines.extend(["", "<b>Результаты за 24 часа</b>"])
         lines.append(
@@ -152,28 +173,12 @@ class BiHourlyReporter:
                 from prd_agent.supervisor.trade_supervisor import TradeSupervisor
 
                 lines.extend(TradeSupervisor.format_report_section(supervisor_summary))
-            except Exception:
-                pass
+            except Exception as exc:
+                import logging
 
-        if api_stats:
-            lines.extend(["", "<b>📡 API-нагрузка</b>"])
-            lines.append(
-                f"• Последний цикл: {api_stats.get('last_cycle_calls', 0)} REST | "
-                f"всего с запуска: {api_stats.get('total_since_boot', 0)}"
-            )
-
-        if skip_baseline and skip_baseline.get("skipped", 0) > 0:
-            lines.extend(["", "<b>⏭ SKIP baseline (ledger)</b>"])
-            lines.append(
-                f"• {skip_baseline.get('skipped', 0)}/{skip_baseline.get('total_signals', 0)} "
-                f"({skip_baseline.get('pct_skipped_of_total', 0)}%)"
-            )
-            for bucket, cnt in skip_baseline.get("top_buckets", [])[:6]:
-                pct = skip_baseline.get("pct_of_skips_by_bucket", {}).get(bucket, 0)
-                lines.append(f"  — {bucket}: {cnt} ({pct}%)")
-
-        if active_strategy:
-            lines.extend(["", f"<b>🎯 Стратегия:</b> {active_strategy}"])
+                logging.getLogger("prd_agent.bi_hourly").warning(
+                    "supervisor section failed: %s", exc
+                )
 
         lines.append("")
         lines.append(

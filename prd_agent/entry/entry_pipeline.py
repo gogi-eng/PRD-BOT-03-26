@@ -121,6 +121,14 @@ def evaluate_entry_pipeline(
 
     breakdown["supervisor"] = 1.0 if supervisor_ok else 0.0
 
+    src = str(sig.source or "").lower()
+    if src in ("hybrid", "telegram", "ta_volatility", "mirror_pump_dump_agent", "agent_world"):
+        breakdown["source"] = 0.5
+    elif src == "own_multi_agent":
+        breakdown["source"] = 0.25
+    else:
+        breakdown["source"] = 0.0
+
     if atr_pct >= 0.003:
         breakdown["volatility"] = 1.0
     elif atr_pct >= 0.0015:
