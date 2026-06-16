@@ -22,6 +22,8 @@ if [[ -f config.yaml ]]; then
 fi
 
 git remote get-url origin >/dev/null 2>&1 || git remote add origin "$REMOTE"
+# Старые копии AGENT-WORLD могли иметь fetch только на удалённую ветку 07.05.26_World_Agent
+git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*" 2>/dev/null || true
 git fetch origin "$BRANCH"
 # FETCH_HEAD надёжнее origin/BRANCH на shallow-клонах без remote-tracking ref
 REF="FETCH_HEAD"

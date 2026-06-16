@@ -390,12 +390,30 @@ class SignalRouter:
 
     async def collect_all(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         tg = self.collect_telegram_signals()
-        own, ta, whale, ext = await asyncio.gather(
+        gathered = await asyncio.gather(
             self.collect_own_signals(exchange, symbols),
             self.collect_ta_volatility(exchange, symbols),
             self.collect_whale_news(exchange, symbols),
             self.collect_external_sentiment(exchange, symbols),
+            return_exceptions=True,
         )
+        own: List[UnifiedSignal] = []
+        ta: List[UnifiedSignal] = []
+        whale: List[UnifiedSignal] = []
+        ext: List[UnifiedSignal] = []
+        labels = ("own", "ta_vol", "whale", "ext_sentiment")
+        for label, res in zip(labels, gathered):
+            if isinstance(res, Exception):
+                logger.warning("collect_all %s failed: %s", label, res)
+                continue
+            if label == "own":
+                own = res
+            elif label == "ta_vol":
+                ta = res
+            elif label == "whale":
+                whale = res
+            else:
+                ext = res
         from prd_agent.signals.confidence_filter import passes_emit_gate
 
         merged = self.merge_and_rank(own + ta + tg + whale + ext)
