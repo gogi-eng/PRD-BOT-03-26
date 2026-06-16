@@ -1,8 +1,11 @@
 """Установка плеча на Bybit с проверкой фактического значения."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger("prd_agent.leverage_apply")
 
 
 @dataclass(frozen=True)
@@ -41,7 +44,8 @@ async def apply_trade_leverage(client: Any, symbol: str, requested: int) -> Leve
     if hasattr(client, "get_max_leverage"):
         try:
             max_inst = max(1, int(await client.get_max_leverage(sym)))
-        except Exception:
+        except Exception as exc:
+            logger.warning("get_max_leverage(%s) failed: %s", sym, exc)
             max_inst = 100
 
     target = min(req, max_inst)

@@ -5,15 +5,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from prd_agent.analysis.entry_snapshot import build_entry_snapshot
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import SignalLedger, SignalStatus
 from prd_agent.analysis.trade_analytics import (
+    build_portfolio_quality_report,
     build_report as build_trade_stats_report,
     load_closed_trades,
     summarize_trades,
@@ -25,7 +26,9 @@ from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
 from prd_agent.engine.adaptive_loop import compute_loop_interval_sec
 from prd_agent.entry.entry_engine_bridge import EntryEngineBridge, should_apply_zone_entry
 from prd_agent.entry.entry_pipeline import evaluate_entry_pipeline
+from prd_agent.entry.entry_soft_rules import compute_soft_score
 from prd_agent.entry.retest_watchlist import RetestWatchlist
+from prd_agent.entry.rule_weight_tracker import RuleWeightTracker
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -35,6 +38,7 @@ from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import GuardStatus, RiskGuard, StopKind
+from prd_agent.risk.rr_enforce import enforce_min_rr_levels, rr_ratio
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.market_scanner_bridge import (
     market_scanner_cfg,
@@ -55,9 +59,9 @@ from prd_agent.signals.confidence_filter import (
     passes_emit_gate,
 )
 from prd_agent.signals.router import SignalRouter
-from prd_agent.strategies.router import StrategyRouter
-from prd_agent.telemetry.skip_baseline import format_skip_baseline_text
 from prd_agent.signals.types import UnifiedSignal
+from prd_agent.strategies.router import StrategyRouter
+from prd_agent.telemetry.skip_baseline import format_skip_baseline_text, skip_baseline_report
 from prd_agent.telegram.notifier import TelegramNotifier
 from prd_agent.telegram.status_table import format_status_table
 
@@ -94,6 +98,7 @@ class UnifiedOrchestrator:
         self.bot_manager = BotManagerAgent(cfg)
         an = cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", 24))
+        self._portfolio_quality_hours = float(an.get("portfolio_quality_hours", 168))
 
         t = cfg.get("trading", {})
         self.symbols: List[str] = list(t.get("symbols", ["BTCUSDT"]))
@@ -129,8 +134,6 @@ class UnifiedOrchestrator:
             "недостаточно свободной маржи",
             "недостаточно маржи",
             "quality_gate:",
-            "entry_pipeline:",
-            "retest_watch:",
             "entry_guard:",
             "Bybit circuit",
             "circuit open",
@@ -138,10 +141,11 @@ class UnifiedOrchestrator:
         self.zone_entry = EntryEngineBridge(cfg)
         self.retest_watch = RetestWatchlist(cfg)
         self.strategy_router = StrategyRouter(cfg)
+        self._last_api_cycle_snap: Dict[str, Any] = {}
         _ze = cfg.get("zone_entry", {}) if isinstance(cfg.get("zone_entry"), dict) else {}
         self._zone_kline_interval = str(_ze.get("kline_interval", "15"))
+        self.rule_weight_tracker = RuleWeightTracker(self.data_dir, cfg)
         self._apply_sr_zones_config()
-        self._last_api_cycle_snap: Dict[str, Any] = {}
 
     def _apply_sr_zones_config(self) -> None:
         sr = self.cfg.get("execution_sr_zones", {})
@@ -159,7 +163,17 @@ class UnifiedOrchestrator:
                 preserve = float(q.get("min_rr_ratio", 2.0))
         self._sr_preserve_rr = preserve
         self._sr_sl_level_index = max(0, int(sr.get("sl_sr_level_index", 1) or 1))
+        self._sr_tp_level_index = max(1, int(sr.get("tp_sr_level_index", 1) or 1))
+        self._sr_prefer_far_tp = bool(sr.get("prefer_far_tp", True))
+        self._sr_target_initial_tp_rr = float(sr.get("target_initial_tp_rr", 0) or 0)
         self._sr_min_tp_distance_pct = float(sr.get("min_tp_distance_pct", 1.0) or 1.0)
+
+    def _effective_min_rr(self, min_rr: float) -> float:
+        target = float(getattr(self, "_sr_target_initial_tp_rr", 0) or 0)
+        base = float(min_rr or 0)
+        if target > 0:
+            return max(base, target)
+        return base
 
     async def _apply_sr_zones_to_levels(
         self,
@@ -188,6 +202,9 @@ class UnifiedOrchestrator:
                 preserve_min_rr=self._sr_preserve_rr,
                 sl_sr_level_index=self._sr_sl_level_index,
                 min_tp_distance_pct=self._sr_min_tp_distance_pct,
+                prefer_far_tp=self._sr_prefer_far_tp,
+                tp_sr_level_index=self._sr_tp_level_index,
+                target_initial_tp_rr=self._sr_target_initial_tp_rr,
             )
             if changed:
                 logger.info(
@@ -233,6 +250,16 @@ class UnifiedOrchestrator:
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", self._stats_hours))
+        self._portfolio_quality_hours = float(
+            an.get("portfolio_quality_hours", self._portfolio_quality_hours)
+        )
+        ext_on = bool(self.cfg.get("external_sentiment", {}).get("enabled", True))
+        if ext_on:
+            from prd_agent.signals.external_sentiment_agent import ExternalSentimentAgent
+
+            self.signals._external_sentiment = ExternalSentimentAgent(self.cfg)
+        else:
+            self.signals._external_sentiment = None
         self.symbols = list(t.get("symbols", self.symbols))
         self.symbol_scanner = SymbolScanner(self.cfg)
         self._symbol_rescan_sec = float(t.get("symbol_rescan_interval_sec", self._symbol_rescan_sec))
@@ -254,14 +281,14 @@ class UnifiedOrchestrator:
             self.supervisor._last_skipped_bt_at = prev_skipped_bt_at
         self.notifier._cfg = self.cfg
         self.zone_entry = EntryEngineBridge(self.cfg)
-        self.retest_watch = RetestWatchlist(self.cfg)
-        self.strategy_router = StrategyRouter(self.cfg)
+        self.retest_watch.cfg = self.cfg
+        self.strategy_router.cfg = self.cfg
         ze = self.cfg.get("zone_entry", {}) if isinstance(self.cfg.get("zone_entry"), dict) else {}
         self._zone_kline_interval = str(ze.get("kline_interval", "15"))
 
     async def _plan_order_levels(
         self, sig: UnifiedSignal
-    ) -> tuple[float, float, float, str]:
+    ) -> tuple[float, float, float, str, Dict[str, Any]]:
         """Цены входа/SL/TP: зона/BOS/ретест + SR-зоны для SL/TP."""
         entry = float(sig.entry or 0) or await self.exchange.get_price(sig.symbol)
         sl = float(sig.stop_loss or 0) or (
@@ -271,30 +298,25 @@ class UnifiedOrchestrator:
             entry * 1.01 if sig.side == "Buy" else entry * 0.99
         )
         block_reason = ""
+        zone_meta: Dict[str, Any] = {}
 
-        profile = self.strategy_router.profile
-        zone_interval = (
-            self._zone_kline_interval
-            if profile.zone_entry_enabled
-            else profile.kline_interval
-        )
-        if should_apply_zone_entry(sig, self.cfg) and profile.zone_entry_enabled:
-            klines = await self.exchange.get_klines(
-                sig.symbol,
-                interval=zone_interval,
-                limit=120,
+        if should_apply_zone_entry(sig, self.cfg):
+            klines, htf = await asyncio.gather(
+                self.exchange.get_klines(
+                    sig.symbol,
+                    interval=self._zone_kline_interval,
+                    limit=120,
+                ),
+                self.exchange.get_klines(sig.symbol, interval="240", limit=120),
             )
-            htf = None
-            if profile.require_htf and profile.htf_interval:
-                htf = await self.exchange.get_klines(
-                    sig.symbol, interval=profile.htf_interval, limit=120
-                )
             plan = self.zone_entry.plan_levels(
                 sig,
                 klines=klines or [],
                 htf_klines=htf,
                 market_price=entry,
             )
+            if isinstance(plan.metadata, dict):
+                zone_meta = dict(plan.metadata)
             if not plan.ok:
                 block_reason = plan.block_reason or "zone_entry: вход заблокирован"
             else:
@@ -303,16 +325,43 @@ class UnifiedOrchestrator:
                     sl = float(plan.stop_loss)
                 if plan.take_profit > 0:
                     tp = float(plan.take_profit)
-                md = plan.metadata if isinstance(plan.metadata, dict) else {}
-                if md.get("has_bos") and profile.impulse_retest_enabled:
-                    self.retest_watch.register_breakout(
-                        sig.symbol,
-                        sig.side,
-                        bos_level=float(md.get("bos_level", entry) or entry),
-                    )
 
         sl, tp = await self._apply_sr_zones_to_levels(sig.symbol, sig.side, entry, sl, tp)
-        return entry, sl, tp, block_reason
+        min_rr = self.quality_gate._min_rr_for_signal(sig)
+        effective_rr = self._effective_min_rr(min_rr)
+        sl, tp, rr_ok = enforce_min_rr_levels(
+            side=sig.side,
+            entry=entry,
+            stop_loss=sl,
+            take_profit=tp,
+            min_rr=effective_rr,
+        )
+        if not rr_ok:
+                block_reason = (
+                block_reason
+                or f"plan: RR {rr_ratio(entry, sl, tp, sig.side):.2f} < {effective_rr:.2f} (SL/TP)"
+            )
+        return entry, sl, tp, block_reason, zone_meta
+
+    def _maybe_register_retest_watch(
+        self,
+        sig: UnifiedSignal,
+        reason: str,
+        zone_meta: Dict[str, Any],
+    ) -> None:
+        if not self.retest_watch.enabled():
+            return
+        r = str(reason or "").lower()
+        if "нет свечи ретеста" not in r and "нет свечи подтверждения" not in r:
+            return
+        bos = float(zone_meta.get("bos_level", 0) or 0)
+        self.retest_watch.register_breakout(
+            sig.symbol,
+            sig.side,
+            bos_level=bos,
+            zone_low=float(zone_meta.get("zone_low", 0) or 0),
+            zone_high=float(zone_meta.get("zone_high", 0) or 0),
+        )
 
     def set_trailing_enabled(self, enabled: bool) -> str:
         """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
@@ -371,6 +420,23 @@ class UnifiedOrchestrator:
         self.symbols = await self.symbol_scanner.scan(self.exchange)
         self._last_symbol_scan_at = now
 
+    async def _sync_orderbook_ws(self, positions: List[Dict]) -> None:
+        if not hasattr(self.exchange, "set_orderbook_symbols"):
+            return
+        open_syms = [
+            str(p.get("symbol", "") or "").upper()
+            for p in positions
+            if p.get("symbol")
+        ]
+        merged: List[str] = []
+        seen: set = set()
+        for sym in list(self.symbols) + open_syms:
+            s = str(sym or "").upper()
+            if s and s not in seen:
+                seen.add(s)
+                merged.append(s)
+        await self.exchange.set_orderbook_symbols(merged[:30])
+
     async def start(self) -> None:
         if self._running:
             logger.debug("Trading loop already running, skip duplicate start()")
@@ -384,15 +450,7 @@ class UnifiedOrchestrator:
         mode = "TESTNET" if self.exchange.is_testnet else "LIVE"
         positions = await self.exchange.get_positions()
         table = await self.build_status_table(positions=positions, block_reason="")
-        label = "AGENT-WORLD (ALGO sandbox)" if os.environ.get("PRD_AGENT_WORLD", "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
-        ) else "Unified Agent"
-        sent = await self.notifier.send(f"🚀 <b>{label}</b> запущен\n\n{table}")
-        if not sent:
-            logger.warning("Стартовая таблица в Telegram не отправлена — проверьте .env TELEGRAM_*")
+        await self.notifier.send(f"🚀 <b>Unified Agent</b> запущен\n\n{table}")
         logger.info("Unified started balance=%.2f testnet=%s", balance, self.exchange.is_testnet)
         if unified_should_run_market_scan(self.cfg):
             self._market_scan_task = asyncio.create_task(self._market_scanner_loop())
@@ -495,6 +553,7 @@ class UnifiedOrchestrator:
                 bot_symbols=bot_symbols,
             )
             self.trade_journal.record_closed_from_exchange(r, origin=origin)
+        self.rule_weight_tracker.refresh_if_due(journal_path, force=False)
 
     @staticmethod
     def _dedupe_signals_for_report(signals: List[Dict], *, limit: int = 8) -> List[Dict]:
@@ -530,6 +589,33 @@ class UnifiedOrchestrator:
             if sym and cls._position_size(p) > 0:
                 out.add(sym)
         return out
+
+    def _signal_trade_priority(self, sig: UnifiedSignal) -> float:
+        """Приоритет сделки: soft score + confidence (validated правила усиливают soft score)."""
+        tz = int(self.cfg.get("timezone_offset", 3) or 3)
+        ctx: Dict[str, Any] = {
+            "local_hour": (datetime.now(timezone.utc).hour + tz) % 24,
+            "side": str(sig.side or "").upper(),
+        }
+        raw = sig.raw if isinstance(sig.raw, dict) else {}
+        for key in (
+            "htf_trend",
+            "regime",
+            "adx",
+            "atr_pct",
+            "normalized_imbalance",
+            "spread_pct",
+            "volume_24h_usdt",
+        ):
+            if key in raw:
+                ctx[key] = raw[key]
+        soft = compute_soft_score(
+            ctx,
+            side=sig.side,
+            cfg=self.cfg,
+            rule_weights=self.rule_weight_tracker.get_weights(),
+        )
+        return float(soft.score) + float(sig.confidence or 0) * 20.0
 
     async def _skip_if_position_open(
         self, sig: UnifiedSignal, ledger_id: Optional[str] = None, *, notify_telegram: bool = False
@@ -603,15 +689,10 @@ class UnifiedOrchestrator:
             self._last_upnl[sym] = upnl
 
     async def _cycle(self) -> None:
-        self._cycle_num += 1
-        self.exchange.begin_api_cycle(self._cycle_num)
-        self.strategy_router.refresh()
-        await self.exchange.refresh_cycle_tickers()
-        self.quality_gate.set_tickers_map(self.exchange.get_tickers_map())
-        self.retest_watch.prune_expired()
-
+        self.exchange.api_journal.begin_cycle(self._cycle_num + 1)
         await self._refresh_symbols_if_due()
         positions = await self.exchange.get_positions()
+        await self._sync_orderbook_ws(positions)
         self.risk.open_positions_count = len(positions)
         await self._monitor_positions(positions)
         closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
@@ -623,6 +704,8 @@ class UnifiedOrchestrator:
         balance_now = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance_now)
         self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)
+        self._cycle_num += 1
+        self.strategy_router.refresh()
         risk_snap = self.risk.snapshot()
         recent = load_closed_trades(self.trade_journal.path, hours=24)
         recent_sum = summarize_trades(recent)
@@ -636,6 +719,7 @@ class UnifiedOrchestrator:
             recent_trades=int(recent_sum.get("n", 0)),
         )
         await self.supervisor.run_skipped_backtests_if_due(self.ledger, self.exchange)
+        self.rule_weight_tracker.refresh_if_due(self.trade_journal.path, force=False)
 
         open_symbols = self._symbols_with_open_positions(positions)
         can_trade, block_reason = self.risk.can_trade()
@@ -646,6 +730,11 @@ class UnifiedOrchestrator:
 
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
         if all_signals:
+            all_signals = sorted(
+                all_signals,
+                key=lambda s: self._signal_trade_priority(s),
+                reverse=True,
+            )
             strong = sum(1 for s in all_signals if passes_emit_gate(s, self.cfg))
             logger.info(
                 "Cycle: %d signal(s) (conf>=%.0f%%: %d), open=%d, scan=%d symbols, trade_ok=%s",
@@ -708,7 +797,7 @@ class UnifiedOrchestrator:
                 raw=sig.raw,
             )
             self._signal_cooldown.mark_handled(sym, sig.side)
-            plan_entry, plan_sl, plan_tp, plan_block = await self._plan_order_levels(sig)
+            plan_entry, plan_sl, plan_tp, plan_block, zone_meta = await self._plan_order_levels(sig)
             if plan_block:
                 self.ledger.update_status(entry.id, SignalStatus.SKIPPED, plan_block)
                 self.supervisor.note_signal_outcome(entry.id, "skipped", plan_block)
@@ -726,7 +815,9 @@ class UnifiedOrchestrator:
                 confidence=sig.confidence,
                 ledger_id=entry.id,
             )
-            await self._maybe_execute(sig, entry.id, plan_entry, plan_sl, plan_tp)
+            await self._maybe_execute(
+                sig, entry.id, plan_entry, plan_sl, plan_tp, zone_meta=zone_meta
+            )
 
         now = datetime.now(timezone.utc).timestamp()
         if now - self._last_report_at >= self.report_interval_sec:
@@ -756,7 +847,7 @@ class UnifiedOrchestrator:
                 emit_count,
             )
         self._loop_sec = new_loop
-        self._last_api_cycle_snap = self.exchange.end_api_cycle()
+        self._last_api_cycle_snap = self.exchange.api_journal.end_cycle()
 
     def apply_risk_preset(self, name: str) -> str:
         if name not in ALLOWED_PRESETS:
@@ -786,6 +877,8 @@ class UnifiedOrchestrator:
         plan_entry: float,
         plan_sl: float,
         plan_tp: float,
+        *,
+        zone_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         if await self._skip_if_position_open(sig, ledger_id):
             self.supervisor.note_signal_outcome(ledger_id, "skipped", "position_open")
@@ -822,26 +915,28 @@ class UnifiedOrchestrator:
             return
 
         entry, sl, tp = plan_entry, plan_sl, plan_tp
+        zone_meta = zone_meta or {}
+        pipeline_size_mult = 1.0
 
         klines_entry = await self.exchange.get_klines(
             sig.symbol, interval=self._sr_interval, limit=self._sr_limit
         )
-        pb_ok, pb_reason = True, ""
-        profile = self.strategy_router.profile
-        if should_apply_zone_entry(sig, self.cfg) and profile.impulse_retest_enabled:
-            atr_v = 0.0
-            if klines_entry and len(klines_entry) >= 3:
-                from prd_agent.entry.entry_engine_bridge import atr_from_klines
+        atr_v = 0.0
+        if klines_entry and len(klines_entry) >= 3:
+            from prd_agent.entry.entry_engine_bridge import atr_from_klines
 
-                atr_v = atr_from_klines(klines_entry)
+            atr_v = atr_from_klines(klines_entry)
+        pb_ok, pb_reason = True, ""
+        if should_apply_zone_entry(sig, self.cfg):
             ir_ok, ir_reason = self.retest_watch.evaluate(
                 sig.symbol,
                 sig.side,
                 klines_entry or [],
-                atr_v,
+                atr_value=atr_v,
                 confidence=float(sig.confidence),
             )
             if not ir_ok:
+                self._maybe_register_retest_watch(sig, ir_reason, zone_meta)
                 logger.info("Skip %s %s: %s", sig.symbol, sig.side, ir_reason)
                 self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, ir_reason)
                 self.supervisor.note_signal_outcome(ledger_id, "skipped", ir_reason)
@@ -875,37 +970,6 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, pb_reason)
             return
 
-        meta_ok_sup, _ = self.supervisor.can_enter(sig.symbol)
-        raw_meta = sig.raw if isinstance(sig.raw, dict) else {}
-        zone_meta = raw_meta.get("zone_entry", {}) if isinstance(raw_meta.get("zone_entry"), dict) else {}
-        atr_pct = 0.0
-        if klines_entry and len(klines_entry) >= 5:
-            from prd_agent.entry.entry_engine_bridge import atr_from_klines
-
-            _atr = atr_from_klines(klines_entry)
-            _px = float(klines_entry[-1].get("close", 0) or 0)
-            if _px > 0 and _atr > 0:
-                atr_pct = _atr / _px
-        pipe = evaluate_entry_pipeline(
-            sig,
-            self.cfg,
-            entry=entry,
-            sl=sl,
-            tp=tp,
-            has_zone=bool(zone_meta.get("entry_zone") and zone_meta.get("entry_zone") != "no_zone"),
-            has_bos=bool(zone_meta.get("has_bos")),
-            supervisor_ok=meta_ok_sup,
-            atr_pct=atr_pct,
-        )
-        if not pipe.passed:
-            logger.info("Skip %s %s: %s", sig.symbol, sig.side, pipe.reason)
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, pipe.reason)
-            self.supervisor.note_signal_outcome(ledger_id, "skipped", pipe.reason)
-            if not self._is_silent_skip(pipe.reason):
-                await self.notifier.signal_skipped(sig.symbol, sig.side, pipe.reason)
-            return
-        pipeline_size_mult = float(pipe.size_mult)
-
         exec_plan = await build_entry_execution_plan(
             sig, plan_entry=entry, exchange=self.exchange, cfg=self.cfg
         )
@@ -925,6 +989,53 @@ class UnifiedOrchestrator:
             eff_entry = float(exec_plan.market_price)
         else:
             eff_entry = entry
+
+        min_rr = self.quality_gate._min_rr_for_signal(sig)
+        effective_rr = self._effective_min_rr(min_rr)
+        sl, tp, rr_ok = enforce_min_rr_levels(
+            side=sig.side,
+            entry=eff_entry,
+            stop_loss=sl,
+            take_profit=tp,
+            min_rr=effective_rr,
+        )
+        if not rr_ok:
+            reason = (
+                f"RR {rr_ratio(eff_entry, sl, tp, sig.side):.2f} < {effective_rr:.2f} "
+                f"после цены входа {eff_entry:.6g}"
+            )
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            if not self._is_silent_skip(reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+            return
+
+        meta_ok, _ = self.supervisor.can_enter(sig.symbol)
+        pipe = evaluate_entry_pipeline(
+            sig,
+            self.cfg,
+            entry=eff_entry,
+            sl=sl,
+            tp=tp,
+            has_zone=bool(
+                zone_meta.get("has_bos")
+                or str(zone_meta.get("entry_zone", "")).lower() not in ("", "no_zone")
+            ),
+            has_bos=bool(zone_meta.get("has_bos")),
+            supervisor_ok=meta_ok,
+            atr_pct=(atr_v / eff_entry if eff_entry > 0 and atr_v > 0 else 0.0),
+        )
+        if not pipe.passed:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, pipe.reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, pipe.reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", pipe.reason)
+            if not self._is_silent_skip(pipe.reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, pipe.reason)
+            return
+        pipeline_size_mult = float(pipe.size_mult or 1.0)
+        if pipe.reason:
+            logger.info("Entry pipeline %s %s: %s", sig.symbol, sig.side, pipe.reason)
 
         q_ok, q_reason = await self.quality_gate.check(
             sig, self.exchange, entry=eff_entry, sl=sl, tp=tp
@@ -983,11 +1094,65 @@ class UnifiedOrchestrator:
             )
         balance = await self.exchange.get_balance()
         available = await self.exchange.get_available_balance()
-        eff_risk = self.supervisor.effective_risk_pct(self.risk_pct) * pipeline_size_mult
+        eff_risk = self.supervisor.effective_risk_pct(self.risk_pct)
         qty = self.risk.calculate_position_size(balance, eff_risk, eff_entry, sl, leverage)
         if qty <= 0:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
             return
+
+        entry_context: Dict[str, Any] = {}
+        entry_candles: List[Dict[str, Any]] = []
+        soft_size_mult = 1.0
+        try:
+            entry_context, entry_candles = await build_entry_snapshot(
+                exchange=self.exchange,
+                cfg=self.cfg,
+                symbol=sig.symbol,
+                side=sig.side,
+                entry=eff_entry,
+                stop_loss=float(sl or 0),
+                take_profit=float(tp or 0),
+                sig=sig,
+                klines=klines_entry or [],
+                extra_filters={
+                    "pullback_reason": pb_reason,
+                    "exec_order_type": order_type,
+                    "exec_plan_reason": exec_plan.reason,
+                    "min_rr_gate": min_rr,
+                    "leverage_requested": leverage_requested,
+                    "leverage_applied": leverage,
+                },
+            )
+            soft = compute_soft_score(
+                entry_context,
+                side=sig.side,
+                cfg=self.cfg,
+                rule_weights=self.rule_weight_tracker.get_weights(),
+            )
+            entry_context["soft_score"] = soft.score
+            entry_context["soft_label"] = soft.label
+            entry_context["active_rules"] = soft.active_rules
+            entry_context["rule_breakdown"] = soft.breakdown
+            entry_context["validated_rule_weights"] = {
+                k: self.rule_weight_tracker.get_weights().get(k, 1.0)
+                for k in soft.active_rules
+            }
+            soft_size_mult = float(soft.size_mult or 1.0) * pipeline_size_mult
+            logger.info(
+                "Soft score %s %s: %.0f (%s) rules=%s size_mult=%.3f validated=%s",
+                sig.symbol,
+                sig.side,
+                soft.score,
+                soft.label,
+                ",".join(soft.active_rules[:6]) or "-",
+                soft_size_mult,
+                ",".join(self.rule_weight_tracker.get_validated_rules()) or "-",
+            )
+        except Exception as exc:
+            logger.warning("entry_snapshot/soft_score failed %s: %s", sig.symbol, exc)
+
+        if soft_size_mult > 1.0:
+            qty = qty * soft_size_mult
 
         notional = (qty * entry) / max(leverage, 1)
         min_margin = notional * 1.05
@@ -1014,6 +1179,29 @@ class UnifiedOrchestrator:
             if not self._is_silent_skip(prep_err):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
             return
+
+        sl_f = float(sl or 0)
+        tp_f = float(tp or 0)
+        effective_rr = self._effective_min_rr(min_rr)
+        sl_f, tp_f, rr_ok = enforce_min_rr_levels(
+            side=sig.side,
+            entry=eff_entry,
+            stop_loss=sl_f,
+            take_profit=tp_f,
+            min_rr=effective_rr,
+        )
+        if not rr_ok:
+            reason = (
+                f"RR {rr_ratio(eff_entry, sl_f, tp_f, sig.side):.2f} < {effective_rr:.2f} "
+                "после округления SL/TP"
+            )
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            if not self._is_silent_skip(reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+            return
+        sl, tp = sl_f, tp_f
 
         q_ok2, q_reason2 = await self.quality_gate.check(
             sig, self.exchange, entry=eff_entry, sl=float(sl or 0), tp=float(tp or 0)
@@ -1071,6 +1259,8 @@ class UnifiedOrchestrator:
                 confidence=sig.confidence,
                 leverage=leverage,
                 origin="bot",
+                entry_context=entry_context,
+                entry_candles=entry_candles,
             )
             self.position_steward.mark_bot_opened(
                 sig.symbol,
@@ -1113,11 +1303,7 @@ class UnifiedOrchestrator:
             self.exchange, signals_24h, 24, self.reporter.high_conf
         )
         ledger_sum = self.ledger.summary(24)
-        ledger_7d = self.ledger.summary(168)
         report_2h["ledger_not_opened"] = ledger_sum.get("not_opened", 0)
-        skip_bl = ledger_7d.get("skip_baseline") or {}
-        if skip_bl:
-            logger.info(format_skip_baseline_text(skip_bl))
         code_changes = self.improver.recent_changes(hours=2)
         proposals = self.improver.propose_from_performance(report_2h, report_24h)
         hints = self.global_analyzer.improvement_hints(ledger_sum, report_24h.get("win_rate_pct", 50))
@@ -1135,6 +1321,8 @@ class UnifiedOrchestrator:
         self.risk.update_balance_reference(balance)
         self.risk.reconcile_from_closed_rows(closed_today, balance=balance)
         risk_snap = self.risk.snapshot()
+        skip_report = skip_baseline_report(self.ledger, hours=2)
+        logger.info(format_skip_baseline_text(skip_report))
         await self.reporter.publish_full_report(
             positions=positions,
             report_2h=report_2h,
@@ -1147,9 +1335,9 @@ class UnifiedOrchestrator:
             exchange_pnl_today_pct=risk_snap.get("pnl_today_pct", 0),
             supervisor_summary=sup_summary,
             trade_journal_path=self.trade_journal.path,
-            api_stats=self.exchange.api_stats_snapshot(),
-            skip_baseline=skip_bl,
-            active_strategy=self.strategy_router.profile.label,
+            api_stats_snapshot=self._last_api_cycle_snap or self.exchange.api_journal.snapshot(),
+            skip_baseline=skip_report,
+            active_strategy=self.strategy_router.profile.name,
         )
 
     async def _global_analysis(self) -> None:
@@ -1168,6 +1356,10 @@ class UnifiedOrchestrator:
             data_dir=self.root / "data",
             telegram_audit_path=audit if audit.exists() else None,
         )
+
+    def get_portfolio_quality_report(self, hours: Optional[float] = None) -> str:
+        h = float(hours if hours is not None else self._portfolio_quality_hours)
+        return build_portfolio_quality_report(self.trade_journal.path, h)
 
     async def get_macro_briefing(self) -> str:
         positions: List[Dict] = []

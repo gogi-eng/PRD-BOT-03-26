@@ -3,7 +3,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +26,12 @@ SOURCE_WEIGHT = {
     "whale_liquidation": 0.85,
     "whale_oi": 0.75,
     "macro_news": 0.55,
+    "coinugget_style": 0.78,
+    "adanos_reddit": 0.72,
 }
+
+
+logger = logging.getLogger("prd_agent.signals")
 
 
 class SignalRouter:
@@ -54,6 +61,11 @@ class SignalRouter:
             else None
         )
         self._zone_entry = EntryEngineBridge(cfg)
+        self._external_sentiment = None
+        if cfg.get("external_sentiment", {}).get("enabled", True):
+            from prd_agent.signals.external_sentiment_agent import ExternalSentimentAgent
+
+            self._external_sentiment = ExternalSentimentAgent(cfg)
         self._init_own_agents()
 
     @staticmethod
@@ -88,12 +100,47 @@ class SignalRouter:
         with self._queue_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(sig.to_dict(), ensure_ascii=False) + "\n")
 
+    async def _fetch_klines_pair(
+        self, exchange, sym: str, interval: str = "15", htf_interval: str = "240"
+    ) -> tuple[str, list, list]:
+        klines, htf = await asyncio.gather(
+            exchange.get_klines(sym, interval=interval, limit=120),
+            exchange.get_klines(sym, interval=htf_interval, limit=120),
+        )
+        return sym, list(klines or []), list(htf or [])
+
     async def collect_own_signals(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         if not self._multi_agent:
             return out
-        for sym in symbols:
-            klines = await exchange.get_klines(sym, interval="15", limit=120)
+
+        zone_on = should_apply_zone_entry(
+            UnifiedSignal(symbol="", side="Buy", confidence=0.5, source="own_multi_agent"),
+            self.cfg,
+        )
+        # Параллельно: 15m для всех символов; 4h только если zone_entry активен глобально.
+        if zone_on:
+            pairs = await asyncio.gather(
+                *[self._fetch_klines_pair(exchange, sym) for sym in symbols],
+                return_exceptions=True,
+            )
+        else:
+            raw = await asyncio.gather(
+                *[exchange.get_klines(sym, interval="15", limit=120) for sym in symbols],
+                return_exceptions=True,
+            )
+            pairs = []
+            for sym, klines in zip(symbols, raw):
+                if isinstance(klines, Exception):
+                    pairs.append(klines)
+                else:
+                    pairs.append((sym, list(klines or []), []))
+
+        for item in pairs:
+            if isinstance(item, Exception):
+                logger.warning("collect_own_signals klines failed: %s", item)
+                continue
+            sym, klines, htf = item
             if not klines:
                 continue
             df = pd.DataFrame(klines)
@@ -124,8 +171,7 @@ class SignalRouter:
                 reason=f"multi-agent score={score:.3f}",
                 raw={"agent_outputs": outputs, "aggregate": score},
             )
-            if should_apply_zone_entry(sig, self.cfg):
-                htf = await exchange.get_klines(sym, interval="240", limit=120)
+            if zone_on:
                 sig = self._zone_entry.enrich_signal(sig, klines=klines, htf_klines=htf)
             out.append(sig)
             self._persist(sig)
@@ -174,17 +220,86 @@ class SignalRouter:
             self._persist(sig)
         return out
 
+    async def _enrich_with_zone(
+        self, exchange, sig: UnifiedSignal
+    ) -> UnifiedSignal:
+        if not should_apply_zone_entry(sig, self.cfg):
+            return sig
+        sym, klines, htf = await self._fetch_klines_pair(exchange, sig.symbol)
+        return self._zone_entry.enrich_signal(sig, klines=klines or [], htf_klines=htf)
+
     async def collect_ta_volatility(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         if not self._ta_vol:
             return out
-        for sig in await self._ta_vol.collect(exchange):
+        candidates = await self._ta_vol.collect(exchange)
+        enrich_tasks = []
+        kept: List[UnifiedSignal] = []
+        for sig in candidates:
             if sig.confidence < self._min_own_conf:
                 continue
+            kept.append(sig)
             if should_apply_zone_entry(sig, self.cfg):
-                klines = await exchange.get_klines(sig.symbol, interval="15", limit=120)
-                htf = await exchange.get_klines(sig.symbol, interval="240", limit=120)
-                sig = self._zone_entry.enrich_signal(sig, klines=klines or [], htf_klines=htf)
+                enrich_tasks.append(self._enrich_with_zone(exchange, sig))
+            else:
+                enrich_tasks.append(None)
+        enriched: List[UnifiedSignal] = []
+        pending = [t for t in enrich_tasks if t is not None]
+        if pending:
+            results = await asyncio.gather(*pending, return_exceptions=True)
+            ri = 0
+            for sig, task in zip(kept, enrich_tasks):
+                if task is None:
+                    enriched.append(sig)
+                else:
+                    res = results[ri]
+                    ri += 1
+                    if isinstance(res, Exception):
+                        logger.warning("ta_vol zone enrich %s: %s", sig.symbol, res)
+                        enriched.append(sig)
+                    else:
+                        enriched.append(res)
+        else:
+            enriched = kept
+        for sig in enriched:
+            out.append(sig)
+            self._persist(sig)
+        return out
+
+    async def collect_external_sentiment(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
+        out: List[UnifiedSignal] = []
+        if not self._external_sentiment:
+            return out
+        candidates = await self._external_sentiment.collect(exchange, symbols)
+        enrich_tasks = []
+        kept: List[UnifiedSignal] = []
+        for sig in candidates:
+            if sig.confidence < self._min_own_conf:
+                continue
+            kept.append(sig)
+            if should_apply_zone_entry(sig, self.cfg):
+                enrich_tasks.append(self._enrich_with_zone(exchange, sig))
+            else:
+                enrich_tasks.append(None)
+        enriched: List[UnifiedSignal] = []
+        pending = [t for t in enrich_tasks if t is not None]
+        if pending:
+            results = await asyncio.gather(*pending, return_exceptions=True)
+            ri = 0
+            for sig, task in zip(kept, enrich_tasks):
+                if task is None:
+                    enriched.append(sig)
+                else:
+                    res = results[ri]
+                    ri += 1
+                    if isinstance(res, Exception):
+                        logger.warning("ext_sentiment zone enrich %s: %s", sig.symbol, res)
+                        enriched.append(sig)
+                    else:
+                        enriched.append(res)
+        else:
+            enriched = kept
+        for sig in enriched:
             out.append(sig)
             self._persist(sig)
         return out
@@ -274,23 +389,25 @@ class SignalRouter:
         return merged
 
     async def collect_all(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
-        own = await self.collect_own_signals(exchange, symbols)
-        ta = await self.collect_ta_volatility(exchange, symbols)
         tg = self.collect_telegram_signals()
-        whale = await self.collect_whale_news(exchange, symbols)
+        own, ta, whale, ext = await asyncio.gather(
+            self.collect_own_signals(exchange, symbols),
+            self.collect_ta_volatility(exchange, symbols),
+            self.collect_whale_news(exchange, symbols),
+            self.collect_external_sentiment(exchange, symbols),
+        )
         from prd_agent.signals.confidence_filter import passes_emit_gate
 
-        merged = self.merge_and_rank(own + ta + tg + whale)
+        merged = self.merge_and_rank(own + ta + tg + whale + ext)
         merged = [s for s in merged if passes_emit_gate(s, self.cfg)]
-        if own or ta or tg or whale:
-            import logging
-
-            logging.getLogger("prd_agent.signals").info(
-                "Signals: own=%d ta_vol=%d telegram=%d whale=%d → merged=%d",
+        if own or ta or tg or whale or ext:
+            logger.info(
+                "Signals: own=%d ta_vol=%d telegram=%d whale=%d ext=%d → merged=%d",
                 len(own),
                 len(ta),
                 len(tg),
                 len(whale),
+                len(ext),
                 len(merged),
             )
         return merged
