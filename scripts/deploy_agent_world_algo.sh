@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO_DIR="${1:-/root/AGENT-WORLD}"
-BRANCH="${2:-12.06.26-ALGO}"
+BRANCH="${2:-16.06.26-OPT-MOD}"
 REMOTE="${3:-https://github.com/gogi-eng/PRD-BOT-03-26.git}"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -23,13 +23,10 @@ fi
 
 git remote get-url origin >/dev/null 2>&1 || git remote add origin "$REMOTE"
 git fetch origin "$BRANCH"
-REF="origin/$BRANCH"
-if ! git rev-parse --verify "$REF" >/dev/null 2>&1; then
-  echo "⚠️  $REF не найден — используем FETCH_HEAD (после git fetch origin $BRANCH)"
-  REF="FETCH_HEAD"
-fi
-git checkout -B "$BRANCH" "$REF"
+# FETCH_HEAD надёжнее origin/BRANCH на shallow-клонах без remote-tracking ref
+REF="FETCH_HEAD"
 git reset --hard "$REF"
+git checkout -B "$BRANCH" 2>/dev/null || git branch -f "$BRANCH" HEAD
 echo "✓ Код: $(git rev-parse --short HEAD) ветка $(git branch --show-current)"
 
 PYTHON=""
