@@ -469,7 +469,8 @@ class UnifiedOrchestrator:
                 await self._cycle()
             except Exception as exc:
                 logger.exception("Cycle error: %s", exc)
-                await self.notifier.send(f"⚠️ Ошибка цикла: {exc}")
+                err_text = f"{type(exc).__name__}: {exc}"
+                await self.notifier.send(f"⚠️ Ошибка цикла: {err_text[:350]}")
             await asyncio.sleep(self._loop_sec)
 
     def stop(self) -> None:
