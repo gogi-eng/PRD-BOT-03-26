@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from prd_agent.ai.llm_gateway import chat_async, load_llm_settings
+from prd_agent.memory.bot_memory import BotMemory
 from prd_agent.ops.runtime_controls import load_runtime_controls, runtime_controls_status_text
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ class BotManagerAgent:
         self.interval_sec = float(bm.get("interval_sec", 3600))
         self.log_tail_lines = int(bm.get("log_tail_lines", 35))
         self._llm = load_llm_settings(cfg)
+        self._memory = BotMemory(cfg)
         self._last_review_at = 0.0
 
     def _tail_log(self) -> List[str]:
@@ -95,6 +97,8 @@ class BotManagerAgent:
     def _build_prompt(self, snap: Dict[str, Any]) -> str:
         risk = snap.get("risk") or {}
         log_lines = snap.get("log_tail") or []
+        mem_ctx = self._memory.context_for_manager()
+        mem_block = f"\n- Память бота (предпочтения/исходы):\n{mem_ctx}\n" if mem_ctx else ""
         return f"""Ты AI-менеджер торгового бота PRD-BOT на Bybit (не трейдер на бирже).
 Задача: проанализировать состояние и дать 4–6 коротких рекомендаций по УПРАВЛЕНИЮ БОТОМ.
 
@@ -108,7 +112,7 @@ class BotManagerAgent:
 {snap.get('runtime_text', '')}
 - Символы в скане: {', '.join(snap.get('symbols_watch') or [])}
 - Топ пропусков супервизора: {snap.get('supervisor_skips') or 'нет данных'}
-
+{mem_block}
 Последние строки bot.log:
 {chr(10).join(log_lines[-20:]) if log_lines else 'лог пуст'}
 
@@ -146,6 +150,23 @@ class BotManagerAgent:
             body = (text or "").strip()
             if not body:
                 return "<b>🤖 Bot Manager</b>\n\nПустой ответ AI."
+            try:
+                rtc = snap.get("runtime_controls") or {}
+                if bool(rtc.get("pause_all_execution")):
+                    mode = "ПАУЗА"
+                elif rtc.get("channel_auto_execute") or rtc.get("market_scanner_auto_execute"):
+                    mode = "LIVE auto-exec"
+                else:
+                    mode = "SIGNAL-ONLY"
+                self._memory.remember_runtime_mode(mode)
+                skips = snap.get("supervisor_skips") or ""
+                if skips:
+                    self._memory.add(
+                        f"Обзор менеджера: пропуски — {skips[:200]}",
+                        category="manager_review",
+                    )
+            except Exception:
+                pass
             return f"<b>🤖 Bot Manager</b> ({snap.get('ts_utc', '')[:16]} UTC)\n\n{body}"
         except Exception as exc:
             logger.warning("bot_manager review: %s", exc)

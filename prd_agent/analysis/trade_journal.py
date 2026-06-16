@@ -8,7 +8,7 @@ import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("prd_agent.trades")
 
@@ -24,6 +24,8 @@ class TradeJournal:
         j = (cfg or {}).get("trade_journal", {}) if isinstance((cfg or {}).get("trade_journal"), dict) else {}
         self._rotate_max_mb = float(j.get("rotate_max_mb", 8.0))
         self._rotate_keep_files = max(3, int(j.get("rotate_keep_files", 14)))
+        self._store_entry_context = bool(j.get("store_entry_context", True))
+        self._store_entry_candles = bool(j.get("store_entry_candles", True))
 
     def _maybe_rotate(self) -> None:
         if self._rotate_max_mb <= 0 or not self.path.exists():
@@ -63,6 +65,8 @@ class TradeJournal:
         confidence: float = 0.0,
         leverage: int = 0,
         origin: str = "bot",
+        entry_context: Optional[Dict[str, Any]] = None,
+        entry_candles: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         sym = symbol.upper()
         grade = source or "unknown"
@@ -82,6 +86,10 @@ class TradeJournal:
             "leverage": leverage,
             "origin": origin,
         }
+        if self._store_entry_context and isinstance(entry_context, dict) and entry_context:
+            row["entry_context"] = entry_context
+        if self._store_entry_candles and entry_candles:
+            row["entry_candles"] = entry_candles
         self._append(row)
         if order_id:
             self._pending[order_id] = row
@@ -106,28 +114,44 @@ class TradeJournal:
         logger.info("CLOSED %s: pnl=$%.2f reason=%s", sym, pnl, reason)
         if not source and order_id and order_id in self._pending:
             source = str(self._pending[order_id].get("source", ""))
-        if not source:
+        pending = None
+        if order_id and order_id in self._pending:
+            pending = self._pending[order_id]
+        if pending is None:
             key = f"{sym}:{side}" if side else sym
             pending = self._pending.get(key) or self._pending.get(sym)
-            if pending:
-                source = str(pending.get("source", ""))
-        self._append(
-            {
-                "event": "closed",
-                "symbol": sym,
-                "side": side,
-                "pnl": round(pnl, 6),
-                "reason": reason,
-                "source": source,
-                "order_id": order_id,
-                "entry": entry,
-                "exit": exit_price,
-                "qty": qty,
-                "origin": origin,
-            }
-        )
+        if not source and pending:
+            source = str(pending.get("source", ""))
+        closed_row: Dict[str, Any] = {
+            "event": "closed",
+            "symbol": sym,
+            "side": side,
+            "pnl": round(pnl, 6),
+            "reason": reason,
+            "source": source,
+            "order_id": order_id,
+            "entry": entry,
+            "exit": exit_price,
+            "qty": qty,
+            "origin": origin,
+        }
+        if pending:
+            if pending.get("entry_context"):
+                closed_row["entry_context"] = pending["entry_context"]
+            if pending.get("entry_candles"):
+                closed_row["entry_candles"] = pending["entry_candles"]
+            if pending.get("confidence") is not None:
+                closed_row["confidence"] = pending.get("confidence")
+            if pending.get("stop_loss"):
+                closed_row["stop_loss"] = pending.get("stop_loss")
+            if pending.get("take_profit"):
+                closed_row["take_profit"] = pending.get("take_profit")
+        self._append(closed_row)
         if order_id and order_id in self._pending:
             del self._pending[order_id]
+        key = f"{sym}:{side}" if side else sym
+        self._pending.pop(key, None)
+        self._pending.pop(sym, None)
 
     def record_closed_from_exchange(self, row: Dict[str, Any], *, origin: str = "bot") -> None:
         """Строка closed-pnl Bybit API."""

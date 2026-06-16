@@ -9,6 +9,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from prd_agent.analysis.portfolio_metrics import (
+    compute_portfolio_metrics,
+    format_portfolio_quality_telegram,
+)
 from prd_agent.positions.bot_position_registry import (
     bot_symbols_from_registry,
     bot_symbols_from_trade_log,
@@ -220,3 +224,10 @@ def build_report(
             )
         text = text + "\n" + "\n".join(extra)
     return text
+
+
+def build_portfolio_quality_report(journal_path: Path, hours: float = 168.0) -> str:
+    """Расширенный отчёт качества (Sharpe, drawdown, profit factor) для кнопки Telegram."""
+    rows = load_closed_trades(journal_path, hours)
+    metrics = compute_portfolio_metrics(rows)
+    return format_portfolio_quality_telegram(metrics, hours=hours)

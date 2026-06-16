@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from analysis.structure_zones import StructureZoneAnalyzer, ZoneContext
+from prd_agent.risk.rr_enforce import stretch_take_profit_for_min_rr
 
 
 def _simple_atr(klines: List[dict], period: int = 14) -> float:
@@ -46,34 +47,36 @@ def _rr_ratio(entry: float, sl: float, tp: float, side: str) -> float:
 
 
 def _merge_sl_long(orig: float, sr: float, entry: float) -> float:
+    """LONG: более жёсткий SL (ближе к входу), не расширяем риск."""
     if sr >= entry:
         return orig if (orig > 0 and orig < entry) else sr
     if orig > 0 and orig < entry:
-        return min(orig, sr)
+        return max(orig, sr)
     return sr
 
 
-def _merge_tp_long(orig: float, sr: float, entry: float) -> float:
+def _merge_tp_long(orig: float, sr: float, entry: float, *, prefer_far: bool = True) -> float:
     if sr <= entry:
         return orig if (orig > entry) else sr
     if orig > 0 and orig > entry:
-        return min(orig, sr)
+        return max(orig, sr) if prefer_far else min(orig, sr)
     return sr
 
 
 def _merge_sl_short(orig: float, sr: float, entry: float) -> float:
+    """SHORT: более жёсткий SL (ближе к входу), не расширяем риск."""
     if sr <= entry:
         return orig if (orig > entry) else sr
     if orig > 0 and orig > entry:
-        return max(orig, sr)
+        return min(orig, sr)
     return sr
 
 
-def _merge_tp_short(orig: float, sr: float, entry: float) -> float:
+def _merge_tp_short(orig: float, sr: float, entry: float, *, prefer_far: bool = True) -> float:
     if sr >= entry:
         return orig if (0 < orig < entry) else sr
     if orig > 0 and orig < entry:
-        return max(orig, sr)
+        return min(orig, sr) if prefer_far else max(orig, sr)
     return sr
 
 
@@ -89,6 +92,9 @@ def adjust_sl_tp_with_sr_zones(
     preserve_min_rr: float = 0.0,
     sl_sr_level_index: int = 1,
     min_tp_distance_pct: float = 1.0,
+    prefer_far_tp: bool = True,
+    tp_sr_level_index: int = 1,
+    target_initial_tp_rr: float = 0.0,
 ) -> Tuple[float, float, bool]:
     """
     LONG: SL ниже поддержки, TP у сопротивления (+ отступ в ATR).
@@ -118,24 +124,28 @@ def adjust_sl_tp_with_sr_zones(
     tp_ex = max(0.0, float(tp_extra_atr or 0))
 
     sl_idx = max(0, int(sl_sr_level_index))
+    tp_idx = max(0, int(tp_sr_level_index or 1) - 1)
+    prefer_far = bool(prefer_far_tp)
     if side_u == "BUY":
         sl_sr = zc.structural_sl_long(entry, atr, level_index=sl_idx) - sl_ex * atr
-        tp1, _ = zc.structural_tp_long(entry, atr)
-        tp_sr = tp1 - tp_ex * atr
+        tp1, tp2 = zc.structural_tp_long(entry, atr)
+        tp_base = tp2 if tp_idx >= 1 else tp1
+        tp_sr = tp_base - tp_ex * atr
         if sl_sr >= entry or tp_sr <= entry:
             return stop_loss, take_profit, False
         new_sl = _merge_sl_long(orig_sl, sl_sr, entry)
-        new_tp = _merge_tp_long(orig_tp, tp_sr, entry)
+        new_tp = _merge_tp_long(orig_tp, tp_sr, entry, prefer_far=prefer_far)
         if new_sl <= 0 or new_tp <= 0 or new_sl >= entry or new_tp <= entry:
             return stop_loss, take_profit, False
     else:
         sl_sr = zc.structural_sl_short(entry, atr, level_index=sl_idx) + sl_ex * atr
-        tp1, _ = zc.structural_tp_short(entry, atr)
-        tp_sr = tp1 + tp_ex * atr
+        tp1, tp2 = zc.structural_tp_short(entry, atr)
+        tp_base = tp2 if tp_idx >= 1 else tp1
+        tp_sr = tp_base + tp_ex * atr
         if sl_sr <= entry or tp_sr >= entry:
             return stop_loss, take_profit, False
         new_sl = _merge_sl_short(orig_sl, sl_sr, entry)
-        new_tp = _merge_tp_short(orig_tp, tp_sr, entry)
+        new_tp = _merge_tp_short(orig_tp, tp_sr, entry, prefer_far=prefer_far)
         if new_sl <= 0 or new_tp <= 0 or new_sl <= entry or new_tp >= entry:
             return stop_loss, take_profit, False
 
@@ -157,8 +167,14 @@ def adjust_sl_tp_with_sr_zones(
         return stop_loss, take_profit, False
 
     rr_need = float(preserve_min_rr or 0)
-    if rr_need > 1e-9:
+    target_rr = float(target_initial_tp_rr or 0)
+    rr_stretch = max(rr_need, target_rr) if target_rr > 0 else rr_need
+    if rr_stretch > 1e-9:
         side_check = "Buy" if side_u == "BUY" else "Sell"
+        if _rr_ratio(entry, new_sl, new_tp, side_check) + 1e-9 < rr_stretch:
+            new_tp = stretch_take_profit_for_min_rr(
+                side_check, entry, new_sl, new_tp, rr_stretch
+            )
         if _rr_ratio(entry, new_sl, new_tp, side_check) + 1e-9 < rr_need:
             return stop_loss, take_profit, False
 

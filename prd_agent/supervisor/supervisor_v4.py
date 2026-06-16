@@ -24,6 +24,7 @@ from prd_agent.supervisor.position_tracker import PositionTracker
 from prd_agent.supervisor.trade_advisor import LeverageAdvice, TradeAdvisor
 from prd_agent.supervisor.skipped_signal_backtest import SkippedSignalBacktester
 from prd_agent.supervisor.virtual_trade_engine import VirtualTradeEngine
+from prd_agent.supervisor.correction_agent import CorrectionAgent
 from prd_agent.time_hours import entry_check_hour, format_blocked_hour_label, read_timezone_offset
 
 logger = logging.getLogger("prd_agent.supervisor.v4")
@@ -151,6 +152,11 @@ class SupervisorV4:
         self._meta = self._load_meta_state()
         self._apply_learning_file()
         self._last_meta_snap: Dict[str, Any] = {}
+        # correction agent: расширяемая точка для runtime-коррекции
+        try:
+            self.correction_agent = CorrectionAgent(self.cfg, self.store_dir, self.improver)
+        except Exception:
+            logger.exception("Failed to init CorrectionAgent")
 
     def _legacy_meta_state_path(self, data_dir: Path) -> Path:
         return data_dir / "meta_supervisor_v3" / "state.json"
@@ -418,6 +424,12 @@ class SupervisorV4:
             line = self.format_meta_status_line(meta_snap)
             if line:
                 logger.info(line)
+            # Позволяем агенту реагировать на новый snapshot (без изменения meta_state тут)
+            if getattr(self, "correction_agent", None) and getattr(self.correction_agent, "enabled", False):
+                try:
+                    await self.correction_agent.on_tick(meta_snap, exchange, bot_symbols, cycle_num)
+                except Exception:
+                    logger.exception("CorrectionAgent on_tick failed")
 
     def register_virtual_signal(
         self,
@@ -541,7 +553,53 @@ class SupervisorV4:
                 f"supervisor_v4: DEFENSIVE — торговля только в часы {pref_label}"
             )
 
-        return True, ""
+        # По умолчанию решаем, можно ли входить (default_ok/default_reason).
+        # Агенту разрешается менять решение только если по-умолчанию вход разрешён.
+        default_ok = True
+        default_reason = ""
+        # Важные отказы: panic и явный чёрный список — не даём агенту автоматически поднимать
+        if self._meta.panic_until and datetime.now(timezone.utc) < self._meta.panic_until:
+            default_ok = False
+            default_reason = "supervisor_v4: протокол восстановления после серии убытков"
+
+        if sym and sym in self.blocked_symbols():
+            default_ok = False
+            default_reason = f"supervisor_v4: символ {sym} в чёрном списке"
+
+        if check_hour in self.blocked_hours():
+            if self._meta.mode != SupervisorMode.AGGRESSIVE or check_hour not in self._preferred_hours:
+                hour_label = format_blocked_hour_label(utc_hour, check_hour, self._timezone_offset)
+                default_ok = False
+                default_reason = (
+                    f"supervisor_v4: {hour_label} заблокирован "
+                    f"(режим {self._meta.mode.value})"
+                )
+
+        if self._meta.mode == SupervisorMode.DEFENSIVE and check_hour not in self._preferred_hours:
+            pref_label = (
+                f"UTC+{self._timezone_offset} {sorted(self._preferred_hours)}"
+                if self._timezone_offset
+                else f"{sorted(self._preferred_hours)} UTC"
+            )
+            default_ok = False
+            default_reason = (
+                f"supervisor_v4: DEFENSIVE — торговля только в часы {pref_label}"
+            )
+
+        # Если агент доступен, даём ему возможность изменить решение, но только в сторону ужесточения
+        # (если default_ok == True агент может вернуть False/причину). Если default_ok == False,
+        # агент может только уточнить причину, но не дать True (безопасность).
+        if getattr(self, "correction_agent", None) and getattr(self.correction_agent, "enabled", False):
+            try:
+                ok2, reason2 = self.correction_agent.on_can_enter(sym, default_ok, default_reason)
+                if default_ok:
+                    return bool(ok2), reason2 or ""
+                # default denied — do not allow agent to lift a safety denial
+                return False, reason2 or default_reason
+            except Exception:
+                logger.exception("CorrectionAgent on_can_enter failed")
+                return default_ok, default_reason
+        return default_ok, default_reason
 
     def effective_risk_pct(self, base_risk_pct: float) -> float:
         if not self.enabled:

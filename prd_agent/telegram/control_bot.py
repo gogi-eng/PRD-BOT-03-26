@@ -73,6 +73,11 @@ class ControlBot:
                     InlineKeyboardButton("📈 Статистика", callback_data="act:stats"),
                 ],
                 [
+                    InlineKeyboardButton(
+                        "📊 Качество сделок", callback_data="act:portfolio_quality"
+                    ),
+                ],
+                [
                     InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
                     InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
                 ],
@@ -152,6 +157,7 @@ class ControlBot:
         html_actions = {
             "status",
             "stats",
+            "portfolio_quality",
             "macro",
             "ta_scan",
             "bot_manager",
@@ -253,6 +259,8 @@ class ControlBot:
             return "Отчёт отправлен в канал."
         if action == "stats":
             return self.orch.get_trade_stats_report()
+        if action == "portfolio_quality":
+            return self.orch.get_portfolio_quality_report()
         if action == "macro":
             return await self.orch.get_macro_briefing()
         if action == "ta_scan":

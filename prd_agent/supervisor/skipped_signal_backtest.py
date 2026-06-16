@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from exchange.bybit_fees import BybitFeeConfig, apply_fees_to_pnl_pct
+
 logger = logging.getLogger("prd_agent.supervisor.skipped_bt")
 
 
@@ -29,6 +31,9 @@ class SkippedBacktestResult:
     exit_price: float
     signal_at: str
     backtested_at: str
+    pnl_pct_gross: float = 0.0
+    pnl_pct_net: float = 0.0
+    fee_pct_round_trip: float = 0.0
     candles_used: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -58,6 +63,12 @@ def _fill_missing_levels(
     return entry, sl, tp
 
 
+def _row_pnl_pct(row: Dict[str, Any]) -> float:
+    if "pnl_pct_net" in row:
+        return float(row.get("pnl_pct_net", 0) or 0)
+    return float(row.get("pnl_pct", 0) or 0)
+
+
 def simulate_skipped_signal(
     *,
     side: str,
@@ -66,17 +77,34 @@ def simulate_skipped_signal(
     take_profit: float,
     klines: List[Dict[str, Any]],
     entry_ts_ms: int,
+    fee_cfg: Optional[BybitFeeConfig] = None,
 ) -> Dict[str, Any]:
     """
     Проход по свечам после сигнала. На одной свече SL проверяется раньше TP (консервативно).
     """
     entry, sl, tp = _fill_missing_levels(entry, side, stop_loss, take_profit)
     if entry <= 0 or sl <= 0 or tp <= 0 or not klines:
+        empty = apply_fees_to_pnl_pct(0.0, fee_cfg)
         return {
             "outcome": "invalid",
-            "pnl_pct": 0.0,
+            "pnl_pct": empty["pnl_pct_net"],
+            "pnl_pct_gross": empty["pnl_pct_gross"],
+            "pnl_pct_net": empty["pnl_pct_net"],
+            "fee_pct_round_trip": empty["fee_pct_round_trip"],
             "exit_price": 0.0,
             "candles_used": 0,
+        }
+
+    def _finish(outcome: str, gross_pnl: float, exit_px: float, used_n: int) -> Dict[str, Any]:
+        fees = apply_fees_to_pnl_pct(gross_pnl, fee_cfg)
+        return {
+            "outcome": outcome,
+            "pnl_pct": fees["pnl_pct_net"],
+            "pnl_pct_gross": fees["pnl_pct_gross"],
+            "pnl_pct_net": fees["pnl_pct_net"],
+            "fee_pct_round_trip": fees["fee_pct_round_trip"],
+            "exit_price": exit_px,
+            "candles_used": used_n,
         }
 
     side_u = str(side or "").upper()
@@ -99,56 +127,26 @@ def simulate_skipped_signal(
         used += 1
         if is_buy:
             if low <= sl:
-                pnl = (sl - entry) / entry * 100.0
-                return {
-                    "outcome": "stop_loss",
-                    "pnl_pct": round(pnl, 4),
-                    "exit_price": sl,
-                    "candles_used": used,
-                }
+                gross = (sl - entry) / entry * 100.0
+                return _finish("stop_loss", gross, sl, used)
             if high >= tp:
-                pnl = (tp - entry) / entry * 100.0
-                return {
-                    "outcome": "take_profit",
-                    "pnl_pct": round(pnl, 4),
-                    "exit_price": tp,
-                    "candles_used": used,
-                }
+                gross = (tp - entry) / entry * 100.0
+                return _finish("take_profit", gross, tp, used)
         else:
             if high >= sl:
-                pnl = (entry - sl) / entry * 100.0
-                return {
-                    "outcome": "stop_loss",
-                    "pnl_pct": round(pnl, 4),
-                    "exit_price": sl,
-                    "candles_used": used,
-                }
+                gross = (entry - sl) / entry * 100.0
+                return _finish("stop_loss", gross, sl, used)
             if low <= tp:
-                pnl = (entry - tp) / entry * 100.0
-                return {
-                    "outcome": "take_profit",
-                    "pnl_pct": round(pnl, 4),
-                    "exit_price": tp,
-                    "candles_used": used,
-                }
+                gross = (entry - tp) / entry * 100.0
+                return _finish("take_profit", gross, tp, used)
 
     if last_close > 0:
         if is_buy:
-            pnl = (last_close - entry) / entry * 100.0
+            gross = (last_close - entry) / entry * 100.0
         else:
-            pnl = (entry - last_close) / entry * 100.0
-        return {
-            "outcome": "still_open",
-            "pnl_pct": round(pnl, 4),
-            "exit_price": last_close,
-            "candles_used": used,
-        }
-    return {
-        "outcome": "no_data",
-        "pnl_pct": 0.0,
-        "exit_price": 0.0,
-        "candles_used": used,
-    }
+            gross = (entry - last_close) / entry * 100.0
+        return _finish("still_open", gross, last_close, used)
+    return _finish("no_data", 0.0, 0.0, used)
 
 
 class SkippedSignalBacktester:
@@ -162,6 +160,7 @@ class SkippedSignalBacktester:
         self.min_age_minutes = int(sb.get("min_age_minutes", 30))
         self.kline_interval = str(sb.get("kline_interval", "15"))
         self.max_kline_limit = int(sb.get("max_kline_limit", 200))
+        self.fee_cfg = BybitFeeConfig.from_cfg(cfg)
         self.store_dir = store_dir / "skipped_backtest"
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self.results_path = self.store_dir / "results.jsonl"
@@ -231,7 +230,7 @@ class SkippedSignalBacktester:
             return {"hours": hours, "n": 0, "win_rate_pct": 0.0, "tp_hits": 0, "sl_hits": 0}
         tp_hits = sum(1 for r in rows if r.get("outcome") == "take_profit")
         sl_hits = sum(1 for r in rows if r.get("outcome") == "stop_loss")
-        wins = sum(1 for r in rows if float(r.get("pnl_pct", 0)) > 0)
+        wins = sum(1 for r in rows if _row_pnl_pct(r) > 0)
         by_reason: Dict[str, int] = {}
         for r in rows:
             key = str(r.get("skip_reason", "") or "?")[:50]
@@ -243,8 +242,14 @@ class SkippedSignalBacktester:
             "sl_hits": sl_hits,
             "still_open": sum(1 for r in rows if r.get("outcome") == "still_open"),
             "win_rate_pct": round(wins / len(rows) * 100, 1),
-            "avg_pnl_pct": round(
-                sum(float(r.get("pnl_pct", 0)) for r in rows) / len(rows), 3
+            "avg_pnl_pct": round(sum(_row_pnl_pct(r) for r in rows) / len(rows), 3),
+            "avg_pnl_gross_pct": round(
+                sum(float(r.get("pnl_pct_gross", r.get("pnl_pct", 0))) for r in rows)
+                / len(rows),
+                3,
+            ),
+            "avg_fee_pct": round(
+                sum(float(r.get("fee_pct_round_trip", 0)) for r in rows) / len(rows), 4
             ),
             "top_skip_reasons": dict(
                 sorted(by_reason.items(), key=lambda x: -x[1])[:5]
@@ -293,14 +298,17 @@ class SkippedSignalBacktester:
         out: Dict[str, Dict[str, Any]] = {}
         for bucket, rows in groups.items():
             n = len(rows)
-            wins = sum(1 for r in rows if float(r.get("pnl_pct", 0)) > 0)
+            wins = sum(1 for r in rows if _row_pnl_pct(r) > 0)
             tp_hits = sum(1 for r in rows if r.get("outcome") == "take_profit")
             sl_hits = sum(1 for r in rows if r.get("outcome") == "stop_loss")
             out[bucket] = {
                 "n": n,
                 "win_rate_pct": round(wins / n * 100, 1) if n else 0.0,
-                "avg_pnl_pct": round(
-                    sum(float(r.get("pnl_pct", 0)) for r in rows) / max(n, 1), 3
+                "avg_pnl_pct": round(sum(_row_pnl_pct(r) for r in rows) / max(n, 1), 3),
+                "avg_pnl_gross_pct": round(
+                    sum(float(r.get("pnl_pct_gross", r.get("pnl_pct", 0))) for r in rows)
+                    / max(n, 1),
+                    3,
                 ),
                 "tp_hits": tp_hits,
                 "sl_hits": sl_hits,
@@ -365,6 +373,7 @@ class SkippedSignalBacktester:
                 take_profit=float(row.get("take_profit", 0) or 0),
                 klines=klines,
                 entry_ts_ms=entry_ts_ms,
+                fee_cfg=self.fee_cfg,
             )
             if sim.get("outcome") == "invalid":
                 errors += 1
@@ -386,7 +395,10 @@ class SkippedSignalBacktester:
                 stop_loss=sl,
                 take_profit=tp,
                 outcome=str(sim.get("outcome", "")),
-                pnl_pct=float(sim.get("pnl_pct", 0)),
+                pnl_pct=float(sim.get("pnl_pct_net", sim.get("pnl_pct", 0))),
+                pnl_pct_gross=float(sim.get("pnl_pct_gross", sim.get("pnl_pct", 0))),
+                pnl_pct_net=float(sim.get("pnl_pct_net", sim.get("pnl_pct", 0))),
+                fee_pct_round_trip=float(sim.get("fee_pct_round_trip", 0)),
                 exit_price=float(sim.get("exit_price", 0)),
                 signal_at=str(row.get("created_at", "")),
                 backtested_at=now_iso,
@@ -397,12 +409,14 @@ class SkippedSignalBacktester:
             oc = result.outcome
             outcomes[oc] = outcomes.get(oc, 0) + 1
             logger.info(
-                "SKIPPED_BT %s %s %s → %s pnl=%.2f%% (skip: %s)",
+                "SKIPPED_BT %s %s %s → %s pnl_net=%.2f%% gross=%.2f%% fee=%.3f%% (skip: %s)",
                 sym,
                 row.get("side"),
                 row.get("id"),
                 result.outcome,
-                result.pnl_pct,
+                result.pnl_pct_net,
+                result.pnl_pct_gross,
+                result.fee_pct_round_trip,
                 str(row.get("reason", ""))[:60],
             )
 
