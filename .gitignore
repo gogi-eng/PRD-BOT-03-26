@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-config.yaml
+# config.yaml — в репозитории (секреты только в .env, поля ключей пустые)
 ai4trade.credentials.json
 data/
 

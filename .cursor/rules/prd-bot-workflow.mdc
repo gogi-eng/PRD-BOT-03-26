@@ -1,0 +1,160 @@
+---
+description: PRD-BOT — репозиторий, ежедневная ветка, деплой, пользователь
+alwaysApply: true
+---
+
+# PRD-BOT workflow
+
+## Репозиторий и ветки
+
+- **GitHub:** `https://github.com/gogi-eng/PRD-BOT-03-26`
+- **Локальный проект:** `PRD-BOT-ALL/` (в workspace `.vscode`)
+- **Формат ветки:** `DD.MM.YY-OPT-ALL` — **каждый день новая ветка с датой этого дня**
+  - Пример 09.06.2026 → `09.06.26-OPT-ALL`
+  - Перед работой: вычислить сегодняшнюю дату, создать/переключиться на ветку `__.__.__-OPT-ALL`
+  - Push и деплой — **только в ветку текущего дня**, не в старые даты
+
+## Сервер (DigitalOcean)
+
+- Путь: `/root/PRD-BOT-ALL`
+- Python: **`venv`** (не `.venv`)
+- systemd: `trading_bot` (`run_unified.py`), `telegram_signal_agent`
+- Секреты **только в `.env`** на сервере (и локально)
+- **`config.yaml` — в Git:** коммитить и пушить; в файле **нет секретов** (`api_key`, `bot_token` и т.д. — пустые `''`). Не коммитить: `.env`, `ai4trade.credentials.json`
+
+### Деплой после push
+
+```bash
+cd /root/PRD-BOT-ALL
+cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)  # опционально
+git fetch origin DD.MM.YY-OPT-ALL
+git reset --hard FETCH_HEAD
+# config.yaml приходит из репо; install_production_config.sh — только если нужен шаблон deploy/
+sudo systemctl restart trading_bot
+sudo systemctl restart telegram_signal_agent
+```
+
+Подставить актуальную ветку дня вместо `DD.MM.YY-OPT-ALL`. На сервере надёжнее `FETCH_HEAD`, чем `origin/ветка` (shallow-клон).
+
+### AGENT-WORLD (песочница)
+
+```bash
+cd /root/AGENT-WORLD
+git fetch origin DD.MM.YY-OPT-ALL
+git reset --hard FETCH_HEAD
+sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
+```
+
+## Push с Windows
+
+Если локальный git в `PRD-BOT-ALL` сломан — shallow clone в `C:\Temp\prd-bot-push`, копировать файлы, commit, `git push origin DD.MM.YY-OPT-ALL`.
+
+## Пользователь (постоянный контекст — не переспрашивать)
+
+**Кто:** инженер по промышленной безопасности (теплоэнергетика), почти пенсионер. **Программирование не изучал.** На криптобирже ~полгода.
+
+**Цель на 3 месяца:** научиться торговать криптой с **максимальным профитом и минимальными просадками**. Стабильный доход важен — пенсия в стране очень маленькая.
+
+**Проект:** бот автоторговли **бессрочными контрактами Bybit** с управлением через **Telegram кнопками** (не текстовыми командами).
+
+**Инфраструктура:** VSCODE на ПК, сервер DigitalOcean, GitHub `gogi-eng/PRD-BOT-03-26`. Есть API Bybit, TradingView, Telegram token/chat id.
+
+**Язык общения:** только **русский**.
+
+### Как отдавать код и объяснения
+
+- **Готовые полные файлы** для замены целиком — не фрагменты «вставьте сюда символ».
+- Объяснение **простым языком**: что делает файл, что изменилось и **зачем**.
+- **Перед выдачей кода:** проверить синтаксис, совместимость, логику; не повторять прошлых ошибок.
+- **Не отдавать** сырой непроверенный код — это отнимает у пользователя часы на правки.
+- Если нужна правка одной строки — указать **точное место** (номер строки / уникальный фрагмент), т.к. искать символы в коде ему трудно.
+
+## Ключевые настройки config
+
+- `timezone_offset: 3` — часы в `block_entry_utc_hours` / `seed_blocked_utc_hours` = **местное UTC+3**, не UTC
+- `openrouter.model: google/gemini-2.5-flash` (не `gemini-2.0-flash-001`)
+- MARKET SCANNER: `market_scanner_execute_min_score: 72`, BOS-only когда включено
+- Не включать два polling с **одним и тем же** `bot_token` (Conflict 409)
+
+## Telegram: разные боты — разные каналы (обязательно)
+
+- **PRD-BOT-ALL** (прод) и **AGENT-WORLD** (песочница) — **разные** Telegram-боты: свой `TELEGRAM_TOKEN`, свой `TELEGRAM_CHAT_ID`, свой канал уведомлений в `.env`.
+- Конфликт 409 бывает только если **один токен** опрашивают **два процесса** одновременно — при разных ботах polling **не отключают**.
+- **`control_polling_enabled: true`** и панель кнопок (`/start`, `/panel`) — **норма** для каждого инстанса, если у него свой бот.
+- **Запрещено без явной просьбы пользователя:** отключать polling, панель, auto_start или другие рабочие функции «чтобы не конфликтовало» или «для песочницы». Это не заглушки — пользователь управляет ботом **кнопками**.
+- AGENT-WORLD: `trading_bot_agent_world` + кнопки; `telegram_signal_agent_world --world-feed-only` — только RSS-очередь, **без** второго Bot API polling на том же токене.
+
+| Инстанс | Путь на сервере | systemd | Telegram |
+|---------|-----------------|---------|----------|
+| Прод | `/root/PRD-BOT-ALL` | `trading_bot`, `telegram_signal_agent` | свой бот / канал |
+| Песочница | `/root/AGENT-WORLD` | `trading_bot_agent_world`, `telegram_signal_agent_world` | **другой** бот / канал |
+
+## Архитектура (кратко)
+
+| Модуль | Роль |
+|--------|------|
+| `run_unified.py` / orchestrator | Главный цикл, TA, ордера |
+| `telegram_signal_agent` | Каналы, MARKET SCANNER exec |
+| `supervisor_v4` | Блок часов/символов, виртуальные сделки |
+| `bot_manager` | AI-обзор логов (не торгует) |
+
+## Стиль работы агента
+
+- **НИКАКИХ КОСТЫЛЕЙ — всё должно работать.** Не «затыкать дыру», а **чинить причину** в коде, config и деплое.
+  - **Запрещено:** отключать фичи «чтобы не мешало», обходить баг `if false`, править только на сервере вручную, давать команды «пока так живите», оставлять настройки в config без реализации в коде, деплой-скрипты которые падают на `config.yaml` / `origin/ветка`.
+  - **Обязательно:** параметр в config → читается кодом; скрипт деплоя → обновляет код **и** перезапускает systemd; unit-файлы → в репозитории; push → в ветку **текущего дня**; перед выдачей — синтаксис, тесты, проверка логики.
+  - Если что-то не работает — **исправить и довести до рабочего состояния**, а не предлагать пользователю обходной путь.
+- **Не отключать** функции (Telegram polling, панель, торговлю, RSS, scanner) без **явного** согласия пользователя — не подменять рабочий режим «безопасной заглушкой».
+- **Не удалять** ветки/файлы на GitHub без явной просьбы пользователя.
+- Не коммитить без явной просьбы пользователя
+- Не создавать markdown/docs без запроса
+- После изменений config — напомнить команды деплоя на сервер
+- **Каждый день дополнять rules:** если за день были **значимые правки** (баг, новый параметр config, деплой, регресс) — добавить строку в таблицу ниже или обновить существующую; синхронизировать `.vscode/.cursor/rules/` и `PRD-BOT-ALL/.cursor/rules/`; без правок за день — файл не трогать
+
+## Ключевые правки из чатов (не ломать, не затыкать)
+
+Каждая строка — **боевое исправление**. Повторять баг или «лечить» отключением **запрещено**.
+
+**Ежедневный ритуал:** в конце рабочей сессии или при переключении на ветку нового дня проверить, были ли сегодня исправления. Если да — дописать в таблицу: **Область | Суть (3–5 слов) | Где | Не откатывать**. Не дублировать строки; при уточнении — править существующую.
+
+| Область | Суть (3–5 слов) | Где | Не откатывать |
+|---------|-----------------|-----|---------------|
+| TP / SL | **Дальний TP, не ближний** | `sr_sl_tp_adjust.py`, `sr_execution_adjust.py`, `orchestrator.py` | `prefer_far_tp: true`, `tp_sr_level_index: 2`, `target_initial_tp_rr: 6.0` — **в config и в коде** |
+| TP / SL | **Config → код обязательно** | `execution_sr_zones` | Параметр в yaml без чтения в Python = баг |
+| RSS AGENT-WORLD | **Анти-дубли, не выключать** | `telegram_signal_agent.py` | `duplicate_symbol_cooldown_sec`, dedup по symbol+side; **не** `agent_world.enabled: false` |
+| Telegram | **Разные боты — разные токены** | `.env` прод / песочница | Не выключать polling «из‑за 409» |
+| Telegram | **Polling и кнопки включены** | config обоих инстансов | `control_polling_enabled: true` — норма |
+| Bybit API | **GET-подпись: sort+urlencode** | `exchange/bybit_client.py` | Иначе `10004 Error sign` на closed-pnl |
+| Bybit вход | **Реальный стакан orderbook** | `entry_engine_bridge` / ORDER | Не заглушка `MarketSetup.get` |
+| CorrectionAgent | **Импорты и синтаксис** | `correction_agent.py` | Иначе бот не стартует |
+| Supervisor | **Часы блока = UTC+3** | `supervisor_v4`, config | `timezone_offset: 3`, не путать с UTC |
+| Деплой | **FETCH_HEAD, не origin/ветка** | сервер, deploy-скрипт | shallow-клон; `git reset --hard FETCH_HEAD` |
+| Деплой | **reset до checkout config** | `deploy_agent_world_algo.sh` | Бэкап config → fetch → **hard reset** |
+| Деплой | **Unit-файлы в репо** | `deploy/*.service` | Иначе сервисы не перезапускаются |
+| Ветки | **Дата сегодня в имени** | git | `DD.MM.YY-OPT-ALL`, проверять календарь |
+| Лимиты | **max_positions и trade_ok** | config | `open >= max` → skip, не «баг» |
+| AI | **gemini-2.5-flash модель** | config openrouter | Не `gemini-2.0-flash-001` |
+| Секреты | **Только .env** | — | Никогда реальные ключи в config/commit |
+| config.yaml | **В репо, без секретов** | корень проекта | Пустые `api_key`/`bot_token`; пушить при правках |
+
+## Тесты — обязательно перед push/выдачей
+
+**Любая новая правка:** `py_compile` изменённых `.py` + **релевантные pytest**. Без теста — дописать минимальный в `backend/tests/`. **Не отдавать код «на глаз».**
+
+```bash
+cd PRD-BOT-ALL
+python -m py_compile path/to/changed.py
+python -m pytest backend/tests/<файл>.py -q --tb=short
+```
+
+| Меняли | Запускать тесты |
+|--------|-----------------|
+| `sr_sl_tp_adjust`, TP/SL, `execution_sr_zones` | `test_sr_sl_tp_far_tp.py` |
+| `correction_agent`, `supervisor_v4` | `test_supervisor_v4.py`, `test_supervisor_recovery_reset.py` |
+| `telegram_signal_agent` dedup / RSS | `py_compile` + при наличии тест dedup |
+| `bybit_client` подпись | `py_compile` + ручной тест ключей на сервере |
+| `entry_engine_bridge`, orderbook | `test_entry_guard.py`, `test_smc_zones_and_entry.py` (если есть) |
+| orchestrator / RR | `test_sr_sl_tp_far_tp.py`, `test_signal_feedback_loop_and_sl_validation.py` |
+| Крупный diff / несколько модулей | `python -m pytest backend/tests/ -q --tb=line -x` (или затронутые файлы) |
+
+После push — деплой **обоих** инстансов (если менялся общий код) и проверка `git rev-parse --short HEAD` = ожидаемый коммит.
