@@ -16,8 +16,7 @@ description: PRD-BOT-ALL — unified Bybit linear perpetual bot with Telegram bu
 ## Сервер
 
 - Путь: `/root/PRD-BOT-ALL`
-- **Ветка деплоя (каждый день):** `ДД.ММ.ГГ-OPT-ALL` (сегодня: `12.06.26-OPT-ALL`)
-- **Ветка алгоритмики:** `12.06.26-ALGO` — roadmap, крупные архитектурные этапы (`docs/ROADMAP_ALGO_12.06.26.ru.md`)
+- **Ветка: каждый день новая** — `ДД.ММ.ГГ-OPT-ALL` (сегодня: `11.06.26-OPT-ALL`)
 - Repo: `gogi-eng/PRD-BOT-03-26`
 - Python: `venv/bin/python3 run_unified.py`
 - systemd: `deploy/trading_bot.service`, отдельно `telegram_signal_agent`
@@ -27,14 +26,14 @@ description: PRD-BOT-ALL — unified Bybit linear perpetual bot with Telegram bu
 ```bash
 cd /root/PRD-BOT-ALL
 git fetch origin
-git checkout 12.06.26-OPT-ALL
-git reset --hard origin/12.06.26-OPT-ALL
+git checkout 11.06.26-OPT-ALL
+git reset --hard origin/11.06.26-OPT-ALL
 bash scripts/install_production_config.sh
 sudo systemctl restart trading_bot
 sudo systemctl restart telegram_signal_agent   # если включён
 ```
 
-**Правило веток:** каждый день — новая `ДД.ММ.ГГ-OPT-ALL` (деплой). Параллельно `ДД.ММ.ГГ-ALGO` — план и крупные изменения алгоритмики; в прод только после тестов и merge в OPT-ALL.
+**Правило веток:** в конце дня / перед деплоем — новая ветка `ДД.ММ.ГГ-OPT-ALL` от вчерашней, push на GitHub, на сервере `checkout` именно сегодняшней даты.
 
 Проверка: один процесс `run_unified`, в логах `getUpdates 200 OK`.
 
@@ -74,7 +73,8 @@ free_claude_code:
 
 Проверка: `./venv/bin/python3 scripts/check_llm.py`
 
-Не коммитить `.env` и не логировать токены.
+Не коммитить `.env`, `ai4trade.credentials.json` и не логировать токены.  
+**`config.yaml` — в репозитории:** секреты не хранить в yaml (поля ключей пустые); при изменении настроек — коммит и push вместе с кодом.
 
 ## Ключевые файлы
 
