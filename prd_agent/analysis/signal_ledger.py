@@ -134,13 +134,6 @@ class SignalLedger:
         for r in rows:
             by_status[r.get("status", "?")] = by_status.get(r.get("status", "?"), 0) + 1
             by_source[r.get("source", "?")] = by_source.get(r.get("source", "?"), 0) + 1
-        skip_baseline: Dict[str, Any] = {}
-        try:
-            from prd_agent.telemetry.skip_baseline import skip_baseline_from_rows
-
-            skip_baseline = skip_baseline_from_rows(rows, hours=hours)
-        except Exception:
-            pass
         return {
             "period_hours": hours,
             "total": len(rows),
@@ -149,5 +142,4 @@ class SignalLedger:
             "not_opened": by_status.get("skipped", 0)
             + by_status.get("rejected", 0)
             + by_status.get("received", 0),
-            "skip_baseline": skip_baseline,
         }

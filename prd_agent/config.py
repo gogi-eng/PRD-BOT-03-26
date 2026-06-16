@@ -32,9 +32,6 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
         else:
             section[key] = cast(val) if cast else val
 
-    if os.environ.get("PRD_AGENT_WORLD", "").strip().lower() in ("1", "true", "yes", "on"):
-        _set(bybit, "api_key", "BYBIT_SUB_API_KEY")
-        _set(bybit, "api_secret", "BYBIT_SUB_API_SECRET")
     _set(bybit, "api_key", "BYBIT_API_KEY")
     _set(bybit, "api_secret", "BYBIT_API_SECRET")
     _set(bybit, "testnet", "TESTNET", cast=bool)

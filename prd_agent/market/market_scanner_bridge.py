@@ -38,12 +38,18 @@ async def run_market_scan_once(repo: Path, cfg: Dict[str, Any] | None = None) ->
         return []
 
     agent = TelegramSignalAgent(repo.resolve())
-    if not agent.market_scanner_enabled:
-        logger.debug("Market scanner: отключён в telegram_signal_agent.market_scanner_enabled")
-        return []
-    if not agent.telegram_notify:
-        logger.warning(
-            "Market scanner: telegram_notify=false — уведомления в Telegram не отправятся"
-        )
-    setups = await agent.run_market_scan_once()
-    return setups or []
+    try:
+        if not agent.market_scanner_enabled:
+            logger.debug("Market scanner: отключён в telegram_signal_agent.market_scanner_enabled")
+            return []
+        if not agent.telegram_notify:
+            logger.warning(
+                "Market scanner: telegram_notify=false — уведомления в Telegram не отправятся"
+            )
+        setups = await agent.run_market_scan_once()
+        return setups or []
+    finally:
+        try:
+            await agent.close()
+        except Exception as exc:
+            logger.warning("Market scanner: agent.close(): %s", exc)
