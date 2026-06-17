@@ -259,6 +259,17 @@ zone_entry:
     - tg
     - mirror_pump_dump
 
+orderbook_entry:
+  enabled: true
+  depth_levels: 200
+  trades_limit: 120
+  orderflow_depth: 25
+  wall_threshold_mult: 2.0
+  direction_guard_enabled: true
+  direction_guard_ratio: 1.3
+  block_on_direction_guard: true
+  fallback_on_fetch_error: true
+
 execution_sr_zones:
   enabled: true
   kline_interval: "15"
@@ -270,7 +281,7 @@ execution_sr_zones:
   prefer_far_tp: true
   tp_sr_level_index: 2
   target_initial_tp_rr: 6.0
-  min_tp_distance_pct: 2.0
+  min_tp_distance_pct: 1.0
 
 pullback_entry:
   enabled: true
@@ -427,10 +438,14 @@ feedback_loop:
 
 agent_world:
   enabled: true
+  require_stop_loss: false
   rss_urls:
     - "https://cointelegraph.com/rss"
     - "https://www.coindesk.com/arc/outboundfeeds/rss/"
     - "https://feeds.feedburner.com/CoinDesk"
+    - "https://feeds.bbci.co.uk/news/world/rss.xml"
+    - "https://feeds.bbci.co.uk/news/business/rss.xml"
+    - "https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en"
   queue_path: "reports/world/world_events.jsonl"
   writer_state_path: "reports/world/agent_world_writer_state.json"
   max_items_per_feed: 15
@@ -603,3 +618,6 @@ whale_news:
   rss_urls:
     - https://feeds.feedburner.com/CoinDesk
     - https://cointelegraph.com/rss
+    - https://feeds.bbci.co.uk/news/world/rss.xml
+    - https://feeds.bbci.co.uk/news/business/rss.xml
+    - https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO_DIR="${1:-/root/AGENT-WORLD}"
-BRANCH="${2:-16.06.26-OPT-MOD}"
+BRANCH="${2:-17.06.26-OPT-MOD}"
 REMOTE="${3:-https://github.com/gogi-eng/PRD-BOT-03-26.git}"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -92,6 +92,22 @@ else
   echo "Нет deploy/trading_bot_agent_world.service — запуск вручную:"
   echo "  cd $REPO_DIR && ./venv/bin/python3 run_unified.py"
 fi
+
+if [[ -f deploy/telegram_signal_agent_world.service ]]; then
+  WUNIT="/etc/systemd/system/telegram_signal_agent_world.service"
+  sed -e "s|@REPO_DIR@|$REPO_DIR|g" \
+      -e "s|@PYTHON@|$PYTHON|g" \
+      deploy/telegram_signal_agent_world.service > "$WUNIT"
+  systemctl daemon-reload
+  systemctl enable telegram_signal_agent_world
+  systemctl restart telegram_signal_agent_world
+  echo ""
+  echo "=== telegram_signal_agent_world (RSS queue only) ==="
+  systemctl is-active telegram_signal_agent_world || true
+  journalctl -u telegram_signal_agent_world -n 10 --no-pager || true
+fi
+
+bash scripts/install_agent_world_cron.sh --repo-dir "$REPO_DIR" --every 10
 
 echo ""
 echo "Готово. Лог: $REPO_DIR/bot.log"

@@ -133,7 +133,7 @@ execution_sr_zones:
   sl_extra_buffer_atr: 0.18
   sl_sr_level_index: 0
   tp_extra_buffer_atr: 0.08
-  min_tp_distance_pct: 2.0
+  min_tp_distance_pct: 1.0
 feedback_loop:
   base_dataset_path: training_data.json
   dataset_path: signal_only_feedback_data.json
@@ -795,3 +795,13 @@ zone_entry:
   - own_multi_agent
   - ta_volatility
   - hybrid
+orderbook_entry:
+  enabled: true
+  depth_levels: 200
+  trades_limit: 120
+  orderflow_depth: 25
+  wall_threshold_mult: 2.0
+  direction_guard_enabled: true
+  direction_guard_ratio: 1.3
+  block_on_direction_guard: true
+  fallback_on_fetch_error: true

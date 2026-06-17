@@ -309,11 +309,12 @@ class UnifiedOrchestrator:
                 ),
                 self.exchange.get_klines(sig.symbol, interval="240", limit=120),
             )
-            plan = self.zone_entry.plan_levels(
+            plan = await self.zone_entry.plan_levels(
                 sig,
                 klines=klines or [],
                 htf_klines=htf,
                 market_price=entry,
+                exchange=self.exchange,
             )
             if isinstance(plan.metadata, dict):
                 zone_meta = dict(plan.metadata)
@@ -337,7 +338,7 @@ class UnifiedOrchestrator:
             min_rr=effective_rr,
         )
         if not rr_ok:
-                block_reason = (
+            block_reason = (
                 block_reason
                 or f"plan: RR {rr_ratio(entry, sl, tp, sig.side):.2f} < {effective_rr:.2f} (SL/TP)"
             )
@@ -1011,6 +1012,7 @@ class UnifiedOrchestrator:
             if not self._is_silent_skip(reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
+
 
         meta_ok, _ = self.supervisor.can_enter(sig.symbol)
         pipe = evaluate_entry_pipeline(
