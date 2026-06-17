@@ -8,6 +8,7 @@ import hmac
 import json
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote, urlencode
 
 import aiohttp
 
@@ -15,6 +16,27 @@ try:
     from exchange.circuit_breaker import ApiCircuitBreaker
 except ImportError:
     from circuit_breaker import ApiCircuitBreaker  # type: ignore
+
+
+def _apply_orderbook_levels(side_map: Dict[str, str], updates: List[List[str]]) -> None:
+    for item in updates or []:
+        if not item or len(item) < 2:
+            continue
+        price = str(item[0])
+        size = str(item[1])
+        try:
+            if float(size) == 0.0:
+                side_map.pop(price, None)
+            else:
+                side_map[price] = size
+        except (TypeError, ValueError):
+            continue
+
+
+def _orderbook_levels_sorted(side_map: Dict[str, str], *, bids: bool, limit: int) -> List[List[str]]:
+    pairs = list(side_map.items())
+    pairs.sort(key=lambda x: float(x[0]), reverse=bids)
+    return [[p, s] for p, s in pairs[: max(1, limit)]]
 
 
 class BybitClient:
@@ -36,6 +58,12 @@ class BybitClient:
         self._liq_task: Optional[asyncio.Task] = None
         self._liq_symbols: Tuple[str, ...] = ()
         self._liquidation_cache: Dict[str, List[Dict]] = {}
+        self._ob_task: Optional[asyncio.Task] = None
+        self._ob_symbols: Tuple[str, ...] = ()
+        self._ob_depth: int = 50
+        self._ob_enabled: bool = True
+        self._ob_max_age_sec: float = 5.0
+        self._ob_books: Dict[str, Dict[str, Any]] = {}
         self._request_lock = asyncio.Lock()
         self._last_public_request_at = 0.0
         self._last_private_request_at = 0.0
@@ -67,8 +95,21 @@ class BybitClient:
 
     async def close(self):
         await self.stop_liquidation_stream()
+        await self.stop_orderbook_stream()
         if self._session and not self._session.closed:
             await self._session.close()
+
+    def configure_orderbook_ws(
+        self,
+        *,
+        enabled: bool = True,
+        depth: int = 50,
+        max_age_sec: float = 5.0,
+    ) -> None:
+        depth = max(1, min(int(depth), 200))
+        self._ob_enabled = bool(enabled)
+        self._ob_depth = depth
+        self._ob_max_age_sec = max(0.5, float(max_age_sec))
 
     async def stop_liquidation_stream(self):
         if self._liq_task and not self._liq_task.done():
@@ -132,6 +173,97 @@ class BybitClient:
         events = [item for item in self._liquidation_cache.get(symbol, []) if item.get("timestamp", 0) >= cutoff]
         return events[-limit:]
 
+    async def stop_orderbook_stream(self):
+        if self._ob_task and not self._ob_task.done():
+            self._ob_task.cancel()
+            try:
+                await self._ob_task
+            except asyncio.CancelledError:
+                pass
+        self._ob_task = None
+        self._ob_symbols = ()
+
+    async def set_orderbook_symbols(self, symbols: List[str]):
+        if not self._ob_enabled:
+            return
+        normalized = tuple(sorted({str(s).upper() for s in symbols if s})[:30])
+        if normalized == self._ob_symbols:
+            return
+        await self.stop_orderbook_stream()
+        if not normalized:
+            return
+        self._ob_symbols = normalized
+        self._ob_task = asyncio.create_task(self._orderbook_worker(list(normalized)))
+
+    def _store_orderbook_message(self, payload: Dict[str, Any]) -> None:
+        topic = str(payload.get("topic", "") or "")
+        if not topic.startswith("orderbook."):
+            return
+        msg_type = str(payload.get("type", "") or "")
+        data = payload.get("data") or {}
+        symbol = str(data.get("s", "") or "").upper()
+        if not symbol:
+            parts = topic.split(".")
+            if len(parts) >= 3:
+                symbol = parts[-1].upper()
+        if not symbol:
+            return
+        book = self._ob_books.setdefault(
+            symbol,
+            {"bids": {}, "asks": {}, "ts": 0, "seq": 0},
+        )
+        if msg_type == "snapshot":
+            book["bids"] = {str(p): str(s) for p, s in (data.get("b") or [])}
+            book["asks"] = {str(p): str(s) for p, s in (data.get("a") or [])}
+        elif msg_type == "delta":
+            _apply_orderbook_levels(book["bids"], data.get("b") or [])
+            _apply_orderbook_levels(book["asks"], data.get("a") or [])
+        else:
+            return
+        book["seq"] = int(data.get("seq", book.get("seq", 0)) or 0)
+        book["ts"] = int(payload.get("ts", data.get("ts", 0)) or int(time.time() * 1000))
+
+    def _orderbook_from_cache(self, symbol: str, limit: int) -> Optional[Dict[str, Any]]:
+        if not self._ob_enabled:
+            return None
+        sym = str(symbol or "").upper()
+        book = self._ob_books.get(sym)
+        if not book or not book.get("bids") or not book.get("asks"):
+            return None
+        ts = int(book.get("ts", 0) or 0)
+        if ts <= 0:
+            return None
+        age_ms = int(time.time() * 1000) - ts
+        if age_ms > self._ob_max_age_sec * 1000:
+            return None
+        return {
+            "bids": _orderbook_levels_sorted(book["bids"], bids=True, limit=limit),
+            "asks": _orderbook_levels_sorted(book["asks"], bids=False, limit=limit),
+            "ts": ts,
+            "source": "ws",
+        }
+
+    async def _orderbook_worker(self, symbols: List[str]):
+        depth = self._ob_depth
+        args = [f"orderbook.{depth}.{symbol}" for symbol in symbols]
+        while tuple(sorted(symbols)) == self._ob_symbols:
+            try:
+                session = await self._get_session()
+                async with session.ws_connect(self.ws_public_url, heartbeat=20, autoping=True) as ws:
+                    await ws.send_json({"op": "subscribe", "args": args})
+                    async for message in ws:
+                        if message.type == aiohttp.WSMsgType.TEXT:
+                            payload = json.loads(message.data)
+                            if str(payload.get("topic", "")).startswith("orderbook."):
+                                self._store_orderbook_message(payload)
+                        elif message.type in {aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+                            break
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                print(f"[BYBIT] orderbook stream error: {exc}")
+                await asyncio.sleep(5)
+
     def _generate_signature(self, params: str, timestamp: str) -> str:
         payload = f"{timestamp}{self.api_key}{self.recv_window}{params}"
         return hmac.new(self.api_secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -172,7 +304,12 @@ class BybitClient:
             try:
                 await self._respect_rate_limit(is_private)
                 if method == "GET":
-                    query = "&".join(f"{key}={value}" for key, value in (params or {}).items())
+                    items = sorted(
+                        (str(k), str(v))
+                        for k, v in (params or {}).items()
+                        if v is not None and v != ""
+                    )
+                    query = urlencode(items, quote_via=quote)
                     headers = self._get_headers(query) if is_private else {}
                     full_url = f"{url}?{query}" if query else url
                     async with session.get(
@@ -284,14 +421,23 @@ class BybitClient:
         return None
 
     async def get_orderbook(self, symbol: str, limit: int = 50) -> Dict:
-        result = await self._request("GET", "/v5/market/orderbook", {"category": self.category, "symbol": symbol, "limit": limit})
+        sym = str(symbol or "").upper()
+        cached = self._orderbook_from_cache(sym, limit)
+        if cached:
+            return cached
+        result = await self._request(
+            "GET",
+            "/v5/market/orderbook",
+            {"category": self.category, "symbol": sym, "limit": limit},
+        )
         if result:
             return {
                 "bids": result.get("b", []),
                 "asks": result.get("a", []),
                 "ts": int(result.get("ts", 0) or 0),
+                "source": "rest",
             }
-        return {"bids": [], "asks": [], "ts": 0}
+        return {"bids": [], "asks": [], "ts": 0, "source": "rest"}
 
     async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict]:
         result = await self._request("GET", "/v5/market/recent-trade", {"category": self.category, "symbol": symbol, "limit": limit})

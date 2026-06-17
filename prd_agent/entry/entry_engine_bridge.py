@@ -3,15 +3,21 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from analysis.liquidation_clusters import LiquidationAnalysis, LiquidationClusterDetector
+from analysis.liquidation_clusters import (
+    LiquidationAnalysis,
+    LiquidationCluster,
+    LiquidationClusterDetector,
+)
+from analysis.liquidity_heatmap import HeatmapResult, LiquidityHeatmap
 from analysis.market_analyzer import MarketAnalyzer
 from analysis.market_regime_ai import MarketRegimeAI, RegimePrediction
 from analysis.market_structure import MarketStructureEngine
-from analysis.orderflow_analyzer import OrderflowSnapshot
+from analysis.orderflow_analyzer import OrderflowAnalyzer, OrderflowSnapshot
 from analysis.structure_zones import StructureZone, StructureZoneAnalyzer, ZoneContext
 from analysis.transformer_model import TransformerPrediction
 from core.config import BotConfig
@@ -41,6 +47,158 @@ def _zone_entry_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
 def _entry_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     ec = cfg.get("entry", {})
     return ec if isinstance(ec, dict) else {}
+
+
+def _orderbook_entry_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    raw = cfg.get("orderbook_entry", {})
+    if not isinstance(raw, dict):
+        raw = {}
+    defaults = {
+        "enabled": True,
+        "depth_levels": 200,
+        "trades_limit": 120,
+        "orderflow_depth": 25,
+        "wall_threshold_mult": 2.0,
+        "direction_guard_enabled": True,
+        "direction_guard_ratio": 1.3,
+        "block_on_direction_guard": True,
+        "fallback_on_fetch_error": True,
+    }
+    return {**defaults, **raw}
+
+
+@dataclass
+class OrderbookMarketContext:
+    orderflow: OrderflowSnapshot
+    liq: LiquidationAnalysis
+    heatmap: Optional[HeatmapResult]
+    meta: Dict[str, Any]
+
+
+def _heatmap_to_liq_analysis(
+    current_price: float,
+    heatmap: HeatmapResult,
+    magnet_dir: str,
+    magnet_target: float,
+) -> LiquidationAnalysis:
+    if magnet_dir == "neutral" or magnet_target <= 0 or current_price <= 0:
+        return LiquidationAnalysis([], [], None, None, 0.0, 0.0, "neutral", 0, 0.0)
+
+    distance_pct = abs(magnet_target - current_price) / current_price * 100.0
+    density = 0.0
+    if magnet_dir == "up" and heatmap.strongest_ask is not None:
+        density = float(heatmap.strongest_ask.volume)
+    elif magnet_dir == "down" and heatmap.strongest_bid is not None:
+        density = float(heatmap.strongest_bid.volume)
+
+    if magnet_dir == "up":
+        cluster = LiquidationCluster(
+            round(magnet_target, 8), round(density, 4), 1, round(distance_pct, 4), "shorts"
+        )
+        return LiquidationAnalysis(
+            [cluster], [], cluster, None, cluster.level, cluster.size, "up", 1, cluster.distance_pct
+        )
+    cluster = LiquidationCluster(
+        round(magnet_target, 8), round(density, 4), 1, round(distance_pct, 4), "longs"
+    )
+    return LiquidationAnalysis(
+        [], [cluster], None, cluster, cluster.level, cluster.size, "down", -1, cluster.distance_pct
+    )
+
+
+def _orderbook_meta_from_context(
+    heatmap: HeatmapResult,
+    magnet_dir: str,
+    magnet_target: float,
+    orderflow: OrderflowSnapshot,
+) -> Dict[str, Any]:
+    meta: Dict[str, Any] = {
+        "orderbook_source": "bybit",
+        "bid_volume": round(float(orderflow.bid_volume), 2),
+        "ask_volume": round(float(orderflow.ask_volume), 2),
+        "normalized_imbalance": round(float(orderflow.normalized_imbalance), 4),
+        "spread_pct": round(float(orderflow.spread_pct), 5),
+        "liquidity_magnet_dir": magnet_dir,
+        "liquidity_magnet_price": round(float(magnet_target), 8),
+        "bid_walls": len(heatmap.bid_walls),
+        "ask_walls": len(heatmap.ask_walls),
+    }
+    if heatmap.strongest_bid is not None:
+        meta["strongest_bid_price"] = round(float(heatmap.strongest_bid.price), 8)
+        meta["strongest_bid_volume"] = round(float(heatmap.strongest_bid.volume), 4)
+    if heatmap.strongest_ask is not None:
+        meta["strongest_ask_price"] = round(float(heatmap.strongest_ask.price), 8)
+        meta["strongest_ask_volume"] = round(float(heatmap.strongest_ask.volume), 4)
+    return meta
+
+
+def _check_orderbook_direction_guard(
+    sig: UnifiedSignal,
+    orderflow: OrderflowSnapshot,
+    cfg: Dict[str, Any],
+) -> str:
+    ob = _orderbook_entry_cfg(cfg)
+    if not bool(ob.get("direction_guard_enabled", True)):
+        return ""
+    ratio = float(ob.get("direction_guard_ratio", 1.3))
+    is_long = _is_buy(sig.side)
+    bid = float(orderflow.bid_volume or 0)
+    ask = float(orderflow.ask_volume or 0)
+    if not is_long and bid > 0 and ask > 0 and bid > ask * ratio:
+        return f"orderbook_direction_guard (SELL but bid_vol={bid:.0f} >> ask_vol={ask:.0f})"
+    if is_long and ask > 0 and bid > 0 and ask > bid * ratio:
+        return f"orderbook_direction_guard (BUY but ask_vol={ask:.0f} >> bid_vol={bid:.0f})"
+    return ""
+
+
+async def fetch_orderbook_context(
+    exchange: Any,
+    symbol: str,
+    current_price: float,
+    cfg: Dict[str, Any],
+) -> Optional[OrderbookMarketContext]:
+    """Стакан Bybit + сделки → orderflow, heatmap, контекст ликвидности."""
+    ob_cfg = _orderbook_entry_cfg(cfg)
+    if not bool(ob_cfg.get("enabled", True)):
+        return None
+    if exchange is None or not hasattr(exchange, "get_orderbook"):
+        return None
+
+    depth = int(ob_cfg.get("depth_levels", 200))
+    trades_lim = int(ob_cfg.get("trades_limit", 120))
+    of_depth = int(ob_cfg.get("orderflow_depth", 25))
+    wall_mult = float(ob_cfg.get("wall_threshold_mult", 2.0))
+
+    fetch_kw = {"lazy": False, "signal_passed_cheap_filters": True}
+    try:
+        orderbook, trades = await asyncio.gather(
+            exchange.get_orderbook(symbol, limit=depth, **fetch_kw),
+            exchange.get_recent_trades(symbol, limit=trades_lim, **fetch_kw),
+        )
+    except TypeError:
+        orderbook = await exchange.get_orderbook(symbol, limit=depth)
+        trades = await exchange.get_recent_trades(symbol, limit=trades_lim)
+    except Exception as exc:
+        logger.warning("orderbook fetch %s: %s", symbol, exc)
+        return None
+
+    if not isinstance(orderbook, dict) or not orderbook.get("bids"):
+        logger.debug("orderbook empty for %s", symbol)
+        return None
+
+    of_analyzer = OrderflowAnalyzer(depth_levels=of_depth)
+    orderflow = of_analyzer.analyze(orderbook, list(trades or []))
+    heatmap_builder = LiquidityHeatmap(depth_levels=depth, wall_threshold_mult=wall_mult)
+    heatmap = heatmap_builder.build_heatmap(orderbook)
+    magnet_dir, magnet_target = heatmap_builder.get_liquidity_magnet(current_price, heatmap)
+    liq = _heatmap_to_liq_analysis(current_price, heatmap, magnet_dir, magnet_target)
+    meta = _orderbook_meta_from_context(heatmap, magnet_dir, magnet_target, orderflow)
+    return OrderbookMarketContext(
+        orderflow=orderflow,
+        liq=liq,
+        heatmap=heatmap,
+        meta=meta,
+    )
 
 
 def _is_buy(side: str) -> bool:
@@ -217,13 +375,58 @@ class EntryEngineBridge:
         self._regime_ai = MarketRegimeAI()
         self._liq_detector = LiquidationClusterDetector()
 
-    def plan_levels(
+    async def _resolve_market_microstructure(
+        self,
+        sig: UnifiedSignal,
+        *,
+        exchange: Any,
+        current_price: float,
+    ) -> Tuple[OrderflowSnapshot, LiquidationAnalysis, Dict[str, Any], str]:
+        """Orderflow/ликвидность: реальный стакан или заглушка при ошибке API."""
+        ob_cfg = _orderbook_entry_cfg(self.cfg)
+        ob_meta: Dict[str, Any] = {"orderbook_source": "biased_fallback"}
+        guard_reason = ""
+
+        if bool(ob_cfg.get("enabled", True)) and exchange is not None:
+            ctx = await fetch_orderbook_context(exchange, sig.symbol, current_price, self.cfg)
+            if ctx is not None:
+                ob_meta = {**ctx.meta, "orderbook_source": "bybit"}
+                guard_reason = _check_orderbook_direction_guard(sig, ctx.orderflow, self.cfg)
+                if guard_reason and bool(ob_cfg.get("block_on_direction_guard", True)):
+                    return ctx.orderflow, ctx.liq, ob_meta, guard_reason
+                logger.info(
+                    "Orderbook %s %s: bid_vol=%.0f ask_vol=%.0f imb=%+.3f magnet=%s@%.6g walls=%d/%d",
+                    sig.symbol,
+                    sig.side,
+                    ctx.orderflow.bid_volume,
+                    ctx.orderflow.ask_volume,
+                    ctx.orderflow.normalized_imbalance,
+                    ob_meta.get("liquidity_magnet_dir", "neutral"),
+                    float(ob_meta.get("liquidity_magnet_price", 0) or 0),
+                    int(ob_meta.get("bid_walls", 0)),
+                    int(ob_meta.get("ask_walls", 0)),
+                )
+                return ctx.orderflow, ctx.liq, ob_meta, ""
+            if not bool(ob_cfg.get("fallback_on_fetch_error", True)):
+                return (
+                    _biased_orderflow(sig.side),
+                    self._liq_detector.analyze(current_price, []),
+                    {**ob_meta, "orderbook_fetch": "failed"},
+                    "orderbook_fetch_failed",
+                )
+
+        orderflow = _biased_orderflow(sig.side)
+        liq = self._liq_detector.analyze(current_price, [])
+        return orderflow, liq, ob_meta, guard_reason
+
+    async def plan_levels(
         self,
         sig: UnifiedSignal,
         *,
         klines: List[Dict],
         htf_klines: Optional[List[Dict]],
         market_price: float,
+        exchange: Any = None,
     ) -> ZoneEntryPlan:
         if not should_apply_zone_entry(sig, self.cfg):
             return ZoneEntryPlan(
@@ -254,6 +457,14 @@ class EntryEngineBridge:
         if atr_v <= 0:
             atr_v = price * 0.008
 
+        orderflow, liq, ob_meta, ob_block = await self._resolve_market_microstructure(
+            sig, exchange=exchange, current_price=price
+        )
+        if ob_block:
+            return ZoneEntryPlan(
+                0, 0, 0, ok=False, block_reason=f"zone_entry: {ob_block}", metadata=ob_meta
+            )
+
         zone_ctx = self._zone_analyzer.analyze(klines, price)
         structure = self._structure_engine.analyze(klines, atr_v)
         market = self._market_analyzer.analyze(klines, htf_klines)
@@ -261,9 +472,7 @@ class EntryEngineBridge:
             market.can_trade = True
 
         regime: RegimePrediction = self._regime_ai.classify(market)
-        orderflow = _biased_orderflow(sig.side)
         transformer = _biased_transformer(sig.side)
-        liq = self._liq_detector.analyze(price, [])
 
         entry_sig: EntrySignal = self._engine.generate_signal(
             symbol=sig.symbol,
@@ -309,6 +518,7 @@ class EntryEngineBridge:
         if has_bos and structure.last_bos is not None:
             md["bos_level"] = float(structure.last_bos.broken_level or 0)
         md["entry_zone"] = md.get("entry_zone", "no_zone")
+        md.update(ob_meta)
 
         if entry_sig.should_enter:
             sl = float(entry_sig.stop_loss or 0)
@@ -381,10 +591,11 @@ class EntryEngineBridge:
             metadata={**md, "zone_entry_fallback": reject},
         )
 
-    def enrich_signal(
+    async def enrich_signal(
         self,
         sig: UnifiedSignal,
         *,
+        exchange: Any = None,
         klines: List[Dict],
         htf_klines: Optional[List[Dict]] = None,
     ) -> UnifiedSignal:
@@ -394,7 +605,13 @@ class EntryEngineBridge:
         price = float(sig.entry or 0)
         if price <= 0 and klines:
             price = float(klines[-1].get("close", 0) or 0)
-        plan = self.plan_levels(sig, klines=klines, htf_klines=htf_klines, market_price=price)
+        plan = await self.plan_levels(
+            sig,
+            klines=klines,
+            htf_klines=htf_klines,
+            market_price=price,
+            exchange=exchange,
+        )
         if not plan.ok:
             sig.reason = f"{sig.reason} | {plan.block_reason}"[:400]
             return sig

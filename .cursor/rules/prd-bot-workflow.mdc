@@ -19,17 +19,16 @@ alwaysApply: true
 - Путь: `/root/PRD-BOT-ALL`
 - Python: **`venv`** (не `.venv`)
 - systemd: `trading_bot` (`run_unified.py`), `telegram_signal_agent`
-- Секреты **только в `.env`** на сервере (и локально)
-- **`config.yaml` — в Git:** коммитить и пушить; в файле **нет секретов** (`api_key`, `bot_token` и т.д. — пустые `''`). Не коммитить: `.env`, `ai4trade.credentials.json`
+- Секреты **только в `.env`** на сервере (и локально); в `config.yaml` — пустые `''`, без реальных ключей
+- **`config.yaml` — в Git:** коммитить и пушить при правках торговых параметров
 
 ### Деплой после push
 
 ```bash
 cd /root/PRD-BOT-ALL
-cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)  # опционально
+cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)
 git fetch origin DD.MM.YY-OPT-ALL
 git reset --hard FETCH_HEAD
-# config.yaml приходит из репо; install_production_config.sh — только если нужен шаблон deploy/
 sudo systemctl restart trading_bot
 sudo systemctl restart telegram_signal_agent
 ```
@@ -134,7 +133,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
 | Ветки | **Дата сегодня в имени** | git | `DD.MM.YY-OPT-ALL`, проверять календарь |
 | Лимиты | **max_positions и trade_ok** | config | `open >= max` → skip, не «баг» |
 | AI | **gemini-2.5-flash модель** | config openrouter | Не `gemini-2.0-flash-001` |
-| Секреты | **Только .env** | — | Никогда реальные ключи в config/commit |
+| Секреты | **Только .env** | — | Никогда API/token в config/commit |
 | config.yaml | **В репо, без секретов** | корень проекта | Пустые `api_key`/`bot_token`; пушить при правках |
 
 ## Тесты — обязательно перед push/выдачей

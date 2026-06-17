@@ -1,5 +1,4 @@
-# Песочница ALGO на субаккаунте (/root/AGENT-WORLD).
-# Не конфликтует с trading_bot: кнопки Telegram отключены в config (control_polling_enabled: false).
+# Песочница на субаккаунте (/root/AGENT-WORLD). Свой TELEGRAM_TOKEN — кнопки через control_polling_enabled: true.
 #
 #   sudo cp deploy/trading_bot_agent_world.service /etc/systemd/system/
 #   sudo systemctl daemon-reload

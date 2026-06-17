@@ -172,7 +172,9 @@ class SignalRouter:
                 raw={"agent_outputs": outputs, "aggregate": score},
             )
             if zone_on:
-                sig = self._zone_entry.enrich_signal(sig, klines=klines, htf_klines=htf)
+                sig = await self._zone_entry.enrich_signal(
+                    sig, exchange=exchange, klines=klines, htf_klines=htf
+                )
             out.append(sig)
             self._persist(sig)
         return out
@@ -226,7 +228,9 @@ class SignalRouter:
         if not should_apply_zone_entry(sig, self.cfg):
             return sig
         sym, klines, htf = await self._fetch_klines_pair(exchange, sig.symbol)
-        return self._zone_entry.enrich_signal(sig, klines=klines or [], htf_klines=htf)
+        return await self._zone_entry.enrich_signal(
+            sig, exchange=exchange, klines=klines or [], htf_klines=htf
+        )
 
     async def collect_ta_volatility(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []

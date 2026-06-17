@@ -285,7 +285,7 @@ execution_sr_zones:
   prefer_far_tp: true
   tp_sr_level_index: 2
   target_initial_tp_rr: 6.0
-  min_tp_distance_pct: 2.0
+  min_tp_distance_pct: 1.0
 
 pullback_entry:
   enabled: true
