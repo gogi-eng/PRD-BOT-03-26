@@ -173,16 +173,26 @@ from telegram_agent.execution_limits import ExecutionLimiter  # noqa: E402
 from telegram_agent.risk_pipeline import RiskPipeline, compute_rr  # noqa: E402
 from telegram_agent.signal_agent_panel import start_control_panel_task  # noqa: E402
 from analysis.structure_zones import StructureZoneAnalyzer  # noqa: E402
+from telegram_agent.market_scanner_score import (  # noqa: E402
+    ScannerScoreInput,
+    compute_market_scanner_observation_score,
+)
+from telegram_agent.market_scanner_levels import market_scanner_invalidation_and_target  # noqa: E402
 from telegram_agent.photo_ocr import telethon_photo_ocr_text  # noqa: E402
 from telegram_agent.signal_parse import enrich_parsed_signal_levels  # noqa: E402
 from telegram_agent.signal_quality import (  # noqa: E402
     passes_quality_gate,
     rule_based_review,
 )
+from telegram_agent.multi_agent_review import (  # noqa: E402
+    merge_review_with_consensus,
+    multi_agent_consensus,
+)
 from telegram_agent.sr_execution_adjust import (  # noqa: E402
     adjust_telegram_sl_tp_with_sr_zones,
     infer_side_from_zones,
 )
+from prd_agent.risk.rr_enforce import enforce_min_rr_levels, resolve_effective_min_rr  # noqa: E402
 
 
 @dataclass
@@ -951,7 +961,10 @@ def openrouter_world_extract(
     prompt = f"""По фрагменту новости определи, есть ли ЯВНАЯ торговая идея для linear USDT perpetual на Bybit (не спот, не другие биржи, не стейкинг).
 Верни ТОЛЬКО JSON:
 - Если идеи нет: {{"has_trade": false, "confidence": 0-100, "reason": "кратко"}}
-- Если идея есть: {{"has_trade": true, "symbol": "Напр. BTCUSDT", "side": "BUY" или "SELL", "entry": число или 0, "stop_loss": число или 0, "take_profit": число или 0, "leverage": целое, "confidence": 0-100, "reason": "кратко"}}
+- Если идея есть: {{"has_trade": true, "symbol": "Напр. BTCUSDT", "side": "BUY" или "SELL", "entry": 0, "stop_loss": 0, "take_profit": 0, "leverage": целое, "confidence": 0-100, "reason": "кратко"}}
+
+Важно: в новостях уровни цен обычно не указаны — entry/stop_loss/take_profit ставь 0.
+Обязательны symbol (USDT perpetual) и side. Бот сам оценит символ и выставит SL/TP.
 
 Заголовок: {title}
 Текст: {body}
@@ -1067,6 +1080,8 @@ class TelegramSignalAgent:
         self.require_stop_loss = bool(self.agent_cfg.get("require_stop_loss", True))
         _sq = self.agent_cfg.get("signal_quality", {})
         self.signal_quality_cfg = _sq if isinstance(_sq, dict) else {}
+        _ma = self.cfg.get("multi_agent_review", {}) or {}
+        self.multi_agent_review_cfg = _ma if isinstance(_ma, dict) else {}
         self.notify_only_approved = bool(self.agent_cfg.get("notify_only_approved", True))
         self.audit_jsonl_enabled = bool(self.agent_cfg.get("audit_jsonl_enabled", True))
         self.inbox_jsonl_enabled = bool(self.agent_cfg.get("inbox_jsonl_enabled", True))
@@ -1101,12 +1116,24 @@ class TelegramSignalAgent:
             self.sr_exec_kline_limit = int(_srz.get("kline_limit", 120) or 120)
             self.sr_exec_sl_extra_atr = float(_srz.get("sl_extra_buffer_atr", 0.1) or 0.0)
             self.sr_exec_tp_extra_atr = float(_srz.get("tp_extra_buffer_atr", 0.08) or 0.0)
+            self.sr_exec_sl_level_index = max(0, int(_srz.get("sl_sr_level_index", 1) or 1))
+            self.sr_exec_tp_level_index = max(1, int(_srz.get("tp_sr_level_index", 1) or 1))
+            self.sr_exec_prefer_far_tp = bool(_srz.get("prefer_far_tp", True))
+            self.sr_exec_target_initial_tp_rr = float(_srz.get("target_initial_tp_rr", 0) or 0)
+            self.sr_exec_min_tp_distance_pct = float(_srz.get("min_tp_distance_pct", 1.0) or 1.0)
+            self.sr_exec_preserve_min_rr = float(_srz.get("preserve_min_rr", 0) or 0)
         else:
             self.sr_exec_enabled = False
             self.sr_exec_kline_interval = _sr_iv
             self.sr_exec_kline_limit = 120
             self.sr_exec_sl_extra_atr = 0.1
             self.sr_exec_tp_extra_atr = 0.08
+            self.sr_exec_sl_level_index = 1
+            self.sr_exec_tp_level_index = 1
+            self.sr_exec_prefer_far_tp = True
+            self.sr_exec_target_initial_tp_rr = 0.0
+            self.sr_exec_min_tp_distance_pct = 1.0
+            self.sr_exec_preserve_min_rr = 0.0
         self.use_bot_default_sl_tp_on_execute = bool(
             self.agent_cfg.get("use_bot_default_sl_tp_on_execute", True)
         )
@@ -1143,6 +1170,13 @@ class TelegramSignalAgent:
         self.market_scanner_execute_require_confirmed_bos = bool(
             self.agent_cfg.get("market_scanner_execute_require_confirmed_bos", False)
         )
+        _rev = self.agent_cfg.get("scanner_reversal_exit")
+        if not isinstance(_rev, dict):
+            _rev = {}
+        _mc_rev = (self.cfg.get("market_scanner") or {}).get("scanner_reversal_exit")
+        if isinstance(_mc_rev, dict):
+            _rev = {**_mc_rev, **_rev}
+        self.scanner_reversal_exit_cfg = _rev
         self.market_scanner_stretch_tp_to_min_rr = bool(
             self.agent_cfg.get("market_scanner_stretch_tp_to_min_rr", True)
         )
@@ -1234,6 +1268,10 @@ class TelegramSignalAgent:
             self.agent_world_poll_sec = float(_aw.get("poll_interval_sec", 180))
             self.agent_world_allow_auto_exec = bool(_aw.get("allow_auto_execute", False))
             self.agent_world_max_summary_chars = int(_aw.get("max_summary_chars", 2200) or 2200)
+            self.agent_world_require_stop_loss = bool(_aw.get("require_stop_loss", False))
+            self.agent_world_duplicate_symbol_cooldown_sec = int(
+                _aw.get("duplicate_symbol_cooldown_sec", 3600) or 3600
+            )
             self.openrouter_daily_budget_world_usd = float(_aw.get("openrouter_daily_budget_usd", 0) or 0)
         else:
             self.agent_world_enabled = False
@@ -1241,6 +1279,8 @@ class TelegramSignalAgent:
             self.agent_world_poll_sec = 180.0
             self.agent_world_allow_auto_exec = False
             self.agent_world_max_summary_chars = 2200
+            self.agent_world_require_stop_loss = False
+            self.agent_world_duplicate_symbol_cooldown_sec = 3600
             self.openrouter_daily_budget_world_usd = 0.0
         if self.channel_auto_block_cfg.enabled:
             newly_b = refresh_auto_blocks(
@@ -1258,6 +1298,20 @@ class TelegramSignalAgent:
         self.bybit: BybitClient | None = None
         self.execution: ExecutionEngine | None = None
         self._valid_symbols: set[str] | None = None
+
+    def _effective_min_rr_for_exec(self) -> float:
+        """Порог RR как в unified-боте: quality_gate + preserve_min_rr + target_initial_tp_rr."""
+        qg = self.cfg.get("quality_gate") if isinstance(getattr(self, "cfg", dict), dict) else {}
+        quality = float(qg.get("min_rr_ratio", 2.0) if isinstance(qg, dict) else 2.0)
+        pipeline_min = 0.0
+        if getattr(self, "risk_pipeline", None) and self.risk_pipeline.cfg.enabled:
+            pipeline_min = float(self.risk_pipeline.cfg.min_rr or 0.0)
+        return resolve_effective_min_rr(
+            quality_min_rr=quality,
+            preserve_min_rr=float(getattr(self, "sr_exec_preserve_min_rr", 0) or 0),
+            target_initial_tp_rr=float(getattr(self, "sr_exec_target_initial_tp_rr", 0) or 0),
+            fallback=pipeline_min if pipeline_min > 0 else 2.0,
+        )
 
     def _load_state(self) -> dict[str, Any]:
         if self.state_path.exists():
@@ -1447,15 +1501,18 @@ class TelegramSignalAgent:
             LOG.warning("SR zones: klines %s: %s", signal.symbol, exc)
             return False
         try:
-            min_rr_ke = 0.0
-            if getattr(self, "risk_pipeline", None) and self.risk_pipeline.cfg.enabled:
-                min_rr_ke = float(self.risk_pipeline.cfg.min_rr or 0.0)
+            min_rr_ke = self._effective_min_rr_for_exec()
             changed = adjust_telegram_sl_tp_with_sr_zones(
                 signal,
                 kl,
                 sl_extra_atr=self.sr_exec_sl_extra_atr,
                 tp_extra_atr=self.sr_exec_tp_extra_atr,
                 preserve_min_rr=min_rr_ke,
+                sl_sr_level_index=self.sr_exec_sl_level_index,
+                prefer_far_tp=self.sr_exec_prefer_far_tp,
+                tp_sr_level_index=self.sr_exec_tp_level_index,
+                target_initial_tp_rr=self.sr_exec_target_initial_tp_rr,
+                min_tp_distance_pct=self.sr_exec_min_tp_distance_pct,
             )
         except Exception as exc:
             LOG.warning("SR zones: adjust %s: %s", signal.symbol, exc)
@@ -1514,6 +1571,43 @@ class TelegramSignalAgent:
         if self.duplicate_signal_cooldown_sec <= 0:
             return
         rows = self.state.setdefault("signal_fingerprints", {})
+        if isinstance(rows, dict):
+            rows[fingerprint] = utc_now().isoformat()
+
+    @staticmethod
+    def _world_symbol_fingerprint(symbol: str, side: str) -> str:
+        return f"agent_world|{str(symbol or '').upper()}|{str(side or '').upper()}"
+
+    def _cleanup_world_symbol_fingerprints(self) -> None:
+        rows = self.state.get("world_symbol_fingerprints", {})
+        if not isinstance(rows, dict):
+            self.state["world_symbol_fingerprints"] = {}
+            return
+        if self.agent_world_duplicate_symbol_cooldown_sec <= 0:
+            return
+        cutoff = utc_now() - timedelta(seconds=self.agent_world_duplicate_symbol_cooldown_sec)
+        kept = {}
+        for key, value in rows.items():
+            try:
+                ts = datetime.fromisoformat(str(value))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    kept[key] = value
+            except Exception:
+                continue
+        self.state["world_symbol_fingerprints"] = kept
+
+    def _is_duplicate_world_signal(self, fingerprint: str) -> bool:
+        if self.agent_world_duplicate_symbol_cooldown_sec <= 0:
+            return False
+        self._cleanup_world_symbol_fingerprints()
+        return fingerprint in self.state.get("world_symbol_fingerprints", {})
+
+    def _mark_world_symbol_fingerprint(self, fingerprint: str) -> None:
+        if self.agent_world_duplicate_symbol_cooldown_sec <= 0:
+            return
+        rows = self.state.setdefault("world_symbol_fingerprints", {})
         if isinstance(rows, dict):
             rows[fingerprint] = utc_now().isoformat()
 
@@ -2085,7 +2179,13 @@ class TelegramSignalAgent:
         except Exception as exc:
             return False, f"spread check failed: {exc}"
 
-    async def _price_and_complete_levels(self, parsed: dict[str, Any], raw_for_enrich: str = "") -> dict[str, Any]:
+    async def _price_and_complete_levels(
+        self,
+        parsed: dict[str, Any],
+        raw_for_enrich: str = "",
+        *,
+        require_stop_loss: bool | None = None,
+    ) -> dict[str, Any]:
         await self._ensure_execution()
         assert self.bybit is not None
         symbol = str(parsed["symbol"]).upper()
@@ -2136,7 +2236,8 @@ class TelegramSignalAgent:
         sl = float(parsed.get("stop_loss") or 0.0)
         tp = float(parsed.get("take_profit") or 0.0)
         parsed.update({"entry": price, "stop_loss": sl, "take_profit": tp})
-        if sl <= 0 and self.require_stop_loss:
+        req_sl = self.require_stop_loss if require_stop_loss is None else require_stop_loss
+        if sl <= 0 and req_sl:
             raise RuntimeError("Signal has no stop-loss and require_stop_loss=true")
         if sl <= 0:
             sl = price * (1 - self.default_sl_pct / 100.0) if side == "BUY" else price * (1 + self.default_sl_pct / 100.0)
@@ -2260,6 +2361,7 @@ class TelegramSignalAgent:
         if not self._effective_market_scanner_auto_execute():
             return
         if await self._symbol_has_open_position(setup.symbol):
+            await self._handle_scanner_reversal_for_setup(setup)
             LOG.info("Market scanner exec skipped: position already open %s", setup.symbol)
             return
         if int(setup.score or 0) < int(self.market_scanner_execute_min_score):
@@ -2309,19 +2411,15 @@ class TelegramSignalAgent:
             ),
             parser_confidence=max(0, min(99, int(setup.score or 0))),
         )
-        min_rr_need = float(getattr(self.risk_pipeline.cfg, "min_rr", 0.0) or 0.0)
-        if (
-            self.market_scanner_stretch_tp_to_min_rr
-            and bool(getattr(self.risk_pipeline.cfg, "enabled", True))
-            and min_rr_need > 0.0
-        ):
+        min_rr_need = self._effective_min_rr_for_exec()
+        if self.market_scanner_stretch_tp_to_min_rr and min_rr_need > 0.0:
             old_tp = float(sig.take_profit)
             new_tp = stretch_take_profit_for_min_rr(side, sig.entry, sig.stop_loss, sig.take_profit, min_rr_need)
             if abs(new_tp - old_tp) > max(1e-12, abs(old_tp) * 1e-10):
                 rr_b = compute_rr(side, sig.entry, sig.stop_loss, old_tp)
                 rr_a = compute_rr(side, sig.entry, sig.stop_loss, new_tp)
                 LOG.info(
-                    "Market scanner: TP подогнан под risk_guards.min_rr=%s (%s %s TP %.8g→%.8g RR %.3f→%.3f)",
+                    "Market scanner: TP подогнан под effective_min_rr=%s (%s %s TP %.8g→%.8g RR %.3f→%.3f)",
                     min_rr_need,
                     sig.symbol,
                     side,
@@ -2336,28 +2434,47 @@ class TelegramSignalAgent:
 
         await self._apply_sr_zones_to_signal(sig)
 
-        if (
-            self.market_scanner_stretch_tp_to_min_rr
-            and bool(getattr(self.risk_pipeline.cfg, "enabled", True))
-            and min_rr_need > 0.0
-        ):
-            rr_chk = compute_rr(side, sig.entry, sig.stop_loss, sig.take_profit)
-            if rr_chk + 1e-9 < min_rr_need:
-                old_tp2 = float(sig.take_profit)
-                new_tp2 = stretch_take_profit_for_min_rr(
-                    side, sig.entry, sig.stop_loss, sig.take_profit, min_rr_need
+        if self.market_scanner_stretch_tp_to_min_rr and min_rr_need > 0.0:
+            rr_side = "Buy" if side == "BUY" else "Sell"
+            sl_f, tp_f, rr_ok = enforce_min_rr_levels(
+                side=rr_side,
+                entry=sig.entry,
+                stop_loss=sig.stop_loss,
+                take_profit=sig.take_profit,
+                min_rr=min_rr_need,
+            )
+            if not rr_ok:
+                LOG.info(
+                    "Market scanner exec skipped: RR < %.2f после S/R (%s %s SL=%.8g TP=%.8g RR=%.3f)",
+                    min_rr_need,
+                    sig.symbol,
+                    side,
+                    sig.stop_loss,
+                    sig.take_profit,
+                    compute_rr(side, sig.entry, sig.stop_loss, sig.take_profit),
                 )
-                if abs(new_tp2 - old_tp2) > max(1e-12, abs(old_tp2) * 1e-10):
-                    rr_after = compute_rr(side, sig.entry, sig.stop_loss, new_tp2)
-                    LOG.info(
-                        "Market scanner: после S/R TP подогнан под min_rr (%s TP %.8g→%.8g RR %.3f→%.3f)",
-                        sig.symbol,
-                        old_tp2,
-                        new_tp2,
-                        rr_chk,
-                        rr_after,
-                    )
-                    sig.take_profit = float(new_tp2)
+                review = {
+                    "approve": False,
+                    "confidence": sig.confidence,
+                    "reason": f"RR ниже {min_rr_need:g} после подгонки SL/TP",
+                    "effective_min_ai": "—",
+                }
+                self._post_signal_analytics(sig)
+                self._append_signal(sig, review, "scanner_blocked_rr", None)
+                self._notify_market_scanner_execution(
+                    signal=sig, action="scanner_blocked_rr", review=review, result=None
+                )
+                return
+            if abs(tp_f - sig.take_profit) > max(1e-12, abs(sig.take_profit) * 1e-10):
+                LOG.info(
+                    "Market scanner: финальный TP под effective_min_rr=%s (%s %.8g→%.8g)",
+                    min_rr_need,
+                    sig.symbol,
+                    sig.take_profit,
+                    tp_f,
+                )
+            sig.stop_loss = float(sl_f)
+            sig.take_profit = float(tp_f)
 
         r1_ok, r1_reason = self.risk_pipeline.pre_openrouter(sig)
         if not r1_ok:
@@ -2421,6 +2538,7 @@ class TelegramSignalAgent:
         parsed: dict[str, Any],
         *,
         force_no_execute: bool = False,
+        news_signal: bool = False,
     ) -> None:
         parser_conf = int(parsed.get("parser_confidence", 0) or 0)
         signal = TelegramSignal(
@@ -2454,7 +2572,7 @@ class TelegramSignalAgent:
             self._append_signal(signal, review_pre, "risk_reject", None)
             self._notify_signal(signal, review_pre, "risk_reject", None)
             return
-        trusted = self._is_trusted_source(source)
+        trusted = self._is_trusted_source(source) or news_signal
         rb = rule_based_review(parsed, signal.market_regime)
         skip_ai_below = int(self.signal_quality_cfg.get("openrouter_skip_if_structure_score_ge", 78))
         use_rules_only = (
@@ -2476,13 +2594,31 @@ class TelegramSignalAgent:
                     budget_agent=self,
                     budget_kind="telegram",
                 )
+        if bool(self.multi_agent_review_cfg.get("enabled", False)):
+            ma = multi_agent_consensus(
+                parsed,
+                market_regime=signal.market_regime,
+                raw_text=text,
+                min_votes=int(self.multi_agent_review_cfg.get("min_consensus_votes", 2)),
+            )
+            review = merge_review_with_consensus(
+                review,
+                ma,
+                advisory_only=bool(self.multi_agent_review_cfg.get("advisory_only", True)),
+                block_on_bear_majority=bool(
+                    self.multi_agent_review_cfg.get("block_on_bear_majority", False)
+                ),
+            )
         signal.confidence = int(review.get("confidence", 0) or 0)
         signal.reason = str(review.get("reason", ""))
         ai_conf = int(review.get("confidence", 0) or 0)
         base_min_ai = self.min_openrouter_confidence_trusted if trusted else self.min_openrouter_confidence
         min_ai = self._scaled_openrouter_min_confidence(base_min_ai, signal.market_regime)
         approved = bool(review.get("approve")) and ai_conf >= min_ai
-        should_auto = self._effective_channel_auto_execute() and approved and not force_no_execute
+        can_auto = self._effective_channel_auto_execute()
+        if news_signal and self.agent_world_allow_auto_exec:
+            can_auto = True
+        should_auto = can_auto and approved and not force_no_execute
         if should_auto and self.auto_execute_require_high_signal:
             parser_ok = (
                 parser_conf >= self.auto_execute_min_parser_confidence
@@ -2716,7 +2852,10 @@ class TelegramSignalAgent:
             "parser_confidence": int(safe_float(ext.get("confidence"), 0.0)),
         }
         try:
-            priced = await self._price_and_complete_levels(parsed)
+            priced = await self._price_and_complete_levels(
+                parsed,
+                require_stop_loss=self.agent_world_require_stop_loss,
+            )
         except Exception as exc:
             err = str(exc)
             signal = TelegramSignal(
@@ -2741,14 +2880,32 @@ class TelegramSignalAgent:
             if self.notify_invalid_symbols or not err.startswith("Symbol not listed"):
                 self._notify_signal(signal, review, "error", None)
             return
-        await self._run_signal_core(
-            "AGENT-WORLD",
-            msg_id,
-            utc_now(),
-            raw[:4000],
-            priced,
-            force_no_execute=not self.agent_world_allow_auto_exec,
-        )
+        world_fp = self._world_symbol_fingerprint(sym, side)
+        if self._is_duplicate_world_signal(world_fp):
+            WORLD_LOG.info(
+                "Skip duplicate AGENT-WORLD %s %s (symbol cooldown %ss)",
+                sym,
+                side,
+                self.agent_world_duplicate_symbol_cooldown_sec,
+            )
+            return
+        exact_fp = self._signal_fingerprint("AGENT-WORLD", priced)
+        if self._is_duplicate_signal(exact_fp):
+            WORLD_LOG.info("Skip duplicate AGENT-WORLD exact levels %s %s", sym, side)
+            return
+        try:
+            await self._run_signal_core(
+                "AGENT-WORLD",
+                msg_id,
+                utc_now(),
+                raw[:4000],
+                priced,
+                force_no_execute=not self.agent_world_allow_auto_exec,
+                news_signal=True,
+            )
+        finally:
+            self._mark_world_symbol_fingerprint(world_fp)
+            self._mark_signal_fingerprint(exact_fp)
 
     async def _drain_world_queue(self) -> None:
         if not self.agent_world_enabled:
@@ -3176,6 +3333,88 @@ class TelegramSignalAgent:
                 return True
         return False
 
+    async def _get_open_position_row(self, symbol: str) -> dict[str, Any] | None:
+        await self._ensure_execution()
+        assert self.bybit is not None
+        sym = str(symbol).upper()
+        for pos in await self.bybit.get_positions():
+            if str(pos.get("symbol", "")).upper() != sym:
+                continue
+            if float(pos.get("size", 0) or 0) > 0:
+                return pos
+        return None
+
+    def _scanner_reversal_runtime_cfg(self) -> dict[str, Any]:
+        from prd_agent.positions.scanner_reversal_sl import load_reversal_cfg
+
+        return load_reversal_cfg(self.cfg)
+
+    async def _handle_scanner_reversal_for_setup(self, setup: MarketSetup) -> None:
+        cfg = self._scanner_reversal_runtime_cfg()
+        if not bool(cfg.get("enabled", True)):
+            return
+        pos = await self._get_open_position_row(setup.symbol)
+        if not pos:
+            return
+        from prd_agent.positions.scanner_reversal_sl import handle_scanner_reversal
+
+        rows = self.state.setdefault("scanner_reversal_cooldown", {})
+        if not isinstance(rows, dict):
+            rows = {}
+            self.state["scanner_reversal_cooldown"] = rows
+
+        token = os.getenv("TELEGRAM_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
+        def _notify(text: str) -> bool:
+            if not self.telegram_notify or not token or not chat_id:
+                return False
+            return bool(telegram_send(token, chat_id, text, max_retries=1))
+
+        try:
+            res = await handle_scanner_reversal(
+                setup=setup,
+                position=pos,
+                client=self.bybit,
+                cfg=cfg,
+                cooldown_state=rows,
+                notify=_notify if bool(cfg.get("alert_telegram", True)) else None,
+            )
+            if res.handled:
+                self._save_state()
+                LOG.info(
+                    "Scanner reversal %s: alert=%s sl=%s new_sl=%.8g",
+                    setup.symbol,
+                    res.alerted,
+                    res.sl_updated,
+                    res.new_sl,
+                )
+        except Exception as exc:
+            LOG.warning("Scanner reversal handler failed %s: %s", setup.symbol, exc)
+
+    async def _check_scanner_reversals_against_open_positions(
+        self, setups: list[MarketSetup]
+    ) -> None:
+        cfg = self._scanner_reversal_runtime_cfg()
+        if not bool(cfg.get("enabled", True)) or not setups:
+            return
+        await self._ensure_execution()
+        assert self.bybit is not None
+        open_rows: dict[str, dict[str, Any]] = {}
+        for pos in await self.bybit.get_positions():
+            sym = str(pos.get("symbol", "")).upper()
+            if sym and float(pos.get("size", 0) or 0) > 0:
+                open_rows[sym] = pos
+        if not open_rows:
+            return
+        seen: set[str] = set()
+        for setup in setups:
+            sym = str(setup.symbol).upper()
+            if sym not in open_rows or sym in seen:
+                continue
+            seen.add(sym)
+            await self._handle_scanner_reversal_for_setup(setup)
+
     def _market_scanner_on_cooldown(self, symbol: str, scenario: str) -> bool:
         if self.market_scanner_symbol_cooldown_sec <= 0:
             return False
@@ -3283,61 +3522,48 @@ class TelegramSignalAgent:
         if bos_up:
             scenario = "PUMP"
             bos_level = range_high
-            invalidation = range_low
-            target = max(range_high + (range_high - range_low) * 0.7, price * 1.012)
         elif bos_down:
             scenario = "DUMP"
             bos_level = range_low
-            invalidation = range_high
-            target = min(range_low - (range_high - range_low) * 0.7, price * 0.988)
         elif pos_in_range >= 0.62:
             scenario = "PUMP"
             bos_level = range_high
-            invalidation = range_low
-            target = max(range_high + (range_high - range_low) * 0.7, price * 1.012)
         elif pos_in_range <= 0.38:
             scenario = "DUMP"
             bos_level = range_low
-            invalidation = range_high
-            target = min(range_low - (range_high - range_low) * 0.7, price * 0.988)
         else:
             return None
 
-        score = 0
-        reasons: list[str] = []
-        compact_range = range_pct <= self.market_scanner_max_range_pct
-        compact_atr = atr_pct <= self.market_scanner_max_atr_pct
-        if compact_range:
-            score += 22
-            reasons.append(f"консолидация {bars} свечей, диапазон {range_pct:.2f}%")
-        elif range_pct <= self.market_scanner_max_range_pct * 1.4:
-            score += 10
-            reasons.append(f"умеренный диапазон {range_pct:.2f}%")
-        if compact_atr:
-            score += 14
-            reasons.append(f"ATR сжат до {atr_pct:.2f}%")
-        if bos_up or bos_down:
-            score += 25
-            reasons.append(f"BOS {'вверх' if scenario == 'PUMP' else 'вниз'} через {bos_level:.8g}")
-        else:
-            score += 12
-            reasons.append(f"цена у границы диапазона {bos_level:.8g}, ждём подтверждение BOS")
-        if volume_ratio >= self.market_scanner_min_volume_ratio:
-            score += 15
-            reasons.append(f"объём {volume_ratio:.2f}x к среднему")
-        elif volume_ratio >= 1.1:
-            score += 6
-            reasons.append(f"объём слегка выше среднего: {volume_ratio:.2f}x")
+        eff_rr = self._effective_min_rr_for_exec()
+        invalidation, target = market_scanner_invalidation_and_target(
+            scenario=scenario,
+            price=price,
+            range_low=range_low,
+            range_high=range_high,
+            bos_level=bos_level,
+            bos_buffer_pct=self.market_scanner_bos_buffer_pct,
+            min_rr=eff_rr,
+        )
 
         fvg_low, fvg_high, fvg_reason = self._find_latest_fvg(klines, scenario)
-        if fvg_reason:
-            score += 12
-            reasons.append(fvg_reason)
-        if turnover >= self.market_scanner_min_24h_volume_usdt * 3:
-            score += 5
-            reasons.append(f"оборот 24ч {turnover / 1_000_000:.1f}M USDT")
-
-        score = max(0, min(100, int(round(score))))
+        score, reasons = compute_market_scanner_observation_score(
+            ScannerScoreInput(
+                range_pct=range_pct,
+                atr_pct=atr_pct,
+                confirmed_bos=bool(bos_up or bos_down),
+                volume_ratio=volume_ratio,
+                turnover_24h=turnover,
+                has_fvg=bool(fvg_reason),
+                max_range_pct=self.market_scanner_max_range_pct,
+                max_atr_pct=self.market_scanner_max_atr_pct,
+                min_volume_ratio=self.market_scanner_min_volume_ratio,
+                min_24h_volume_usdt=self.market_scanner_min_24h_volume_usdt,
+                consolidation_bars=bars,
+                scenario=scenario,
+                bos_level=bos_level,
+                fvg_detail=fvg_reason,
+            )
+        )
         if score < self.market_scanner_min_score_to_notify:
             return None
 
@@ -3557,6 +3783,7 @@ class TelegramSignalAgent:
             self._track_market_setup_for_learning(setup)
             notified += 1
             await self._try_execute_market_setup(setup)
+        await self._check_scanner_reversals_against_open_positions(setups)
         if setups or notified:
             self._save_state()
         if setups and notified == 0:
@@ -3872,6 +4099,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--market-scan-once", action="store_true", help="Run one Bybit market scan and exit")
     parser.add_argument("--limit", type=int, default=30, help="Messages per channel in --once mode")
     parser.add_argument("--max-chats", type=int, default=None, help="Max channels/chats to scan in --once mode")
+    parser.add_argument(
+        "--world-feed-only",
+        action="store_true",
+        help="Only drain agent_world RSS queue (no Telethon channel polling; for AGENT-WORLD sandbox)",
+    )
     return parser.parse_args()
 
 
@@ -3885,8 +4117,26 @@ async def amain() -> int:
         LOG.exception("FATAL: не удалось инициализировать TelegramSignalAgent (config/state/.env?)")
         return 1
 
-    if not agent.enabled:
+    if not agent.enabled and not args.world_feed_only:
         LOG.info("disabled by config")
+        return 0
+
+    if args.world_feed_only:
+        if not agent.agent_world_enabled:
+            LOG.error("world-feed-only: agent_world.enabled=false in config.yaml")
+            return 1
+        try:
+            LOG.info("world-feed-only: draining RSS queue (no Telethon polling)")
+            await agent._world_feed_loop()
+        except Exception:
+            LOG.exception("FATAL: world feed loop failed")
+            return 1
+        finally:
+            if agent is not None:
+                try:
+                    await agent.close()
+                except Exception:
+                    LOG.exception("agent.close() завершился ошибкой")
         return 0
 
     if args.market_scan_once:

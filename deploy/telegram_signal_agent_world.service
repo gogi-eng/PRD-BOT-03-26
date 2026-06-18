@@ -1,0 +1,17 @@
+# AGENT-WORLD: только очередь RSS (agent_world), без polling Telegram-каналов.
+# Не конфликтует с telegram_signal_agent на PRD-BOT-ALL (нет Telethon getUpdates).
+[Unit]
+Description=PRD AGENT-WORLD RSS consumer (world_events.jsonl → inbox)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=@REPO_DIR@
+Environment=PRD_LOG_STDERR=1
+ExecStart=@PYTHON@ @REPO_DIR@/scripts/telegram_signal_agent.py --repo-dir @REPO_DIR@ --world-feed-only
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
