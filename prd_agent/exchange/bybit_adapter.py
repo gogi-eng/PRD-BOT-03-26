@@ -106,10 +106,34 @@ class BybitAdapter:
         if hasattr(self._client, "set_orderbook_symbols"):
             await self._client.set_orderbook_symbols(symbols)
 
-    async def get_orderbook(self, symbol: str, limit: int = 50) -> Dict:
+    async def get_orderbook(
+        self,
+        symbol: str,
+        limit: int = 50,
+        *,
+        lazy: bool = True,
+        signal_passed_cheap_filters: bool = False,
+    ) -> Dict:
+        if lazy and not signal_passed_cheap_filters:
+            return {}
         if hasattr(self._client, "get_orderbook"):
             return await self._client.get_orderbook(symbol, limit=limit)
         return {"bids": [], "asks": [], "ts": 0, "source": "none"}
+
+    async def get_recent_trades(
+        self,
+        symbol: str,
+        limit: int = 100,
+        *,
+        lazy: bool = True,
+        signal_passed_cheap_filters: bool = False,
+    ) -> List[Dict]:
+        if lazy and not signal_passed_cheap_filters:
+            return []
+        if not hasattr(self._client, "get_recent_trades"):
+            return []
+        sym = str(symbol).upper()
+        return list(await self._client.get_recent_trades(sym, limit=limit))
 
     async def get_recent_liquidations(self, symbol: str, limit: int = 20) -> List[Dict]:
         if hasattr(self._client, "get_liquidation_events"):
