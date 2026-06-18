@@ -4,7 +4,13 @@ from __future__ import annotations
 from typing import Any, List
 
 from analysis.structure_zones import StructureZoneAnalyzer, ZoneContext
-from telegram_agent.risk_pipeline import compute_rr
+from prd_agent.positions.sr_sl_tp_adjust import (
+    _merge_sl_long,
+    _merge_sl_short,
+    _merge_tp_long,
+    _merge_tp_short,
+)
+from prd_agent.risk.rr_enforce import rr_ratio, stretch_take_profit_for_min_rr
 
 
 def simple_atr(klines: List[dict], period: int = 14) -> float:
@@ -91,13 +97,15 @@ def adjust_telegram_sl_tp_with_sr_zones(
     sl_extra_atr: float,
     tp_extra_atr: float,
     preserve_min_rr: float = 0.0,
+    sl_sr_level_index: int = 1,
+    prefer_far_tp: bool = True,
+    tp_sr_level_index: int = 1,
+    target_initial_tp_rr: float = 0.0,
+    min_tp_distance_pct: float = 1.0,
 ) -> bool:
     """
     Совмещает исходные SL/TP с уровнями из StructureZoneAnalyzer (поддержка/сопротивление + отступ в ATR).
-    LONG: стоп ниже зоны поддержки (− доп.буфер×ATR), тейк у ближайшего сопротивления (− доп.буфер×ATR);
-    SHORT: симметрично.
-
-    Возвращает True, если signal.stop_loss / signal.take_profit изменены.
+    LONG: стоп ниже зоны поддержки, тейк у дальнего сопротивления (prefer_far_tp).
     """
     if len(klines) < 10:
         return False
@@ -120,71 +128,60 @@ def adjust_telegram_sl_tp_with_sr_zones(
     orig_tp = float(getattr(signal, "take_profit", 0.0) or 0.0)
     sl_ex = max(0.0, float(sl_extra_atr or 0.0))
     tp_ex = max(0.0, float(tp_extra_atr or 0.0))
+    sl_idx = max(0, int(sl_sr_level_index))
+    tp_idx = max(0, int(tp_sr_level_index or 1) - 1)
+    prefer_far = bool(prefer_far_tp)
 
     if side == "BUY":
-        sl_sr = zc.structural_sl_long(entry, atr) - sl_ex * atr
-        tp1, _ = zc.structural_tp_long(entry, atr)
-        tp_sr = tp1 - tp_ex * atr
+        sl_sr = zc.structural_sl_long(entry, atr, level_index=sl_idx) - sl_ex * atr
+        tp1, tp2 = zc.structural_tp_long(entry, atr)
+        tp_base = tp2 if tp_idx >= 1 else tp1
+        tp_sr = tp_base - tp_ex * atr
         if sl_sr >= entry or tp_sr <= entry:
             return False
         new_sl = _merge_sl_long(orig_sl, sl_sr, entry)
-        new_tp = _merge_tp_long(orig_tp, tp_sr, entry)
+        new_tp = _merge_tp_long(orig_tp, tp_sr, entry, prefer_far=prefer_far)
         if new_sl <= 0 or new_tp <= 0 or new_sl >= entry or new_tp <= entry:
             return False
     else:
-        sl_sr = zc.structural_sl_short(entry, atr) + sl_ex * atr
-        tp1, _ = zc.structural_tp_short(entry, atr)
-        tp_sr = tp1 + tp_ex * atr
+        sl_sr = zc.structural_sl_short(entry, atr, level_index=sl_idx) + sl_ex * atr
+        tp1, tp2 = zc.structural_tp_short(entry, atr)
+        tp_base = tp2 if tp_idx >= 1 else tp1
+        tp_sr = tp_base + tp_ex * atr
         if sl_sr <= entry or tp_sr >= entry:
             return False
         new_sl = _merge_sl_short(orig_sl, sl_sr, entry)
-        new_tp = _merge_tp_short(orig_tp, tp_sr, entry)
+        new_tp = _merge_tp_short(orig_tp, tp_sr, entry, prefer_far=prefer_far)
         if new_sl <= 0 or new_tp <= 0 or new_sl <= entry or new_tp >= entry:
             return False
+
+    min_tp_pct = max(0.0, float(min_tp_distance_pct or 0))
+    if min_tp_pct > 0:
+        if side == "BUY":
+            tp_dist_pct = (new_tp - entry) / entry * 100.0
+            if tp_dist_pct < min_tp_pct:
+                floor_tp = entry * (1.0 + min_tp_pct / 100.0)
+                new_tp = orig_tp if orig_tp > floor_tp else floor_tp
+        else:
+            tp_dist_pct = (entry - new_tp) / entry * 100.0
+            if tp_dist_pct < min_tp_pct:
+                floor_tp = entry * (1.0 - min_tp_pct / 100.0)
+                new_tp = orig_tp if 0 < orig_tp < floor_tp else floor_tp
 
     tol = max(abs(entry) * 1e-12, 1e-12)
     if abs(new_sl - orig_sl) < tol and abs(new_tp - orig_tp) < tol:
         return False
 
     rr_need = float(preserve_min_rr or 0.0)
-    if rr_need > 1e-9:
-        rr_new = compute_rr(side, entry, new_sl, new_tp)
-        if rr_new + 1e-9 < rr_need:
+    target_rr = float(target_initial_tp_rr or 0.0)
+    rr_stretch = max(rr_need, target_rr) if target_rr > 0 else rr_need
+    side_exec = "Buy" if side == "BUY" else "Sell"
+    if rr_stretch > 1e-9:
+        if rr_ratio(entry, new_sl, new_tp, side_exec) + 1e-9 < rr_stretch:
+            new_tp = stretch_take_profit_for_min_rr(side_exec, entry, new_sl, new_tp, rr_stretch)
+        if rr_ratio(entry, new_sl, new_tp, side_exec) + 1e-9 < rr_need:
             return False
 
     signal.stop_loss = new_sl
     signal.take_profit = new_tp
     return True
-
-
-def _merge_sl_long(orig: float, sr: float, entry: float) -> float:
-    if sr >= entry:
-        return orig if (orig > 0 and orig < entry) else sr
-    if orig > 0 and orig < entry:
-        return min(orig, sr)
-    return sr
-
-
-def _merge_tp_long(orig: float, sr: float, entry: float) -> float:
-    if sr <= entry:
-        return orig if (orig > entry) else sr
-    if orig > 0 and orig > entry:
-        return min(orig, sr)
-    return sr
-
-
-def _merge_sl_short(orig: float, sr: float, entry: float) -> float:
-    if sr <= entry:
-        return orig if (orig > entry) else sr
-    if orig > 0 and orig > entry:
-        return max(orig, sr)
-    return sr
-
-
-def _merge_tp_short(orig: float, sr: float, entry: float) -> float:
-    """SHORT: TP ниже входа — берём более высокую из двух целей (раньше фиксация у зоны)."""
-    if sr >= entry:
-        return orig if (0 < orig < entry) else sr
-    if orig > 0 and orig < entry:
-        return max(orig, sr)
-    return sr
