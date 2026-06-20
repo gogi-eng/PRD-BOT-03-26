@@ -7,7 +7,7 @@ import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from prd_agent.analysis.portfolio_metrics import (
     compute_portfolio_metrics,
@@ -231,3 +231,71 @@ def build_portfolio_quality_report(journal_path: Path, hours: float = 168.0) -> 
     rows = load_closed_trades(journal_path, hours)
     metrics = compute_portfolio_metrics(rows)
     return format_portfolio_quality_telegram(metrics, hours=hours)
+
+
+def _local_day_key(ts: datetime, timezone_offset: int) -> str:
+    """Календарный день в местном UTC+offset (как block_entry_utc_hours)."""
+    local = ts.astimezone(timezone.utc) + timedelta(hours=int(timezone_offset))
+    return local.strftime("%d.%m.%Y")
+
+
+def _bucket_trades_by_local_day(
+    rows: List[Dict[str, Any]], timezone_offset: int
+) -> List[Tuple[str, List[Dict[str, Any]]]]:
+    groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        ts = _parse_ts(str(row.get("ts", "")))
+        if not ts:
+            continue
+        groups[_local_day_key(ts, timezone_offset)].append(row)
+    ordered = sorted(groups.items(), key=lambda x: x[0], reverse=True)
+    return ordered
+
+
+def format_daily_pnl_telegram(
+    day_rows: List[Tuple[str, List[Dict[str, Any]]]],
+    *,
+    days: int,
+    timezone_offset: int,
+) -> str:
+    if not day_rows:
+        tz_label = f"UTC+{timezone_offset}" if timezone_offset >= 0 else f"UTC{timezone_offset}"
+        return (
+            f"<b>📅 PnL по дням ({days} дн., {tz_label})</b>\n\n"
+            "Закрытых сделок в журнале нет.\n"
+            "<i>Журнал: data/trades/trade_history.jsonl</i>"
+        )
+    tz_label = f"UTC+{timezone_offset}" if timezone_offset >= 0 else f"UTC{timezone_offset}"
+    lines = [f"<b>📅 PnL по дням ({days} дн., {tz_label})</b>", ""]
+    total_pnl = 0.0
+    total_n = 0
+    for day_label, rows in day_rows:
+        summary = summarize_trades(rows)
+        total_pnl += float(summary["total_pnl"])
+        total_n += int(summary["n"])
+        short_day = day_label[:5]
+        lines.append(
+            f"<b>{short_day}</b>: {summary['total_pnl']:+.2f} USDT "
+            f"({summary['n']} сд., W{summary['wins']}/L{summary['losses']})"
+        )
+    lines.extend(
+        [
+            "",
+            f"<b>Итого:</b> {total_pnl:+.2f} USDT за {total_n} сделок",
+            "<i>Аналог Freqtrade /daily — по календарным дням местного времени.</i>",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_daily_pnl_report(
+    journal_path: Path,
+    days: int = 7,
+    *,
+    timezone_offset: int = 3,
+) -> str:
+    """Дневной PnL для кнопки Telegram «📅 По дням»."""
+    d = max(1, int(days))
+    rows = load_closed_trades(journal_path, hours=float(d * 24))
+    day_rows = _bucket_trades_by_local_day(rows, timezone_offset)
+    return format_daily_pnl_telegram(day_rows, days=d, timezone_offset=timezone_offset)

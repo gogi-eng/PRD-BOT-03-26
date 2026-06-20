@@ -46,6 +46,8 @@ ai4trade_notify:
 analytics:
   portfolio_quality_hours: 168
   report_hours: 24
+  daily_pnl_days: 7
+  skipped_lab_hours: 168
 api_cache:
   enabled: true
   klines_ttl_sec: 45
