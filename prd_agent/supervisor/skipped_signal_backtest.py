@@ -315,6 +315,91 @@ class SkippedSignalBacktester:
             }
         return out
 
+    def build_telegram_report(
+        self,
+        hours: float = 168.0,
+        *,
+        last_run: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Сводка skipped-backtest для кнопки «🧪 Лаборатория»."""
+        h = float(hours)
+        stats = self.stats(h)
+        by_reason = self.stats_by_reason(h)
+        tz_note = "по backtested_at (UTC)"
+        lines = [f"<b>🧪 Лаборатория пропусков ({h:.0f} ч, {tz_note})</b>", ""]
+        n = int(stats.get("n", 0) or 0)
+        if n == 0:
+            lines.extend(
+                [
+                    "Нет результатов за период.",
+                    f"<i>Файл: {self.results_path}</i>",
+                    "",
+                    "<i>Supervisor прогоняет пропущенные сигналы каждые "
+                    f"{self.lookback_hours:.0f} ч lookback.</i>",
+                ]
+            )
+            return "\n".join(lines)
+
+        wr = float(stats.get("win_rate_pct", 0) or 0)
+        avg = float(stats.get("avg_pnl_pct", 0) or 0)
+        lines.extend(
+            [
+                f"Прогонов: <b>{n}</b> | WR если бы вошли: <b>{wr:.1f}%</b>",
+                f"Средн. PnL (net): <b>{avg:+.3f}%</b> | TP: {stats.get('tp_hits', 0)} | "
+                f"SL: {stats.get('sl_hits', 0)} | open: {stats.get('still_open', 0)}",
+                f"Комиссия (ср.): {stats.get('avg_fee_pct', 0):.4f}% round-trip",
+                "",
+            ]
+        )
+        if wr >= 55 and avg > 0:
+            lines.append(
+                "💡 <i>Много пропусков были бы в плюс — фильтры возможно слишком жёсткие.</i>"
+            )
+        elif wr <= 45 or avg < 0:
+            lines.append(
+                "💡 <i>Пропуски в основном спасали от минуса — фильтры работают.</i>"
+            )
+        else:
+            lines.append("💡 <i>Смешанная картина — смотрите причины ниже.</i>")
+        lines.append("")
+
+        if by_reason:
+            lines.append("<b>По причинам пропуска</b>")
+            ranked = sorted(
+                by_reason.items(),
+                key=lambda x: (-x[1].get("n", 0), -x[1].get("win_rate_pct", 0)),
+            )[:8]
+            for bucket, st in ranked:
+                lines.append(
+                    f"• {bucket}: n={st.get('n', 0)}, WR={st.get('win_rate_pct', 0):.0f}%, "
+                    f"avg={st.get('avg_pnl_pct', 0):+.2f}%"
+                )
+            lines.append("")
+
+        top = stats.get("top_skip_reasons") or {}
+        if top:
+            lines.append("<b>Топ текстов пропуска</b>")
+            for reason, cnt in list(top.items())[:5]:
+                short = str(reason)[:55]
+                lines.append(f"• ({cnt}) {short}")
+            lines.append("")
+
+        if last_run:
+            tested = int(last_run.get("tested", 0) or 0)
+            if tested > 0:
+                outcomes = last_run.get("outcomes") or {}
+                oc_txt = ", ".join(f"{k}={v}" for k, v in outcomes.items())
+                lines.append(
+                    f"<b>Последний прогон:</b> +{tested} симуляций ({oc_txt})"
+                )
+            tunes = last_run.get("filter_tunes_applied")
+            if tunes is not None:
+                lines.append(f"Подстройка фильтров: {tunes}")
+
+        total_n = len(self._done_ids)
+        lines.append(f"\n<i>Всего в архиве: {total_n} записей → {self.results_path.name}</i>")
+        return "\n".join(lines)
+
     async def run_batch(self, ledger, exchange) -> Dict[str, Any]:
         if not self.enabled:
             return {"enabled": False, "tested": 0}

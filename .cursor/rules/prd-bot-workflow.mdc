@@ -135,6 +135,75 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
 | AI | **gemini-2.5-flash модель** | config openrouter | Не `gemini-2.0-flash-001` |
 | Секреты | **Только .env** | — | Никогда API/token в config/commit |
 | config.yaml | **В репо, без секретов** | корень проекта | Пустые `api_key`/`bot_token`; пушить при правках |
+| Telegram | **📅 По дням / 🧪 Лаборатория** | `trade_analytics.py`, `skipped_signal_backtest.py`, `control_bot.py` | `analytics.daily_pnl_days`, `skipped_lab_hours`; не удалять кнопки |
+
+## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
+
+**Цель:** усилить AGENT-WORLD и отчёты, **не заменяя** PRD-BOT. Freqtrade на ПК — только dry-run для сравнения идей, **без live API-ключа**.
+
+### Правила безопасности
+
+| Правило | Зачем |
+|---------|--------|
+| Эксперименты — **AGENT-WORLD** (`/root/AGENT-WORLD`, субаккаунт Bybit) | не ломать прод |
+| Прод **PRD-BOT-ALL** — стабилизация + деплой | отдельный бот/канал |
+| Freqtrade на ПК — **dry-run**, без боевого API | два бота на одном ключе = хаос |
+| Не заменять `bybit_client` на ccxt | подпись GET, WS стакан уже отлажены |
+| Не отключать polling/scanner/supervisor «чтобы не мешало» | только явная просьба пользователя |
+
+### Неделя 1 — лаборатория истории (skipped-backtest)
+
+- **Уже есть:** `data/supervisor/skipped_backtest/results.jsonl`, supervisor каждые ~3.5 ч.
+- **Кнопка Telegram:** **🧪 Лаборатория** → `SkippedSignalBacktester.build_telegram_report()`.
+- **Проверка на сервере:**
+  ```bash
+  cd /root/AGENT-WORLD
+  ls -la data/supervisor/skipped_backtest/
+  sudo journalctl -u trading_bot_agent_world -n 80 --no-pager | grep -i skipped
+  ```
+- **Критерий:** понимать WR пропусков — фильтры режут прибыль или спасают от минуса.
+- **Позже (не блокер):** `scripts/history_backtest.py` под entry PRD (не toy EMA из `evolution/backtester.py`); `train_transformer.py` ссылается на отсутствующий корневой `backtester.py`.
+
+### Неделя 2 — дневной PnL (аналог Freqtrade `/daily`)
+
+- **Кнопка Telegram:** **📅 По дням** → `build_daily_pnl_report()` по `trade_history.jsonl`, дни в **UTC+3** (`timezone_offset`).
+- **Config:** `analytics.daily_pnl_days: 7`, `analytics.skipped_lab_hours: 168`.
+- **Порядок:** сначала AGENT-WORLD, через 3–5 дней без сбоев — прод.
+- **Опционально:** автоотчёт 23:00 UTC+3 через cron или `bot_manager.notify_telegram` (только песочница).
+
+### Неделя 3 — «hyperopt lite» (auto_tune + scanner)
+
+- **Config AGENT-WORLD:** `supervisor_v4.skipped_signal_backtest.auto_tune_filters: true`, `auto_tune_min_samples: 5`.
+- **Не трогать сразу:** `market_scanner_execute_min_score`, `max_daily_loss_*` — один контрольный набор 2 недели.
+- **Регламент раз в неделю:** 3+ минуса подряд по символу → `symbol_blacklist`; scanner score ≥75 но блок → смотреть **🧪 Лаборатория**.
+- **Freqtrade на ПК (опционально):** `git clone` + Docker dry-run — сравнение идеи, не миграция.
+
+### Что НЕ делаем
+
+- Переезд на Freqtrade, замена `bybit_client`, два процесса на одном Telegram-токене.
+- Отключение фич «заглушкой» вместо исправления причины.
+
+### Деплой после push (оба инстанса при общем коде)
+
+**Прод:**
+```bash
+cd /root/PRD-BOT-ALL
+cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)
+git fetch origin DD.MM.YY-OPT-ALL
+git reset --hard FETCH_HEAD
+sudo systemctl restart trading_bot
+sudo systemctl restart telegram_signal_agent
+git rev-parse --short HEAD
+```
+
+**AGENT-WORLD:**
+```bash
+cd /root/AGENT-WORLD
+git fetch origin DD.MM.YY-OPT-ALL
+git reset --hard FETCH_HEAD
+sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
+git rev-parse --short HEAD
+```
 
 ## Тесты — обязательно перед push/выдачей
 
@@ -154,6 +223,7 @@ python -m pytest backend/tests/<файл>.py -q --tb=short
 | `bybit_client` подпись | `py_compile` + ручной тест ключей на сервере |
 | `entry_engine_bridge`, orderbook | `test_entry_guard.py`, `test_smc_zones_and_entry.py` (если есть) |
 | orchestrator / RR | `test_sr_sl_tp_far_tp.py`, `test_signal_feedback_loop_and_sl_validation.py` |
+| `trade_analytics`, skipped lab, Telegram кнопки | `test_daily_pnl_and_lab_reports.py` |
 | Крупный diff / несколько модулей | `python -m pytest backend/tests/ -q --tb=line -x` (или затронутые файлы) |
 
 После push — деплой **обоих** инстансов (если менялся общий код) и проверка `git rev-parse --short HEAD` = ожидаемый коммит.

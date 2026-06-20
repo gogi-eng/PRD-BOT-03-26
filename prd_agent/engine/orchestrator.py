@@ -14,6 +14,7 @@ from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import SignalLedger, SignalStatus
 from prd_agent.analysis.trade_analytics import (
+    build_daily_pnl_report,
     build_portfolio_quality_report,
     build_report as build_trade_stats_report,
     load_closed_trades,
@@ -99,6 +100,8 @@ class UnifiedOrchestrator:
         an = cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", 24))
         self._portfolio_quality_hours = float(an.get("portfolio_quality_hours", 168))
+        self._daily_pnl_days = int(an.get("daily_pnl_days", 7))
+        self._skipped_lab_hours = float(an.get("skipped_lab_hours", 168))
 
         t = cfg.get("trading", {})
         self.symbols: List[str] = list(t.get("symbols", ["BTCUSDT"]))
@@ -252,6 +255,10 @@ class UnifiedOrchestrator:
         self._stats_hours = float(an.get("report_hours", self._stats_hours))
         self._portfolio_quality_hours = float(
             an.get("portfolio_quality_hours", self._portfolio_quality_hours)
+        )
+        self._daily_pnl_days = int(an.get("daily_pnl_days", self._daily_pnl_days))
+        self._skipped_lab_hours = float(
+            an.get("skipped_lab_hours", self._skipped_lab_hours)
         )
         ext_on = bool(self.cfg.get("external_sentiment", {}).get("enabled", True))
         if ext_on:
@@ -1363,6 +1370,20 @@ class UnifiedOrchestrator:
     def get_portfolio_quality_report(self, hours: Optional[float] = None) -> str:
         h = float(hours if hours is not None else self._portfolio_quality_hours)
         return build_portfolio_quality_report(self.trade_journal.path, h)
+
+    def get_daily_pnl_report(self, days: Optional[int] = None) -> str:
+        d = int(days if days is not None else self._daily_pnl_days)
+        tz = int(self.cfg.get("timezone_offset", 3))
+        return build_daily_pnl_report(
+            self.trade_journal.path,
+            days=d,
+            timezone_offset=tz,
+        )
+
+    def get_skipped_lab_report(self, hours: Optional[float] = None) -> str:
+        h = float(hours if hours is not None else self._skipped_lab_hours)
+        last = getattr(self.supervisor, "_last_skipped_bt_summary", None) or {}
+        return self.supervisor.skipped_bt.build_telegram_report(h, last_run=last)
 
     async def get_macro_briefing(self) -> str:
         positions: List[Dict] = []

@@ -78,6 +78,10 @@ class ControlBot:
                     ),
                 ],
                 [
+                    InlineKeyboardButton("📅 По дням", callback_data="act:daily_pnl"),
+                    InlineKeyboardButton("🧪 Лаборатория", callback_data="act:skipped_lab"),
+                ],
+                [
                     InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
                     InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
                 ],
@@ -158,6 +162,8 @@ class ControlBot:
             "status",
             "stats",
             "portfolio_quality",
+            "daily_pnl",
+            "skipped_lab",
             "macro",
             "ta_scan",
             "bot_manager",
@@ -261,6 +267,10 @@ class ControlBot:
             return self.orch.get_trade_stats_report()
         if action == "portfolio_quality":
             return self.orch.get_portfolio_quality_report()
+        if action == "daily_pnl":
+            return self.orch.get_daily_pnl_report()
+        if action == "skipped_lab":
+            return self.orch.get_skipped_lab_report()
         if action == "macro":
             return await self.orch.get_macro_briefing()
         if action == "ta_scan":
