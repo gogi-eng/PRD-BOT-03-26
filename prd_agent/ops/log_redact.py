@@ -13,6 +13,23 @@ _TG_API_URL_RE = re.compile(
 _TG_BOT_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
 _REDACTED = "bot***REDACTED***"
 
+# httpx/httpcore иногда вешают свой StreamHandler — токен уходит мимо root formatter
+_NOISY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "telegram",
+    "telegram.ext",
+    "telegram.request",
+)
+_secret_filter: RedactSecretsFilter | None = None
+
+
+def _get_secret_filter() -> RedactSecretsFilter:
+    global _secret_filter
+    if _secret_filter is None:
+        _secret_filter = RedactSecretsFilter()
+    return _secret_filter
+
 
 def redact_secrets(text: str) -> str:
     if not text:
@@ -51,9 +68,20 @@ class RedactingFormatter(logging.Formatter):
 
 
 def harden_http_client_logging() -> None:
-    """httpx/httpcore на INFO пишут полный URL с bot token — глушим до WARNING."""
-    for name in ("httpx", "httpcore"):
-        logging.getLogger(name).setLevel(logging.WARNING)
+    """Совместимость — вызывает apply_log_safety."""
+    apply_log_safety()
+
+
+def apply_log_safety() -> None:
+    """Глушим httpx INFO и снимаем прямые handlers (PTB может добавить после старта)."""
+    filt = _get_secret_filter()
+    for name in _NOISY_LOGGERS:
+        lg = logging.getLogger(name)
+        lg.handlers.clear()
+        lg.propagate = True
+        lg.setLevel(logging.WARNING)
+        if filt not in lg.filters:
+            lg.addFilter(filt)
 
 
 def attach_redaction(handler: logging.Handler) -> None:

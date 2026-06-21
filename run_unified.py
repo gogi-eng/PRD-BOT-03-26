@@ -18,7 +18,7 @@ from prd_agent.config_validate import validate_config_data
 from prd_agent.engine.orchestrator import UnifiedOrchestrator
 from prd_agent.ops.log_redact import (
     RedactSecretsFilter,
-    harden_http_client_logging,
+    apply_log_safety,
     redacting_formatter,
 )
 from prd_agent.telegram.control_bot import ControlBot
@@ -29,7 +29,7 @@ def setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.handlers.clear()
-    harden_http_client_logging()
+    apply_log_safety()
 
     console = logging.StreamHandler()
     console.setFormatter(redacting_formatter(log_fmt))
@@ -79,7 +79,9 @@ async def async_main() -> None:
         if poll_fn is None:
             log.error("ControlBot: нет run_polling / run_polling_sync")
         else:
+            apply_log_safety()
             poll_task = asyncio.create_task(poll_fn())
+            apply_log_safety()
     else:
         log.info(
             "Telegram polling кнопок отключён (control_polling_enabled=false). "

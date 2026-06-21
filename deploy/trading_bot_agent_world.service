@@ -13,6 +13,7 @@ User=root
 WorkingDirectory=@REPO_DIR@
 Environment=PRD_LOG_STDERR=1
 Environment=PRD_AGENT_WORLD=1
+Environment=HTTPX_LOG_LEVEL=warning
 ExecStart=@PYTHON@ @REPO_DIR@/run_unified.py
 Restart=always
 RestartSec=20
