@@ -71,10 +71,8 @@ trading:
     - DUSKUSDT
   block_entry_utc_hours:
     # местное UTC+3 (см. timezone_offset), не UTC
-    - 0
     - 3
     - 7
-    - 11
     - 12
     - 17
     - 18
@@ -418,10 +416,8 @@ supervisor_v4:
     - DUSKUSDT
   seed_blocked_utc_hours:
     # местное UTC+3 (см. timezone_offset), не UTC
-    - 0
     - 3
     - 7
-    - 11
     - 12
     - 17
     - 18

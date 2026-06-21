@@ -430,10 +430,8 @@ supervisor_v4:
   - CLOUSDT
   - DUSKUSDT
   seed_blocked_utc_hours:
-  - 0
   - 3
   - 7
-  - 11
   - 12
   - 17
   - 18
@@ -735,10 +733,8 @@ trading:
     idle_sec: 120
   auto_start: true
   block_entry_utc_hours:
-  - 0
   - 3
   - 7
-  - 11
   - 12
   - 17
   - 18
