@@ -31,7 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -188,7 +188,10 @@ from telegram_agent.market_scanner_score import (  # noqa: E402
     ScannerScoreInput,
     compute_market_scanner_observation_score,
 )
-from telegram_agent.market_scanner_levels import market_scanner_invalidation_and_target  # noqa: E402
+from telegram_agent.market_scanner_levels import (  # noqa: E402
+    market_scanner_bos_confirmed,
+    market_scanner_invalidation_and_target,
+)
 from telegram_agent.photo_ocr import telethon_photo_ocr_text  # noqa: E402
 from telegram_agent.signal_parse import enrich_parsed_signal_levels  # noqa: E402
 from telegram_agent.signal_quality import (  # noqa: E402
@@ -1180,6 +1183,18 @@ class TelegramSignalAgent:
         self.market_scanner_execute_min_score = int(self.agent_cfg.get("market_scanner_execute_min_score", 75))
         self.market_scanner_execute_require_confirmed_bos = bool(
             self.agent_cfg.get("market_scanner_execute_require_confirmed_bos", False)
+        )
+        self.market_scanner_bos_watchlist_enabled = bool(
+            self.agent_cfg.get("market_scanner_bos_watchlist_enabled", True)
+        )
+        self.market_scanner_bos_watchlist_timeout_hours = float(
+            self.agent_cfg.get(
+                "market_scanner_bos_watchlist_timeout_hours",
+                self.agent_cfg.get("market_scanner_learning_timeout_hours", 6),
+            )
+        )
+        self.market_scanner_bos_watchlist_max = int(
+            self.agent_cfg.get("market_scanner_bos_watchlist_max", 30)
         )
         _rev = self.agent_cfg.get("scanner_reversal_exit")
         if not isinstance(_rev, dict):
@@ -3104,6 +3119,182 @@ class TelegramSignalAgent:
         )
         del pending[:-max(1, self.market_scanner_learning_window * 3)]
 
+    def _market_setup_from_dict(self, raw: dict[str, Any]) -> MarketSetup | None:
+        try:
+            reasons = raw.get("reasons", [])
+            if not isinstance(reasons, list):
+                reasons = []
+            symbol = str(raw.get("symbol", "")).upper()
+            if not symbol:
+                return None
+            return MarketSetup(
+                checked_at_utc=str(raw.get("checked_at_utc", "")),
+                symbol=symbol,
+                scenario=str(raw.get("scenario", "")),
+                score=int(raw.get("score") or 0),
+                price=float(raw.get("price") or 0),
+                turnover_24h=float(raw.get("turnover_24h") or 0),
+                range_low=float(raw.get("range_low") or 0),
+                range_high=float(raw.get("range_high") or 0),
+                consolidation_bars=int(raw.get("consolidation_bars") or 0),
+                range_pct=float(raw.get("range_pct") or 0),
+                atr_pct=float(raw.get("atr_pct") or 0),
+                volume_ratio=float(raw.get("volume_ratio") or 0),
+                bos_level=float(raw.get("bos_level") or 0),
+                fvg_low=float(raw.get("fvg_low") or 0),
+                fvg_high=float(raw.get("fvg_high") or 0),
+                invalidation=float(raw.get("invalidation") or 0),
+                target=float(raw.get("target") or 0),
+                reasons=[str(r) for r in reasons],
+                confirmed_bos=bool(raw.get("confirmed_bos", False)),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    def _should_add_to_bos_watchlist(self, setup: MarketSetup) -> bool:
+        if not self.market_scanner_bos_watchlist_enabled:
+            return False
+        if not self._effective_market_scanner_auto_execute():
+            return False
+        if not self.market_scanner_execute_require_confirmed_bos:
+            return False
+        if bool(getattr(setup, "confirmed_bos", False)):
+            return False
+        if int(setup.score or 0) < int(self.market_scanner_execute_min_score):
+            return False
+        return True
+
+    def _add_to_bos_watchlist(self, setup: MarketSetup) -> None:
+        rows = self.state.setdefault("market_scanner_bos_watchlist", [])
+        if not isinstance(rows, list):
+            rows = []
+        sym = str(setup.symbol).upper()
+        scen = str(setup.scenario or "").upper()
+        watch_id = f"{sym}:{scen}"
+        now = utc_now()
+        expires = now + timedelta(hours=max(0.25, float(self.market_scanner_bos_watchlist_timeout_hours)))
+        entry = {
+            "id": watch_id,
+            "symbol": sym,
+            "scenario": scen,
+            "added_at": now.isoformat(),
+            "expires_at": expires.isoformat(),
+            "setup": asdict(setup),
+        }
+        rows = [r for r in rows if not (isinstance(r, dict) and str(r.get("id", "")) == watch_id)]
+        rows.append(entry)
+        cap = max(1, int(self.market_scanner_bos_watchlist_max))
+        self.state["market_scanner_bos_watchlist"] = rows[-cap:]
+        LOG.info(
+            "event=scanner_bos_watchlist_add symbol=%s scenario=%s score=%s expires=%s",
+            sym,
+            scen,
+            setup.score,
+            expires.isoformat(),
+        )
+
+    def _refresh_setup_for_bos_entry(self, setup: MarketSetup, price: float) -> MarketSetup:
+        eff_rr = self._effective_min_rr_for_exec()
+        invalidation, target = market_scanner_invalidation_and_target(
+            scenario=setup.scenario,
+            price=price,
+            range_low=setup.range_low,
+            range_high=setup.range_high,
+            bos_level=setup.bos_level,
+            bos_buffer_pct=self.market_scanner_bos_buffer_pct,
+            min_rr=eff_rr,
+        )
+        return replace(
+            setup,
+            price=float(price),
+            confirmed_bos=True,
+            checked_at_utc=utc_now().isoformat(),
+            invalidation=float(invalidation),
+            target=float(target),
+        )
+
+    async def _evaluate_bos_watchlist(self) -> None:
+        if not self.market_scanner_bos_watchlist_enabled:
+            return
+        if not self._effective_market_scanner_auto_execute():
+            return
+        if not self.market_scanner_execute_require_confirmed_bos:
+            return
+        rows = self.state.get("market_scanner_bos_watchlist", [])
+        if not isinstance(rows, list) or not rows:
+            return
+        await self._ensure_execution()
+        assert self.bybit is not None
+        valid_symbols = await self._get_valid_symbols()
+        now = utc_now()
+        keep: list[dict[str, Any]] = []
+        changed = False
+
+        for item in rows:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            symbol = str(item.get("symbol", "")).upper()
+            setup_raw = item.get("setup", {})
+            if not symbol or not isinstance(setup_raw, dict):
+                changed = True
+                continue
+            try:
+                expires_at = datetime.fromisoformat(str(item.get("expires_at", "")))
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+            except Exception:
+                changed = True
+                continue
+            if now >= expires_at.astimezone(timezone.utc):
+                LOG.info("event=scanner_bos_watchlist_expired symbol=%s", symbol)
+                changed = True
+                continue
+            if symbol not in valid_symbols:
+                changed = True
+                continue
+            setup = self._market_setup_from_dict(setup_raw)
+            if setup is None:
+                changed = True
+                continue
+            try:
+                price = float(await self.bybit.get_price(symbol))
+            except Exception as exc:
+                LOG.warning(
+                    "event=scanner_bos_watchlist_price_fail symbol=%s err=%s",
+                    symbol,
+                    exc,
+                )
+                keep.append(item)
+                continue
+            if price <= 0:
+                keep.append(item)
+                continue
+            if not market_scanner_bos_confirmed(
+                scenario=setup.scenario,
+                price=price,
+                range_low=setup.range_low,
+                range_high=setup.range_high,
+                bos_buffer_pct=self.market_scanner_bos_buffer_pct,
+            ):
+                keep.append(item)
+                continue
+            refreshed = self._refresh_setup_for_bos_entry(setup, price)
+            LOG.info(
+                "event=scanner_bos_watchlist_trigger symbol=%s scenario=%s price=%s bos_level=%s",
+                symbol,
+                setup.scenario,
+                price,
+                setup.bos_level,
+            )
+            await self._try_execute_market_setup(refreshed)
+            changed = True
+
+        if changed or len(keep) != len(rows):
+            cap = max(1, int(self.market_scanner_bos_watchlist_max))
+            self.state["market_scanner_bos_watchlist"] = keep[-cap:]
+            self._save_state()
+
     def _append_market_scanner_event(self, event: dict[str, Any]) -> None:
         path = self.out_dir / "market_scanner_events.jsonl"
         with open(path, "a", encoding="utf-8") as handle:
@@ -3523,9 +3714,20 @@ class TelegramSignalAgent:
         base_vol = self._avg([safe_float(k.get("volume")) for k in window[:-3] or window])
         volume_ratio = recent_vol / max(base_vol, 1e-12)
 
-        buffer = self.market_scanner_bos_buffer_pct / 100.0
-        bos_up = price > range_high * (1.0 + buffer)
-        bos_down = price < range_low * (1.0 - buffer)
+        bos_up = market_scanner_bos_confirmed(
+            scenario="PUMP",
+            price=price,
+            range_low=range_low,
+            range_high=range_high,
+            bos_buffer_pct=self.market_scanner_bos_buffer_pct,
+        )
+        bos_down = market_scanner_bos_confirmed(
+            scenario="DUMP",
+            price=price,
+            range_low=range_low,
+            range_high=range_high,
+            bos_buffer_pct=self.market_scanner_bos_buffer_pct,
+        )
         span = max(range_high - range_low, 1e-12)
         pos_in_range = (price - range_low) / span
         # Без подтверждённого BOS — только явная сторона диапазона (гистерезис),
@@ -3657,6 +3859,11 @@ class TelegramSignalAgent:
                 "\n— Автовход не выполняется: требуется подтверждённый пробой (BOS), "
                 "сейчас только подход к границе. См. market_scanner_execute_require_confirmed_bos.\n"
             )
+            if self.market_scanner_bos_watchlist_enabled:
+                text += (
+                    "— Watchlist BOS: монета на наблюдении до пробоя; вход возможен без "
+                    "повторного алерта (кулдаун уведомлений не блокирует исполнение).\n"
+                )
         text += "\n" + self._market_scan_telegram_footer()
         if not telegram_send(token, chat_id, text, max_retries=1):
             LOG.warning("Market scanner notification skipped: %s", setup.symbol)
@@ -3755,6 +3962,7 @@ class TelegramSignalAgent:
         await self._ensure_execution()
         assert self.bybit is not None
         await self._evaluate_pending_market_setups()
+        await self._evaluate_bos_watchlist()
         valid_symbols = await self._get_valid_symbols()
         tickers = await self.bybit.get_tickers()
         candidates = []
@@ -3792,6 +4000,8 @@ class TelegramSignalAgent:
             self._save_state()
             self._notify_market_setup(setup)
             self._track_market_setup_for_learning(setup)
+            if self._should_add_to_bos_watchlist(setup):
+                self._add_to_bos_watchlist(setup)
             notified += 1
             await self._try_execute_market_setup(setup)
         await self._check_scanner_reversals_against_open_positions(setups)

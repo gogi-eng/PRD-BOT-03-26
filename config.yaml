@@ -672,6 +672,9 @@ telegram_signal_agent:
   market_scanner_enabled: true
   market_scanner_execute_min_score: 75
   market_scanner_execute_require_confirmed_bos: true
+  market_scanner_bos_watchlist_enabled: true
+  market_scanner_bos_watchlist_timeout_hours: 6
+  market_scanner_bos_watchlist_max: 30
   market_scanner_interval_sec: 600
   market_scanner_max_symbols: 60
   market_scanner_min_score_to_notify: 58
