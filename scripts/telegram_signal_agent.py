@@ -91,7 +91,6 @@ def ensure_telegram_agent_logging(repo_dir: Path) -> None:
         return
     _TG_LOGGING_CONFIGURED = True
     repo_root = repo_dir.resolve()
-    fmt = logging.Formatter("%(asctime)s [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     log_path = (repo_root / "telegram_signal_agent.log").resolve()
@@ -115,26 +114,38 @@ def ensure_telegram_agent_logging(repo_dir: Path) -> None:
 
     force_stderr = os.environ.get("PRD_LOG_STDERR", "").strip().lower() in {"1", "true", "yes"}
 
+    from prd_agent.ops.log_redact import (
+        RedactSecretsFilter,
+        harden_http_client_logging,
+        redacting_formatter,
+    )
+
+    fmt = redacting_formatter(
+        "%(asctime)s [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    secret_filter = RedactSecretsFilter()
+
     if stderr_is_log:
         if not _has_stderr():
             sh = logging.StreamHandler(sys.stderr)
             sh.setFormatter(fmt)
+            sh.addFilter(secret_filter)
             root.addHandler(sh)
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        harden_http_client_logging()
         return
 
     if not _has_stderr() and (force_stderr or sys.stderr.isatty()):
         sh = logging.StreamHandler(sys.stderr)
         sh.setFormatter(fmt)
+        sh.addFilter(secret_filter)
         root.addHandler(sh)
     if not _has_tg_log_file():
         fh = logging.FileHandler(log_path, encoding="utf-8")
         fh.setFormatter(fmt)
+        fh.addFilter(secret_filter)
         root.addHandler(fh)
 
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    harden_http_client_logging()
 
 
 LOG = logging.getLogger("TG_AGENT")

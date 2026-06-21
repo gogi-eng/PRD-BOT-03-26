@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import signal
 import sys
 from logging.handlers import RotatingFileHandler
@@ -17,21 +16,12 @@ if str(ROOT) not in sys.path:
 from prd_agent.config import load_config
 from prd_agent.config_validate import validate_config_data
 from prd_agent.engine.orchestrator import UnifiedOrchestrator
+from prd_agent.ops.log_redact import (
+    RedactSecretsFilter,
+    harden_http_client_logging,
+    redacting_formatter,
+)
 from prd_agent.telegram.control_bot import ControlBot
-
-
-class _RedactSecretsFilter(logging.Filter):
-    _token_re = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = self._token_re.sub("bot***REDACTED***", record.msg)
-        if record.args:
-            record.args = tuple(
-                self._token_re.sub("bot***REDACTED***", str(a)) if isinstance(a, str) else a
-                for a in record.args
-            )
-        return True
 
 
 def setup_logging() -> None:
@@ -39,10 +29,11 @@ def setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.handlers.clear()
+    harden_http_client_logging()
 
     console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter(log_fmt))
-    console.addFilter(_RedactSecretsFilter())
+    console.setFormatter(redacting_formatter(log_fmt))
+    console.addFilter(RedactSecretsFilter())
     root.addHandler(console)
 
     log_path = ROOT / "bot.log"
@@ -52,8 +43,8 @@ def setup_logging() -> None:
         backupCount=5,
         encoding="utf-8",
     )
-    file_handler.setFormatter(logging.Formatter(log_fmt))
-    file_handler.addFilter(_RedactSecretsFilter())
+    file_handler.setFormatter(redacting_formatter(log_fmt))
+    file_handler.addFilter(RedactSecretsFilter())
     root.addHandler(file_handler)
 
 
