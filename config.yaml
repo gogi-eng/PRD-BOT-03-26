@@ -424,7 +424,25 @@ supervisor_v4:
   panic_consecutive_losses: 3
   panic_minutes: 90
   preferred_utc_hours:
+  - 0
+  - 1
+  - 2
   - 4
+  - 5
+  - 6
+  - 8
+  - 9
+  - 10
+  - 11
+  - 13
+  - 14
+  - 15
+  - 16
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
   seed_blocked_symbols:
   - ATUSDT
   - CLOUSDT

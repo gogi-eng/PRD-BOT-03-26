@@ -431,7 +431,26 @@ supervisor_v4:
     - 17
     - 18
   preferred_utc_hours:
+    # местное UTC+3 — «хорошие» часы для DEFENSIVE (все кроме block_entry)
+    - 0
+    - 1
+    - 2
     - 4
+    - 5
+    - 6
+    - 8
+    - 9
+    - 10
+    - 11
+    - 13
+    - 14
+    - 15
+    - 16
+    - 19
+    - 20
+    - 21
+    - 22
+    - 23
   panic_consecutive_losses: 3
   panic_minutes: 90
   defensive_day_loss_usdt: -15
