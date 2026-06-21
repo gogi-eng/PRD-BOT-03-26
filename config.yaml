@@ -251,11 +251,11 @@ positions:
     sr_sl_buffer_atr: 0.22
     sr_trail_at_profit_pct: 1.5
     sr_trail_enabled: true
-  trailing_activation_pct: 2.0
-  trailing_distance_atr_mult: 1.75
-  trailing_distance_pct: 3.0
+  trailing_activation_pct: 1.8
+  trailing_distance_atr_mult: 1.45
+  trailing_distance_pct: 2.4
   trailing_enabled: true
-  trailing_min_distance_pct: 1.2
+  trailing_min_distance_pct: 1.0
 profit_lock:
   cooldown_sec: 3600
   decline_duration_sec: 300
