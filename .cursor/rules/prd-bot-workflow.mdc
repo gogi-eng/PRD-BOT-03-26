@@ -136,6 +136,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
 | Секреты | **Только .env** | — | Никогда API/token в config/commit |
 | config.yaml | **В репо, без секретов** | корень проекта | Пустые `api_key`/`bot_token`; пушить при правках |
 | Telegram | **📅 По дням / 🧪 Лаборатория** | `trade_analytics.py`, `skipped_signal_backtest.py`, `control_bot.py` | `analytics.daily_pnl_days`, `skipped_lab_hours`; не удалять кнопки |
+| AGENT-WORLD | **derivatives_entry_guard Priority-1** | `derivatives_entry_guard.py`, `entry_pipeline` regime | `enabled: true` только песочница; prod `enabled: false` |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
 

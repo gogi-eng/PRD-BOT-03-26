@@ -150,6 +150,11 @@ class BybitAdapter:
             return await self._client.get_open_interest_history(symbol, interval=interval, limit=limit)
         return []
 
+    async def get_long_short_ratio(self, symbol: str, period: str = "1h", limit: int = 10):
+        if hasattr(self._client, "get_long_short_ratio"):
+            return await self._client.get_long_short_ratio(symbol, period=period, limit=limit)
+        return []
+
     async def place_order(
         self,
         symbol: str,

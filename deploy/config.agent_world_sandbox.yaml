@@ -100,6 +100,34 @@ risk:
 entry_pipeline:
   enabled: true
   mode: balanced
+  regime_thresholds:
+    enabled: true
+    trend: 5.0
+    chop: 6.0
+    breakout: 5.5
+
+# Apodex Priority-1: funding + OI + long/short ratio (только песочница)
+derivatives_entry_guard:
+  enabled: true
+  block_on_extreme_funding: true
+  block_on_crowded_funding: false
+  high_funding_threshold: 0.0005
+  extreme_funding_threshold: 0.001
+  oi_spike_pct_threshold: 5.0
+  oi_spike_block_with_crowd: true
+  oi_significant_pct: 5.0
+  long_short_ratio:
+    enabled: true
+    block_on_crowd: true
+    long_crowded_buy_ratio: 0.72
+    short_crowded_buy_ratio: 0.28
+    period: "1h"
+
+multi_agent_review:
+  enabled: true
+  advisory_only: true
+  block_on_bear_majority: true
+  min_consensus_votes: 2
 
 risk_presets:
   conservative:
