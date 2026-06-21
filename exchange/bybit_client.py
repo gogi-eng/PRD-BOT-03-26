@@ -782,3 +782,21 @@ class BybitClient:
         if result and result.get("list"):
             return result["list"]
         return []
+
+    async def get_long_short_ratio(
+        self, symbol: str, period: str = "1h", limit: int = 10
+    ) -> List[Dict]:
+        """Long/short ratio аккаунтов (Bybit v5 account-ratio)."""
+        result = await self._request(
+            "GET",
+            "/v5/market/account-ratio",
+            {
+                "category": self.category,
+                "symbol": symbol,
+                "period": period,
+                "limit": int(limit),
+            },
+        )
+        if result and result.get("list"):
+            return result["list"]
+        return []

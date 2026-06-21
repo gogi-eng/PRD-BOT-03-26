@@ -52,6 +52,21 @@ def resolve_pipeline_mode(cfg: Dict[str, Any]) -> str:
     return "balanced"
 
 
+def resolve_pipeline_threshold(
+    cfg: Dict[str, Any], mode: str, market_regime: str = ""
+) -> float:
+    pc = _pipeline_cfg(cfg)
+    rt = pc.get("regime_thresholds", {})
+    if isinstance(rt, dict) and bool(rt.get("enabled", False)):
+        reg = str(market_regime or "chop").lower()
+        if reg in ("trend", "trend_up", "trend_down"):
+            return float(rt.get("trend", MODE_THRESHOLDS.get(mode, 5.0)))
+        if reg in ("breakout", "volatile"):
+            return float(rt.get("breakout", MODE_THRESHOLDS.get(mode, 5.0)))
+        return float(rt.get("chop", MODE_THRESHOLDS.get(mode, 5.0)))
+    return float(pc.get(f"{mode}_threshold", MODE_THRESHOLDS.get(mode, 5.0)))
+
+
 def _rr_ratio(entry: float, sl: float, tp: float, side: str) -> float:
     if entry <= 0 or sl <= 0 or tp <= 0:
         return 0.0
@@ -74,6 +89,7 @@ def evaluate_entry_pipeline(
     has_bos: bool = False,
     supervisor_ok: bool = True,
     atr_pct: float = 0.0,
+    market_regime: str = "",
 ) -> PipelineResult:
     pc = _pipeline_cfg(cfg)
     if not bool(pc.get("enabled", True)):
@@ -87,7 +103,7 @@ def evaluate_entry_pipeline(
         )
 
     mode = resolve_pipeline_mode(cfg)
-    threshold = float(pc.get(f"{mode}_threshold", MODE_THRESHOLDS.get(mode, 5.0)))
+    threshold = resolve_pipeline_threshold(cfg, mode, market_regime)
     breakdown: Dict[str, float] = {}
 
     conf = float(sig.confidence)
@@ -141,7 +157,8 @@ def evaluate_entry_pipeline(
     size_mult = 0.5 if mode == "aggressive" and passed else 1.0
 
     if passed:
-        reason = f"entry_pipeline: {mode} score={score:.1f}/{MAX_SCORE:.0f} OK"
+        reg_note = f" regime={market_regime}" if market_regime else ""
+        reason = f"entry_pipeline: {mode} score={score:.1f}/{MAX_SCORE:.0f} OK{reg_note}"
     else:
         weak = sorted(breakdown.items(), key=lambda x: x[1])[:2]
         weak_s = ", ".join(f"{k}={v:.1f}" for k, v in weak)

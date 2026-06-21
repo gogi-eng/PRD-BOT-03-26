@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO_DIR="${1:-/root/AGENT-WORLD}"
-BRANCH="${2:-17.06.26-OPT-MOD}"
+BRANCH="${2:-21.06.26-AGENT-WORLD}"
 REMOTE="${3:-https://github.com/gogi-eng/PRD-BOT-03-26.git}"
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then

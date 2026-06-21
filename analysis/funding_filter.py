@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 Funding Rate Filter — фильтр на основе funding rate и OI.
-
-Логика из оценки:
-- Высокий + funding = много лонгов → риск сквиза вниз
-- Высокий - funding = много шортов → риск сквиза вверх
-- Растущий OI + рост цены = сильный тренд
-- Падающий OI + рост цены = слабый тренд
 """
+from __future__ import annotations
+
+import logging
 from typing import Dict, Optional
+
+logger = logging.getLogger("analysis.funding_filter")
 
 
 class FundingSignal:
@@ -36,11 +35,18 @@ class FundingFilter:
     EXTREME_THRESHOLD = 0.001  # 0.1%
     OI_SIGNIFICANT = 0.05      # 5%
 
-    def __init__(self, high_threshold: float = None, extreme_threshold: float = None):
-        if high_threshold:
-            self.HIGH_THRESHOLD = high_threshold
-        if extreme_threshold:
-            self.EXTREME_THRESHOLD = extreme_threshold
+    def __init__(
+        self,
+        high_threshold: float | None = None,
+        extreme_threshold: float | None = None,
+        oi_significant: float | None = None,
+    ):
+        if high_threshold is not None:
+            self.HIGH_THRESHOLD = float(high_threshold)
+        if extreme_threshold is not None:
+            self.EXTREME_THRESHOLD = float(extreme_threshold)
+        if oi_significant is not None:
+            self.OI_SIGNIFICANT = float(oi_significant)
 
     async def analyze(self, client, symbol: str) -> FundingSignal:
         """Анализирует funding и OI для символа."""
@@ -61,8 +67,8 @@ class FundingFilter:
                 if old_oi > 0:
                     signal.oi_change_pct = (current_oi - old_oi) / old_oi
 
-        except Exception as e:
-            print(f"[FUNDING] Error {symbol}: {e}")
+        except Exception as exc:
+            logger.warning("[FUNDING] Error %s: %s", symbol, exc)
             return signal
 
         funding = signal.funding_rate

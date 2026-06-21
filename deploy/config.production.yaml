@@ -94,6 +94,20 @@ risk:
 entry_pipeline:
   enabled: true
   mode: balanced
+  regime_thresholds:
+    enabled: false
+    trend: 5.0
+    chop: 6.0
+    breakout: 5.5
+
+derivatives_entry_guard:
+  enabled: false
+  block_on_extreme_funding: true
+  long_short_ratio:
+    enabled: true
+    block_on_crowd: true
+    long_crowded_buy_ratio: 0.72
+    short_crowded_buy_ratio: 0.28
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
 risk_presets:

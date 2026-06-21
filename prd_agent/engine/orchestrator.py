@@ -25,6 +25,7 @@ from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
 from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
 from prd_agent.engine.adaptive_loop import compute_loop_interval_sec
+from prd_agent.entry.derivatives_entry_guard import DerivativesEntryGuard
 from prd_agent.entry.entry_engine_bridge import EntryEngineBridge, should_apply_zone_entry
 from prd_agent.entry.entry_pipeline import evaluate_entry_pipeline
 from prd_agent.entry.entry_soft_rules import compute_soft_score
@@ -95,6 +96,7 @@ class UnifiedOrchestrator:
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
         self.quality_gate = QualityGate(cfg)
+        self.derivatives_guard = DerivativesEntryGuard(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bot_manager = BotManagerAgent(cfg)
         an = cfg.get("analytics", {})
@@ -250,6 +252,7 @@ class UnifiedOrchestrator:
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
+        self.derivatives_guard = DerivativesEntryGuard(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", self._stats_hours))
@@ -1022,6 +1025,21 @@ class UnifiedOrchestrator:
 
 
         meta_ok, _ = self.supervisor.can_enter(sig.symbol)
+        raw = sig.raw if isinstance(sig.raw, dict) else {}
+        market_regime = str(raw.get("regime", "chop") or "chop").lower()
+
+        dg_ok, dg_reason = await self.derivatives_guard.check(
+            self.exchange, sig.symbol, sig.side
+        )
+        if not dg_ok:
+            reason = dg_reason or "derivatives_entry_guard"
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            if not self._is_silent_skip(reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+            return
+
         pipe = evaluate_entry_pipeline(
             sig,
             self.cfg,
@@ -1035,6 +1053,7 @@ class UnifiedOrchestrator:
             has_bos=bool(zone_meta.get("has_bos")),
             supervisor_ok=meta_ok,
             atr_pct=(atr_v / eff_entry if eff_entry > 0 and atr_v > 0 else 0.0),
+            market_regime=market_regime,
         )
         if not pipe.passed:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, pipe.reason)
