@@ -13,6 +13,7 @@ User=root
 WorkingDirectory=/root/PRD-BOT-ALL
 Environment=PRD_UNIFIED_POLLING=1
 Environment=PRD_LOG_STDERR=1
+Environment=HTTPX_LOG_LEVEL=warning
 # Только venv — не .venv (дубликаты вызывают Conflict getUpdates)
 ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/run_unified.py
 Restart=always

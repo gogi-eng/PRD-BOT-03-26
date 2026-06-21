@@ -116,7 +116,7 @@ def ensure_telegram_agent_logging(repo_dir: Path) -> None:
 
     from prd_agent.ops.log_redact import (
         RedactSecretsFilter,
-        harden_http_client_logging,
+        apply_log_safety,
         redacting_formatter,
     )
 
@@ -131,7 +131,7 @@ def ensure_telegram_agent_logging(repo_dir: Path) -> None:
             sh.setFormatter(fmt)
             sh.addFilter(secret_filter)
             root.addHandler(sh)
-        harden_http_client_logging()
+        apply_log_safety()
         return
 
     if not _has_stderr() and (force_stderr or sys.stderr.isatty()):
@@ -145,7 +145,7 @@ def ensure_telegram_agent_logging(repo_dir: Path) -> None:
         fh.addFilter(secret_filter)
         root.addHandler(fh)
 
-    harden_http_client_logging()
+    apply_log_safety()
 
 
 LOG = logging.getLogger("TG_AGENT")

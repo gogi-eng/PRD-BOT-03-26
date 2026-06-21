@@ -16,6 +16,7 @@ from prd_agent.ops.runtime_controls import (
     runtime_controls_status_text,
     toggle_runtime_flag,
 )
+from prd_agent.ops.log_redact import apply_log_safety
 from prd_agent.risk.guard import GuardStatus, StopKind
 
 if TYPE_CHECKING:
@@ -319,7 +320,9 @@ class ControlBot:
             logger.warning("Telegram bot_token не задан")
             return
         self._tg_shutdown_done = False
+        apply_log_safety()
         self.app = Application.builder().token(self.token).build()
+        apply_log_safety()
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("panel", self.cmd_start))
         self.app.add_handler(CallbackQueryHandler(self.on_button))
@@ -338,7 +341,9 @@ class ControlBot:
         self.app.add_error_handler(_on_error)
         try:
             await self.app.initialize()
+            apply_log_safety()
             await self.app.start()
+            apply_log_safety()
             try:
                 await self.app.bot.delete_webhook(drop_pending_updates=True)
             except Exception as exc:
