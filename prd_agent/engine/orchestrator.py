@@ -48,6 +48,7 @@ from prd_agent.market.market_scanner_bridge import (
     unified_should_run_market_scan,
 )
 from prd_agent.ops.bot_manager import BotManagerAgent
+from prd_agent.ops.runtime_controls import is_signal_only_active, load_runtime_controls
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
 from prd_agent.positions.position_steward import PositionSteward
@@ -917,6 +918,13 @@ class UnifiedOrchestrator:
             await self.notifier.order_failed(sig.symbol, "BybitClient недоступен")
             return
 
+        rtc = load_runtime_controls(self.root)
+        if bool(rtc.get("pause_all_execution", False)):
+            reason = "runtime: пауза всех входов (Telegram)"
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            return
+
         cb = self.exchange.api_circuit_snapshot()
         if cb.get("open"):
             reason = (
@@ -1251,6 +1259,26 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason2)
             return
 
+        if is_signal_only_active(self.cfg, self.root):
+            reason = (
+                f"signal_only: {sig.symbol} {sig.side} entry≈{eff_entry:.6g} "
+                f"sl={float(sl or 0):.6g} tp={float(tp or 0):.6g} lev={leverage}x "
+                f"size_mult={pipeline_size_mult:.2f}"
+            )
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", "signal_only")
+            await self.notifier.signal_only_preview(
+                sig.symbol,
+                sig.side,
+                sig.confidence,
+                eff_entry,
+                float(sl or 0),
+                float(tp or 0),
+                leverage,
+                reason,
+            )
+            return
+
         result = await self.exchange.place_order(
             symbol=sig.symbol,
             side=sig.side,
@@ -1403,6 +1431,48 @@ class UnifiedOrchestrator:
         h = float(hours if hours is not None else self._skipped_lab_hours)
         last = getattr(self.supervisor, "_last_skipped_bt_summary", None) or {}
         return self.supervisor.skipped_bt.build_telegram_report(h, last_run=last)
+
+    async def get_liquidation_safety_report(self) -> str:
+        from prd_agent.positions.liquidation_guard import (
+            LiquidationGuardConfig,
+            distance_to_liq_pct,
+            protective_level,
+        )
+
+        cfg = LiquidationGuardConfig.from_cfg(self.cfg)
+        positions = await self.exchange.get_positions()
+        lines = [
+            "<b>🛡 Защита от ликвидации</b>",
+            f"Статус: <code>{'ВКЛ' if cfg.enabled else 'ВЫКЛ'}</code> | "
+            f"буфер <code>{cfg.buffer_pct:.2f}%</code> от цены ликв.",
+            f"Ручные позиции: <code>{'не трогаем' if cfg.skip_manual else 'под защитой'}</code>",
+            "",
+        ]
+        if not positions:
+            lines.append("Открытых позиций нет.")
+            return "\n".join(lines)
+        for row in positions:
+            sym = str(row.get("symbol", "")).upper()
+            side = str(row.get("side", ""))
+            mark = float(row.get("markPrice") or 0)
+            liq = float(row.get("liqPrice") or 0)
+            dist = distance_to_liq_pct(side, mark, liq)
+            guard = protective_level(liq, side, cfg.buffer_pct)
+            origin = (
+                "bot"
+                if sym in getattr(self.position_steward, "_bot_symbols", set())
+                else "manual"
+            )
+            lines.append(
+                f"<b>{sym}</b> {side} ({origin})\n"
+                f"  mark={mark:.6g} | liq={liq:.6g} | до ликв. ≈{dist:.2f}%\n"
+                f"  ранний выход ≤ <code>{guard:.6g}</code>"
+            )
+        lines.append(
+            "\n<i>Бот закрывает позицию до биржевой ликвидации, если цена "
+            "достигает защитного уровня.</i>"
+        )
+        return "\n".join(lines)
 
     async def get_macro_briefing(self) -> str:
         positions: List[Dict] = []

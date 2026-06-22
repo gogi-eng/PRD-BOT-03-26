@@ -17,6 +17,7 @@ from prd_agent.ops.runtime_controls import (
     toggle_runtime_flag,
 )
 from prd_agent.ops.log_redact import apply_log_safety
+from prd_agent.telegram.panel_guide import build_panel_help_text
 from prd_agent.risk.guard import GuardStatus, StopKind
 
 if TYPE_CHECKING:
@@ -50,19 +51,21 @@ class ControlBot:
             "✅ Включить трейлинг", callback_data="act:trailing_on"
         )
 
-    def _runtime_button_labels(self) -> tuple[str, str, str]:
+    def _runtime_button_labels(self) -> tuple[str, str, str, str]:
         rtc = load_runtime_controls(self.orch.root)
         ch = "ВКЛ" if rtc.get("channel_auto_execute") else "ВЫКЛ"
         sc = "ВКЛ" if rtc.get("market_scanner_auto_execute") else "ВЫКЛ"
         pause = "ВКЛ" if rtc.get("pause_all_execution") else "ВЫКЛ"
+        sig = "ВКЛ" if rtc.get("signal_only_mode") else "ВЫКЛ"
         return (
             f"📣 Каналы auto: {ch}",
             f"📡 Сканер auto: {sc}",
             f"⏸ Пауза входов: {pause}",
+            f"🔭 Signal-only: {sig}",
         )
 
     def _main_keyboard(self) -> InlineKeyboardMarkup:
-        ch_lbl, sc_lbl, pause_lbl = self._runtime_button_labels()
+        ch_lbl, sc_lbl, pause_lbl, sig_lbl = self._runtime_button_labels()
         return InlineKeyboardMarkup(
             [
                 [
@@ -72,6 +75,10 @@ class ControlBot:
                 [
                     InlineKeyboardButton("📊 Статус", callback_data="act:status"),
                     InlineKeyboardButton("📈 Статистика", callback_data="act:stats"),
+                ],
+                [
+                    InlineKeyboardButton("📖 Справка", callback_data="act:help"),
+                    InlineKeyboardButton("🛡 Ликвидация", callback_data="act:liq_guard"),
                 ],
                 [
                     InlineKeyboardButton(
@@ -86,7 +93,10 @@ class ControlBot:
                     InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
                     InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
                 ],
-                [InlineKeyboardButton(pause_lbl, callback_data="act:toggle_pause")],
+                [
+                    InlineKeyboardButton(pause_lbl, callback_data="act:toggle_pause"),
+                    InlineKeyboardButton(sig_lbl, callback_data="act:toggle_signal_only"),
+                ],
                 [
                     InlineKeyboardButton("🤖 Совет менеджера", callback_data="act:bot_manager"),
                     InlineKeyboardButton("📨 Отчёт сейчас", callback_data="act:report"),
@@ -169,6 +179,8 @@ class ControlBot:
             "ta_scan",
             "bot_manager",
             "panel_flags",
+            "help",
+            "liq_guard",
             "preset_conservative",
             "preset_normal",
             "preset_aggressive",
@@ -184,11 +196,12 @@ class ControlBot:
                 text = await self.orch.get_bot_manager_review()
                 await self._safe_edit(query, text, html=True)
                 return
-            if action in ("toggle_channel", "toggle_scanner", "toggle_pause"):
+            if action in ("toggle_channel", "toggle_scanner", "toggle_pause", "toggle_signal_only"):
                 key_map = {
                     "toggle_channel": "channel_auto_execute",
                     "toggle_scanner": "market_scanner_auto_execute",
                     "toggle_pause": "pause_all_execution",
+                    "toggle_signal_only": "signal_only_mode",
                 }
                 new_val, _ = toggle_runtime_flag(self.orch.root, key_map[action])
                 await query.answer("Переключено")
@@ -272,6 +285,10 @@ class ControlBot:
             return self.orch.get_daily_pnl_report()
         if action == "skipped_lab":
             return self.orch.get_skipped_lab_report()
+        if action == "help":
+            return build_panel_help_text(self.cfg, self.orch.root)
+        if action == "liq_guard":
+            return await self.orch.get_liquidation_safety_report()
         if action == "macro":
             return await self.orch.get_macro_briefing()
         if action == "ta_scan":
@@ -291,6 +308,11 @@ class ControlBot:
         if action == "toggle_pause":
             toggle_runtime_flag(self.orch.root, "pause_all_execution")
             return runtime_controls_status_text(self.orch.root)
+        if action == "toggle_signal_only":
+            toggle_runtime_flag(self.orch.root, "signal_only_mode")
+            on = load_runtime_controls(self.orch.root).get("signal_only_mode")
+            state = "ВКЛ — ордера не отправляются" if on else "ВЫКЛ — live ордера"
+            return f"<b>Signal-only</b>\n{state}\n\n{runtime_controls_status_text(self.orch.root)}"
         return "Неизвестная команда."
 
     async def _shutdown_app(self) -> None:

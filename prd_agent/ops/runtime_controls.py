@@ -18,6 +18,7 @@ def _blank_rtc() -> Dict[str, Any]:
         "pause_all_execution": False,
         "channel_auto_execute": True,
         "market_scanner_auto_execute": True,
+        "signal_only_mode": False,
     }
 
 
@@ -59,7 +60,12 @@ def save_runtime_controls(root: Path, rtc: Dict[str, Any]) -> None:
 
 
 def toggle_runtime_flag(root: Path, key: str) -> Tuple[bool, Dict[str, Any]]:
-    allowed = {"pause_all_execution", "channel_auto_execute", "market_scanner_auto_execute"}
+    allowed = {
+        "pause_all_execution",
+        "channel_auto_execute",
+        "market_scanner_auto_execute",
+        "signal_only_mode",
+    }
     if key not in allowed:
         raise ValueError(f"unknown runtime flag: {key}")
     rtc = load_runtime_controls(root)
@@ -73,8 +79,17 @@ def runtime_controls_status_text(root: Path) -> str:
     pause = bool(rtc.get("pause_all_execution"))
     ch = bool(rtc.get("channel_auto_execute"))
     sc = bool(rtc.get("market_scanner_auto_execute"))
+    sig_only = bool(rtc.get("signal_only_mode"))
     return (
         f"Пауза всех входов: <code>{'ВКЛ' if pause else 'ВЫКЛ'}</code>\n"
+        f"Signal-only: <code>{'ВКЛ' if sig_only else 'ВЫКЛ'}</code>\n"
         f"Каналы→Bybit: <code>{'ВКЛ' if ch else 'ВЫКЛ'}</code>\n"
         f"Сканер→Bybit: <code>{'ВКЛ' if sc else 'ВЫКЛ'}</code>"
     )
+
+
+def is_signal_only_active(cfg: Dict[str, Any], root: Path) -> bool:
+    bot = cfg.get("bot", {}) if isinstance(cfg.get("bot"), dict) else {}
+    if bool(bot.get("signal_only", False)):
+        return True
+    return bool(load_runtime_controls(root).get("signal_only_mode", False))

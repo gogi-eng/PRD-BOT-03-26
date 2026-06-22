@@ -18,6 +18,7 @@ class DerivativesEntryGuard:
         if not isinstance(block, dict):
             block = {}
         self.enabled = bool(block.get("enabled", False))
+        self.advisory_only = bool(block.get("advisory_only", False))
         self.block_on_extreme_funding = bool(block.get("block_on_extreme_funding", True))
         self.block_on_crowded_funding = bool(block.get("block_on_crowded_funding", False))
         self.oi_spike_pct = float(block.get("oi_spike_pct_threshold", 5.0)) / 100.0
@@ -110,15 +111,24 @@ class DerivativesEntryGuard:
 
         blocked, reason = self._funding_blocks(fs, is_long)
         if blocked:
+            if self.advisory_only:
+                logger.info("derivatives advisory %s: %s", sym, reason)
+                return True, ""
             return False, reason or fs.reason
 
         blocked, reason = self._oi_crowd_blocks(fs, is_long)
         if blocked:
+            if self.advisory_only:
+                logger.info("derivatives advisory %s: %s", sym, reason)
+                return True, ""
             return False, reason
 
         buy_ratio = await self._fetch_lsr(exchange, sym)
         blocked, reason = self._lsr_blocks(buy_ratio, is_long)
         if blocked:
+            if self.advisory_only:
+                logger.info("derivatives advisory %s: %s", sym, reason)
+                return True, ""
             return False, reason
 
         return True, ""

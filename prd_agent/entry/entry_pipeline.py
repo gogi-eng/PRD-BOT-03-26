@@ -153,12 +153,26 @@ def evaluate_entry_pipeline(
         breakdown["volatility"] = 0.0
 
     score = sum(breakdown.values())
+    partial_band = float(pc.get("partial_pass_band", 0) or 0)
+    partial_mult = float(pc.get("partial_pass_size_mult", 0.35) or 0.35)
     passed = score >= threshold
     size_mult = 0.5 if mode == "aggressive" and passed else 1.0
+    partial = False
+
+    if not passed and partial_band > 0 and score >= threshold - partial_band:
+        passed = True
+        partial = True
+        size_mult = max(0.15, min(1.0, partial_mult))
 
     if passed:
         reg_note = f" regime={market_regime}" if market_regime else ""
-        reason = f"entry_pipeline: {mode} score={score:.1f}/{MAX_SCORE:.0f} OK{reg_note}"
+        if partial:
+            reason = (
+                f"entry_pipeline: {mode} partial score={score:.1f}/{MAX_SCORE:.0f} "
+                f"size_mult={size_mult:.2f}{reg_note}"
+            )
+        else:
+            reason = f"entry_pipeline: {mode} score={score:.1f}/{MAX_SCORE:.0f} OK{reg_note}"
     else:
         weak = sorted(breakdown.items(), key=lambda x: x[1])[:2]
         weak_s = ", ".join(f"{k}={v:.1f}" for k, v in weak)
