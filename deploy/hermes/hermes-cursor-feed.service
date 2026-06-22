@@ -1,0 +1,15 @@
+[Unit]
+Description=Hermes → GitHub Analise_Hermes (PRD-BOT learning feed)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/AGENT-WORLD
+Environment=HERMES_SOURCE=AGENT-WORLD
+Environment=HERMES_GITHUB_DIR=/root/Analise_Hermes
+ExecStart=/root/AGENT-WORLD/venv/bin/python3 /root/AGENT-WORLD/scripts/hermes_cursor_feed.py --watch --interval 120 --hours 336 --github-only --git-clone --git-push
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

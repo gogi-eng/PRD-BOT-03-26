@@ -1,0 +1,22 @@
+---
+description: Hermes живой брифинг — GitHub Analise_Hermes + .cursor/HERMES_LIVE.md
+alwaysApply: true
+---
+
+# Hermes → Cursor (GitHub)
+
+Перед задачами по PRD-BOT **прочитай** (в порядке приоритета):
+
+1. `.cursor/HERMES_LIVE.md` (локальная копия)
+2. `../Analise_Hermes/HERMES_LIVE.md` (если клон в workspace)
+3. Или свежий `HERMES_LIVE.md` из [Analise_Hermes](https://github.com/gogi-eng/Analise_Hermes)
+
+Полный отчёт: `Analise_Hermes/winning_entry_rules_report.md` или `data/learning/` на сервере.
+
+Правила:
+- **ZeroOne:** максимум одна правка config за сессию.
+- Рекомендации — предложения, не авто-применение.
+- Без явной просьбы пользователя — не менять `config.yaml`, не ставить ордера.
+
+Синхронизация на ПК: `scripts/hermes_sync_from_github.ps1`  
+Публикация с сервера: `HERMES_GITHUB_DIR=/root/Analise_Hermes` + `hermes_cursor_feed.py --git-push`
