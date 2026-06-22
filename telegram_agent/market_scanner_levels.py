@@ -1,5 +1,26 @@
-"""SL/TP для MARKET SCANNER: TP дальше от входа, чем SL (минимальный RR)."""
+"""SL/TP и BOS для MARKET SCANNER: TP дальше от входа, чем SL (минимальный RR)."""
 from __future__ import annotations
+
+
+def market_scanner_bos_confirmed(
+    *,
+    scenario: str,
+    price: float,
+    range_low: float,
+    range_high: float,
+    bos_buffer_pct: float,
+) -> bool:
+    """True если цена пробила BOS уровень диапазона с буфером (как в telegram_signal_agent)."""
+    buffer = max(0.0, float(bos_buffer_pct or 0.0)) / 100.0
+    px = float(price or 0.0)
+    if px <= 0:
+        return False
+    scen = str(scenario or "").upper()
+    if scen == "PUMP":
+        return px > float(range_high) * (1.0 + buffer)
+    if scen == "DUMP":
+        return px < float(range_low) * (1.0 - buffer)
+    return False
 
 
 def market_scanner_invalidation_and_target(

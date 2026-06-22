@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from prd_agent.risk.rr_enforce import rr_ratio
-from telegram_agent.market_scanner_levels import market_scanner_invalidation_and_target
+from telegram_agent.market_scanner_levels import (
+    market_scanner_bos_confirmed,
+    market_scanner_invalidation_and_target,
+)
 
 
 def test_pump_sl_not_at_range_low_when_bos_tighter():
@@ -61,3 +64,32 @@ def test_dump_symmetric_short():
     assert inv < range_high
     assert inv > price
     assert price - tgt >= (inv - price) * 2.0 - 1e-9
+
+
+def test_bos_confirmed_pump_breakout():
+    range_high = 0.05751
+    assert market_scanner_bos_confirmed(
+        scenario="PUMP",
+        price=0.05758,
+        range_low=0.05657,
+        range_high=range_high,
+        bos_buffer_pct=0.12,
+    )
+    assert not market_scanner_bos_confirmed(
+        scenario="PUMP",
+        price=0.05732,
+        range_low=0.05657,
+        range_high=range_high,
+        bos_buffer_pct=0.12,
+    )
+
+
+def test_bos_confirmed_dump_breakdown():
+    range_low = 91.0
+    assert market_scanner_bos_confirmed(
+        scenario="DUMP",
+        price=90.88,
+        range_low=range_low,
+        range_high=98.0,
+        bos_buffer_pct=0.12,
+    )

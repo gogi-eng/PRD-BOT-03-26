@@ -11,6 +11,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from prd_agent.positions.liquidation_guard import (
+    LiquidationGuardConfig,
+    evaluate_liquidation_stop,
+)
 from prd_agent.positions.exit_management import (
     ExitManagementConfig,
     age_minutes,
@@ -126,6 +130,7 @@ class PositionSteward:
         )
         self._auto_clean_stale_registry = bool(ps.get("auto_clean_stale_registry", True))
         self._auto_close_journal_ghosts = bool(ps.get("auto_close_journal_ghosts", True))
+        self._liq_guard = LiquidationGuardConfig.from_cfg(cfg)
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
@@ -375,6 +380,22 @@ class PositionSteward:
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
             prog_atr = progress_in_atr(pos.side, pos.entry, price, atr)
             profile = self._profile_for(pos)
+
+            liq_price = float(row.get("liqPrice") or 0)
+            liq_hit, liq_reason = evaluate_liquidation_stop(
+                side=pos.side,
+                mark_price=price,
+                liq_price=liq_price,
+                cfg=self._liq_guard,
+                origin=pos.origin,
+            )
+            if liq_hit:
+                closed_msg = await self._try_close_position(exchange, pos, liq_reason)
+                if closed_msg:
+                    notes.append(f"🛡 {closed_msg}")
+                    self._log_note_close(pos, "liquidation_stop", liq_reason)
+                    del self._tracked[sym]
+                continue
 
             action, action_reason = evaluate_exit_actions(
                 cfg=profile.exit_management,
