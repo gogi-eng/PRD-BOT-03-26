@@ -29,6 +29,7 @@ from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
     bot_symbols_from_registry,
     close_journal_ghosts,
+    load_registry,
     merge_open_sources,
     reconcile_registry_with_exchange,
     register_bot_open,
@@ -90,6 +91,11 @@ class PositionSteward:
         self._bot_symbols |= merged
         for sym, levels in bot_levels_from_registry(self._data_dir).items():
             self._bot_levels[sym] = levels
+        reg = load_registry(self._data_dir)
+        sym_rows = reg.get("symbols") if isinstance(reg.get("symbols"), dict) else {}
+        for sym, row in sym_rows.items():
+            if isinstance(row, dict) and bool(row.get("pump_dump")):
+                self._pump_dump_symbols.add(str(sym).upper())
 
     def hydrate_open_symbols_from_journal(self, journal_path: Path) -> None:
         merged = merge_open_sources(
