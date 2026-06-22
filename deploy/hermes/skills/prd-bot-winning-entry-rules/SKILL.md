@@ -44,6 +44,28 @@ Telegram-формат (HTML):
 |------|------------|
 | `data/learning/winning_entry_rules.json` | JSON: правила, медианы, счётчики |
 | `data/learning/winning_entry_rules_report.md` | Отчёт для человека |
+| `.cursor/HERMES_LIVE.md` | Локальная копия для Cursor (из GitHub) |
+| `Analise_Hermes/HERMES_LIVE.md` | Источник в репо [Analise_Hermes](https://github.com/gogi-eng/Analise_Hermes) |
+| `Analise_Hermes/hermes_cursor_feed.jsonl` | История обновлений |
+
+## Cursor на всех ПК (GitHub)
+
+Репозиторий: **https://github.com/gogi-eng/Analise_Hermes**
+
+**На VPS:**
+```bash
+bash deploy/hermes/install_analise_hermes_github.sh
+export HERMES_GITHUB_DIR=/root/Analise_Hermes
+./venv/bin/python3 scripts/hermes_cursor_feed.py --watch --git-push --git-clone --github-only --hours 336
+```
+
+**На любом ПК:**
+```bash
+git clone https://github.com/gogi-eng/Analise_Hermes.git
+powershell -ExecutionPolicy Bypass -File scripts/hermes_sync_from_github.ps1
+```
+
+Агент Cursor читает `.cursor/HERMES_LIVE.md` (копия из GitHub).
 
 ## Источники данных (только чтение)
 
