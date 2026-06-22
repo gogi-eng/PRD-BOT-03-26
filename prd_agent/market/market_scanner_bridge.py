@@ -53,3 +53,44 @@ async def run_market_scan_once(repo: Path, cfg: Dict[str, Any] | None = None) ->
             await agent.close()
         except Exception as exc:
             logger.warning("Market scanner: agent.close(): %s", exc)
+
+
+def spike_scalp_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    from telegram_agent.pump_dump_spike_scan import SpikeScanConfig
+
+    sc = SpikeScanConfig.from_cfg(cfg)
+    return {
+        "enabled": sc.enabled,
+        "interval_sec": sc.interval_sec,
+    }
+
+
+def unified_should_run_spike_scan(cfg: Dict[str, Any]) -> bool:
+    sc = spike_scalp_cfg(cfg)
+    if not sc.get("enabled"):
+        return False
+    mc = market_scanner_cfg(cfg)
+    return bool(mc.get("enabled")) and bool(mc.get("run_loop_in_unified_bot", True))
+
+
+async def run_spike_scan_once(repo: Path, cfg: Dict[str, Any] | None = None) -> List[Any]:
+    """Быстрый проход: 15m импульс >= min_move_pct → скальп."""
+    if cfg is not None and not unified_should_run_spike_scan(cfg):
+        return []
+    try:
+        from scripts.telegram_signal_agent import TelegramSignalAgent
+    except ImportError as exc:
+        logger.warning("Spike scanner: не импортируется telegram_signal_agent: %s", exc)
+        return []
+
+    agent = TelegramSignalAgent(repo.resolve())
+    try:
+        if not agent.spike_scalp_enabled:
+            return []
+        setups = await agent.run_spike_scan_once()
+        return setups or []
+    finally:
+        try:
+            await agent.close()
+        except Exception as exc:
+            logger.warning("Spike scanner: agent.close(): %s", exc)
