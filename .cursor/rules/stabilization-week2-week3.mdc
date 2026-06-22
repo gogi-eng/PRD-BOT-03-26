@@ -1,0 +1,126 @@
+---
+description: Стабилизация PRD-BOT — недели 2–3 (заморозка фич, проводка, ошибки, legacy)
+alwaysApply: true
+---
+
+# Стабилизация: недели 2 и 3
+
+**Контекст:** неделя 1 выполнена в ветке `23.06.26-STAB-ALL` — `legacy/bot/`, shim `bot/`, `config_validate` + Pydantic, блок `main.py` без `PRD_LEGACY_BOT=1`.
+
+**До конца недели 3 — режим STAB, не OPT.** Ветки: `DD.MM.YY-STAB-ALL`. Прод — только после чеклиста недели 3.
+
+## Заморозка (недели 2–3, без исключений)
+
+| Запрещено | Разрешено |
+|-----------|-----------|
+| Новые кнопки Telegram | Багфиксы с pytest |
+| Новые ключи в `config.yaml` (кроме фикса опечаток/валидации) | Ужесточение `config_validate` |
+| RL, эволюция, новые агенты, Freqtrade-миграция | Рефакторинг без смены поведения |
+| Удаление `engine/` / `analysis/` целиком | Перенос по одному модулю + тест |
+
+**Прод и песочница:** только `run_unified.py` → `prd_agent/`. Не `main.py`, не `legacy/bot/`.
+
+---
+
+## Неделя 2 — проводка и ошибки
+
+### Дни 8–9: Config (дожать валидацию)
+
+- Расширить `prd_agent/config_validate.py`: typed-секции `signals`, `entry_pipeline`, `supervisor_v4` (Pydantic, `extra="ignore"` на больших блоках, `extra="forbid"` только на `bybit`).
+- Перед merge: `deploy/config.agent_world_sandbox.yaml` и `deploy/config.production.yaml` → **validate OK**.
+- Тесты: `backend/tests/test_config_validate_stab.py`, `test_phase_a_stability.py`.
+
+### День 10: Логирование горячего пути
+
+Пройти **только** эти файлы (не весь репозиторий):
+
+| Файл | Задача |
+|------|--------|
+| `prd_agent/engine/orchestrator.py` | `except Exception` → конкретные типы или `logger.error(..., exc_info=True)` |
+| `prd_agent/entry/entry_engine_bridge.py` | то же |
+| `prd_agent/positions/scanner_reversal_sl.py` | то же |
+| `prd_agent/positions/position_steward.py` | то же |
+
+**Правило:** не глотать ошибку без `logger.error`. Голый `except:` — **запрещён**.
+
+### День 11: Карта зависимостей
+
+- Обновить `legacy/README.md`: таблица `prd_agent/*` → `engine/`, `analysis/`, `agents/`.
+- Критичные мосты: `entry_engine_bridge.py`, `signals/router.py` → `MultiAgentManager`.
+- **Не удалять** `agents/` / `engine/` / `analysis/` до переноса (день 12).
+
+### День 12: Перенос own-agents
+
+1. Скопировать/перенести `MultiAgentManager` в `prd_agent/signals/own_agents.py` (или `prd_agent/signals/multi_agent.py`).
+2. `prd_agent/signals/router.py` — импорт **только** из `prd_agent`.
+3. `git mv agents` → `legacy/agents` + shim при необходимости (как `bot/`).
+4. Тест: `backend/tests/test_scalp_integration.py` или новый smoke own-signals.
+
+### Дни 13–14: Soak AGENT-WORLD
+
+- Деплой: `23.06.26-STAB-ALL` (или актуальная `*-STAB-ALL`) на `/root/AGENT-WORLD`.
+- **48 часов** — только багфиксы, без фич.
+- Критерии лога: нет `AttributeError`, нет скрытых падений scanner reversal, `config` fail-fast при старте.
+- Команды:
+  ```bash
+  cd /root/AGENT-WORLD
+  git fetch origin DD.MM.YY-STAB-ALL && git reset --hard FETCH_HEAD
+  sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-STAB-ALL
+  grep -E "ERROR|Traceback|AttributeError" bot.log | tail -30
+  ```
+
+---
+
+## Неделя 3 — закрепление и прод
+
+### Дни 15–16: Ошибки — второй слой
+
+| Файл | Приоритет |
+|------|-----------|
+| `prd_agent/telegram/control_bot.py` | высокий |
+| `prd_agent/telegram/notifier.py` | высокий |
+| `prd_agent/supervisor/supervisor_v4.py` | высокий |
+| `prd_agent/supervisor/correction_agent.py` | средний (много `except` — по одному блоку) |
+| `scripts/telegram_signal_agent.py` | только явные баги (не рефакторить весь файл) |
+
+### Дни 17–18: Чистка legacy
+
+- Убедиться: `legacy/agents/` изолирован, тесты зелёные.
+- Пометить в `legacy/README.md` модули «можно удалить после …».
+- **Не трогать** `crypto-agent-trading-main/` (другой стек, см. skill).
+
+### Дни 19–20: Прод после soak
+
+- Условие: AGENT-WORLD **≥48 ч** без критических ERROR и без ручных рестартов.
+- Деплой STAB на `/root/PRD-BOT-ALL`:
+  ```bash
+  cd /root/PRD-BOT-ALL
+  cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)
+  git fetch origin DD.MM.YY-STAB-ALL && git reset --hard FETCH_HEAD
+  bash scripts/install_production_config.sh
+  sudo systemctl restart trading_bot
+  sudo systemctl restart telegram_signal_agent
+  ```
+- 24 ч мониторинг прода — только hotfix.
+
+### День 21: Чеклист выхода из STAB
+
+Все пункты **обязательны**:
+
+- [ ] Прод и AGENT-WORLD на `run_unified.py`
+- [ ] `legacy/bot/` + `legacy/agents/` изолированы
+- [ ] `config.yaml` валидируется при старте (опечатки ловятся)
+- [ ] Горячий путь логирует ошибки с `exc_info`
+- [ ] AGENT-WORLD 48h + прод 24h без критических сбоев
+- [ ] `pytest backend/tests/test_config_validate_stab.py test_phase_a_stability.py` — green
+
+После чеклиста — снова ветки `DD.MM.YY-OPT-ALL`, фичи по одной с тестом.
+
+---
+
+## Стиль работы агента (недели 2–3)
+
+- Минимальный diff; один PR/коммит = одна задача из плана выше.
+- Перед push: `py_compile` + релевантные pytest (см. `prd-bot-workflow.mdc`).
+- Пользователю — **полные файлы** и команды деплоя на русском.
+- Не предлагать RL/эволюцию/новые кнопки до закрытия чеклиста дня 21.
