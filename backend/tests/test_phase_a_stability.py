@@ -12,8 +12,10 @@ from prd_agent.positions.sync_guard import PositionSyncGuard
 def test_validate_config_rejects_bad_leverage():
     ok, errors = validate_config_data(
         {
+            "bybit": {"api_key": "", "api_secret": ""},
+            "telegram": {"bot_token": "", "chat_id": ""},
             "trading": {"leverage": 500, "loop_interval_sec": 60, "max_positions": 3},
-            "risk": {"max_daily_loss_pct": 5},
+            "risk": {"max_daily_loss_pct": 5, "max_consecutive_losses": 4},
             "quality_gate": {"min_rr_ratio": 2.0},
         }
     )
@@ -24,6 +26,8 @@ def test_validate_config_rejects_bad_leverage():
 def test_validate_config_accepts_production_shape():
     ok, errors = validate_config_data(
         {
+            "bybit": {"api_key": "", "api_secret": "", "testnet": False},
+            "telegram": {"bot_token": "", "chat_id": ""},
             "trading": {
                 "leverage": 20,
                 "loop_interval_sec": 60,

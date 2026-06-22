@@ -10,8 +10,6 @@ DEFAULT_CFG = ROOT / "config.yaml"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from prd_agent.config_validate import validate_config_data  # noqa: E402
-
 
 def main() -> int:
     import argparse
@@ -30,6 +28,14 @@ def main() -> int:
     except ImportError:
         print("Установите PyYAML: pip install pyyaml")
         return 1
+    try:
+        from prd_agent.config_validate import validate_config_data
+    except ImportError as exc:
+        if "pydantic" in str(exc).lower():
+            print("Установите pydantic: ./venv/bin/pip install 'pydantic>=2.6.4'")
+            print("  или: ./venv/bin/pip install -r requirements-unified.txt")
+            return 1
+        raise
     text = cfg_path.read_text(encoding="utf-8")
     try:
         data = yaml.safe_load(text)

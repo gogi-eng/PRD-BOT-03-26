@@ -92,6 +92,8 @@ risk:
 entry_pipeline:
   enabled: true
   mode: balanced
+  partial_pass_band: 1.0
+  partial_pass_size_mult: 0.40
   regime_thresholds:
     enabled: false
     trend: 5.0
@@ -205,6 +207,11 @@ profit_lock:
   skip_manual_positions: true
 positions:
   adopt_manual: true
+  liquidation_guard:
+    enabled: true
+    buffer_pct: 0.85
+    skip_manual: true
+    emergency_close: true
   trailing_enabled: true
   lock_initial_sl: false
   trailing_activation_pct: 1.8
@@ -538,6 +545,9 @@ telegram_signal_agent:
   market_scanner_min_score_to_notify: 58
   market_scanner_execute_min_score: 75
   market_scanner_execute_require_confirmed_bos: true
+  market_scanner_bos_watchlist_enabled: true
+  market_scanner_bos_watchlist_timeout_hours: 6
+  market_scanner_bos_watchlist_max: 30
   market_scanner_symbol_cooldown_sec: 3600
   market_scanner_top_n: 3
   market_scanner_max_symbols: 60

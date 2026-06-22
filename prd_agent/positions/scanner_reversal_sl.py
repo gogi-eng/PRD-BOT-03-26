@@ -11,6 +11,13 @@ from typing import Any, Callable, Dict, Mapping, Optional
 logger = logging.getLogger("prd_agent.scanner_reversal")
 
 
+def _setup_field(setup: Any, key: str, default: Any = None) -> Any:
+    """MarketSetup (dataclass) или dict — без setup.get() при False/0."""
+    if isinstance(setup, Mapping):
+        return setup.get(key, default)
+    return getattr(setup, key, default)
+
+
 def load_reversal_cfg(cfg: Mapping[str, Any]) -> Dict[str, Any]:
     agent = cfg.get("telegram_signal_agent") if isinstance(cfg.get("telegram_signal_agent"), dict) else {}
     mc = cfg.get("market_scanner") if isinstance(cfg.get("market_scanner"), dict) else {}
@@ -143,10 +150,10 @@ def passes_reversal_filters(
 ) -> tuple[bool, str]:
     if not bool(cfg.get("enabled", True)):
         return False, "disabled"
-    sym = str(getattr(setup, "symbol", "") or setup.get("symbol", "")).upper()
-    scenario = str(getattr(setup, "scenario", "") or setup.get("scenario", ""))
-    score = int(getattr(setup, "score", 0) or setup.get("score", 0) or 0)
-    confirmed = bool(getattr(setup, "confirmed_bos", False) or setup.get("confirmed_bos", False))
+    sym = str(_setup_field(setup, "symbol", "") or "").upper()
+    scenario = str(_setup_field(setup, "scenario", "") or "")
+    score = int(_setup_field(setup, "score", 0) or 0)
+    confirmed = bool(_setup_field(setup, "confirmed_bos", False))
     pos_side = str(position.get("side", "") or "")
 
     if not sym:
@@ -227,9 +234,9 @@ class ReversalHandleResult:
 
 
 def build_reversal_alert_text(setup: Any, position: Mapping[str, Any], *, new_sl: float = 0.0) -> str:
-    sym = str(getattr(setup, "symbol", "") or setup.get("symbol", "")).upper()
-    scenario = str(getattr(setup, "scenario", "") or setup.get("scenario", ""))
-    score = int(getattr(setup, "score", 0) or setup.get("score", 0) or 0)
+    sym = str(_setup_field(setup, "symbol", "") or "").upper()
+    scenario = str(_setup_field(setup, "scenario", "") or "")
+    score = int(_setup_field(setup, "score", 0) or 0)
     pos_side = str(position.get("side", "") or "")
     entry = _position_entry(position)
     mark = _position_mark(position)
@@ -267,12 +274,12 @@ async def handle_scanner_reversal(
     if not ok:
         return ReversalHandleResult(handled=False, alerted=False, sl_updated=False, reason=why)
 
-    sym = str(getattr(setup, "symbol", "") or setup.get("symbol", "")).upper()
+    sym = str(_setup_field(setup, "symbol", "") or "").upper()
     pos_side = str(position.get("side", "") or "")
     entry = _position_entry(position)
     mark = _position_mark(position)
     cur_sl = _position_sl(position)
-    inv = float(getattr(setup, "invalidation", 0) or setup.get("invalidation", 0) or 0)
+    inv = float(_setup_field(setup, "invalidation", 0) or 0)
 
     new_sl = 0.0
     sl_updated = False

@@ -22,8 +22,10 @@ for cand in venv/bin/python3 venv/bin/python .venv/bin/python3; do
   fi
 done
 if [[ -n "$PYTHON" ]]; then
+  "$PYTHON" -m pip install -q 'pydantic>=2.6.4'
   "$PYTHON" "${ROOT}/scripts/validate_config_yaml.py"
 else
+  python3 -m pip install -q 'pydantic>=2.6.4' 2>/dev/null || true
   python3 "${ROOT}/scripts/validate_config_yaml.py"
 fi
 echo "OK: AGENT-WORLD sandbox config → $DST"

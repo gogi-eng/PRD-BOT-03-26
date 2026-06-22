@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""TRADING BOT v9.0 — entry point (implementation in ``bot`` package)."""
+"""
+УСТАРЕВШИЙ вход Trading Bot v9 (legacy/bot).
+
+Продакшен и песочница: python run_unified.py
+"""
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +13,6 @@ import signal
 import sys
 from pathlib import Path
 
-# Project root (tests may monkeypatch ``main.BOT_DIR``)
 BOT_DIR = Path(__file__).resolve().parent
 if str(BOT_DIR) not in sys.path:
     sys.path.insert(0, str(BOT_DIR))
@@ -23,13 +26,16 @@ __all__ = ["TradingBot", "BasketProfitState", "BOT_DIR", "main"]
 
 
 async def main():
-    # PID lock — защита от двойного запуска
     pid_file = BOT_DIR / "bot.pid"
     if pid_file.exists():
         old_pid = pid_file.read_text().strip()
         try:
             os.kill(int(old_pid), 0)
-            logger.error(f"Bot already running (PID {old_pid})! Kill it first: kill {old_pid}")
+            logger.error(
+                "Bot already running (PID %s)! Kill it first: kill %s",
+                old_pid,
+                old_pid,
+            )
             return
         except (OSError, ValueError):
             pass
@@ -55,10 +61,20 @@ async def main():
         try:
             if startup_failed:
                 await bot.client.close()
+        except OSError as close_exc:
+            logger.warning("Client close after startup failure failed: %s", close_exc)
         except Exception as close_exc:
-            logger.warning(f"Client close after startup failure failed: {close_exc}")
+            logger.warning("Client close after startup failure failed: %s", close_exc)
         pid_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
+    if os.environ.get("PRD_LEGACY_BOT") != "1":
+        print(
+            "main.py — устаревший legacy-бот.\n"
+            "Используйте:  python run_unified.py\n"
+            "Принудительно: PRD_LEGACY_BOT=1 python main.py",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     asyncio.run(main())

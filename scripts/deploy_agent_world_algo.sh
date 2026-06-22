@@ -62,6 +62,10 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 echo "✓ Python: $PYTHON"
 
+if [[ -f requirements-unified.txt ]]; then
+  "$PYTHON" -m pip install -q -r requirements-unified.txt
+fi
+
 bash scripts/install_agent_world_config.sh
 
 mkdir -p reports/world reports/telegram_signals data/ledger data/trades
