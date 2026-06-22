@@ -348,7 +348,7 @@ entry_guard:
     - tg_inbox
 
 bot:
-  signal_only: true
+  signal_only: false
   signal_cooldown_sec: 3600
 
 entry:
