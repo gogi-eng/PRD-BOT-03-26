@@ -26,15 +26,31 @@ if (-not $HermesDir) {
     }
 }
 
+function Invoke-GitPull {
+    param([string]$Branch)
+    # git пишет "From https://..." в stderr — PowerShell не должен считать это ошибкой
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & git pull --rebase origin $Branch 2>&1 | Out-Null
+        return $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
 function Sync-HermesFromGitHub {
     if (-not (Test-Path (Join-Path $HermesDir ".git"))) {
         throw "Analise_Hermes not found at $HermesDir. Run: git clone https://github.com/gogi-eng/Analise_Hermes.git"
     }
     Push-Location $HermesDir
     try {
-        git pull --rebase origin main 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            git pull --rebase origin master
+        $exit = Invoke-GitPull -Branch "main"
+        if ($exit -ne 0) {
+            $exit = Invoke-GitPull -Branch "master"
+        }
+        if ($exit -ne 0) {
+            throw "git pull failed (exit $exit)"
         }
     } finally {
         Pop-Location
@@ -55,13 +71,35 @@ function Sync-HermesFromGitHub {
     Write-Host "[$stamp] Updated: $dst"
 }
 
+function Invoke-Schtasks {
+    param([string[]]$SchtasksArgs)
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & schtasks @SchtasksArgs 2>&1
+        return @{ Exit = $LASTEXITCODE; Out = ($out | Out-String).Trim() }
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
 function Install-HermesSyncTask {
     $taskName = "PRD-BOT-Hermes-GitHub-Sync"
     $ps1 = $MyInvocation.MyCommand.Path
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$ps1`""
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Seconds $IntervalSec) -RepetitionDuration ([TimeSpan]::MaxValue)
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description "Hermes GitHub to .cursor/HERMES_LIVE.md" -Force | Out-Null
-    Write-Host "Zadacha '$taskName': kazhdye $IntervalSec sek (Hermes sync)"
+    $tr = "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File `"$ps1`""
+
+    # schtasks /SC MINUTE — без лимита Duration (Register-ScheduledTask MaxValue ломается на Windows)
+    $minutes = [Math]::Max(1, [int][Math]::Round($IntervalSec / 60.0))
+    if ($IntervalSec -lt 60) {
+        Write-Warning "IntervalSec=${IntervalSec}: Task Scheduler min step is 1 min; using $minutes min"
+    }
+
+    Invoke-Schtasks -Args @("/Delete", "/TN", $taskName, "/F") | Out-Null
+    $created = Invoke-Schtasks -Args @("/Create", "/TN", $taskName, "/TR", $tr, "/SC", "MINUTE", "/MO", "$minutes", "/F")
+    if ($created.Exit -ne 0) {
+        throw "schtasks failed: $($created.Out)"
+    }
+    Write-Host "Task '$taskName': every $minutes min (Hermes sync)"
 }
 
 if ($InstallTask) {
