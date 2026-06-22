@@ -40,6 +40,7 @@
 - Объяснять: топ причин SKIP, пресеты (Консерв/Норма/Агресс), паузу входов, плохие часы
 - Советовать — исполнение только кнопками торгового бота пользователем
 - **Reflection loop (ZeroOne):** читать `~/.hermes/strategy-goals.yaml`, после N закрытых сделок — skill `prd-bot-reflection-loop`, **одна** гипотеза за цикл, история в `~/.hermes/state/history/`
+- **Правила удачных TP:** skill `prd-bot-winning-entry-rules` — анализ пропущенных и реальных сделок с исходом TP → `data/learning/winning_entry_rules_report.md`
 
 Часовой пояс: Europe/Moscow (UTC+3).
 

@@ -31,5 +31,15 @@ reflection:
     - derivatives_entry_guard.enabled
   history_dir: ~/.hermes/state/history
 
+# Анализ удачных TP (пропущенные + реальные) → правила входа
+winning_entry_rules:
+  enabled: true
+  lookback_hours: 336              # 14 дней
+  script: scripts/hermes_winning_entry_rules.py
+  output_json: data/learning/winning_entry_rules.json
+  output_md: data/learning/winning_entry_rules_report.md
+  skill: prd-bot-winning-entry-rules
+  cron_hint: "раз в неделю или после 20+ новых skipped_bt TP"
+
 # Режим (как paper mode в ZeroOne — у нас исполнение уже на Bybit)
 mode: advisor_only             # advisor_only | suggest_config (всё равно без авто-правок)
