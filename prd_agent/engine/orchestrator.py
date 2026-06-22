@@ -45,7 +45,10 @@ from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.market_scanner_bridge import (
     market_scanner_cfg,
     run_market_scan_once,
+    run_spike_scan_once,
+    spike_scalp_cfg,
     unified_should_run_market_scan,
+    unified_should_run_spike_scan,
 )
 from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.ops.runtime_controls import is_signal_only_active, load_runtime_controls
@@ -130,6 +133,9 @@ class UnifiedOrchestrator:
         _mc = market_scanner_cfg(cfg)
         self._market_scan_interval_sec = float(_mc.get("interval_sec", 600))
         self._market_scan_task: Optional[asyncio.Task] = None
+        _sp = spike_scalp_cfg(cfg)
+        self._spike_scan_interval_sec = float(_sp.get("interval_sec", 90))
+        self._spike_scan_task: Optional[asyncio.Task] = None
         self._bot_manager_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
@@ -470,6 +476,12 @@ class UnifiedOrchestrator:
                 "MARKET SCANNER: цикл в unified-боте, интервал %.0f сек",
                 self._market_scan_interval_sec,
             )
+        if unified_should_run_spike_scan(self.cfg):
+            self._spike_scan_task = asyncio.create_task(self._spike_scanner_loop())
+            logger.info(
+                "SPIKE SCANNER: 15m импульс, интервал %.0f сек",
+                self._spike_scan_interval_sec,
+            )
         if self.bot_manager.enabled:
             self._bot_manager_task = asyncio.create_task(self._bot_manager_loop())
             logger.info(
@@ -490,6 +502,9 @@ class UnifiedOrchestrator:
         if self._market_scan_task is not None:
             self._market_scan_task.cancel()
             self._market_scan_task = None
+        if self._spike_scan_task is not None:
+            self._spike_scan_task.cancel()
+            self._spike_scan_task = None
         if self._bot_manager_task is not None:
             self._bot_manager_task.cancel()
             self._bot_manager_task = None
@@ -502,6 +517,12 @@ class UnifiedOrchestrator:
             except asyncio.CancelledError:
                 pass
             self._market_scan_task = None
+        if self._spike_scan_task is not None:
+            try:
+                await self._spike_scan_task
+            except asyncio.CancelledError:
+                pass
+            self._spike_scan_task = None
         if self._bot_manager_task is not None:
             try:
                 await self._bot_manager_task
@@ -523,6 +544,20 @@ class UnifiedOrchestrator:
             except Exception as exc:
                 logger.warning("MARKET SCANNER: %s", exc)
             await asyncio.sleep(max(120.0, self._market_scan_interval_sec))
+
+    async def _spike_scanner_loop(self) -> None:
+        """Быстрый скан 15m импульсов (памп/дамп скальп)."""
+        await asyncio.sleep(25)
+        while self._running:
+            try:
+                setups = await run_spike_scan_once(self.root, self.cfg)
+                if setups:
+                    logger.info("SPIKE SCANNER: сетапов: %s", len(setups))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("SPIKE SCANNER: %s", exc)
+            await asyncio.sleep(max(45.0, self._spike_scan_interval_sec))
 
     async def _bot_manager_loop(self) -> None:
         """Периодический AI-обзор состояния бота (без торговли)."""

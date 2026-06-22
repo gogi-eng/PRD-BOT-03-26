@@ -13,6 +13,8 @@ _PUMP_DUMP_SOURCE_MARKERS = (
     "pump_dump",
     "pumpdump",
     "pump/dump",
+    "spike_scanner",
+    "spike_scalp",
 )
 _AGENT_WORLD_MARKERS = (
     "agent_world",
