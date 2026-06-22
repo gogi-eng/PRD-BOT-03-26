@@ -250,6 +250,8 @@ class MarketSetup:
     reasons: list[str]
     # True только при реальном пробое (bos_up/bos_down), не «у границы без BOS».
     confirmed_bos: bool = False
+    # Быстрый 15m импульс >= spike_scalp.min_move_pct (скальп, без BOS).
+    spike_mode: bool = False
 
 
 def utc_now() -> datetime:
@@ -1206,6 +1208,15 @@ class TelegramSignalAgent:
         self.market_scanner_stretch_tp_to_min_rr = bool(
             self.agent_cfg.get("market_scanner_stretch_tp_to_min_rr", True)
         )
+        from telegram_agent.pump_dump_spike_scan import SpikeScanConfig
+
+        self._spike_scalp_cfg = SpikeScanConfig.from_cfg(self.cfg)
+        self.spike_scalp_enabled = bool(self._spike_scalp_cfg.enabled)
+        self.spike_scalp_interval_sec = float(self._spike_scalp_cfg.interval_sec)
+        self.spike_scalp_execute_min_score = int(self._spike_scalp_cfg.execute_min_score)
+        self.spike_scalp_auto_execute = bool(self._spike_scalp_cfg.auto_execute)
+        self.spike_scalp_symbol_cooldown_sec = int(self._spike_scalp_cfg.symbol_cooldown_sec)
+        self.spike_scalp_top_n = int(self._spike_scalp_cfg.top_n)
         # Кнопки unified-бота (run_unified) — тот же TELEGRAM_TOKEN; панель агента по умолчанию выкл.
         self.control_panel_enabled = bool(self.agent_cfg.get("control_panel_enabled", False))
         if os.getenv("PRD_UNIFIED_POLLING", "").strip().lower() in ("1", "true", "yes", "on"):
@@ -2324,12 +2335,14 @@ class TelegramSignalAgent:
             try:
                 from prd_agent.positions.bot_position_registry import register_bot_open
 
+                is_spike = str(signal.source or "").upper() == "SPIKE_SCANNER"
                 register_bot_open(
                     self.repo_dir / "data",
                     signal.symbol,
                     stop_loss=float(signal.stop_loss or 0),
                     take_profit=float(signal.take_profit or 0),
                     source=str(signal.source or "telegram_signal"),
+                    pump_dump=is_spike or "pump_dump" in str(signal.reason or "").lower(),
                 )
             except Exception as exc:
                 LOG.warning("bot position registry: %s", exc)
@@ -2384,21 +2397,29 @@ class TelegramSignalAgent:
             LOG.warning("Scanner exec notify skipped %s %s", action, signal.symbol)
 
     async def _try_execute_market_setup(self, setup: MarketSetup) -> None:
-        if not self._effective_market_scanner_auto_execute():
+        spike = bool(getattr(setup, "spike_mode", False))
+        if spike:
+            if not (self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute):
+                return
+        elif not self._effective_market_scanner_auto_execute():
             return
         if await self._symbol_has_open_position(setup.symbol):
-            await self._handle_scanner_reversal_for_setup(setup)
+            if not spike:
+                await self._handle_scanner_reversal_for_setup(setup)
             LOG.info("Market scanner exec skipped: position already open %s", setup.symbol)
             return
-        if int(setup.score or 0) < int(self.market_scanner_execute_min_score):
+        min_exec = self.spike_scalp_execute_min_score if spike else self.market_scanner_execute_min_score
+        if int(setup.score or 0) < int(min_exec):
             LOG.info(
                 "Market scanner exec skipped: score=%s < min_exec=%s",
                 setup.score,
-                self.market_scanner_execute_min_score,
+                min_exec,
             )
             return
-        if self.market_scanner_execute_require_confirmed_bos and not bool(
-            getattr(setup, "confirmed_bos", False)
+        if (
+            not spike
+            and self.market_scanner_execute_require_confirmed_bos
+            and not bool(getattr(setup, "confirmed_bos", False))
         ):
             LOG.info(
                 "Market scanner exec skipped: confirmed BOS required (symbol=%s score=%s)",
@@ -2419,7 +2440,7 @@ class TelegramSignalAgent:
         lev = max(1, min(int(self.default_leverage), int(self.max_leverage)))
 
         sig = TelegramSignal(
-            source="MARKET_SCANNER",
+            source="SPIKE_SCANNER" if spike else "MARKET_SCANNER",
             message_id=msg_id,
             message_time_utc=str(setup.checked_at_utc or utc_now().isoformat()),
             received_at_utc=utc_now().isoformat(),
@@ -2430,10 +2451,14 @@ class TelegramSignalAgent:
             take_profit=float(setup.target),
             leverage=lev,
             confidence=int(setup.score or 0),
-            reason=f"market_scan_{scen.lower()}",
+            reason=f"spike_scalp_{scen.lower()}" if spike else f"market_scan_{scen.lower()}",
             raw_text=(
-                f"MARKET_SCANNER_EXEC {setup.symbol} {scen} score={setup.score} "
-                f"bos={setup.bos_level:g} tgt={setup.target:g} inv={setup.invalidation:g}"
+                f"SPIKE_SCANNER pump_dump_spike {setup.symbol} {scen} move={setup.range_pct:.2f}% score={setup.score}"
+                if spike
+                else (
+                    f"MARKET_SCANNER_EXEC {setup.symbol} {scen} score={setup.score} "
+                    f"bos={setup.bos_level:g} tgt={setup.target:g} inv={setup.invalidation:g}"
+                )
             ),
             parser_confidence=max(0, min(99, int(setup.score or 0))),
         )
@@ -3800,7 +3825,163 @@ class TelegramSignalAgent:
             target=target,
             reasons=reasons[:6],
             confirmed_bos=bool(bos_up or bos_down),
+            spike_mode=False,
         )
+
+    async def _analyze_spike_setup(self, ticker: dict[str, Any]) -> MarketSetup | None:
+        if not self.spike_scalp_enabled:
+            return None
+        symbol = str(ticker.get("symbol", "")).upper()
+        if not symbol or symbol in self.market_scanner_blacklist:
+            return None
+        turnover = self._ticker_turnover_usdt(ticker)
+        cfg = self._spike_scalp_cfg
+        if turnover < cfg.min_24h_volume_usdt:
+            return None
+
+        from telegram_agent.pump_dump_spike_scan import analyze_spike_setup
+
+        assert self.bybit is not None
+        klines = await self.bybit.get_klines(
+            symbol,
+            interval=cfg.kline_interval,
+            limit=max(cfg.kline_limit, cfg.volume_lookback_bars + 3),
+        )
+        row = analyze_spike_setup(
+            symbol=symbol,
+            klines=klines,
+            turnover_24h=turnover,
+            cfg=cfg,
+        )
+        if not row:
+            return None
+        return MarketSetup(
+            checked_at_utc=utc_now().isoformat(),
+            symbol=symbol,
+            scenario=str(row["scenario"]),
+            score=int(row["score"]),
+            price=float(row["price"]),
+            turnover_24h=turnover,
+            range_low=float(row["range_low"]),
+            range_high=float(row["range_high"]),
+            consolidation_bars=1,
+            range_pct=float(row["range_pct"]),
+            atr_pct=float(row["atr_pct"]),
+            volume_ratio=float(row["volume_ratio"]),
+            bos_level=float(row["bos_level"]),
+            fvg_low=0.0,
+            fvg_high=0.0,
+            invalidation=float(row["invalidation"]),
+            target=float(row["target"]),
+            reasons=list(row.get("reasons") or [])[:6],
+            confirmed_bos=True,
+            spike_mode=True,
+        )
+
+    def _spike_scanner_on_cooldown(self, symbol: str) -> bool:
+        if self.spike_scalp_symbol_cooldown_sec <= 0:
+            return False
+        rows = self.state.setdefault("spike_scanner_notified", {})
+        if not isinstance(rows, dict):
+            self.state["spike_scanner_notified"] = {}
+            return False
+        key = str(symbol).upper()
+        try:
+            last = datetime.fromisoformat(str(rows.get(key, "")))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except Exception:
+            return False
+        age_sec = (utc_now() - last.astimezone(timezone.utc)).total_seconds()
+        return age_sec < self.spike_scalp_symbol_cooldown_sec
+
+    def _mark_spike_scanner_notified(self, setup: MarketSetup) -> None:
+        rows = self.state.setdefault("spike_scanner_notified", {})
+        if isinstance(rows, dict):
+            rows[str(setup.symbol).upper()] = utc_now().isoformat()
+
+    def _notify_spike_setup(self, setup: MarketSetup) -> None:
+        if not self.telegram_notify:
+            return
+        token = os.getenv("TELEGRAM_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        reasons = "\n".join(f"- {reason}" for reason in setup.reasons)
+        direction_arrow = "⬆" if setup.scenario == "PUMP" else "⬇"
+        exec_on = self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute
+        text = (
+            "SPIKE SCANNER (15m скальп)\n"
+            f"Статус: {'попытка ордера Bybit' if exec_on else 'только наблюдение'}\n"
+            f"Монета: {setup.symbol}\n"
+            f"Сценарий: {direction_arrow} {setup.scenario} (импульс {setup.range_pct:.2f}%)\n"
+            f"Скор: {setup.score}/100 (min {self.spike_scalp_execute_min_score})\n"
+            f"Оборот 24ч: {setup.turnover_24h / 1_000_000:.1f}M USDT\n"
+            f"Цена: {setup.price:.8g}\n"
+            f"SL: {setup.invalidation:.8g} | TP: {setup.target:.8g}\n"
+            f"Причины:\n{reasons}\n"
+        )
+        if not telegram_send(token, chat_id, text):
+            LOG.warning("Spike scanner notify skipped %s", setup.symbol)
+
+    async def run_spike_scan_once(self) -> list[MarketSetup]:
+        if not self.spike_scalp_enabled:
+            return []
+        with self._market_scan_cross_process_lock() as acquired:
+            if not acquired:
+                return []
+            return await self._run_spike_scan_once_locked()
+
+    async def _run_spike_scan_once_locked(self) -> list[MarketSetup]:
+        await self._ensure_execution()
+        assert self.bybit is not None
+        valid_symbols = await self._get_valid_symbols()
+        tickers = await self.bybit.get_tickers()
+        cfg = self._spike_scalp_cfg
+        candidates = []
+        for ticker in tickers:
+            symbol = str(ticker.get("symbol", "")).upper()
+            if (
+                not symbol.endswith("USDT")
+                or symbol not in valid_symbols
+                or symbol in self.market_scanner_blacklist
+                or not looks_like_trade_symbol(symbol)
+            ):
+                continue
+            turnover = self._ticker_turnover_usdt(ticker)
+            if turnover >= cfg.min_24h_volume_usdt:
+                candidates.append((turnover, ticker))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+
+        setups: list[MarketSetup] = []
+        for _, ticker in candidates[: max(1, cfg.max_symbols)]:
+            try:
+                setup = await self._analyze_spike_setup(ticker)
+                if setup is None:
+                    continue
+                setups.append(setup)
+            except Exception as exc:
+                LOG.warning("Spike scan failed for %s: %s", ticker.get("symbol"), exc)
+        setups.sort(key=lambda item: (item.score, item.range_pct), reverse=True)
+
+        notified = 0
+        for setup in setups[: max(1, self.spike_scalp_top_n)]:
+            if self._spike_scanner_on_cooldown(setup.symbol):
+                continue
+            self._mark_spike_scanner_notified(setup)
+            self._save_state()
+            self._notify_spike_setup(setup)
+            self._append_market_setup(setup)
+            notified += 1
+            await self._try_execute_market_setup(setup)
+        if setups:
+            self._save_state()
+        LOG.info(
+            "Spike scan done: candidates=%s setups=%s notified=%s spike_exec_eff=%s",
+            len(candidates),
+            len(setups),
+            notified,
+            self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute,
+        )
+        return setups
 
     def _append_market_setup(self, setup: MarketSetup) -> None:
         path = self.out_dir / "market_scanner.jsonl"
