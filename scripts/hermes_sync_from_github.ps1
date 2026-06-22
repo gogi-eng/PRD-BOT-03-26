@@ -28,7 +28,7 @@ if (-not $HermesDir) {
 
 function Sync-HermesFromGitHub {
     if (-not (Test-Path (Join-Path $HermesDir ".git"))) {
-        throw "Нет клона Analise_Hermes в $HermesDir. Выполните: git clone https://github.com/gogi-eng/Analise_Hermes.git"
+        throw "Analise_Hermes not found at $HermesDir. Run: git clone https://github.com/gogi-eng/Analise_Hermes.git"
     }
     Push-Location $HermesDir
     try {
@@ -42,7 +42,7 @@ function Sync-HermesFromGitHub {
 
     $src = Join-Path $HermesDir "HERMES_LIVE.md"
     if (-not (Test-Path $src)) {
-        throw "Нет HERMES_LIVE.md в репозитории (сервер ещё не публиковал отчёт)"
+        throw "HERMES_LIVE.md missing in repo (server has not published yet)"
     }
 
     $dstDir = Join-Path $PrdBotRoot ".cursor"
@@ -52,7 +52,7 @@ function Sync-HermesFromGitHub {
     $dst = Join-Path $dstDir "HERMES_LIVE.md"
     Copy-Item -Path $src -Destination $dst -Force
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Host "[$stamp] Cursor обновлён: $dst"
+    Write-Host "[$stamp] Updated: $dst"
 }
 
 function Install-HermesSyncTask {
@@ -60,8 +60,8 @@ function Install-HermesSyncTask {
     $ps1 = $MyInvocation.MyCommand.Path
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$ps1`""
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Seconds $IntervalSec) -RepetitionDuration ([TimeSpan]::MaxValue)
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description "Hermes GitHub → .cursor/HERMES_LIVE.md" -Force | Out-Null
-    Write-Host "Задача '$taskName' — каждые $IntervalSec сек"
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description "Hermes GitHub to .cursor/HERMES_LIVE.md" -Force | Out-Null
+    Write-Host "Zadacha '$taskName': kazhdye $IntervalSec sek (Hermes sync)"
 }
 
 if ($InstallTask) {
