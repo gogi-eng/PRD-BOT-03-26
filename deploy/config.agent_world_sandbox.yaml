@@ -514,6 +514,17 @@ market_scanner:
   interval_sec: 300
   run_loop_in_unified_bot: true
   run_loop_in_signal_agent: false
+  scanner_reversal_exit:
+    enabled: true
+    alert_telegram: true
+    tighten_sl: true
+    min_score: 77
+    require_confirmed_bos: true
+    min_position_age_min: 15
+    tighten_from_mark_pct: 0.35
+    entry_buffer_pct: 0.05
+    min_sl_improve_pct: 0.03
+    symbol_cooldown_sec: 1800
 
 telegram_signal_agent:
   enabled: false

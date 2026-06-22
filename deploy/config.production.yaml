@@ -522,7 +522,7 @@ market_scanner:
     enabled: true
     alert_telegram: true
     tighten_sl: true
-    min_score: 72
+    min_score: 77
     require_confirmed_bos: true
     min_position_age_min: 15
     tighten_from_mark_pct: 0.35
@@ -559,7 +559,7 @@ telegram_signal_agent:
     enabled: true
     alert_telegram: true
     tighten_sl: true
-    min_score: 72
+    min_score: 77
     require_confirmed_bos: true
     min_position_age_min: 15
     tighten_from_mark_pct: 0.35
