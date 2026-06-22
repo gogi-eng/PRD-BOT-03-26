@@ -55,6 +55,7 @@ api_cache:
   price_ttl_sec: 8
   tickers_ttl_sec: 30
 bot:
+  signal_only: false
   signal_cooldown_sec: 5400
 bot_manager:
   enabled: true
@@ -215,6 +216,11 @@ position_sync:
   preserve_existing_sl_tp: true
 positions:
   adopt_manual: true
+  liquidation_guard:
+    enabled: true
+    buffer_pct: 0.85
+    skip_manual: true
+    emergency_close: true
   breakeven_after_pct: 1.5
   exit_management:
     close_on_late_retrace: false
@@ -308,6 +314,8 @@ risk:
 entry_pipeline:
   enabled: true
   mode: balanced
+  partial_pass_band: 1.0
+  partial_pass_size_mult: 0.40
   regime_thresholds:
     enabled: false
     trend: 5.0

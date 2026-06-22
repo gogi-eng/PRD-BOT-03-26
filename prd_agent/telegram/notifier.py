@@ -66,6 +66,25 @@ class TelegramNotifier:
     async def signal_skipped(self, symbol: str, side: str, reason: str) -> None:
         await self.send(f"⏭ <b>Пропуск</b> {symbol} {side}\n{reason[:400]}")
 
+    async def signal_only_preview(
+        self,
+        symbol: str,
+        side: str,
+        conf: float,
+        entry: float,
+        sl: float,
+        tp: float,
+        leverage: int,
+        reason: str = "",
+    ) -> None:
+        await self.send(
+            f"🔭 <b>Signal-only</b> (ордер НЕ отправлен)\n"
+            f"{symbol} {side} conf={conf:.0%}\n"
+            f"entry≈<code>{entry:.6g}</code> sl=<code>{sl:.6g}</code> "
+            f"tp=<code>{tp:.6g}</code> lev={leverage}x\n"
+            f"{reason[:350]}"
+        )
+
     async def order_placed(
         self,
         symbol: str,
