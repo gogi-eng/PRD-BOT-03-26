@@ -5,6 +5,8 @@ from prd_agent.learning.winning_entry_rules import (
     analyze_winning_entries,
     build_markdown_report,
     build_telegram_report,
+    build_weight_recommendations,
+    classify_outcome_quality,
 )
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "analyze_winning_entries",
     "build_markdown_report",
     "build_telegram_report",
+    "build_weight_recommendations",
+    "classify_outcome_quality",
 ]
