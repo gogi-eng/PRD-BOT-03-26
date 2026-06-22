@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from prd_agent.learning.hermes_cursor_feed import (
     CURSOR_LIVE_FILENAME,
@@ -20,6 +21,8 @@ from prd_agent.learning.winning_entry_rules import (
 )
 
 GITHUB_REPO_DEFAULT = "https://github.com/gogi-eng/Analise_Hermes.git"
+GIT_COMMIT_NAME = "PRD-BOT Hermes"
+GIT_COMMIT_EMAIL = "hermes-bot@users.noreply.github.com"
 META_JSON_NAME = "meta.json"
 RULES_JSON_NAME = "winning_entry_rules.json"
 RULES_MD_NAME = "winning_entry_rules_report.md"
@@ -85,14 +88,43 @@ def write_github_sync_files(
     return live_path, feed_path, meta_path
 
 
-def _run_git(args: List[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _git_commit_env() -> Dict[str, str]:
+    return {
+        "GIT_AUTHOR_NAME": GIT_COMMIT_NAME,
+        "GIT_AUTHOR_EMAIL": GIT_COMMIT_EMAIL,
+        "GIT_COMMITTER_NAME": GIT_COMMIT_NAME,
+        "GIT_COMMITTER_EMAIL": GIT_COMMIT_EMAIL,
+    }
+
+
+def _run_git(
+    args: List[str],
+    cwd: Path,
+    *,
+    extra_env: Optional[Dict[str, str]] = None,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["git", *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
+
+
+def ensure_git_identity(github_dir: Path) -> None:
+    """Локальный user.name/email только в Analise_Hermes (без --global)."""
+    github_dir = Path(github_dir)
+    name = _run_git(["config", "user.name"], github_dir)
+    if not (name.stdout or "").strip():
+        _run_git(["config", "user.name", GIT_COMMIT_NAME], github_dir)
+    email = _run_git(["config", "user.email"], github_dir)
+    if not (email.stdout or "").strip():
+        _run_git(["config", "user.email", GIT_COMMIT_EMAIL], github_dir)
 
 
 def git_commit_and_push(
@@ -110,6 +142,8 @@ def git_commit_and_push(
             f"Клонируйте: git clone {GITHUB_REPO_DEFAULT}"
         )
 
+    ensure_git_identity(github_dir)
+
     add = _run_git(["add", "-A"], github_dir)
     if add.returncode != 0:
         raise RuntimeError(add.stderr or add.stdout or "git add failed")
@@ -119,7 +153,11 @@ def git_commit_and_push(
         print("GitHub: нет изменений для коммита")
         return False
 
-    commit = _run_git(["commit", "-m", message], github_dir)
+    commit = _run_git(
+        ["commit", "-m", message],
+        github_dir,
+        extra_env=_git_commit_env(),
+    )
     if commit.returncode != 0:
         raise RuntimeError(commit.stderr or commit.stdout or "git commit failed")
 
@@ -154,4 +192,5 @@ def ensure_github_clone(github_dir: Path, repo_url: str = GITHUB_REPO_DEFAULT) -
     )
     if clone.returncode != 0:
         raise RuntimeError(clone.stderr or clone.stdout or "git clone failed")
+    ensure_git_identity(github_dir)
     return github_dir

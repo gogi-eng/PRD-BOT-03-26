@@ -8,6 +8,10 @@ if [[ ! -d "$HERMES_DIR/.git" ]]; then
   git clone "$REPO" "$HERMES_DIR"
 fi
 
+# Локальная идентификация git (только этот репозиторий, не --global)
+git -C "$HERMES_DIR" config user.name "PRD-BOT Hermes"
+git -C "$HERMES_DIR" config user.email "hermes-bot@users.noreply.github.com"
+
 cat <<EOF
 
 OK: $HERMES_DIR
