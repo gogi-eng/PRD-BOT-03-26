@@ -20,7 +20,10 @@ from prd_agent.learning.winning_entry_rules import (
     build_markdown_report,
 )
 
-GITHUB_REPO_DEFAULT = "https://github.com/gogi-eng/Analise_Hermes.git"
+GITHUB_REPO_HTTPS = "https://github.com/gogi-eng/Analise_Hermes.git"
+GITHUB_REPO_SSH = "git@github.com:gogi-eng/Analise_Hermes.git"
+GITHUB_REPO_DEFAULT = GITHUB_REPO_SSH
+DEFAULT_DEPLOY_KEY = Path("/root/.ssh/analise_hermes_deploy")
 GIT_COMMIT_NAME = "PRD-BOT Hermes"
 GIT_COMMIT_EMAIL = "hermes-bot@users.noreply.github.com"
 META_JSON_NAME = "meta.json"
@@ -104,6 +107,7 @@ def _run_git(
     extra_env: Optional[Dict[str, str]] = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
@@ -114,6 +118,24 @@ def _run_git(
         check=False,
         env=env,
     )
+
+
+def deploy_key_path() -> Path:
+    custom = (os.environ.get("HERMES_GITHUB_SSH_KEY") or "").strip()
+    return Path(custom) if custom else DEFAULT_DEPLOY_KEY
+
+
+def configure_github_ssh_push(github_dir: Path) -> None:
+    """SSH remote + deploy key (без HTTPS-пароля)."""
+    github_dir = Path(github_dir)
+    key = deploy_key_path()
+    if key.is_file():
+        ssh_cmd = (
+            f"ssh -i {key} -o IdentitiesOnly=yes "
+            "-o StrictHostKeyChecking=accept-new"
+        )
+        _run_git(["config", "core.sshCommand", ssh_cmd], github_dir)
+    _run_git(["remote", "set-url", "origin", GITHUB_REPO_SSH], github_dir)
 
 
 def ensure_git_identity(github_dir: Path) -> None:
@@ -143,6 +165,7 @@ def git_commit_and_push(
         )
 
     ensure_git_identity(github_dir)
+    configure_github_ssh_push(github_dir)
 
     add = _run_git(["add", "-A"], github_dir)
     if add.returncode != 0:
@@ -166,7 +189,14 @@ def git_commit_and_push(
         push_args.append(branch)
     push = _run_git(push_args, github_dir)
     if push.returncode != 0:
-        raise RuntimeError(push.stderr or push.stdout or "git push failed")
+        key = deploy_key_path()
+        hint = (
+            f"git push failed. Настройте Deploy Key:\n"
+            f"  ssh-keygen -t ed25519 -f {key} -N \"\"\n"
+            f"  cat {key}.pub  → GitHub Analise_Hermes → Deploy keys (Allow write)\n"
+            f"  bash deploy/hermes/install_analise_hermes_github.sh"
+        )
+        raise RuntimeError(f"{push.stderr or push.stdout or 'git push failed'}\n{hint}")
 
     print(f"GitHub: push OK → {GITHUB_REPO_DEFAULT}")
     return True
@@ -176,6 +206,7 @@ def ensure_github_clone(github_dir: Path, repo_url: str = GITHUB_REPO_DEFAULT) -
     """Клонировать Analise_Hermes если папки ещё нет."""
     github_dir = Path(github_dir)
     if (github_dir / ".git").is_dir():
+        configure_github_ssh_push(github_dir)
         pull = _run_git(["pull", "--rebase", "origin", "main"], github_dir)
         if pull.returncode != 0:
             pull = _run_git(["pull", "--rebase", "origin", "master"], github_dir)
@@ -193,4 +224,5 @@ def ensure_github_clone(github_dir: Path, repo_url: str = GITHUB_REPO_DEFAULT) -
     if clone.returncode != 0:
         raise RuntimeError(clone.stderr or clone.stdout or "git clone failed")
     ensure_git_identity(github_dir)
+    configure_github_ssh_push(github_dir)
     return github_dir

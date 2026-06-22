@@ -1,26 +1,49 @@
 #!/usr/bin/env bash
-# Один раз на VPS: клон Analise_Hermes + deploy key hint
+# Один раз на VPS: клон Analise_Hermes + Deploy Key (SSH push, без пароля GitHub)
 set -euo pipefail
 HERMES_DIR="${HERMES_GITHUB_DIR:-/root/Analise_Hermes}"
-REPO="https://github.com/gogi-eng/Analise_Hermes.git"
+REPO_SSH="git@github.com:gogi-eng/Analise_Hermes.git"
+DEPLOY_KEY="${HERMES_GITHUB_SSH_KEY:-/root/.ssh/analise_hermes_deploy}"
 
-if [[ ! -d "$HERMES_DIR/.git" ]]; then
-  git clone "$REPO" "$HERMES_DIR"
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+
+if [[ ! -f "$DEPLOY_KEY" ]]; then
+  ssh-keygen -t ed25519 -f "$DEPLOY_KEY" -N "" -C "prd-bot-hermes-deploy"
+  echo ""
+  echo "=== ДОБАВЬТЕ ЭТОТ КЛЮЧ В GITHUB (Allow write access) ==="
+  echo "GitHub → Analise_Hermes → Settings → Deploy keys → Add deploy key"
+  echo ""
+  cat "${DEPLOY_KEY}.pub"
+  echo ""
+  echo "==========================================================="
+  echo "После добавления ключа нажмите Enter..."
+  read -r
 fi
 
-# Локальная идентификация git (только этот репозиторий, не --global)
+if [[ ! -d "$HERMES_DIR/.git" ]]; then
+  GIT_SSH_COMMAND="ssh -i ${DEPLOY_KEY} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+    git clone "$REPO_SSH" "$HERMES_DIR"
+fi
+
 git -C "$HERMES_DIR" config user.name "PRD-BOT Hermes"
 git -C "$HERMES_DIR" config user.email "hermes-bot@users.noreply.github.com"
+git -C "$HERMES_DIR" config core.sshCommand \
+  "ssh -i ${DEPLOY_KEY} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+git -C "$HERMES_DIR" remote set-url origin "$REPO_SSH"
+
+echo ""
+echo "Проверка SSH к GitHub..."
+if ssh -i "$DEPLOY_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -qi "successfully authenticated"; then
+  echo "SSH OK"
+else
+  echo "Если видите 'Permission denied' — ключ ещё не добавлен в Deploy keys (с галочкой Write)."
+fi
 
 cat <<EOF
 
 OK: $HERMES_DIR
-
-Для git push с сервера настройте Deploy Key:
-  1) ssh-keygen -t ed25519 -f /root/.ssh/analise_hermes_deploy -N ""
-  2) GitHub → Analise_Hermes → Settings → Deploy keys → Add
-  3) В $HERMES_DIR:
-       git config core.sshCommand "ssh -i /root/.ssh/analise_hermes_deploy -o IdentitiesOnly=yes"
+Deploy key: $DEPLOY_KEY
 
 Тест публикации:
   cd /root/AGENT-WORLD
