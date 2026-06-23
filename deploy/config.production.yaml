@@ -80,8 +80,8 @@ trading:
     - BILL
 
 risk:
-  cooldown_after_loss_sec: 600
-  cooldown_after_stop_minutes: 30
+  cooldown_after_loss_sec: 300
+  cooldown_after_stop_minutes: 15
   daily_loss_blocks_until_next_day: true
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
@@ -426,7 +426,7 @@ supervisor_v4:
   enabled: true
   interval_hours: 2
   tick_every_cycles: 15
-  mode_cooldown_minutes: 120
+  mode_cooldown_minutes: 60
   min_risk_pct: 0.1
   lookback_hours: 168
   virtual_trades_enabled: true
@@ -464,8 +464,8 @@ supervisor_v4:
     - 21
     - 22
     - 23
-  panic_consecutive_losses: 3
-  panic_minutes: 90
+  panic_consecutive_losses: 4
+  panic_minutes: 45
   defensive_day_loss_usdt: -15
   skipped_backtest_interval_hours: 3.5
   # Hermes уровень 1: бэктест пропусков остаётся, но НЕ ослабляет config (конфликт с TP-профилем 0.92/RR2.2)
