@@ -102,7 +102,7 @@ def detect_active_rules(
         active.append("regime_chop")
 
     adx = _f(ctx, "adx")
-    if adx >= 25:
+    if adx >= 24:
         active.append("adx_ok")
         active.append("adx_strong")
     elif adx >= 15:
