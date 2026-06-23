@@ -682,7 +682,7 @@ class UnifiedOrchestrator:
         if soft.score + 1e-9 < min_score:
             return (
                 False,
-                f"soft_score {soft.score:.0f} < {min_score:.0f} (label={soft.label})",
+                f"soft_score {soft.score:.1f} < {min_score:.1f} (label={soft.label})",
             )
         return True, ""
 
