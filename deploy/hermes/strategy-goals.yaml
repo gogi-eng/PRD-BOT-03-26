@@ -1,0 +1,54 @@
+# Цели для self-improving loop (метод ZeroOne / Lewis Jackson)
+# Hermes оценивает сделки PRD-BOT по этим числам — без «на глаз».
+# Исполнение: только PRD-BOT + кнопки Telegram. Hermes НЕ меняет config сам.
+
+version: 1
+timezone: Europe/Moscow
+
+# Что считаем успехом / провалом (30 дней, как в ZeroOne classroom)
+targets:
+  return_30d_pct: 5.0          # B) Standard — Lewis default; можно 3 (консерв) или 10 (агресс)
+  max_drawdown_pct: 8.0        # провал — пауза входов / DEFENSIVE
+  min_sharpe: 0.8              # ниже — искать одну правку стратегии
+
+# На чём отражаемся (worker = PRD-BOT, не Railway)
+worker:
+  prod_path: /root/PRD-BOT-ALL
+  sandbox_path: /root/AGENT-WORLD
+  ledger_glob: data/ledger/*.jsonl
+  skip_stats: data/supervisor/skip_stats.json
+
+# Научный метод: одна переменная за цикл (как в ZeroOne)
+reflection:
+  every_n_closed_trades: 10      # после N закрытых сделок — цикл reflect
+  one_variable_only: true
+  allowed_variables:           # Hermes может ПРЕДЛОЖИТЬ только одно из этого за раз
+    - market_scanner_execute_min_score
+    - trailing_stop.activation_pct
+    - trailing_stop.distance_pct
+    - execution_sr_zones.target_initial_tp_rr
+    - supervisor.defensive_threshold
+    - derivatives_entry_guard.enabled
+  history_dir: ~/.hermes/state/history
+
+# Анализ удачных TP (пропущенные + реальные) → правила входа
+winning_entry_rules:
+  enabled: true
+  lookback_hours: 336
+  script: scripts/hermes_winning_entry_rules.py
+  output_json: data/learning/winning_entry_rules.json
+  output_md: data/learning/winning_entry_rules_report.md
+  skill: prd-bot-winning-entry-rules
+  outcomes: [profit, loss, neutral]
+  actions: [increase_weight, decrease_weight, consider_remove, keep]
+  cron_hint: "раз в неделю или после 20+ новых исходов"
+  cursor_feed:
+    github_repo: https://github.com/gogi-eng/Analise_Hermes
+    github_dir_server: /root/Analise_Hermes
+    script: scripts/hermes_cursor_feed.py
+    sync_local_ps1: scripts/hermes_sync_from_github.ps1
+    watch_interval_sec: 120
+    cursor_file: .cursor/HERMES_LIVE.md
+
+# Режим (как paper mode в ZeroOne — у нас исполнение уже на Bybit)
+mode: advisor_only             # advisor_only | suggest_config (всё равно без авто-правок)

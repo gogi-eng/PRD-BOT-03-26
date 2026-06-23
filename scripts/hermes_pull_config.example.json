@@ -1,0 +1,7 @@
+# Пример: скопируйте в scripts/hermes_pull_config.json (не коммитить с паролями)
+{
+  "ssh_host": "root@YOUR_DROPLET_IP",
+  "remote_md": "/root/AGENT-WORLD/data/learning/hermes_cursor_live.md",
+  "local_md": ".cursor/HERMES_LIVE.md",
+  "identity_file": ""
+}

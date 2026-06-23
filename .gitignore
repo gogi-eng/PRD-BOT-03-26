@@ -4,6 +4,7 @@
 !.env.example
 # config.yaml — в репозитории (секреты только в .env, поля ключей пустые)
 ai4trade.credentials.json
+scripts/hermes_pull_config.json
 data/
 
 # Python
