@@ -41,6 +41,9 @@ def test_sandbox_config_hermes_thresholds():
     assert cfg["rule_weight_learning"]["min_score_to_enter"] == 75.5
     assert cfg["entry_pipeline"]["min_confidence_high"] == 0.92
     assert cfg["entry_pipeline"]["min_atr_pct"] == 0.288
+    sb = cfg["supervisor_v4"]["skipped_signal_backtest"]
+    assert sb.get("auto_tune_filters") is False
+    assert cfg["supervisor_v4"].get("hermes_link", {}).get("respect_entry_profile") is True
 
 
 def test_production_config_hermes_thresholds():
