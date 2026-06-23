@@ -42,7 +42,7 @@ trading:
     active_sec: 45
     idle_sec: 120
     idle_after_quiet_min: 60
-  max_positions: 8
+  max_positions: 9  # Hermes ZeroOne: перенос с AGENT-WORLD (+1 слот)
   dynamic_leverage:
     enabled: true
     min: 20
@@ -468,9 +468,20 @@ supervisor_v4:
   panic_minutes: 90
   defensive_day_loss_usdt: -15
   skipped_backtest_interval_hours: 3.5
+  # Hermes уровень 1: бэктест пропусков остаётся, но НЕ ослабляет config (конфликт с TP-профилем 0.92/RR2.2)
+  hermes_link:
+    respect_entry_profile: true
+    rules_json_path: data/learning/winning_entry_rules.json
+  # AI-советник supervisor (уровень 2+, пока выкл.)
+  ai_advisory:
+    enabled: false
+    advisory_only: true
+    review_supervisor_skips: false
+    max_reviews_per_day: 10
+    min_confidence_to_review: 0.88
   skipped_signal_backtest:
     enabled: true
-    auto_tune_filters: true
+    auto_tune_filters: false
     auto_tune_min_samples: 5
     lookback_hours: 72
     max_per_run: 40
@@ -554,7 +565,7 @@ market_scanner:
 telegram_signal_agent:
   enabled: true
   auto_execute: true
-  auto_execute_max_open_positions: 6
+  auto_execute_max_open_positions: 7  # Hermes ZeroOne: в паре с max_positions 9
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true

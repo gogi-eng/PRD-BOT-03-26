@@ -51,6 +51,11 @@ def test_production_config_hermes_thresholds():
     assert cfg["quality_gate"]["min_confidence"] == 0.92
     assert cfg["quality_gate"]["min_rr_ratio"] == 2.2
     assert cfg["rule_weight_learning"]["min_score_to_enter"] == 75.5
+    assert cfg["trading"]["max_positions"] == 9
+    sb = cfg["supervisor_v4"]["skipped_signal_backtest"]
+    assert sb.get("auto_tune_filters") is False
+    assert cfg["supervisor_v4"].get("hermes_link", {}).get("respect_entry_profile") is True
+    assert cfg["telegram_signal_agent"]["auto_execute_max_open_positions"] == 7
 
 
 def test_quality_gate_blocks_low_confidence():
