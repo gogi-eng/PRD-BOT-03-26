@@ -7,7 +7,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
@@ -638,25 +638,57 @@ class UnifiedOrchestrator:
                 out.add(sym)
         return out
 
-    def _signal_trade_priority(self, sig: UnifiedSignal) -> float:
-        """Приоритет сделки: soft score + confidence (validated правила усиливают soft score)."""
+    def _build_soft_score_context(
+        self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
+    ) -> Dict[str, Any]:
         tz = int(self.cfg.get("timezone_offset", 3) or 3)
         ctx: Dict[str, Any] = {
             "local_hour": (datetime.now(timezone.utc).hour + tz) % 24,
             "side": str(sig.side or "").upper(),
         }
+        if atr_pct_frac > 0:
+            ctx["atr_pct"] = round(atr_pct_frac * 100.0, 4)
         raw = sig.raw if isinstance(sig.raw, dict) else {}
         for key in (
             "htf_trend",
             "regime",
             "adx",
             "atr_pct",
+            "rsi",
             "normalized_imbalance",
             "spread_pct",
             "volume_24h_usdt",
         ):
             if key in raw:
                 ctx[key] = raw[key]
+        return ctx
+
+    def _check_entry_soft_gate(
+        self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
+    ) -> Tuple[bool, str]:
+        rwl = self.cfg.get("rule_weight_learning", {})
+        if not isinstance(rwl, dict):
+            return True, ""
+        min_score = float(rwl.get("min_score_to_enter", 0) or 0)
+        if min_score <= 0:
+            return True, ""
+        ctx = self._build_soft_score_context(sig, atr_pct_frac=atr_pct_frac)
+        soft = compute_soft_score(
+            ctx,
+            side=sig.side,
+            cfg=self.cfg,
+            rule_weights=self.rule_weight_tracker.get_weights(),
+        )
+        if soft.score + 1e-9 < min_score:
+            return (
+                False,
+                f"soft_score {soft.score:.0f} < {min_score:.0f} (label={soft.label})",
+            )
+        return True, ""
+
+    def _signal_trade_priority(self, sig: UnifiedSignal) -> float:
+        """Приоритет сделки: soft score + confidence (validated правила усиливают soft score)."""
+        ctx = self._build_soft_score_context(sig)
         soft = compute_soft_score(
             ctx,
             side=sig.side,
@@ -1108,6 +1140,16 @@ class UnifiedOrchestrator:
         pipeline_size_mult = float(pipe.size_mult or 1.0)
         if pipe.reason:
             logger.info("Entry pipeline %s %s: %s", sig.symbol, sig.side, pipe.reason)
+
+        atr_pct_frac = atr_v / eff_entry if eff_entry > 0 and atr_v > 0 else 0.0
+        soft_ok, soft_reason = self._check_entry_soft_gate(sig, atr_pct_frac=atr_pct_frac)
+        if not soft_ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, soft_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, soft_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", soft_reason)
+            if not self._is_silent_skip(soft_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, soft_reason)
+            return
 
         q_ok, q_reason = await self.quality_gate.check(
             sig, self.exchange, entry=eff_entry, sl=sl, tp=tp

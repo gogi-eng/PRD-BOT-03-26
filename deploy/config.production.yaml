@@ -49,8 +49,8 @@ trading:
     max: 50
     min_confidence: 0.68
     max_confidence: 0.95
-  min_signal_confidence: 0.85
-  min_own_agent_confidence: 0.82
+  min_signal_confidence: 0.92  # Hermes TP median confidence 0.9235
+  min_own_agent_confidence: 0.92
   min_multi_agent_score: 0.4
   risk_pct_per_trade: 0.35
   min_24h_volume_usdt: 10000000
@@ -94,6 +94,11 @@ entry_pipeline:
   mode: balanced
   partial_pass_band: 1.0
   partial_pass_size_mult: 0.40
+  # Hermes TP-профиль (медианы победителей, окно 336ч)
+  min_confidence_high: 0.92
+  min_confidence_mid: 0.80
+  min_atr_pct: 0.288
+  sweet_atr_pct: 0.45
   regime_thresholds:
     enabled: false
     trend: 5.0
@@ -124,13 +129,13 @@ risk_presets:
       mode: strict
   normal:
     trading:
-      min_signal_confidence: 0.85
+      min_signal_confidence: 0.92
       risk_pct_per_trade: 0.35
     quality_gate:
-      min_rr_ratio: 2.0
-      min_confidence: 0.85
+      min_rr_ratio: 2.2
+      min_confidence: 0.92
     signals:
-      min_analysis_confidence: 0.88
+      min_analysis_confidence: 0.92
     entry_pipeline:
       mode: balanced
   aggressive:
@@ -152,7 +157,7 @@ signals:
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
   min_telegram_confidence: 0.65
-  min_analysis_confidence: 0.88
+  min_analysis_confidence: 0.92
   min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
   whale_news_enabled: true
@@ -185,13 +190,13 @@ ta_scanner:
   interval: "15"
   kline_limit: 120
   parallel_klines: 5
-  min_confidence: 0.82
+  min_confidence: 0.92
   atr_sl_mult: 1.2
-  atr_tp_mult: 2.5
-  min_rr: 2.0
-  rsi_buy_min: 38
+  atr_tp_mult: 2.64
+  min_rr: 2.2
+  rsi_buy_min: 37
   rsi_buy_max: 68
-  rsi_sell_min: 32
+  rsi_sell_min: 37
   rsi_sell_max: 62
 
 portfolio_tp:
@@ -300,7 +305,7 @@ execution_sr_zones:
   sl_sr_level_index: 0
   sl_extra_buffer_atr: 0.18
   tp_extra_buffer_atr: 0.08
-  preserve_min_rr: 2.0
+  preserve_min_rr: 2.2
   prefer_far_tp: true
   tp_sr_level_index: 2
   target_initial_tp_rr: 6.0
@@ -342,9 +347,9 @@ bot:
 entry:
   entry_threshold: 0.58
   entry_threshold_soft: 0.55
-  min_volatility_pct: 0.06
+  min_volatility_pct: 0.29
   volatility_floor_enabled: true
-  volatility_floor_atr_pct: 0.06
+  volatility_floor_atr_pct: 0.29
   require_4h_trend: false
   strict_htf_mode: true
   min_orderflow_imbalance: 1.24
@@ -372,7 +377,7 @@ adaptive_regime_presets:
   notify_on_switch: true
   benchmark_symbol: BTCUSDT
   trend_strict_htf_mode: true
-  trend_volatility_floor_atr_pct: 0.06
+  trend_volatility_floor_atr_pct: 0.29
   trend_require_4h_trend: false
   range_strict_htf_mode: false
   range_volatility_floor_atr_pct: 0.02
@@ -397,14 +402,15 @@ rule_weight_learning:
   max_size_mult: 1.12
   max_confidence_boost: 0.05
   refresh_interval_sec: 3600
-  favorable_threshold: 65
+  favorable_threshold: 76
   neutral_threshold: 50
   caution_threshold: 40
+  min_score_to_enter: 75.5
 
 quality_gate:
   enabled: true
-  min_confidence: 0.85
-  min_rr_ratio: 2.0
+  min_confidence: 0.92
+  min_rr_ratio: 2.2
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
   block_meme_symbol_substrings:
@@ -558,7 +564,7 @@ telegram_signal_agent:
   telegram_notify: true
   market_scanner_interval_sec: 600
   market_scanner_min_score_to_notify: 58
-  market_scanner_execute_min_score: 75
+  market_scanner_execute_min_score: 76
   market_scanner_execute_require_confirmed_bos: true
   market_scanner_bos_watchlist_enabled: true
   market_scanner_bos_watchlist_timeout_hours: 6
@@ -634,7 +640,7 @@ telegram_signal_agent:
 
 reporter:
   interval_hours: 2
-  high_confidence_threshold: 0.90
+  high_confidence_threshold: 0.92
 
 self_improvement:
   enabled: true

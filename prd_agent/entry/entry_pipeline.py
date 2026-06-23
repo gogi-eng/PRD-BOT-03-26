@@ -106,12 +106,15 @@ def evaluate_entry_pipeline(
     threshold = resolve_pipeline_threshold(cfg, mode, market_regime)
     breakdown: Dict[str, float] = {}
 
+    conf_high = float(pc.get("min_confidence_high", 0.92) or 0.92)
+    conf_mid = float(pc.get("min_confidence_mid", 0.80) or 0.80)
+    conf_low = float(pc.get("min_confidence_low", 0.70) or 0.70)
     conf = float(sig.confidence)
-    if conf >= 0.90:
+    if conf >= conf_high:
         breakdown["confidence"] = 2.0
-    elif conf >= 0.80:
+    elif conf >= conf_mid:
         breakdown["confidence"] = 1.5
-    elif conf >= 0.70:
+    elif conf >= conf_low:
         breakdown["confidence"] = 1.0
     else:
         breakdown["confidence"] = 0.0
@@ -145,10 +148,14 @@ def evaluate_entry_pipeline(
     else:
         breakdown["source"] = 0.0
 
-    if atr_pct >= 0.003:
+    atr_floor = float(pc.get("min_atr_pct", 0.288) or 0.288) / 100.0
+    atr_sweet = float(pc.get("sweet_atr_pct", 0.45) or 0.45) / 100.0
+    if atr_pct >= atr_sweet:
         breakdown["volatility"] = 1.0
-    elif atr_pct >= 0.0015:
-        breakdown["volatility"] = 0.5
+    elif atr_pct >= atr_floor:
+        breakdown["volatility"] = 0.75
+    elif atr_pct >= atr_floor * 0.5:
+        breakdown["volatility"] = 0.25
     else:
         breakdown["volatility"] = 0.0
 
