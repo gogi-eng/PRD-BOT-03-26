@@ -232,7 +232,8 @@ positions:
     time_stop_minutes: 120
     time_stop_min_atr_progress: 0.25
     close_on_time_stop: true
-    early_breakeven_enabled: true
+    # 24.06 ZeroOne 1+2: убрать двойной БУ с tp_progress (как AGENT-WORLD)
+    early_breakeven_enabled: false
     early_breakeven_atr_mult: 1.2
     early_breakeven_pct: 0.85
     late_breakeven_enabled: true
@@ -241,8 +242,8 @@ positions:
     late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_profit_pct: 0.9
-    sr_trail_at_profit_pct: 1.5
+    breakeven_at_profit_pct: 1.05
+    sr_trail_at_profit_pct: 1.8
     be_fee_buffer_pct: 0.05
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
@@ -303,7 +304,7 @@ execution_sr_zones:
   enabled: true
   kline_interval: "15"
   kline_limit: 120
-  sl_sr_level_index: 0
+  sl_sr_level_index: 1
   sl_extra_buffer_atr: 0.18
   tp_extra_buffer_atr: 0.08
   preserve_min_rr: 2.2
