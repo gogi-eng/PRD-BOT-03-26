@@ -3490,7 +3490,7 @@ class TelegramSignalAgent:
         telegram_send(token, chat_id, text, max_retries=1)
 
     @contextmanager
-    def _market_scan_cross_process_lock(self) -> Iterator[bool]:
+    def _market_scan_cross_process_lock(self, label: str = "Market scan") -> Iterator[bool]:
         """Один проход сканера на все процессы (tg_agent + unified bot)."""
         if fcntl is None:
             yield True
@@ -3504,7 +3504,7 @@ class TelegramSignalAgent:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 acquired = True
             except BlockingIOError:
-                LOG.info("Market scan skipped: lock held by another process")
+                LOG.info("%s skipped: lock held by another process", label)
                 yield False
                 return
             yield True
@@ -3925,7 +3925,7 @@ class TelegramSignalAgent:
     async def run_spike_scan_once(self) -> list[MarketSetup]:
         if not self.spike_scalp_enabled:
             return []
-        with self._market_scan_cross_process_lock() as acquired:
+        with self._market_scan_cross_process_lock(label="Spike scan") as acquired:
             if not acquired:
                 return []
             return await self._run_spike_scan_once_locked()

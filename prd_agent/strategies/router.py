@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from prd_agent.strategies.base import StrategyProfile
 from prd_agent.strategies.scalp_strategy import SCALP_PROFILE
 from prd_agent.strategies.swing_strategy import SWING_PROFILE
+from prd_agent.time_hours import entry_check_hour, read_timezone_offset
 
 logger = logging.getLogger("prd_agent.strategies")
 
@@ -17,6 +18,19 @@ _PROFILES = {
     "scalp": SCALP_PROFILE,
     "swing": SWING_PROFILE,
 }
+
+
+def _scalp_hours_set(cfg: Dict[str, Any], strat_block: Dict[str, Any]) -> set[int]:
+    """Часы скальпа: scalp_hours_local (местное UTC+offset), иначе scalp_hours_utc (legacy)."""
+    raw = strat_block.get("scalp_hours_local")
+    if raw is None:
+        raw = strat_block.get("scalp_hours_utc")
+    if not isinstance(raw, list) or not raw:
+        return set()
+    try:
+        return {int(h) % 24 for h in raw}
+    except (TypeError, ValueError):
+        return set()
 
 
 def resolve_active_strategy(
@@ -33,15 +47,12 @@ def resolve_active_strategy(
     if explicit in _PROFILES:
         return _PROFILES[explicit]
 
-    hour = utc_hour if utc_hour is not None else datetime.now(timezone.utc).hour
-    scalp_hours = strat_block.get("scalp_hours_utc")
-    if isinstance(scalp_hours, list) and scalp_hours:
-        try:
-            hours_set = {int(h) for h in scalp_hours}
-        except (TypeError, ValueError):
-            hours_set = set()
-        if hour in hours_set:
-            return SCALP_PROFILE
+    raw_hour = utc_hour if utc_hour is not None else datetime.now(timezone.utc).hour
+    tz = read_timezone_offset(cfg)
+    check_hour = entry_check_hour(int(raw_hour), tz) if tz else int(raw_hour) % 24
+    hours_set = _scalp_hours_set(cfg, strat_block)
+    if hours_set and check_hour in hours_set:
+        return SCALP_PROFILE
 
     return SWING_PROFILE
 

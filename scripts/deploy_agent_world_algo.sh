@@ -28,8 +28,10 @@ git fetch origin "$BRANCH"
 # FETCH_HEAD надёжнее origin/BRANCH на shallow-клонах без remote-tracking ref
 REF="FETCH_HEAD"
 git reset --hard "$REF"
-git checkout -B "$BRANCH" 2>/dev/null || git branch -f "$BRANCH" HEAD
-echo "✓ Код: $(git rev-parse --short HEAD) ветка $(git branch --show-current)"
+# checkout -B иногда падает Bus error на VPS — достаточно указателя ветки на HEAD
+git branch -f "$BRANCH" HEAD 2>/dev/null || true
+SHORT="$(git rev-parse --short HEAD)"
+echo "✓ Код: ${SHORT} (ветка ${BRANCH})"
 
 PYTHON=""
 for cand in venv/bin/python3 venv/bin/python .venv/bin/python3; do
