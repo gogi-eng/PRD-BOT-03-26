@@ -186,7 +186,7 @@ external_sentiment:
 ta_scanner:
   enabled: true
   min_24h_change_pct: 1.0
-  min_intraday_range_pct: 3.0  # ZeroOne 24.06: фокус на движении 3–10%
+  min_intraday_range_pct: 1.0
   max_symbols: 15
   interval: "15"
   kline_limit: 120
