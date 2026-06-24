@@ -64,12 +64,9 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC
+    # местное UTC+3 (см. timezone_offset), не UTC; Hermes PnL>0 2026-06-24: сняты 12,17,18
     - 3
     - 7
-    - 12
-    - 17
-    - 18
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -431,14 +428,11 @@ supervisor_v4:
     - CLOUSDT
     - DUSKUSDT
   seed_blocked_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC
+    # местное UTC+3 (см. timezone_offset), не UTC; синхрон с block_entry
     - 3
     - 7
-    - 12
-    - 17
-    - 18
   preferred_utc_hours:
-    # местное UTC+3 — «хорошие» часы для DEFENSIVE (все кроме block_entry)
+    # местное UTC+3 — «хорошие» часы DEFENSIVE (все кроме block_entry)
     - 0
     - 1
     - 2
@@ -449,10 +443,13 @@ supervisor_v4:
     - 9
     - 10
     - 11
+    - 12
     - 13
     - 14
     - 15
     - 16
+    - 17
+    - 18
     - 19
     - 20
     - 21

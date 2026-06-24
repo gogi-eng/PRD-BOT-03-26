@@ -20,11 +20,25 @@ def test_explicit_scalp():
 
 
 def test_hour_based_scalp():
-    cfg = {"trading": {"strategies": {"scalp_hours_utc": [14, 15, 16]}}}
-    p = resolve_active_strategy(cfg, utc_hour=15)
+    cfg = {
+        "timezone_offset": 3,
+        "trading": {"strategies": {"scalp_hours_local": [14, 15, 16]}},
+    }
+    # UTC 12 = местное 15 → scalp
+    p = resolve_active_strategy(cfg, utc_hour=12)
     assert p.name == "scalp"
-    p2 = resolve_active_strategy(cfg, utc_hour=3)
+    p2 = resolve_active_strategy(cfg, utc_hour=0)
     assert p2.name == "swing"
+
+
+def test_hour_based_scalp_legacy_utc_list_with_offset():
+    """scalp_hours_utc при timezone_offset трактуется как местные часы (обратная совместимость)."""
+    cfg = {
+        "timezone_offset": 3,
+        "trading": {"strategies": {"scalp_hours_utc": [15]}},
+    }
+    assert resolve_active_strategy(cfg, utc_hour=12).name == "scalp"
+    assert resolve_active_strategy(cfg, utc_hour=11).name == "swing"
 
 
 def test_router_refresh():
