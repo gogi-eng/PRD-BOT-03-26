@@ -25,6 +25,7 @@ from prd_agent.supervisor.trade_advisor import LeverageAdvice, TradeAdvisor
 from prd_agent.supervisor.skipped_signal_backtest import SkippedSignalBacktester
 from prd_agent.supervisor.virtual_trade_engine import VirtualTradeEngine
 from prd_agent.supervisor.correction_agent import CorrectionAgent
+from prd_agent.supervisor.hermes_bypass import evaluate_hermes_bypass_level2
 from prd_agent.time_hours import entry_check_hour, format_blocked_hour_label, read_timezone_offset
 
 logger = logging.getLogger("prd_agent.supervisor.v4")
@@ -600,6 +601,38 @@ class SupervisorV4:
                 logger.exception("CorrectionAgent on_can_enter failed")
                 return default_ok, default_reason
         return default_ok, default_reason
+
+    def can_enter_with_hermes(
+        self,
+        symbol: str = "",
+        *,
+        sig: Optional[UnifiedSignal] = None,
+        entry_context: Optional[Dict[str, Any]] = None,
+        utc_hour: Optional[int] = None,
+    ) -> Tuple[bool, str]:
+        """can_enter + Hermes bypass L2 для TP-профиля (DEFENSIVE / learned hours)."""
+        ok, reason = self.can_enter(symbol, utc_hour=utc_hour)
+        if ok:
+            return True, ""
+        if sig is None:
+            return False, reason
+        bypass_ok, bypass_reason = evaluate_hermes_bypass_level2(
+            self.cfg,
+            self,
+            sig,
+            entry_context or {},
+            denied_reason=reason,
+            utc_hour=utc_hour,
+        )
+        if bypass_ok:
+            logger.info(
+                "Hermes bypass L2 %s %s: %s",
+                sig.symbol,
+                sig.side,
+                bypass_reason,
+            )
+            return True, bypass_reason
+        return False, reason
 
     def effective_risk_pct(self, base_risk_pct: float) -> float:
         if not self.enabled:

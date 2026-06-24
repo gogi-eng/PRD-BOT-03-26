@@ -1,4 +1,5 @@
-# AGENT-WORLD sandbox — ветка 12.06.26-ALGO, субаккаунт Bybit.
+# AGENT-WORLD sandbox — субаккаунт Bybit.
+# 03.06.26: выровнен с PRD (плечо, риск, лимиты, derivatives/regime, telegram auto_execute) для A/B наблюдения.
 # Путь на сервере: /root/AGENT-WORLD
 # Установка: bash scripts/install_agent_world_config.sh
 # .env: BYBIT_API_KEY/SECRET = ключи СУБАККАУНТА (отдельные от основного PRD-BOT-ALL).
@@ -37,7 +38,7 @@ bot_manager:
 
 trading:
   auto_start: true
-  leverage: 10
+  leverage: 20
   loop_interval_sec: 60
   adaptive_loop:
     enabled: true
@@ -48,14 +49,14 @@ trading:
   max_positions: 9  # Hermes ZeroOne 23.06: было 8 (+1 слот, только песочница)
   dynamic_leverage:
     enabled: true
-    min: 5
-    max: 15
+    min: 20
+    max: 50
     min_confidence: 0.68
     max_confidence: 0.95
   min_signal_confidence: 0.92  # Hermes TP median confidence 0.9235
   min_own_agent_confidence: 0.92
   min_multi_agent_score: 0.4
-  risk_pct_per_trade: 0.15
+  risk_pct_per_trade: 0.35
   active_strategy: swing
   strategies:
     scalp_hours_utc: [14, 15, 16, 17, 18, 19, 20, 21]
@@ -71,9 +72,10 @@ trading:
     - DUSKUSDT
   block_entry_utc_hours:
     # местное UTC+3 (см. timezone_offset), не UTC
+    # ZeroOne 24.06: +4 (худший час убытков), -12 (мало минусов, Hermes local_hour>=9)
     - 3
+    - 4
     - 7
-    - 12
     - 17
     - 18
   symbol_blacklist_substrings:
@@ -86,48 +88,39 @@ trading:
     - BILL
 
 risk:
-  cooldown_after_loss_sec: 600
-  cooldown_after_stop_minutes: 30
+  cooldown_after_loss_sec: 300
+  cooldown_after_stop_minutes: 15
   daily_loss_blocks_until_next_day: true
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
-  max_daily_loss_usdt: 15
-  max_trades_per_day: 12
+  max_daily_loss_usdt: 50
+  max_trades_per_day: 38
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
 entry_pipeline:
   enabled: true
   mode: balanced
-  partial_pass_band: 1.2
-  partial_pass_size_mult: 0.35
+  partial_pass_band: 1.0
+  partial_pass_size_mult: 0.40
   # Hermes TP-профиль (медианы победителей, окно 336ч)
   min_confidence_high: 0.92
   min_confidence_mid: 0.80
   min_atr_pct: 0.288
   sweet_atr_pct: 0.45
   regime_thresholds:
-    enabled: true
-    trend: 4.5
-    chop: 5.0
-    breakout: 4.8
+    enabled: false
+    trend: 5.0
+    chop: 6.0
+    breakout: 5.5
 
-# Apodex Priority-1: funding + OI + long/short ratio (только песочница)
 derivatives_entry_guard:
-  enabled: true
-  advisory_only: true
+  enabled: false
   block_on_extreme_funding: true
-  block_on_crowded_funding: false
-  high_funding_threshold: 0.0005
-  extreme_funding_threshold: 0.001
-  oi_spike_pct_threshold: 5.0
-  oi_spike_block_with_crowd: true
-  oi_significant_pct: 5.0
   long_short_ratio:
     enabled: true
     block_on_crowd: true
     long_crowded_buy_ratio: 0.72
     short_crowded_buy_ratio: 0.28
-    period: "1h"
 
 multi_agent_review:
   enabled: true
@@ -185,7 +178,7 @@ signals:
 ta_scanner:
   enabled: true
   min_24h_change_pct: 1.0
-  min_intraday_range_pct: 0.8
+  min_intraday_range_pct: 1.0
   max_symbols: 15
   interval: "15"
   kline_limit: 120
@@ -433,7 +426,7 @@ supervisor_v4:
   enabled: true
   interval_hours: 2
   tick_every_cycles: 15
-  mode_cooldown_minutes: 120
+  mode_cooldown_minutes: 60
   min_risk_pct: 0.1
   lookback_hours: 168
   virtual_trades_enabled: true
@@ -446,8 +439,8 @@ supervisor_v4:
   seed_blocked_utc_hours:
     # местное UTC+3 (см. timezone_offset), не UTC
     - 3
+    - 4
     - 7
-    - 12
     - 17
     - 18
   preferred_utc_hours:
@@ -455,13 +448,13 @@ supervisor_v4:
     - 0
     - 1
     - 2
-    - 4
     - 5
     - 6
     - 8
     - 9
     - 10
     - 11
+    - 12
     - 13
     - 14
     - 15
@@ -471,15 +464,23 @@ supervisor_v4:
     - 21
     - 22
     - 23
-  panic_consecutive_losses: 3
-  panic_minutes: 90
+  panic_consecutive_losses: 4
+  panic_minutes: 45
   defensive_day_loss_usdt: -15
   skipped_backtest_interval_hours: 3.5
   # Hermes уровень 1: бэктест пропусков остаётся, но НЕ ослабляет config (конфликт с TP-профилем 0.92/RR2.2)
   hermes_link:
     respect_entry_profile: true
     rules_json_path: data/learning/winning_entry_rules.json
-  # AI-советник supervisor (уровень 2+, пока выкл.): только advisory, без override panic/лимитов
+    hermes_bypass:
+      level: 2
+      enabled: true
+      min_confidence: 0.92
+      min_local_hour: 9
+      require_soft_label: favorable
+      min_atr_pct: 0.288
+      max_atr_pct: 2.0
+  # AI-советник supervisor (уровень 3+, пока выкл.): только advisory, без override panic/лимитов
   ai_advisory:
     enabled: false
     advisory_only: true
@@ -573,8 +574,8 @@ market_scanner:
     symbol_cooldown_sec: 1800
 
 telegram_signal_agent:
-  enabled: false
-  auto_execute: false
+  enabled: true
+  auto_execute: true
   auto_execute_max_open_positions: 7  # Hermes ZeroOne 23.06: было 6 (в паре с max_positions 9)
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
@@ -593,6 +594,8 @@ telegram_signal_agent:
   market_scanner_symbol_cooldown_sec: 3600
   market_scanner_top_n: 3
   market_scanner_max_symbols: 60
+  market_scanner_max_range_pct: 7.5
+  market_scanner_max_range_pct_ceiling: 11.0
   control_panel_enabled: false
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
