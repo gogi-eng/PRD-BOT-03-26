@@ -638,6 +638,16 @@ class UnifiedOrchestrator:
                 out.add(sym)
         return out
 
+    def _supervisor_can_enter(
+        self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
+    ) -> Tuple[bool, str]:
+        ctx = self._build_soft_score_context(sig, atr_pct_frac=atr_pct_frac)
+        return self.supervisor.can_enter_with_hermes(
+            sig.symbol.upper(),
+            sig=sig,
+            entry_context=ctx,
+        )
+
     def _build_soft_score_context(
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
     ) -> Dict[str, Any]:
@@ -834,7 +844,7 @@ class UnifiedOrchestrator:
             if sym in open_symbols:
                 await self._skip_if_position_open(sig)
                 continue
-            meta_ok, meta_reason = self.supervisor.can_enter(sym)
+            meta_ok, meta_reason = self._supervisor_can_enter(sig)
             if not meta_ok:
                 self.ledger.record(
                     symbol=sig.symbol,
@@ -962,14 +972,6 @@ class UnifiedOrchestrator:
     ) -> None:
         if await self._skip_if_position_open(sig, ledger_id):
             self.supervisor.note_signal_outcome(ledger_id, "skipped", "position_open")
-            return
-        meta_ok, meta_reason = self.supervisor.can_enter(sig.symbol)
-        if not meta_ok:
-            logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, meta_reason)
-            self.supervisor.note_signal_outcome(ledger_id, "skipped", meta_reason)
-            if not self._is_silent_skip(meta_reason):
-                await self.notifier.signal_skipped(sig.symbol, sig.side, meta_reason)
             return
         ok, reason = self.risk.can_trade(sig.symbol)
         if not ok:
@@ -1099,7 +1101,15 @@ class UnifiedOrchestrator:
             return
 
 
-        meta_ok, _ = self.supervisor.can_enter(sig.symbol)
+        atr_pct_frac_pre = atr_v / eff_entry if eff_entry > 0 and atr_v > 0 else 0.0
+        meta_ok, meta_reason = self._supervisor_can_enter(sig, atr_pct_frac=atr_pct_frac_pre)
+        if not meta_ok:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, meta_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", meta_reason)
+            if not self._is_silent_skip(meta_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, meta_reason)
+            return
         raw = sig.raw if isinstance(sig.raw, dict) else {}
         market_regime = str(raw.get("regime", "chop") or "chop").lower()
 

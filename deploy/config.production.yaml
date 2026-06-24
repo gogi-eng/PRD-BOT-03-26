@@ -473,7 +473,15 @@ supervisor_v4:
   hermes_link:
     respect_entry_profile: true
     rules_json_path: data/learning/winning_entry_rules.json
-  # AI-советник supervisor (уровень 2+, пока выкл.)
+    hermes_bypass:
+      level: 2
+      enabled: true
+      min_confidence: 0.92
+      min_local_hour: 9
+      require_soft_label: favorable
+      min_atr_pct: 0.288
+      max_atr_pct: 2.0
+  # AI-советник supervisor (уровень 3+, пока выкл.)
   ai_advisory:
     enabled: false
     advisory_only: true
