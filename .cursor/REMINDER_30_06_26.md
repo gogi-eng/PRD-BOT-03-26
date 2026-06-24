@@ -11,4 +11,14 @@
 
 Подробно: `.cursor/PLAN_30_06_26.md`
 
+**На сервере (авто):**
+```bash
+cd /root/PRD-BOT-ALL
+bash scripts/register_checkpoint_30_06_reminder.sh
+# или systemd:
+sudo cp deploy/checkpoint-30-06-reminder.service deploy/checkpoint-30-06-reminder.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now checkpoint-30-06-reminder.timer
+```
+**Тест Telegram:** `python scripts/remind_checkpoint_30_06_26.py --force`
+
 **В чате Cursor:** «план 30.06» или «чекпоинт наблюдения»
