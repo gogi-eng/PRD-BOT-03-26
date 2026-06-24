@@ -1,0 +1,13 @@
+[Unit]
+Description=PRD checkpoint reminder 30.06.2026 (observation package 1+2)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/PRD-BOT-ALL
+Environment=TZ=UTC
+ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/scripts/remind_checkpoint_30_06_26.py
+
+[Install]
+WantedBy=multi-user.target

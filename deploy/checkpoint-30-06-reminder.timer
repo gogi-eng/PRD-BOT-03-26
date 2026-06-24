@@ -1,0 +1,10 @@
+[Unit]
+Description=One-shot checkpoint reminder 30.06.2026 10:00 UTC+3
+
+[Timer]
+OnCalendar=2026-06-30 07:00:00 UTC
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
