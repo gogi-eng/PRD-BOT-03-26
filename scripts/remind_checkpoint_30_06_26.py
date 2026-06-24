@@ -74,15 +74,21 @@ def main() -> int:
         return 0
 
     msg = (
-        "<b>📅 Чекпоинт PRD-BOT — 30.06.2026</b>\n\n"
-        "Наблюдение после пакета <b>1+2</b> (с 24.06):\n"
-        "1️⃣ Ветки <code>30.06.26-PRD-BOT-ALL</code> и "
-        "<code>30.06.26-AGENT-WORLD</code>\n"
-        "2️⃣ Статистика PRD vs WORLD (сделки, WR, PnL)\n"
-        "3️⃣ Hermes + логи (hermes_bypass, inbox)\n"
-        "4️⃣ Максимум <b>одна</b> правка config (ZeroOne)\n\n"
+        "<b>📅 План 30.06.2026 — полный день</b>\n\n"
+        "<b>A 10:00 Торговля</b>\n"
+        "• Ветки 30.06.26-PRD / AGENT-WORLD\n"
+        "• Статистика с 24.06 (WR, PnL)\n"
+        "• Hermes + inbox\n"
+        "• Макс. 1 правка config (ZeroOne)\n\n"
+        "<b>B 12–15 Инфраструктура</b>\n"
+        "• GitHub Actions (pytest)\n"
+        "• Тесты risk/guard\n"
+        "• docs/DEPLOY.md\n"
+        "• Backup журнала\n\n"
+        "<b>C 16:00</b> — деплой если меняли config\n"
+        "<b>D 18:00</b> — дамп + push\n\n"
         "План: <code>.cursor/PLAN_30_06_26.md</code>\n"
-        "В Cursor: «план 30.06»"
+        "Cursor: «план 30.06»"
     )
 
     flag.parent.mkdir(parents=True, exist_ok=True)
