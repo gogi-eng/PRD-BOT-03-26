@@ -65,9 +65,10 @@ trading:
     - DUSKUSDT
   block_entry_utc_hours:
     # местное UTC+3 (см. timezone_offset), не UTC
+    # ZeroOne 24.06: +4 (худший час убытков), -12 (мало минусов, Hermes local_hour>=9)
     - 3
+    - 4
     - 7
-    - 12
     - 17
     - 18
   symbol_blacklist_substrings:
@@ -439,8 +440,8 @@ supervisor_v4:
   seed_blocked_utc_hours:
     # местное UTC+3 (см. timezone_offset), не UTC
     - 3
+    - 4
     - 7
-    - 12
     - 17
     - 18
   preferred_utc_hours:
@@ -448,13 +449,13 @@ supervisor_v4:
     - 0
     - 1
     - 2
-    - 4
     - 5
     - 6
     - 8
     - 9
     - 10
     - 11
+    - 12
     - 13
     - 14
     - 15
