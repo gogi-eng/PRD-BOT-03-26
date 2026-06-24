@@ -16,7 +16,7 @@ description: PRD-BOT-ALL — unified Bybit linear perpetual bot with Telegram bu
 ## Сервер
 
 - Путь: `/root/PRD-BOT-ALL`
-- **Ветка: каждый день новая** — `ДД.ММ.ГГ-OPT-ALL` (сегодня: `11.06.26-OPT-ALL`)
+- **Ветка: каждый день новая** — `ДД.ММ.ГГ-PRD-BOT-ALL` (прод) / `ДД.ММ.ГГ-AGENT-WORLD` (песочница). Сегодня: `24.06.26-PRD-BOT-ALL` / `24.06.26-AGENT-WORLD`
 - Repo: `gogi-eng/PRD-BOT-03-26`
 - Python: `venv/bin/python3 run_unified.py`
 - systemd: `deploy/trading_bot.service`, отдельно `telegram_signal_agent`
@@ -26,8 +26,8 @@ description: PRD-BOT-ALL — unified Bybit linear perpetual bot with Telegram bu
 ```bash
 cd /root/PRD-BOT-ALL
 git fetch origin
-git checkout 11.06.26-OPT-ALL
-git reset --hard origin/11.06.26-OPT-ALL
+git checkout 24.06.26-PRD-BOT-ALL
+git reset --hard origin/24.06.26-PRD-BOT-ALL
 bash scripts/install_production_config.sh
 sudo systemctl restart trading_bot
 sudo systemctl restart telegram_signal_agent   # если включён
