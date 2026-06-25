@@ -14,7 +14,8 @@ cd Analise_Hermes && git fetch origin main && git reset --hard origin/main
 2. `HERMES_LIVE.md` — ZeroOne гипотеза + топ рекомендаций
 3. **`HERMES_SIGNAL_MAPS.md`** + **`hermes_signal_maps.jsonl`** — карта каждого сигнала (вход, вирт. исход, трейлинг)
 4. `winning_entry_rules_report.md` — полный отчёт
-5. При смене темы: `worst_trading_hours.md`, `bot_performance_comparison.md`, `AI_Learnings_and_Recommendations.md`
+5. **`.cursor/HERMES_DECISION_25_06_26.md`** (в PRD-репо) — зафиксированные отказы/решения
+6. При смене темы: `worst_trading_hours.md`, `bot_performance_comparison.md`, `AI_Learnings_and_Recommendations.md`
 
 ## Правила для агента
 
