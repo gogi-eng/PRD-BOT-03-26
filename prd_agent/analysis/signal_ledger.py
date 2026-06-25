@@ -40,6 +40,7 @@ class LedgerEntry:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     raw: Dict[str, Any] = field(default_factory=dict)
+    snapshot: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -65,6 +66,7 @@ class SignalLedger:
         take_profit: float = 0.0,
         order_id: str = "",
         raw: Optional[Dict] = None,
+        snapshot: Optional[Dict] = None,
         entry_id: Optional[str] = None,
     ) -> LedgerEntry:
         now = datetime.now(timezone.utc).isoformat()
@@ -83,6 +85,7 @@ class SignalLedger:
             created_at=now,
             updated_at=now,
             raw=raw or {},
+            snapshot=snapshot or {},
         )
         with self._file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(e.to_dict(), ensure_ascii=False) + "\n")
