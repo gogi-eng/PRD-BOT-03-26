@@ -1,0 +1,14 @@
+[Unit]
+Description=Hermes signal execution maps → Analise_Hermes
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/PRD-BOT-ALL
+Environment=HERMES_SOURCE=PRD-BOT-ALL
+Environment=HERMES_GITHUB_DIR=/root/Analise_Hermes
+ExecStart=/root/PRD-BOT-ALL/venv/bin/python3 /root/PRD-BOT-ALL/scripts/hermes_signal_maps_sync.py --hours 72 --git-clone --git-push
+
+[Install]
+WantedBy=multi-user.target

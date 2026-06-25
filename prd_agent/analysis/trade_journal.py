@@ -67,6 +67,7 @@ class TradeJournal:
         origin: str = "bot",
         entry_context: Optional[Dict[str, Any]] = None,
         entry_candles: Optional[List[Dict[str, Any]]] = None,
+        ledger_id: str = "",
     ) -> None:
         sym = symbol.upper()
         grade = source or "unknown"
@@ -86,6 +87,8 @@ class TradeJournal:
             "leverage": leverage,
             "origin": origin,
         }
+        if ledger_id:
+            row["ledger_id"] = ledger_id
         if self._store_entry_context and isinstance(entry_context, dict) and entry_context:
             row["entry_context"] = entry_context
         if self._store_entry_candles and entry_candles:
