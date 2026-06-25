@@ -1,0 +1,11 @@
+[Unit]
+Description=Hermes signal maps sync every 3 hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=3h
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

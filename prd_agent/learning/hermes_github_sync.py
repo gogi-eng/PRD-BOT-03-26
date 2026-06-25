@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -14,6 +15,10 @@ from prd_agent.learning.hermes_cursor_feed import (
     build_cursor_brief,
     build_feed_event,
     report_fingerprint,
+)
+from prd_agent.learning.hermes_signal_maps import (
+    SIGNAL_MAPS_JSONL,
+    SIGNAL_MAPS_MD,
 )
 from prd_agent.learning.winning_entry_rules import (
     WinningEntryRulesReport,
@@ -29,6 +34,40 @@ GIT_COMMIT_EMAIL = "hermes-bot@users.noreply.github.com"
 META_JSON_NAME = "meta.json"
 RULES_JSON_NAME = "winning_entry_rules.json"
 RULES_MD_NAME = "winning_entry_rules_report.md"
+
+
+def write_signal_maps_to_github(
+    maps_jsonl: Path,
+    maps_md: Path,
+    github_dir: Path,
+    *,
+    source_label: str,
+    hours: float,
+    signal_count: int,
+) -> Tuple[Path, Path]:
+    """Копирует hermes_signal_maps.* в клон Analise_Hermes."""
+    github_dir = Path(github_dir)
+    github_dir.mkdir(parents=True, exist_ok=True)
+    dest_jsonl = github_dir / SIGNAL_MAPS_JSONL
+    dest_md = github_dir / SIGNAL_MAPS_MD
+    dest_jsonl.write_text(Path(maps_jsonl).read_text(encoding="utf-8"), encoding="utf-8")
+    dest_md.write_text(Path(maps_md).read_text(encoding="utf-8"), encoding="utf-8")
+
+    meta_path = github_dir / META_JSON_NAME
+    meta: Dict[str, object] = {}
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            meta = {}
+    meta["signal_maps_updated_at"] = datetime.now(timezone.utc).isoformat()
+    meta["signal_maps_count"] = signal_count
+    meta["signal_maps_jsonl"] = SIGNAL_MAPS_JSONL
+    meta["signal_maps_md"] = SIGNAL_MAPS_MD
+    meta["signal_maps_source"] = source_label
+    meta["signal_maps_hours"] = hours
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return dest_jsonl, dest_md
 
 
 def write_github_sync_files(
@@ -73,21 +112,23 @@ def write_github_sync_files(
         )
 
     meta_path = github_dir / META_JSON_NAME
-    meta_path.write_text(
-        json.dumps(
-            {
-                "updated_at": report.generated_at,
-                "source": source_label,
-                "host": host_hint,
-                "fingerprint": fp,
-                "lookback_hours": report.hours,
-                "repo": GITHUB_REPO_DEFAULT,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    meta: Dict[str, object] = {}
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            meta = {}
+    meta.update(
+        {
+            "updated_at": report.generated_at,
+            "source": source_label,
+            "host": host_hint,
+            "fingerprint": fp,
+            "lookback_hours": report.hours,
+            "repo": GITHUB_REPO_DEFAULT,
+        }
     )
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return live_path, feed_path, meta_path
 
 

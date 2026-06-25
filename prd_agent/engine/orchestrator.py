@@ -1405,6 +1405,7 @@ class UnifiedOrchestrator:
                 origin="bot",
                 entry_context=entry_context,
                 entry_candles=entry_candles,
+                ledger_id=ledger_id,
             )
             self.position_steward.mark_bot_opened(
                 sig.symbol,
