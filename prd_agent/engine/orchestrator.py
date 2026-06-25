@@ -9,10 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from prd_agent.analysis.entry_snapshot import build_entry_snapshot
+from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
-from prd_agent.analysis.signal_ledger import SignalLedger, SignalStatus
+from prd_agent.analysis.signal_ledger import LedgerEntry, SignalLedger, SignalStatus
 from prd_agent.analysis.trade_analytics import (
     build_daily_pnl_report,
     build_portfolio_quality_report,
@@ -154,6 +154,7 @@ class UnifiedOrchestrator:
         self.retest_watch = RetestWatchlist(cfg)
         self.strategy_router = StrategyRouter(cfg)
         self._last_api_cycle_snap: Dict[str, Any] = {}
+        self._light_snapshot_cache: Dict[str, Dict[str, Any]] = {}
         _ze = cfg.get("zone_entry", {}) if isinstance(cfg.get("zone_entry"), dict) else {}
         self._zone_kline_interval = str(_ze.get("kline_interval", "15"))
         self.rule_weight_tracker = RuleWeightTracker(self.data_dir, cfg)
@@ -707,6 +708,46 @@ class UnifiedOrchestrator:
         )
         return float(soft.score) + float(sig.confidence or 0) * 20.0
 
+    async def _light_snapshot_for_signal(self, sig: UnifiedSignal) -> Dict[str, Any]:
+        sym = sig.symbol.upper()
+        cached = self._light_snapshot_cache.get(sym)
+        if cached is not None:
+            return dict(cached)
+        snap = await build_light_signal_snapshot(
+            exchange=self.exchange,
+            cfg=self.cfg,
+            symbol=sym,
+            side=sig.side,
+            entry=float(sig.entry or 0),
+            sig_raw=sig.raw if isinstance(sig.raw, dict) else None,
+        )
+        self._light_snapshot_cache[sym] = snap
+        return snap
+
+    async def _record_ledger_signal(
+        self,
+        sig: UnifiedSignal,
+        *,
+        status: SignalStatus,
+        reason: str = "",
+        entry_id: Optional[str] = None,
+    ) -> LedgerEntry:
+        snapshot = await self._light_snapshot_for_signal(sig)
+        return self.ledger.record(
+            symbol=sig.symbol,
+            side=sig.side,
+            confidence=sig.confidence,
+            source=sig.source,
+            status=status,
+            reason=reason or sig.reason,
+            entry=sig.entry,
+            stop_loss=sig.stop_loss,
+            take_profit=sig.take_profit,
+            raw=sig.raw,
+            snapshot=snapshot,
+            entry_id=entry_id,
+        )
+
     async def _skip_if_position_open(
         self, sig: UnifiedSignal, ledger_id: Optional[str] = None, *, notify_telegram: bool = False
     ) -> bool:
@@ -719,17 +760,10 @@ class UnifiedOrchestrator:
                 if ledger_id:
                     self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
                 elif notify_telegram is False:
-                    self.ledger.record(
-                        symbol=sig.symbol,
-                        side=sig.side,
-                        confidence=sig.confidence,
-                        source=sig.source,
+                    await self._record_ledger_signal(
+                        sig,
                         status=SignalStatus.SKIPPED,
                         reason=reason,
-                        entry=sig.entry,
-                        stop_loss=sig.stop_loss,
-                        take_profit=sig.take_profit,
-                        raw=sig.raw,
                     )
                 if notify_telegram:
                     await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
@@ -779,6 +813,7 @@ class UnifiedOrchestrator:
             self._last_upnl[sym] = upnl
 
     async def _cycle(self) -> None:
+        self._light_snapshot_cache.clear()
         self.exchange.api_journal.begin_cycle(self._cycle_num + 1)
         await self._refresh_symbols_if_due()
         positions = await self.exchange.get_positions()
@@ -846,45 +881,23 @@ class UnifiedOrchestrator:
                 continue
             meta_ok, meta_reason = self._supervisor_can_enter(sig)
             if not meta_ok:
-                self.ledger.record(
-                    symbol=sig.symbol,
-                    side=sig.side,
-                    confidence=sig.confidence,
-                    source=sig.source,
+                await self._record_ledger_signal(
+                    sig,
                     status=SignalStatus.SKIPPED,
                     reason=meta_reason,
-                    entry=sig.entry,
-                    stop_loss=sig.stop_loss,
-                    take_profit=sig.take_profit,
-                    raw=sig.raw,
                 )
                 logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
                 continue
             if not can_trade:
-                self.ledger.record(
-                    symbol=sig.symbol,
-                    side=sig.side,
-                    confidence=sig.confidence,
-                    source=sig.source,
+                await self._record_ledger_signal(
+                    sig,
                     status=SignalStatus.SKIPPED,
                     reason=block_reason,
-                    entry=sig.entry,
-                    stop_loss=sig.stop_loss,
-                    take_profit=sig.take_profit,
-                    raw=sig.raw,
                 )
                 continue
-            entry = self.ledger.record(
-                symbol=sig.symbol,
-                side=sig.side,
-                confidence=sig.confidence,
-                source=sig.source,
+            entry = await self._record_ledger_signal(
+                sig,
                 status=SignalStatus.RECEIVED,
-                reason=sig.reason,
-                entry=sig.entry,
-                stop_loss=sig.stop_loss,
-                take_profit=sig.take_profit,
-                raw=sig.raw,
             )
             self._signal_cooldown.mark_handled(sym, sig.side)
             plan_entry, plan_sl, plan_tp, plan_block, zone_meta = await self._plan_order_levels(sig)

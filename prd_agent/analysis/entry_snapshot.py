@@ -215,3 +215,71 @@ async def build_entry_snapshot(
             ctx["candles_count"] = len(candles)
 
     return ctx, candles
+
+
+async def build_light_signal_snapshot(
+    *,
+    exchange: Any,
+    cfg: Dict[str, Any],
+    symbol: str,
+    side: str = "",
+    entry: float = 0.0,
+    sig_raw: Optional[Dict[str, Any]] = None,
+    klines: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Лёгкий снимок для signal_ledger: ATR, RSI, стакан.
+    Без HTF и без сохранения свечей — быстрый вызов на каждый сигнал.
+    """
+    root = Path(cfg.get("_root", "."))
+    _ensure_analysis_imports(root)
+
+    sym = str(symbol or "").upper()
+    j = cfg.get("trade_journal", {}) if isinstance(cfg.get("trade_journal"), dict) else {}
+    candle_interval = str(j.get("entry_candles_interval", j.get("kline_interval", "15")) or "15")
+
+    raw = sig_raw if isinstance(sig_raw, dict) else {}
+    snap: Dict[str, Any] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "symbol": sym,
+        "side": str(side or "").upper(),
+    }
+    if entry > 0:
+        snap["entry"] = float(entry)
+
+    for key in ("atr_pct", "rsi", "adx", "normalized_imbalance", "spread_pct", "regime", "htf_trend"):
+        if key in raw and raw[key] is not None:
+            snap[key] = raw[key]
+
+    bars = list(klines or [])
+    if not bars:
+        try:
+            bars = list(await exchange.get_klines(sym, interval=candle_interval, limit=60))
+        except Exception as exc:
+            logger.warning("light_snapshot klines %s: %s", sym, exc)
+            bars = []
+
+    if bars:
+        try:
+            from analysis.market_analyzer import MarketAnalyzer
+
+            market = MarketAnalyzer().analyze(bars, None)
+            snap["atr_pct"] = round(float(getattr(market, "atr_pct", 0.0) or 0.0), 4)
+            snap["rsi"] = round(float(getattr(market, "rsi", 0.0) or 0.0), 2)
+            snap["adx"] = round(float(getattr(market, "adx", 0.0) or 0.0), 2)
+            snap["regime"] = _enum_label(getattr(market, "regime", ""))
+            snap["trend"] = _enum_label(getattr(market, "trend", ""))
+            snap["mark_price"] = round(float(bars[-1].get("close", 0) or 0), 8)
+        except Exception as exc:
+            logger.warning("light_snapshot market %s: %s", sym, exc)
+
+    orderflow = await _fetch_orderflow(exchange, sym)
+    if orderflow is not None:
+        snap["normalized_imbalance"] = round(
+            float(getattr(orderflow, "normalized_imbalance", 0.0) or 0.0), 4
+        )
+        snap["spread_pct"] = round(float(getattr(orderflow, "spread_pct", 0.0) or 0.0), 4)
+
+    tz_off = int(cfg.get("timezone_offset", 3) or 3)
+    snap["local_hour"] = (datetime.now(timezone.utc).hour + tz_off) % 24
+    return snap

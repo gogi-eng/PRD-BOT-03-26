@@ -351,6 +351,7 @@ class HermesSignalMapBuilder:
         for row in ledger_rows:
             lid = str(row.get("id", "") or "")
             raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
+            ledger_snap = row.get("snapshot") if isinstance(row.get("snapshot"), dict) else {}
             trade = self._match_trade(row, trades)
             ctx: Dict[str, Any] = {}
             candles: List[Dict[str, Any]] = []
@@ -363,8 +364,13 @@ class HermesSignalMapBuilder:
                     candles = [c for c in ecandles if isinstance(c, dict)]
 
             entry_params: Dict[str, Any] = {
-                "indicators": _flatten_indicators(ctx) or _flatten_indicators(raw),
-                "orderbook": _orderbook_from(ctx) or _orderbook_from(raw),
+                "indicators": _flatten_indicators(ledger_snap)
+                or _flatten_indicators(ctx)
+                or _flatten_indicators(raw),
+                "orderbook": _orderbook_from(ledger_snap)
+                or _orderbook_from(ctx)
+                or _orderbook_from(raw),
+                "ledger_snapshot": ledger_snap,
                 "signal_raw_keys": sorted(raw.keys())[:40] if raw else [],
             }
             if ctx.get("filters"):
