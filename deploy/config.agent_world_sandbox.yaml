@@ -529,6 +529,13 @@ market_scanner:
     use_closed_candle: false
     require_momentum_confirmed: true
     momentum_kline_min: 20
+    atr_period: 14
+    volume_zscore_min: 2.0
+    atr_spike_ratio_min: 1.5
+    require_volatility_spike: true
+    price_accel_bars: 3
+    price_accel_min_pct: 0.12
+    require_price_accel: false
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true
