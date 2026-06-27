@@ -1208,7 +1208,7 @@ class TelegramSignalAgent:
         self.market_scanner_stretch_tp_to_min_rr = bool(
             self.agent_cfg.get("market_scanner_stretch_tp_to_min_rr", True)
         )
-        from telegram_agent.pump_dump_spike_scan import SpikeScanConfig
+        from telegram_agent.pump_dump_spike_scan import SpikeScanConfig, market_structure_engine_from_cfg
 
         self._spike_scalp_cfg = SpikeScanConfig.from_cfg(self.cfg)
         self.spike_scalp_enabled = bool(self._spike_scalp_cfg.enabled)
@@ -1217,6 +1217,11 @@ class TelegramSignalAgent:
         self.spike_scalp_auto_execute = bool(self._spike_scalp_cfg.auto_execute)
         self.spike_scalp_symbol_cooldown_sec = int(self._spike_scalp_cfg.symbol_cooldown_sec)
         self.spike_scalp_top_n = int(self._spike_scalp_cfg.top_n)
+        self._market_structure_engine = (
+            market_structure_engine_from_cfg(self.cfg)
+            if self._spike_scalp_cfg.require_momentum_confirmed
+            else None
+        )
         # Кнопки unified-бота (run_unified) — тот же TELEGRAM_TOKEN; панель агента по умолчанию выкл.
         self.control_panel_enabled = bool(self.agent_cfg.get("control_panel_enabled", False))
         if os.getenv("PRD_UNIFIED_POLLING", "").strip().lower() in ("1", "true", "yes", "on"):
@@ -3839,19 +3844,30 @@ class TelegramSignalAgent:
         if turnover < cfg.min_24h_volume_usdt:
             return None
 
-        from telegram_agent.pump_dump_spike_scan import analyze_spike_setup
+        from telegram_agent.pump_dump_spike_scan import analyze_spike_setup, spike_kline_limit
 
         assert self.bybit is not None
         klines = await self.bybit.get_klines(
             symbol,
             interval=cfg.kline_interval,
-            limit=max(cfg.kline_limit, cfg.volume_lookback_bars + 3),
+            limit=spike_kline_limit(cfg),
         )
+        momentum_confirmed = None
+        if cfg.require_momentum_confirmed:
+            engine = self._market_structure_engine
+            if engine is None:
+                from telegram_agent.pump_dump_spike_scan import market_structure_engine_from_cfg
+
+                engine = market_structure_engine_from_cfg(self.cfg)
+                self._market_structure_engine = engine
+            structure = engine.analyze(klines)
+            momentum_confirmed = bool(structure.momentum_confirmed)
         row = analyze_spike_setup(
             symbol=symbol,
             klines=klines,
             turnover_24h=turnover,
             cfg=cfg,
+            momentum_confirmed=momentum_confirmed,
         )
         if not row:
             return None

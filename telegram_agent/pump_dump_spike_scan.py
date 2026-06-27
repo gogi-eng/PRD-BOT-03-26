@@ -30,6 +30,8 @@ class SpikeScanConfig:
     min_rr: float = 1.5
     use_closed_candle: bool = False
     volume_lookback_bars: int = 8
+    require_momentum_confirmed: bool = False
+    momentum_kline_min: int = 20
 
     @classmethod
     def from_cfg(cls, cfg: Mapping[str, Any]) -> "SpikeScanConfig":
@@ -67,7 +69,36 @@ class SpikeScanConfig:
             min_rr=float(raw.get("min_rr", 1.5)),
             use_closed_candle=bool(raw.get("use_closed_candle", False)),
             volume_lookback_bars=int(raw.get("volume_lookback_bars", 8)),
+            require_momentum_confirmed=bool(raw.get("require_momentum_confirmed", False)),
+            momentum_kline_min=int(raw.get("momentum_kline_min", 20)),
         )
+
+
+def market_structure_engine_from_cfg(cfg: Mapping[str, Any]):
+    """MarketStructureEngine с опциональными порогами из spike_scalp.market_structure."""
+    from analysis.market_structure import MarketStructureEngine
+
+    mc = cfg.get("market_scanner") if isinstance(cfg.get("market_scanner"), dict) else {}
+    agent = cfg.get("telegram_signal_agent") if isinstance(cfg.get("telegram_signal_agent"), dict) else {}
+    raw = mc.get("spike_scalp") if isinstance(mc.get("spike_scalp"), dict) else {}
+    if not raw and isinstance(agent.get("spike_scalp"), dict):
+        raw = agent["spike_scalp"]
+    if not isinstance(raw, dict):
+        raw = {}
+    ms = raw.get("market_structure") if isinstance(raw.get("market_structure"), dict) else {}
+    return MarketStructureEngine(
+        swing_lookback=int(ms.get("swing_lookback", 2)),
+        volume_spike_mult=float(ms.get("volume_spike_mult", 2.0)),
+        bos_volume_mult=float(ms.get("bos_volume_mult", 1.5)),
+        spread_expansion_mult=float(ms.get("spread_expansion_mult", 1.5)),
+    )
+
+
+def spike_kline_limit(cfg: SpikeScanConfig) -> int:
+    base = max(cfg.kline_limit, cfg.volume_lookback_bars + 3)
+    if cfg.require_momentum_confirmed:
+        return max(base, max(10, cfg.momentum_kline_min))
+    return base
 
 
 def candle_move_pct(candle: Mapping[str, Any]) -> float:
@@ -137,6 +168,7 @@ def compute_spike_score(
     min_volume_ratio: float,
     turnover_24h: float,
     min_24h_volume_usdt: float,
+    momentum_confirmed: bool = False,
 ) -> Tuple[int, List[str]]:
     reasons: List[str] = []
     score = 68
@@ -153,6 +185,9 @@ def compute_spike_score(
     if turnover_24h >= min_24h_volume_usdt * 2:
         score += 5
         reasons.append(f"оборот 24ч {turnover_24h / 1_000_000:.1f}M USDT")
+    if momentum_confirmed:
+        score += 8
+        reasons.append("momentum confirmed: volume spike + spread expansion")
     return max(0, min(100, int(score))), reasons
 
 
@@ -162,6 +197,7 @@ def analyze_spike_setup(
     klines: List[Dict[str, Any]],
     turnover_24h: float,
     cfg: SpikeScanConfig,
+    momentum_confirmed: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     if not cfg.enabled or len(klines) < 4:
         return None
@@ -201,6 +237,10 @@ def analyze_spike_setup(
         sl_buffer_pct=cfg.sl_buffer_pct,
         min_rr=cfg.min_rr,
     )
+    if cfg.require_momentum_confirmed and momentum_confirmed is not True:
+        return None
+    momentum_ok = bool(momentum_confirmed)
+
     score, reasons = compute_spike_score(
         move_pct=move_pct,
         min_move_pct=cfg.min_move_pct,
@@ -208,6 +248,7 @@ def analyze_spike_setup(
         min_volume_ratio=cfg.min_volume_ratio,
         turnover_24h=turnover_24h,
         min_24h_volume_usdt=cfg.min_24h_volume_usdt,
+        momentum_confirmed=momentum_ok,
     )
 
     bos_level = _sf(impulse.get("high")) if scenario == "PUMP" else _sf(impulse.get("low"))
@@ -227,4 +268,5 @@ def analyze_spike_setup(
         "target": target,
         "reasons": reasons,
         "move_pct": move_pct,
+        "momentum_confirmed": momentum_ok,
     }

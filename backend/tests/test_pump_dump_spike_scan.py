@@ -11,6 +11,7 @@ from telegram_agent.pump_dump_spike_scan import (
     SpikeScanConfig,
     analyze_spike_setup,
     candle_move_pct,
+    market_structure_engine_from_cfg,
     spike_invalidation_and_target,
 )
 
@@ -60,3 +61,101 @@ def test_spike_sl_tp_long():
     assert tgt > 103.0
     risk = 103.0 - inv
     assert abs((tgt - 103.0) - risk * 1.5) < 1e-6
+
+
+def test_analyze_spike_rejects_without_momentum_when_required():
+    cfg = SpikeScanConfig(
+        enabled=True,
+        min_move_pct=3.0,
+        min_volume_ratio=1.0,
+        require_momentum_confirmed=True,
+    )
+    base = [_k(100.0, 100.1, 80.0) for _ in range(8)]
+    impulse = _k(100.0, 103.4, 220.0)
+    klines = base + [impulse]
+    assert (
+        analyze_spike_setup(
+            symbol="SOLUSDT",
+            klines=klines,
+            turnover_24h=12_000_000,
+            cfg=cfg,
+            momentum_confirmed=False,
+        )
+        is None
+    )
+
+
+def test_analyze_spike_accepts_with_momentum_when_required():
+    cfg = SpikeScanConfig(
+        enabled=True,
+        min_move_pct=3.0,
+        min_volume_ratio=1.0,
+        require_momentum_confirmed=True,
+    )
+    base = [_k(100.0, 100.1, 80.0) for _ in range(8)]
+    impulse = _k(100.0, 103.4, 220.0)
+    klines = base + [impulse]
+    row = analyze_spike_setup(
+        symbol="SOLUSDT",
+        klines=klines,
+        turnover_24h=12_000_000,
+        cfg=cfg,
+        momentum_confirmed=True,
+    )
+    assert row is not None
+    assert row["momentum_confirmed"] is True
+    assert any("momentum confirmed" in reason for reason in row["reasons"])
+
+
+def test_market_structure_engine_momentum_on_spike_klines():
+    cfg = SpikeScanConfig(
+        enabled=True,
+        min_move_pct=3.0,
+        min_volume_ratio=1.0,
+        require_momentum_confirmed=True,
+    )
+    base = []
+    for i in range(18):
+        base.append(
+            {
+                "open": 100.0,
+                "close": 100.05,
+                "high": 100.2,
+                "low": 99.9,
+                "volume": 50.0,
+            }
+        )
+    impulse = {
+        "open": 100.0,
+        "close": 104.0,
+        "high": 104.5,
+        "low": 99.8,
+        "volume": 500.0,
+    }
+    klines = base + [impulse]
+    engine = market_structure_engine_from_cfg({})
+    structure = engine.analyze(klines)
+    row = analyze_spike_setup(
+        symbol="SOLUSDT",
+        klines=klines,
+        turnover_24h=12_000_000,
+        cfg=cfg,
+        momentum_confirmed=structure.momentum_confirmed,
+    )
+    if structure.momentum_confirmed:
+        assert row is not None
+        assert row["momentum_confirmed"] is True
+    else:
+        assert row is None
+
+
+def test_spike_kline_limit_includes_momentum_window():
+    cfg = SpikeScanConfig(
+        enabled=True,
+        kline_limit=12,
+        require_momentum_confirmed=True,
+        momentum_kline_min=20,
+    )
+    from telegram_agent.pump_dump_spike_scan import spike_kline_limit
+
+    assert spike_kline_limit(cfg) == 20

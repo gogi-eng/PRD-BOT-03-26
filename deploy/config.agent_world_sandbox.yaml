@@ -527,6 +527,8 @@ market_scanner:
     sl_buffer_pct: 0.25
     min_rr: 1.5
     use_closed_candle: false
+    require_momentum_confirmed: true
+    momentum_kline_min: 20
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true
