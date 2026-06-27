@@ -40,6 +40,35 @@ def test_analyze_spike_detects_pump():
     assert row["scenario"] == "PUMP"
     assert row["score"] >= 72
     assert row["range_pct"] >= 3.0
+    assert row["atr_pct"] != row["range_pct"]
+    assert row["volume_ratio"] >= 1.0
+
+
+def test_analyze_spike_rejects_low_volume_zscore():
+    cfg = SpikeScanConfig(
+        enabled=True,
+        min_move_pct=3.0,
+        min_volume_ratio=2.0,
+        volume_zscore_min=3.0,
+    )
+    base = [_k(100.0, 100.1, 100.0) for _ in range(8)]
+    impulse = _k(100.0, 103.4, 110.0)
+    klines = base + [impulse]
+    assert analyze_spike_setup(symbol="BTCUSDT", klines=klines, turnover_24h=50_000_000, cfg=cfg) is None
+
+
+def test_analyze_spike_requires_volatility_spike_when_configured():
+    cfg = SpikeScanConfig(
+        enabled=True,
+        min_move_pct=3.0,
+        min_volume_ratio=1.0,
+        require_volatility_spike=True,
+        atr_spike_ratio_min=50.0,
+    )
+    base = [_k(100.0, 100.1, 80.0) for _ in range(8)]
+    impulse = _k(100.0, 103.4, 220.0)
+    klines = base + [impulse]
+    assert analyze_spike_setup(symbol="SOLUSDT", klines=klines, turnover_24h=12_000_000, cfg=cfg) is None
 
 
 def test_analyze_spike_rejects_small_move():

@@ -252,6 +252,9 @@ class MarketSetup:
     confirmed_bos: bool = False
     # Быстрый 15m импульс >= spike_scalp.min_move_pct (скальп, без BOS).
     spike_mode: bool = False
+    volume_zscore: float = 0.0
+    atr_spike_ratio: float = 0.0
+    price_accel_pct: float = 0.0
 
 
 def utc_now() -> datetime:
@@ -3892,6 +3895,9 @@ class TelegramSignalAgent:
             reasons=list(row.get("reasons") or [])[:6],
             confirmed_bos=True,
             spike_mode=True,
+            volume_zscore=float(row.get("volume_zscore") or 0.0),
+            atr_spike_ratio=float(row.get("atr_spike_ratio") or 0.0),
+            price_accel_pct=float(row.get("price_accel_pct") or 0.0),
         )
 
     def _spike_scanner_on_cooldown(self, symbol: str) -> bool:
@@ -3930,6 +3936,8 @@ class TelegramSignalAgent:
             f"Монета: {setup.symbol}\n"
             f"Сценарий: {direction_arrow} {setup.scenario} (импульс {setup.range_pct:.2f}%)\n"
             f"Скор: {setup.score}/100 (min {self.spike_scalp_execute_min_score})\n"
+            f"Объём z={setup.volume_zscore:.2f} ({setup.volume_ratio:.2f}x) | "
+            f"ATR spike {setup.atr_spike_ratio:.2f}x\n"
             f"Оборот 24ч: {setup.turnover_24h / 1_000_000:.1f}M USDT\n"
             f"Цена: {setup.price:.8g}\n"
             f"SL: {setup.invalidation:.8g} | TP: {setup.target:.8g}\n"
