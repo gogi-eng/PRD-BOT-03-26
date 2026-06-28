@@ -74,9 +74,15 @@ def unified_should_run_spike_scan(cfg: Dict[str, Any]) -> bool:
 
 
 async def run_spike_scan_once(repo: Path, cfg: Dict[str, Any] | None = None) -> List[Any]:
-    """Быстрый проход: 15m импульс >= min_move_pct → скальп."""
+    """Быстрый проход: 15m импulse >= min_move_pct → скальп."""
     if cfg is not None and not unified_should_run_spike_scan(cfg):
         return []
+    if cfg is not None:
+        from telegram_agent.pump_dump_spike_scan import spike_scan_allowed_now
+
+        if not spike_scan_allowed_now(cfg):
+            logger.debug("Spike scanner: вне scalp_hours_local — пропуск цикла")
+            return []
     try:
         from scripts.telegram_signal_agent import TelegramSignalAgent
     except ImportError as exc:

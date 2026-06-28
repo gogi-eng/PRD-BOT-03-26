@@ -2297,6 +2297,17 @@ class TelegramSignalAgent:
         assert self.bybit is not None and self.execution is not None
         cap = int(self.auto_execute_max_open_positions or 0)
         if cap > 0:
+            is_spike = str(signal.source or "").upper() == "SPIKE_SCANNER"
+            spike_cfg = self._spike_scalp_cfg
+            bypass_min = int(getattr(spike_cfg, "max_positions_bypass_min_score", 0) or 0)
+            extra_slots = int(getattr(spike_cfg, "extra_position_slots", 0) or 0)
+            if (
+                is_spike
+                and bypass_min > 0
+                and int(signal.confidence or 0) >= bypass_min
+                and extra_slots > 0
+            ):
+                cap = cap + extra_slots
             open_positions = await self.bybit.get_positions()
             n_open = len(open_positions)
             if n_open >= cap:
@@ -3955,6 +3966,11 @@ class TelegramSignalAgent:
             return await self._run_spike_scan_once_locked()
 
     async def _run_spike_scan_once_locked(self) -> list[MarketSetup]:
+        from telegram_agent.pump_dump_spike_scan import spike_scan_allowed_now
+
+        if not spike_scan_allowed_now(self.cfg):
+            LOG.debug("Spike scan skipped: outside scalp_hours_local")
+            return []
         await self._ensure_execution()
         assert self.bybit is not None
         valid_symbols = await self._get_valid_symbols()
@@ -4009,8 +4025,19 @@ class TelegramSignalAgent:
 
     def _append_market_setup(self, setup: MarketSetup) -> None:
         path = self.out_dir / "market_scanner.jsonl"
+        row = asdict(setup)
+        row["scanner_kind"] = "spike_scalp" if setup.spike_mode else "market_scanner"
+        if setup.spike_mode:
+            row["impulse_metrics"] = {
+                "move_pct": float(setup.range_pct or 0.0),
+                "volume_ratio": float(setup.volume_ratio or 0.0),
+                "volume_zscore": float(setup.volume_zscore or 0.0),
+                "atr_pct": float(setup.atr_pct or 0.0),
+                "atr_spike_ratio": float(setup.atr_spike_ratio or 0.0),
+                "price_accel_pct": float(setup.price_accel_pct or 0.0),
+            }
         with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(setup), ensure_ascii=False) + "\n")
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def _notify_market_setup(self, setup: MarketSetup) -> None:
         if not self.telegram_notify:

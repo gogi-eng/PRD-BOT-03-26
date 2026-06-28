@@ -13,6 +13,7 @@ from telegram_agent.pump_dump_spike_scan import (
     candle_move_pct,
     market_structure_engine_from_cfg,
     spike_invalidation_and_target,
+    spike_scan_allowed_now,
 )
 
 
@@ -188,3 +189,45 @@ def test_spike_kline_limit_includes_momentum_window():
     from telegram_agent.pump_dump_spike_scan import spike_kline_limit
 
     assert spike_kline_limit(cfg) == 20
+
+
+def test_spike_scan_config_reads_scalp_and_position_bypass():
+    cfg = {
+        "market_scanner": {
+            "spike_scalp": {
+                "enabled": True,
+                "respect_scalp_hours": False,
+                "max_positions_bypass_min_score": 78,
+                "extra_position_slots": 2,
+            }
+        },
+        "trading": {"timezone_offset": 3},
+    }
+    sc = SpikeScanConfig.from_cfg(cfg)
+    assert sc.respect_scalp_hours is False
+    assert sc.max_positions_bypass_min_score == 78
+    assert sc.extra_position_slots == 2
+
+
+def test_spike_scan_allowed_now_respects_scalp_hours(monkeypatch):
+    cfg = {
+        "timezone_offset": 3,
+        "market_scanner": {"spike_scalp": {"enabled": True, "respect_scalp_hours": True}},
+        "trading": {
+            "strategies": {"scalp_hours_local": [10, 11, 12]},
+        },
+    }
+
+    monkeypatch.setattr("prd_agent.time_hours.entry_check_hour", lambda _h, _tz: 10)
+    assert spike_scan_allowed_now(cfg) is True
+
+    monkeypatch.setattr("prd_agent.time_hours.entry_check_hour", lambda _h, _tz: 3)
+    assert spike_scan_allowed_now(cfg) is False
+
+
+def test_spike_scan_allowed_now_when_respect_disabled():
+    cfg = {
+        "market_scanner": {"spike_scalp": {"enabled": True, "respect_scalp_hours": False}},
+        "trading": {"timezone_offset": 3, "strategies": {"scalp_hours_local": [10]}},
+    }
+    assert spike_scan_allowed_now(cfg) is True
