@@ -279,6 +279,8 @@ def test_agent_world_deploy_yaml_position_limits():
     spike = cfg["market_scanner"]["spike_scalp"]
     assert int(spike["extra_position_slots"]) == 2
     assert int(spike["max_positions_bypass_min_score"]) == 78
+    assert int(spike["max_symbols"]) == 50
+    assert int(spike["top_n"]) == 2
     spike_cfg = SpikeScanConfig.from_cfg(cfg)
     assert effective_scanner_open_cap(
         6, source="SPIKE_SCANNER", confidence=100, spike_cfg=spike_cfg

@@ -518,8 +518,8 @@ market_scanner:
     kline_interval: "15"
     min_move_pct: 3.0
     min_24h_volume_usdt: 8000000
-    max_symbols: 30
-    top_n: 1
+    max_symbols: 50
+    top_n: 2
     symbol_cooldown_sec: 1800
     auto_execute: true
     execute_min_score: 72
