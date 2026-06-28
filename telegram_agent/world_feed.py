@@ -8,8 +8,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.error import URLError
 
 
@@ -118,6 +119,62 @@ def fetch_rss_items(url: str, *, max_items: int = 20, timeout_sec: float = 25.0)
                     break
 
     return items_out[:max_items]
+
+
+def parse_event_published_utc(event: Mapping[str, Any]) -> datetime | None:
+    """Дата публикации из RSS (published_hint), в UTC."""
+    hint = str(event.get("published_hint", "") or "").strip()
+    if not hint:
+        return None
+    try:
+        dt = parsedate_to_datetime(hint)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    for candidate in (hint, hint.replace("Z", "+00:00")):
+        try:
+            dt = datetime.fromisoformat(candidate)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def news_age_hours(event: Mapping[str, Any], *, now: datetime | None = None) -> float | None:
+    """Возраст новости в часах от published_hint; None если дату не распознали."""
+    pub = parse_event_published_utc(event)
+    if pub is None:
+        return None
+    ref = now or datetime.now(timezone.utc)
+    if ref.tzinfo is None:
+        ref = ref.replace(tzinfo=timezone.utc)
+    return max(0.0, (ref.astimezone(timezone.utc) - pub).total_seconds() / 3600.0)
+
+
+def is_news_too_stale_for_trade(
+    event: Mapping[str, Any],
+    max_age_hours: float,
+    *,
+    now: datetime | None = None,
+) -> tuple[bool, str]:
+    """max_age_hours <= 0 отключает проверку."""
+    if max_age_hours <= 0:
+        return False, ""
+    age = news_age_hours(event, now=now)
+    if age is None:
+        return True, "не удалось определить дату публикации RSS (published_hint)"
+    if age > max_age_hours:
+        pub = parse_event_published_utc(event)
+        pub_s = pub.isoformat() if pub else "?"
+        return (
+            True,
+            f"новость устарела: возраст {age:.1f}ч > {max_age_hours:g}ч (published={pub_s})",
+        )
+    return False, ""
 
 
 def append_queue(path: Path, row: dict[str, Any]) -> None:
