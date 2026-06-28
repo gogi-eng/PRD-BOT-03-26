@@ -502,6 +502,7 @@ agent_world:
   poll_interval_sec: 120
   max_summary_chars: 2200
   allow_auto_execute: true
+  max_news_age_hours: 5
   max_market_drift_pct: 0.015
   max_limit_drift_pct: 0.022
   max_skip_drift_pct: 0.035
@@ -565,7 +566,9 @@ telegram_signal_agent:
   telegram_notify: true
   market_scanner_interval_sec: 600
   market_scanner_min_score_to_notify: 58
-  market_scanner_execute_min_score: 75
+  market_scanner_execute_min_score: 80
+  market_scanner_bos_buffer_pct: 0.18
+  market_scanner_execute_local_hours_min: 9
   market_scanner_execute_require_confirmed_bos: true
   market_scanner_bos_watchlist_enabled: true
   market_scanner_bos_watchlist_timeout_hours: 6

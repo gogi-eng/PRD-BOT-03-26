@@ -198,6 +198,7 @@ from telegram_agent.signal_quality import (  # noqa: E402
     passes_quality_gate,
     rule_based_review,
 )
+from telegram_agent.world_feed import is_news_too_stale_for_trade  # noqa: E402
 from telegram_agent.multi_agent_review import (  # noqa: E402
     merge_review_with_consensus,
     multi_agent_consensus,
@@ -1186,6 +1187,9 @@ class TelegramSignalAgent:
         self.market_scanner_top_n = int(self.agent_cfg.get("market_scanner_top_n", 5))
         self.market_scanner_auto_execute_default = bool(self.agent_cfg.get("market_scanner_auto_execute", False))
         self.market_scanner_execute_min_score = int(self.agent_cfg.get("market_scanner_execute_min_score", 75))
+        self.market_scanner_execute_local_hours_min = int(
+            self.agent_cfg.get("market_scanner_execute_local_hours_min", 0) or 0
+        )
         self.market_scanner_execute_require_confirmed_bos = bool(
             self.agent_cfg.get("market_scanner_execute_require_confirmed_bos", False)
         )
@@ -1317,6 +1321,7 @@ class TelegramSignalAgent:
             self.agent_world_duplicate_symbol_cooldown_sec = int(
                 _aw.get("duplicate_symbol_cooldown_sec", 3600) or 3600
             )
+            self.agent_world_max_news_age_hours = float(_aw.get("max_news_age_hours", 5) or 0)
             self.openrouter_daily_budget_world_usd = float(_aw.get("openrouter_daily_budget_usd", 0) or 0)
         else:
             self.agent_world_enabled = False
@@ -1326,6 +1331,7 @@ class TelegramSignalAgent:
             self.agent_world_max_summary_chars = 2200
             self.agent_world_require_stop_loss = False
             self.agent_world_duplicate_symbol_cooldown_sec = 3600
+            self.agent_world_max_news_age_hours = 5.0
             self.openrouter_daily_budget_world_usd = 0.0
         if self.channel_auto_block_cfg.enabled:
             newly_b = refresh_auto_blocks(
@@ -2412,12 +2418,31 @@ class TelegramSignalAgent:
         if not telegram_send(token, chat_id, "\n".join(text_lines)):
             LOG.warning("Scanner exec notify skipped %s %s", action, signal.symbol)
 
+    def _market_scanner_execute_blocked_by_hour(self) -> tuple[bool, str]:
+        """Блок исполнения сканера до local_hour (timezone_offset). 0 = выключено."""
+        min_hour = int(getattr(self, "market_scanner_execute_local_hours_min", 0) or 0)
+        if min_hour <= 0:
+            return False, ""
+        now_utc = datetime.now(timezone.utc)
+        local_hour = (now_utc + timedelta(hours=int(self.timezone_offset))).hour
+        if local_hour < min_hour:
+            return True, f"local_hour={local_hour}<{min_hour}"
+        return False, ""
+
     async def _try_execute_market_setup(self, setup: MarketSetup) -> None:
         spike = bool(getattr(setup, "spike_mode", False))
         if spike:
             if not (self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute):
                 return
         elif not self._effective_market_scanner_auto_execute():
+            return
+        blocked, hour_reason = self._market_scanner_execute_blocked_by_hour()
+        if blocked:
+            LOG.info(
+                "Market scanner exec skipped: outside local hours (%s, tz=%+d)",
+                hour_reason,
+                self.timezone_offset,
+            )
             return
         if await self._symbol_has_open_position(setup.symbol):
             if not spike:
@@ -2874,11 +2899,35 @@ class TelegramSignalAgent:
             self._mark_seen(source, message_id)
 
     async def _handle_world_event(self, event: dict[str, Any]) -> None:
+        skip_path = self.out_dir / "world_feed_skipped.jsonl"
+        eid = str(event.get("id", "") or "")
+        if self.agent_world_allow_auto_exec and self.agent_world_max_news_age_hours > 0:
+            stale, stale_reason = is_news_too_stale_for_trade(
+                event,
+                self.agent_world_max_news_age_hours,
+                now=utc_now(),
+            )
+            if stale:
+                WORLD_LOG.info("Skip stale AGENT-WORLD id=%s: %s", eid, stale_reason)
+                with open(skip_path, "a", encoding="utf-8") as handle:
+                    handle.write(
+                        json.dumps(
+                            {
+                                "id": eid,
+                                "reason": "stale_news",
+                                "detail": stale_reason,
+                                "title": str(event.get("title", ""))[:200],
+                                "published_hint": str(event.get("published_hint", ""))[:120],
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+                return
         title = str(event.get("title", "") or "")
         link = str(event.get("link", "") or "")
         summary = str(event.get("summary", "") or "")
         raw = f"{title}\n{summary}\n{link}"
-        eid = str(event.get("id", "") or "")
         msg_id = int(hashlib.sha256(eid.encode()).hexdigest()[:12], 16) % (2**30) if eid else int(time.time() * 1000) % (2**30)
         ext = openrouter_world_extract(
             self.cfg,
@@ -2890,7 +2939,6 @@ class TelegramSignalAgent:
             budget_agent=self,
             budget_kind="world",
         )
-        skip_path = self.out_dir / "world_feed_skipped.jsonl"
         if not ext.get("has_trade"):
             with open(skip_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps({"id": eid, "extract": ext, "title": title[:200]}, ensure_ascii=False) + "\n")
