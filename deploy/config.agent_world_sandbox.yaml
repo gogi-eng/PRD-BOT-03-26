@@ -45,7 +45,7 @@ trading:
     active_sec: 45
     idle_sec: 120
     idle_after_quiet_min: 60
-  max_positions: 8
+  max_positions: 6
   dynamic_leverage:
     enabled: true
     min: 5
@@ -537,6 +537,7 @@ market_scanner:
     price_accel_min_pct: 0.12
     require_price_accel: false
     respect_scalp_hours: true
+    # База 6 (telegram_signal_agent.auto_execute_max_open_positions) + 2 при score>=78 → макс 8
     max_positions_bypass_min_score: 78
     extra_position_slots: 2
   scanner_reversal_exit:
