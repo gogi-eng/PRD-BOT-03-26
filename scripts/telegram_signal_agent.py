@@ -2297,17 +2297,14 @@ class TelegramSignalAgent:
         assert self.bybit is not None and self.execution is not None
         cap = int(self.auto_execute_max_open_positions or 0)
         if cap > 0:
-            is_spike = str(signal.source or "").upper() == "SPIKE_SCANNER"
-            spike_cfg = self._spike_scalp_cfg
-            bypass_min = int(getattr(spike_cfg, "max_positions_bypass_min_score", 0) or 0)
-            extra_slots = int(getattr(spike_cfg, "extra_position_slots", 0) or 0)
-            if (
-                is_spike
-                and bypass_min > 0
-                and int(signal.confidence or 0) >= bypass_min
-                and extra_slots > 0
-            ):
-                cap = cap + extra_slots
+            from telegram_agent.pump_dump_spike_scan import effective_scanner_open_cap
+
+            cap = effective_scanner_open_cap(
+                cap,
+                source=str(signal.source or ""),
+                confidence=int(signal.confidence or 0),
+                spike_cfg=self._spike_scalp_cfg,
+            )
             open_positions = await self.bybit.get_positions()
             n_open = len(open_positions)
             if n_open >= cap:
@@ -2316,7 +2313,7 @@ class TelegramSignalAgent:
                     "orderId": "",
                     "error": (
                         f"лимит открытых позиций {cap}: на Bybit уже {n_open} "
-                        f"(telegram_signal_agent.auto_execute_max_open_positions)"
+                        f"(база auto_execute_max_open_positions={self.auto_execute_max_open_positions})"
                     ),
                 }
         price = signal.entry or await self.bybit.get_price(signal.symbol)

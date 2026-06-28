@@ -292,6 +292,27 @@ def spike_scan_allowed_now(cfg: Mapping[str, Any]) -> bool:
     return check_hour in hours_set
 
 
+def effective_scanner_open_cap(
+    base_cap: int,
+    *,
+    source: str,
+    confidence: int,
+    spike_cfg: SpikeScanConfig,
+) -> int:
+    """Лимит открытых позиций для сканера: база + extra_position_slots только для SPIKE_SCANNER."""
+    cap = max(0, int(base_cap or 0))
+    if cap <= 0:
+        return 0
+    if (
+        str(source or "").upper() == "SPIKE_SCANNER"
+        and spike_cfg.max_positions_bypass_min_score > 0
+        and int(confidence or 0) >= spike_cfg.max_positions_bypass_min_score
+        and spike_cfg.extra_position_slots > 0
+    ):
+        cap += int(spike_cfg.extra_position_slots)
+    return cap
+
+
 def spike_kline_limit(cfg: SpikeScanConfig) -> int:
 
     base = max(cfg.kline_limit, cfg.volume_lookback_bars + 3, cfg.atr_period + 3)

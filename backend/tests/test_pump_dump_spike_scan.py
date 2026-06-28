@@ -11,6 +11,7 @@ from telegram_agent.pump_dump_spike_scan import (
     SpikeScanConfig,
     analyze_spike_setup,
     candle_move_pct,
+    effective_scanner_open_cap,
     market_structure_engine_from_cfg,
     spike_invalidation_and_target,
     spike_scan_allowed_now,
@@ -231,3 +232,54 @@ def test_spike_scan_allowed_now_when_respect_disabled():
         "trading": {"timezone_offset": 3, "strategies": {"scalp_hours_local": [10]}},
     }
     assert spike_scan_allowed_now(cfg) is True
+
+
+def test_effective_scanner_open_cap_spike_high_score_gets_extra_slots():
+    spike_cfg = SpikeScanConfig(
+        max_positions_bypass_min_score=78,
+        extra_position_slots=2,
+    )
+    assert (
+        effective_scanner_open_cap(6, source="SPIKE_SCANNER", confidence=100, spike_cfg=spike_cfg)
+        == 8
+    )
+
+
+def test_effective_scanner_open_cap_spike_below_bypass_stays_base():
+    spike_cfg = SpikeScanConfig(
+        max_positions_bypass_min_score=78,
+        extra_position_slots=2,
+    )
+    assert (
+        effective_scanner_open_cap(6, source="SPIKE_SCANNER", confidence=77, spike_cfg=spike_cfg)
+        == 6
+    )
+
+
+def test_effective_scanner_open_cap_market_scanner_never_gets_extra():
+    spike_cfg = SpikeScanConfig(
+        max_positions_bypass_min_score=78,
+        extra_position_slots=2,
+    )
+    assert (
+        effective_scanner_open_cap(6, source="MARKET_SCANNER", confidence=99, spike_cfg=spike_cfg)
+        == 6
+    )
+
+
+def test_agent_world_deploy_yaml_position_limits():
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[2] / "deploy" / "config.agent_world_sandbox.yaml"
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert int(cfg["trading"]["max_positions"]) == 6
+    assert int(cfg["telegram_signal_agent"]["auto_execute_max_open_positions"]) == 6
+    spike = cfg["market_scanner"]["spike_scalp"]
+    assert int(spike["extra_position_slots"]) == 2
+    assert int(spike["max_positions_bypass_min_score"]) == 78
+    spike_cfg = SpikeScanConfig.from_cfg(cfg)
+    assert effective_scanner_open_cap(
+        6, source="SPIKE_SCANNER", confidence=100, spike_cfg=spike_cfg
+    ) == 8
