@@ -40,6 +40,31 @@ manual_trade_learning_state.json
 signal_only_feedback_data.json
 training_data_merged.json
 PROJECT_DUMP.txt
+BOT_DUMP*.txt
+bot.log.ALL.txt
+backtest_out.json
+backtest_quick_*.json
+
+# Чужой стек / не используется в PRD-BOT
+crypto-agent-trading-main/
+PRD-BOT-03-26/
+Analise_Hermes/
+
+# Runtime / Telethon / отчёты (не в git)
+*.session
+*.session-journal
+telegram_signal_agent_state.json
+reports/trade_context/
+reports/05.05.26/
+reports/trade_history_last_24h_*
+reports/telegram_signals/*.jsonl
+!reports/telegram_signals/.gitkeep
+Qwen_text_*.txt
+
+# Временные worktree для дампов/чистки
+.wt-prd/
+.wt-world/
+.dump-worktrees/
 
 # OS / IDE
 .DS_Store
