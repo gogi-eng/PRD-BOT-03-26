@@ -64,9 +64,9 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC; Hermes PnL>0 2026-06-24: сняты 12,17,18
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Hermes: блок 3 (ночь), 4 (худший час); 7 снят 25.06
     - 3
-    - 7
+    - 4
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -82,7 +82,7 @@ risk:
   daily_loss_blocks_until_next_day: true
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
-  max_daily_loss_usdt: 50
+  max_daily_loss_usdt: 10
   max_trades_per_day: 38
 
 # Scoring входа (strict/balanced/aggressive) — связка с пресетами Telegram
@@ -234,7 +234,7 @@ positions:
     enabled: true
     breakeven_at_profit_pct: 0.9
     sr_trail_at_profit_pct: 1.5
-    be_fee_buffer_pct: 0.05
+    be_fee_buffer_pct: 0.15
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -428,17 +428,17 @@ supervisor_v4:
     - CLOUSDT
     - DUSKUSDT
   seed_blocked_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC; синхрон с block_entry
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC; синхрон с block_entry_utc_hours
     - 3
-    - 7
+    - 4
   preferred_utc_hours:
-    # местное UTC+3 — «хорошие» часы DEFENSIVE (все кроме block_entry)
+    # местное UTC+3 — часы DEFENSIVE (все кроме block_entry)
     - 0
     - 1
     - 2
-    - 4
     - 5
     - 6
+    - 7
     - 8
     - 9
     - 10

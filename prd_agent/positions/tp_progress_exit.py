@@ -8,6 +8,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from analysis.structure_zones import StructureZoneAnalyzer
 
+from prd_agent.positions.breakeven_fees import (
+    DEFAULT_BE_FEE_BUFFER_PCT,
+    breakeven_stop_price,
+    effective_be_fee_buffer_pct,
+)
 from prd_agent.positions.sr_sl_tp_adjust import _simple_atr
 
 
@@ -16,7 +21,7 @@ class TpProgressExitConfig:
     enabled: bool = True
     breakeven_at_profit_pct: float = 1.05
     sr_trail_at_profit_pct: float = 1.8
-    be_fee_buffer_pct: float = 0.05
+    be_fee_buffer_pct: float = DEFAULT_BE_FEE_BUFFER_PCT
     sr_trail_enabled: bool = True
     sr_sl_buffer_atr: float = 0.15
     sr_level_index: int = 1
@@ -44,7 +49,9 @@ class TpProgressExitConfig:
             enabled=bool(raw.get("enabled", True)),
             breakeven_at_profit_pct=be_profit,
             sr_trail_at_profit_pct=sr_profit,
-            be_fee_buffer_pct=float(raw.get("be_fee_buffer_pct", 0.05) or 0.05),
+            be_fee_buffer_pct=effective_be_fee_buffer_pct(
+                float(raw.get("be_fee_buffer_pct", DEFAULT_BE_FEE_BUFFER_PCT) or 0)
+            ),
             sr_trail_enabled=bool(raw.get("sr_trail_enabled", True)),
             sr_sl_buffer_atr=float(raw.get("sr_sl_buffer_atr", 0.15) or 0.15),
             sr_level_index=int(raw.get("sr_level_index", 1) or 1),
@@ -100,13 +107,6 @@ def is_take_profit_valid(
     if is_buy:
         return take_profit > entry
     return take_profit < entry
-
-
-def breakeven_stop_price(side: str, entry: float, fee_buffer_pct: float) -> float:
-    buf = entry * max(0.0, fee_buffer_pct) / 100.0
-    if str(side).lower() in ("buy", "long"):
-        return entry + buf
-    return entry - buf
 
 
 def _nearest_support_sl_long(

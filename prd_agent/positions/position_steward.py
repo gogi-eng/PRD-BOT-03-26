@@ -24,6 +24,7 @@ from prd_agent.positions.exit_management import (
     profit_pct,
     progress_in_atr,
 )
+from prd_agent.positions.breakeven_fees import breakeven_stop_price, effective_be_fee_buffer_pct
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
@@ -265,11 +266,14 @@ class PositionSteward:
         if dist <= 0:
             return None
 
+        be_fee_pct = effective_be_fee_buffer_pct(profile.tp_progress.be_fee_buffer_pct)
+        be_sl_floor = breakeven_stop_price(pos.side, entry, be_fee_pct)
+
         if is_long:
             new_sl = pos.best_price - dist
-            # Безубыток у входа только после полного порога активации трейлинга (не early BE)
+            # Безубыток с учётом комиссии open+close (не «голый» entry)
             if p_pct >= profile.activation_pct:
-                new_sl = max(new_sl, entry * 1.001)
+                new_sl = max(new_sl, be_sl_floor)
             if pos.stop_loss > 0:
                 new_sl = max(new_sl, pos.stop_loss)
             if new_sl >= price:
@@ -277,7 +281,7 @@ class PositionSteward:
             return new_sl
         new_sl = pos.best_price + dist
         if p_pct >= profile.activation_pct:
-            new_sl = min(new_sl, entry * 0.999)
+            new_sl = min(new_sl, be_sl_floor)
         if pos.stop_loss > 0:
             new_sl = min(new_sl, pos.stop_loss)
         if new_sl <= price:

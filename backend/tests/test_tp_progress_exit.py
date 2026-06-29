@@ -24,8 +24,8 @@ def test_progress_to_tp_short():
 
 
 def test_breakeven_sl_long():
-    sl = breakeven_stop_price("Buy", 1000.0, 0.05)
-    assert sl > 1000.0
+    sl = breakeven_stop_price("Buy", 1000.0, 0.15)
+    assert sl == 1001.5
 
 
 def test_tighten_long_only_moves_up():

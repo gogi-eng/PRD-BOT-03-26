@@ -45,7 +45,7 @@ trading:
     active_sec: 45
     idle_sec: 120
     idle_after_quiet_min: 60
-  max_positions: 6
+  max_positions: 8
   dynamic_leverage:
     enabled: true
     min: 5
@@ -71,9 +71,9 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC; Hermes PnL>0 2026-06-24: сняты 12,17,18
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Hermes: блок 3 (ночь), 4 (худший час); 7 снят 25.06
     - 3
-    - 7
+    - 4
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -89,7 +89,7 @@ risk:
   daily_loss_blocks_until_next_day: true
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
-  max_daily_loss_usdt: 15
+  max_daily_loss_usdt: 10
   max_trades_per_day: 12
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
@@ -235,7 +235,7 @@ positions:
     enabled: true
     breakeven_at_profit_pct: 1.05
     sr_trail_at_profit_pct: 1.8
-    be_fee_buffer_pct: 0.05
+    be_fee_buffer_pct: 0.15
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -422,17 +422,17 @@ supervisor_v4:
     - CLOUSDT
     - DUSKUSDT
   seed_blocked_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC; синхрон с block_entry
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC; синхрон с block_entry_utc_hours
     - 3
-    - 7
+    - 4
   preferred_utc_hours:
-    # местное UTC+3 — «хорошие» часы DEFENSIVE (все кроме block_entry)
+    # местное UTC+3 — часы DEFENSIVE (все кроме block_entry)
     - 0
     - 1
     - 2
-    - 4
     - 5
     - 6
+    - 7
     - 8
     - 9
     - 10
@@ -502,7 +502,6 @@ agent_world:
   poll_interval_sec: 120
   max_summary_chars: 2200
   allow_auto_execute: true
-  max_news_age_hours: 5
   max_market_drift_pct: 0.015
   max_limit_drift_pct: 0.022
   max_skip_drift_pct: 0.035
@@ -515,12 +514,12 @@ market_scanner:
   run_loop_in_signal_agent: false
   spike_scalp:
     enabled: true
-    interval_sec: 120
+    interval_sec: 90
     kline_interval: "15"
-    min_move_pct: 3.0
+    min_move_pct: 4.0
     min_24h_volume_usdt: 8000000
     max_symbols: 50
-    top_n: 2
+    top_n: 1
     symbol_cooldown_sec: 1800
     auto_execute: true
     execute_min_score: 72
@@ -528,19 +527,6 @@ market_scanner:
     sl_buffer_pct: 0.25
     min_rr: 1.5
     use_closed_candle: false
-    require_momentum_confirmed: true
-    momentum_kline_min: 20
-    atr_period: 14
-    volume_zscore_min: 2.0
-    atr_spike_ratio_min: 1.5
-    require_volatility_spike: false
-    price_accel_bars: 3
-    price_accel_min_pct: 0.12
-    require_price_accel: false
-    respect_scalp_hours: true
-    # База 6 (telegram_signal_agent.auto_execute_max_open_positions) + 2 при score>=78 → макс 8
-    max_positions_bypass_min_score: 78
-    extra_position_slots: 2
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true
@@ -566,9 +552,7 @@ telegram_signal_agent:
   telegram_notify: true
   market_scanner_interval_sec: 600
   market_scanner_min_score_to_notify: 58
-  market_scanner_execute_min_score: 80
-  market_scanner_bos_buffer_pct: 0.18
-  market_scanner_execute_local_hours_min: 9
+  market_scanner_execute_min_score: 75
   market_scanner_execute_require_confirmed_bos: true
   market_scanner_bos_watchlist_enabled: true
   market_scanner_bos_watchlist_timeout_hours: 6
