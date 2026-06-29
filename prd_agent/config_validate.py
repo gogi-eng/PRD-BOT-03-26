@@ -46,12 +46,20 @@ _TYPO_HINTS: Dict[str, Dict[str, str]] = {
 _REQUIRED_SECTIONS = ("bybit", "telegram", "trading", "risk")
 
 
+class _OrderbookWsSection(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    enabled: bool = True
+    depth: int = Field(default=50, ge=1, le=200)
+    max_age_sec: float = Field(default=5.0, ge=0.5, le=60.0)
+
+
 class _BybitSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key: str = ""
     api_secret: str = ""
     testnet: bool = False
     category: str = "linear"
+    orderbook_ws: _OrderbookWsSection | None = None
 
 
 class _TelegramSection(BaseModel):
@@ -90,6 +98,15 @@ class _SupervisorV4Section(BaseModel):
     model_config = ConfigDict(extra="ignore")
     panic_consecutive_losses: int = Field(default=3, ge=1, le=20)
     panic_minutes: int = Field(default=90, ge=5, le=1440)
+
+
+class _SessionFlattenSection(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    enabled: bool = False
+    local_hours: List[int] = Field(default_factory=list)
+    lead_minutes: int = Field(default=30, ge=1, le=120)
+    skip_manual: bool = True
+    telegram_notify: bool = True
 
 
 def _section(data: Dict[str, Any], name: str) -> Dict[str, Any]:
@@ -196,6 +213,10 @@ def validate_config_data(data: Dict[str, Any]) -> Tuple[bool, List[str]]:
         _validate_model(errors, "quality_gate", qg, _QualityGateSection)
     if sup:
         _validate_model(errors, "supervisor_v4", sup, _SupervisorV4Section)
+
+    sf = data.get("session_flatten")
+    if isinstance(sf, dict):
+        _validate_model(errors, "session_flatten", sf, _SessionFlattenSection)
 
     api_cache = _section(data, "api_cache")
     _num(errors, api_cache, "price_ttl_sec", lo=1, hi=120, path="api_cache")

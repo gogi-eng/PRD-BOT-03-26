@@ -50,6 +50,13 @@ def test_requires_bybit_and_telegram_sections():
     assert any("telegram" in e for e in errors)
 
 
+def test_accepts_bybit_orderbook_ws():
+    cfg = _minimal_cfg()
+    cfg["bybit"]["orderbook_ws"] = {"enabled": True, "depth": 50, "max_age_sec": 5.0}
+    ok, errors = validate_config_data(cfg)
+    assert ok, errors
+
+
 def test_supervisor_v4_panic_minutes_range():
     cfg = _minimal_cfg()
     cfg["supervisor_v4"] = {"panic_minutes": 2}
