@@ -1190,6 +1190,8 @@ class TelegramSignalAgent:
         self.market_scanner_execute_local_hours_min = int(
             self.agent_cfg.get("market_scanner_execute_local_hours_min", 0) or 0
         )
+        _trading_bh = (self.cfg.get("trading") or {}).get("block_entry_utc_hours") or []
+        self._scanner_blocked_local_hours = {int(h) % 24 for h in _trading_bh}
         self.market_scanner_execute_require_confirmed_bos = bool(
             self.agent_cfg.get("market_scanner_execute_require_confirmed_bos", False)
         )
@@ -2419,14 +2421,15 @@ class TelegramSignalAgent:
             LOG.warning("Scanner exec notify skipped %s %s", action, signal.symbol)
 
     def _market_scanner_execute_blocked_by_hour(self) -> tuple[bool, str]:
-        """Блок исполнения сканера до local_hour (timezone_offset). 0 = выключено."""
-        min_hour = int(getattr(self, "market_scanner_execute_local_hours_min", 0) or 0)
-        if min_hour <= 0:
-            return False, ""
+        """Блок исполнения сканера: local_hours_min и trading.block_entry_utc_hours (местные)."""
         now_utc = datetime.now(timezone.utc)
         local_hour = (now_utc + timedelta(hours=int(self.timezone_offset))).hour
-        if local_hour < min_hour:
+        min_hour = int(getattr(self, "market_scanner_execute_local_hours_min", 0) or 0)
+        if min_hour > 0 and local_hour < min_hour:
             return True, f"local_hour={local_hour}<{min_hour}"
+        blocked = getattr(self, "_scanner_blocked_local_hours", set()) or set()
+        if local_hour in blocked:
+            return True, f"local_hour={local_hour} in block_entry"
         return False, ""
 
     async def _try_execute_market_setup(self, setup: MarketSetup) -> None:

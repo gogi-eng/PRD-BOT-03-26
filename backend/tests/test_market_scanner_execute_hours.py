@@ -26,6 +26,19 @@ def test_execute_not_blocked_when_local_hours_min_zero():
     assert reason == ""
 
 
+def test_execute_blocked_on_block_entry_hours():
+    agent = _minimal_agent()
+    agent.market_scanner_execute_local_hours_min = 0
+    agent._scanner_blocked_local_hours = {16, 17, 18}
+    agent.timezone_offset = 3
+    fake_now = datetime(2026, 6, 28, 14, 0, 0, tzinfo=timezone.utc)  # local 17
+    with patch("scripts.telegram_signal_agent.datetime") as mock_dt:
+        mock_dt.now.return_value = fake_now
+        blocked, reason = agent._market_scanner_execute_blocked_by_hour()
+    assert blocked
+    assert "block_entry" in reason
+
+
 def test_execute_blocked_before_local_hours_min():
     agent = _minimal_agent()
     # UTC 04:00 → local 07:00 при offset +3

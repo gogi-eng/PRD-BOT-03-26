@@ -40,6 +40,7 @@ from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import GuardStatus, RiskGuard, StopKind
+from prd_agent.risk.session_flatten import SessionFlattenGuard
 from prd_agent.risk.rr_enforce import enforce_min_rr_levels, rr_ratio
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.market_scanner_bridge import (
@@ -99,6 +100,8 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
+        self.session_flatten = SessionFlattenGuard(cfg)
+        self._session_flatten_last_keys: Set[str] = set()
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
         self.macro_ai = MacroAI(cfg)
@@ -258,6 +261,7 @@ class UnifiedOrchestrator:
         )
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
+        self.session_flatten.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
         self.derivatives_guard = DerivativesEntryGuard(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
@@ -718,6 +722,31 @@ class UnifiedOrchestrator:
             trailing_enabled=self.position_steward.enabled,
         )
 
+    async def _maybe_session_flatten(self, positions: List[Dict]) -> None:
+        trigger = self.session_flatten.due_trigger(_last_keys=self._session_flatten_last_keys)
+        if not trigger:
+            return
+        target_hour, key = trigger
+        notes = await self.position_steward.flatten_bot_positions(
+            self.exchange,
+            positions,
+            reason="session_flatten_preopen",
+            skip_manual=self.session_flatten.cfg.skip_manual,
+        )
+        self._session_flatten_last_keys.add(key)
+        if len(self._session_flatten_last_keys) > 64:
+            self._session_flatten_last_keys = set(list(self._session_flatten_last_keys)[-32:])
+        logger.warning(
+            "SESSION FLATTEN before local %02d:00: closed=%d open_before=%d",
+            target_hour,
+            len(notes),
+            len(positions),
+        )
+        if self.session_flatten.cfg.telegram_notify:
+            await self.notifier.send(
+                self.session_flatten.format_telegram(target_hour, len(notes), notes)
+            )
+
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
         if self._block_notify_sent:
             return
@@ -749,6 +778,7 @@ class UnifiedOrchestrator:
         for note in trail_notes:
             if note.startswith("📌") or note.startswith("⚠️"):
                 await self.notifier.send(note)
+        await self._maybe_session_flatten(positions)
         balance_now = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance_now)
         self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)

@@ -312,6 +312,72 @@ class PositionSteward:
         logger.warning("Close failed %s: %s", pos.symbol, err)
         return None
 
+    async def flatten_bot_positions(
+        self,
+        exchange,
+        positions: List[Dict],
+        *,
+        reason: str = "session_flatten_preopen",
+        skip_manual: bool = True,
+    ) -> List[str]:
+        """Закрыть все открытые позиции бота (перед риск-окном сессии)."""
+        notes: List[str] = []
+        live_rows = {
+            str(row.get("symbol", "")).upper(): row
+            for row in positions
+            if float(row.get("size", 0) or 0) > 0
+        }
+        if not live_rows:
+            return notes
+
+        targets: List[TrackedPosition] = []
+        seen: set[str] = set()
+        for sym, pos in list(self._tracked.items()):
+            if sym not in live_rows:
+                continue
+            if skip_manual and pos.origin == "manual":
+                logger.info("SESSION FLATTEN: skip %s (origin=manual)", sym)
+                continue
+            if pos.origin != "bot" and sym not in self._bot_symbols:
+                continue
+            targets.append(pos)
+            seen.add(sym)
+
+        for sym, row in live_rows.items():
+            if sym in seen:
+                continue
+            if sym not in self._bot_symbols:
+                continue
+            adopted = self._adopt_from_exchange(row)
+            if not adopted:
+                continue
+            if skip_manual and adopted.origin == "manual":
+                logger.info("SESSION FLATTEN: skip %s (origin=manual)", sym)
+                continue
+            targets.append(adopted)
+            seen.add(sym)
+
+        for pos in targets:
+            sym = pos.symbol
+            closed_msg = await self._try_close_position(exchange, pos, reason)
+            if closed_msg:
+                notes.append(closed_msg)
+                self._log_note_close(pos, "session_flatten", reason)
+                self._tracked.pop(sym, None)
+                if sym in self._bot_symbols:
+                    self._bot_symbols.discard(sym)
+                    unregister_bot_symbol(self._data_dir, sym)
+            else:
+                logger.warning("SESSION FLATTEN: close failed %s", sym)
+        if targets:
+            logger.warning(
+                "SESSION FLATTEN: requested %d position(s), closed messages=%d reason=%s",
+                len(targets),
+                len(notes),
+                reason,
+            )
+        return notes
+
     async def manage(self, exchange, positions: List[Dict]) -> List[str]:
         """Трейлинг SL, time-stop, breakeven. Возвращает сообщения для лога/Telegram."""
         if (

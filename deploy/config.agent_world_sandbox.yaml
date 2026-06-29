@@ -71,9 +71,12 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # местное UTC+3 (см. timezone_offset), не UTC; Hermes PnL>0 2026-06-24: сняты 12,17,18
+    # местное UTC+3: ночь + окно Лондон→NY (стопы)
     - 3
     - 7
+    - 16
+    - 17
+    - 18
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -91,6 +94,15 @@ risk:
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 15
   max_trades_per_day: 12
+
+# Закрыть все позиции бота за lead_minutes до local_hours (местное UTC+3)
+session_flatten:
+  enabled: true
+  # 11:30 и 15:30 — после утреннего сканера и перед NY
+  local_hours: [12, 16]
+  lead_minutes: 30
+  skip_manual: true
+  telegram_notify: true
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
 entry_pipeline:
