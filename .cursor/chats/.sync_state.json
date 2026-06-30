@@ -1,0 +1,54 @@
+{
+  "chats": {
+    "5d32acbe-e208-4c75-b8c2-06cab3d6e5a9": {
+      "sha256": "cb0d4b901bb4ee5c5206e6739e87ee36f0239406e50bbdb8fd1955df51e1f5f9",
+      "title": "https://github.com/gogi-eng/PRD-BOT-03-26.git Изучи все ветки этого репо, проанализируй все коды. Выбери только лучшее и",
+      "date": "2026-05-25",
+      "mtime": "2026-05-25 08:48 UTC",
+      "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-03-26\\agent-transcripts\\5d32acbe-e208-4c75-b8c2-06cab3d6e5a9\\5d32acbe-e208-4c75-b8c2-06cab3d6e5a9.jsonl",
+      "host": "SNIOT-404-4A"
+    },
+    "9aeeb5f4-61cc-4f1e-9de7-fea9a1814bdb": {
+      "sha256": "e78ce80937feeabbf2ba05a8cb368401591bbe523fa2016919bc03ca43e46d14",
+      "title": "\"C:\\Users\\v.dubovik\\.vscode\\PRD-BOT-03-26-25.05.26-ALL\" надо увеличить количество одновременно открытых сделок до 5, и в",
+      "date": "2026-06-02",
+      "mtime": "2026-06-02 08:40 UTC",
+      "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-03-26-25-05-26-ALL\\agent-transcripts\\9aeeb5f4-61cc-4f1e-9de7-fea9a1814bdb\\9aeeb5f4-61cc-4f1e-9de7-fea9a1814bdb.jsonl",
+      "host": "SNIOT-404-4A"
+    },
+    "32cdf071-1bf8-4de5-a196-19ee8a0f7e71": {
+      "sha256": "5c1400b5c33d6ef280eb9f0113463cc9df71018c2b5103c2f00f0bee947dfcb0",
+      "title": "\"C:\\Users\\v.dubovik\\Desktop\\Нормативка\" найди в этих документах фразу \"не нагружать кабели\"",
+      "date": "2026-06-16",
+      "mtime": "2026-06-16 06:15 UTC",
+      "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\32cdf071-1bf8-4de5-a196-19ee8a0f7e71\\32cdf071-1bf8-4de5-a196-19ee8a0f7e71.jsonl",
+      "host": "SNIOT-404-4A"
+    },
+    "42e62502-c210-4bc5-9273-b77240d5f47d": {
+      "sha256": "c8dcc9ed03cf8a31d29b3ecfe1f6d988d4646c7cd95d998378f2baaaf1f7911b",
+      "title": "User: Сможешь исправить надписи на графиках и картинках? Kimi: Да, я могу помочь. Но давайте уточним подход — я не могу ",
+      "date": "2026-06-18",
+      "mtime": "2026-06-18 08:42 UTC",
+      "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\42e62502-c210-4bc5-9273-b77240d5f47d\\42e62502-c210-4bc5-9273-b77240d5f47d.jsonl",
+      "host": "SNIOT-404-4A"
+    },
+    "6aae46dd-a66c-41b2-816d-e8b0d328b395": {
+      "sha256": "60113e0f200609d69aa88a0b1a9e421306f25f7b21fb32549eeb996a475390a4",
+      "title": "\"C:\\Users\\v.dubovik\\Downloads\\bot_analysis_ru.pdf\" и \"C:\\Users\\v.dubovik\\.vscode\\PRD-BOT-26.05.26-ALL\\chat-Анализ бота и",
+      "date": "2026-06-30",
+      "mtime": "2026-06-30 08:55 UTC",
+      "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\6aae46dd-a66c-41b2-816d-e8b0d328b395\\6aae46dd-a66c-41b2-816d-e8b0d328b395.jsonl",
+      "host": "SNIOT-404-4A"
+    },
+    "a54dc4c8-dbfa-4129-bc98-b8fb028fb358": {
+      "sha256": "bb1cb5fed90089a8085d97dcae5f0da2579f2270067d926617d25883930c8c35",
+      "title": "\"C:\\Users\\v.dubovik\\Downloads\\bot_analysis_ru.pdf\" и \"C:\\Users\\v.dubovik\\.vscode\\PRD-BOT-26.05.26-ALL\\chat-Анализ бота и",
+      "date": "2026-06-17",
+      "mtime": "2026-06-17 09:54 UTC",
+      "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\a54dc4c8-dbfa-4129-bc98-b8fb028fb358\\a54dc4c8-dbfa-4129-bc98-b8fb028fb358.jsonl",
+      "host": "SNIOT-404-4A"
+    }
+  },
+  "last_sync_utc": "2026-06-30 08:57:46 UTC",
+  "host": "SNIOT-404-4A"
+}
