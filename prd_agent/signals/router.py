@@ -27,7 +27,6 @@ SOURCE_WEIGHT = {
     "whale_oi": 0.75,
     "macro_news": 0.55,
     "coinugget_style": 0.78,
-    "adanos_reddit": 0.72,
 }
 
 
