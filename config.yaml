@@ -395,13 +395,6 @@ signals:
 external_sentiment:
   cache_sec: 900
   enabled: true
-  adanos:
-    api_key_env: ADANOS_API_KEY
-    base_url: https://api.adanos.org
-    enabled: true
-    min_buzz_score: 55
-    min_sentiment_abs: 0.15
-    trending_limit: 10
   coinugget_style:
     enabled: true
     kline_interval: '15'
