@@ -90,7 +90,7 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 10
-  max_trades_per_day: 12
+  max_trades_per_day: 50
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
 entry_pipeline:
