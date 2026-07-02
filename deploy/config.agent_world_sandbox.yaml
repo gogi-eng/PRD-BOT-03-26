@@ -219,7 +219,7 @@ positions:
     skip_manual: true
     emergency_close: true
   lock_initial_sl: false
-  trailing_activation_pct: 2.2
+  trailing_activation_pct: 2.0
   trailing_distance_pct: 2.8
   trailing_distance_atr_mult: 1.9
   trailing_min_distance_pct: 1.1
