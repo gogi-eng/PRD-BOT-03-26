@@ -24,6 +24,12 @@ from prd_agent.positions.exit_management import (
     profit_pct,
     progress_in_atr,
 )
+from prd_agent.positions.breakeven_fees import breakeven_stop_price, effective_be_fee_buffer_pct
+from prd_agent.positions.adaptive_trailing import (
+    AdaptiveTrailingConfig,
+    compute_adaptive_distance_factor,
+    should_apply_adaptive_trailing,
+)
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
@@ -120,6 +126,7 @@ class PositionSteward:
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
         self._default_profile = TrailingProfile.from_positions_cfg(p)
+        self._adaptive_trailing = AdaptiveTrailingConfig.from_cfg(p)
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing"
         )
@@ -433,6 +440,26 @@ class PositionSteward:
                 current_profit_pct=p_pct,
             ):
                 dist_factor = profile.exit_management.late_tighten_distance_factor
+
+            if should_apply_adaptive_trailing(
+                cfg=self._adaptive_trailing,
+                origin=pos.origin,
+                pump_dump_mode=pos.pump_dump_mode or sym in self._pump_dump_symbols,
+            ):
+                ad_factor, ad_note = compute_adaptive_distance_factor(
+                    side=pos.side,
+                    klines=klines or [],
+                    cfg=self._adaptive_trailing,
+                )
+                dist_factor = min(dist_factor, ad_factor)
+                if ad_factor < self._adaptive_trailing.normal_distance_factor - 1e-9:
+                    logger.info(
+                        "Adaptive trailing %s %s: %s (dist_factor=%.2f)",
+                        sym,
+                        pos.side,
+                        ad_note,
+                        dist_factor,
+                    )
 
             if self.lock_initial_sl:
                 continue
