@@ -130,11 +130,11 @@ class PositionSteward:
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
-        self._default_profile = TrailingProfile.from_positions_cfg(p)
+        self._default_profile = TrailingProfile.from_positions_cfg(p, root_cfg=cfg)
         self._adaptive_trailing = AdaptiveTrailingConfig.from_cfg(p)
         self._be_fee_buffer_pct = fee_buffer_pct_from_bot_cfg(cfg)
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
-            p, subsection="pump_dump_trailing"
+            p, subsection="pump_dump_trailing", root_cfg=cfg
         )
         ps = cfg.get("position_sync", {}) if isinstance(cfg.get("position_sync"), dict) else {}
         self._sync_guard.enabled = bool(ps.get("alert_on_mismatch", True))

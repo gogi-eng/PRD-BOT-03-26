@@ -74,6 +74,7 @@ class TrailingProfile:
         positions_cfg: Dict[str, Any],
         *,
         subsection: str = "",
+        root_cfg: Optional[Mapping[str, Any]] = None,
     ) -> TrailingProfile:
         parent = positions_cfg if isinstance(positions_cfg, dict) else {}
         if subsection:
@@ -116,7 +117,7 @@ class TrailingProfile:
             distance_atr_mult=_f("trailing_distance_atr_mult", 2.5),
             min_distance_pct=_f("trailing_min_distance_pct", 0.65),
             breakeven_pct=_f("breakeven_after_pct", 1.05),
-            tp_progress=TpProgressExitConfig.from_cfg(merged_positions),
+            tp_progress=TpProgressExitConfig.from_cfg(merged_positions, root_cfg=root_cfg),
             exit_management=ExitManagementConfig.from_cfg(merged_positions),
         )
 

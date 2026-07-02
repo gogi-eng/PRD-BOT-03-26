@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Mapping, Optional
 
+from prd_agent.positions.breakeven_fees import (
+    breakeven_stop_price,
+    clamp_sl_for_profit_lock,
+    fee_buffer_pct_from_bot_cfg,
+    is_stop_in_loss_after_fees,
+)
+
 logger = logging.getLogger("prd_agent.scanner_reversal")
 
 
@@ -178,20 +185,24 @@ def compute_tightened_sl(
     current_sl: float,
     invalidation: float,
     cfg: Mapping[str, Any],
+    bot_cfg: Optional[Mapping[str, Any]] = None,
 ) -> Optional[float]:
     is_long = normalize_pos_side(position_side) == "BUY"
     if mark <= 0 and entry <= 0:
         return None
     ref = mark if mark > 0 else entry
     from_mark = float(cfg.get("tighten_from_mark_pct", 0.35) or 0.35)
-    entry_buf = float(cfg.get("entry_buffer_pct", 0.05) or 0.05)
     min_improve = float(cfg.get("min_sl_improve_pct", 0.03) or 0.03) / 100.0
     inv = float(invalidation or 0)
 
+    full_cfg = bot_cfg if isinstance(bot_cfg, dict) else {}
+    be_fee_pct = fee_buffer_pct_from_bot_cfg(full_cfg) if full_cfg else 0.15
+    be_sl = breakeven_stop_price(position_side, entry, be_fee_pct) if entry > 0 else 0.0
+
     candidates: list[float] = []
     if is_long:
-        if entry > 0:
-            candidates.append(entry * (1.0 + entry_buf / 100.0))
+        if be_sl > 0:
+            candidates.append(be_sl)
         if ref > 0:
             candidates.append(ref * (1.0 - from_mark / 100.0))
         if inv > 0 and inv < ref:
@@ -205,8 +216,8 @@ def compute_tightened_sl(
             if new_sl <= current_sl * (1.0 + min_improve):
                 return None
     else:
-        if entry > 0:
-            candidates.append(entry * (1.0 - entry_buf / 100.0))
+        if be_sl > 0:
+            candidates.append(be_sl)
         if ref > 0:
             candidates.append(ref * (1.0 + from_mark / 100.0))
         if inv > 0 and inv > ref:
@@ -221,6 +232,14 @@ def compute_tightened_sl(
                 return None
     if new_sl <= 0:
         return None
+
+    in_profit = (is_long and ref > entry) or ((not is_long) and ref < entry)
+    if in_profit:
+        new_sl = clamp_sl_for_profit_lock(
+            position_side, entry, new_sl, be_fee_pct, in_profit=True
+        )
+        if is_stop_in_loss_after_fees(position_side, entry, new_sl, be_fee_pct):
+            new_sl = be_sl
     return round(new_sl, 8)
 
 
@@ -267,6 +286,7 @@ async def handle_scanner_reversal(
     cooldown_state: Dict[str, Any],
     notify: Optional[Callable[[str], bool]] = None,
     now: Optional[datetime] = None,
+    bot_cfg: Optional[Mapping[str, Any]] = None,
 ) -> ReversalHandleResult:
     ok, why = passes_reversal_filters(
         setup, position, cfg, cooldown_state=cooldown_state, now=now
@@ -300,6 +320,7 @@ async def handle_scanner_reversal(
             current_sl=cur_sl,
             invalidation=inv,
             cfg=cfg,
+            bot_cfg=bot_cfg,
         )
         if candidate is not None:
             res = await client.update_stop_loss(sym, candidate, position_idx=_position_idx(position))

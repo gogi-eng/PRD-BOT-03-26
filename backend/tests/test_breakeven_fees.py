@@ -75,6 +75,50 @@ def test_fee_buffer_from_bot_config():
     assert buf >= MIN_BE_FEE_BUFFER_PCT
 
 
+def test_fee_multiplier_15_round_trip():
+    """Вход ± 1.5× комиссия: 0.055%×2×1.5 = 0.165% от цены."""
+    cfg = {
+        "positions": {
+            "fee_breakeven": {
+                "taker_rate": 0.00055,
+                "fee_multiplier": 1.5,
+            }
+        }
+    }
+    buf = fee_buffer_pct_from_bot_cfg(cfg)
+    assert abs(buf - 0.165) < 0.001
+    sl = breakeven_stop_price("Sell", 0.08691, buf)
+    assert sl < 0.08691
+    assert not is_stop_in_loss_after_fees("Sell", 0.08691, sl, buf)
+
+
+def test_birb_short_mark_retrace_clamped_to_be():
+    """Регрессия: откат к entry тянул SL выше входа на SHORT."""
+    from prd_agent.positions.scanner_reversal_sl import compute_tightened_sl
+
+    entry = 0.08691
+    mark = 0.08680  # ещё в плюсе, но близко к входу
+    bot_cfg = {
+        "positions": {
+            "fee_breakeven": {"taker_rate": 0.00055, "fee_multiplier": 1.5}
+        }
+    }
+    rev_cfg = {"tighten_from_mark_pct": 0.35, "min_sl_improve_pct": 0.0}
+    new_sl = compute_tightened_sl(
+        position_side="Sell",
+        entry=entry,
+        mark=mark,
+        current_sl=0.0,
+        invalidation=0.0,
+        cfg=rev_cfg,
+        bot_cfg=bot_cfg,
+    )
+    assert new_sl is not None
+    be = breakeven_stop_price("Sell", entry, fee_buffer_pct_from_bot_cfg(bot_cfg))
+    assert abs(new_sl - be) < 1e-6 or new_sl <= be
+    assert new_sl < entry
+
+
 def test_net_pnl_at_be_stop_is_non_negative():
     entry = 1000.0
     buf = effective_be_fee_buffer_pct(0.15)
