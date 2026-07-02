@@ -90,6 +90,9 @@ class ControlBot:
                     InlineKeyboardButton("🧪 Лаборатория", callback_data="act:skipped_lab"),
                 ],
                 [
+                    InlineKeyboardButton("📊 Hermes", callback_data="act:hermes"),
+                ],
+                [
                     InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
                     InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
                 ],
@@ -175,6 +178,7 @@ class ControlBot:
             "portfolio_quality",
             "daily_pnl",
             "skipped_lab",
+            "hermes",
             "macro",
             "ta_scan",
             "bot_manager",
@@ -285,6 +289,8 @@ class ControlBot:
             return self.orch.get_daily_pnl_report()
         if action == "skipped_lab":
             return self.orch.get_skipped_lab_report()
+        if action == "hermes":
+            return self.orch.get_hermes_briefing()
         if action == "help":
             return build_panel_help_text(self.cfg, self.orch.root)
         if action == "liq_guard":

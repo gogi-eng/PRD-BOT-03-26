@@ -71,9 +71,8 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Hermes: блок 3 (ночь), 4 (худший час); 7 снят 25.06
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Hermes 02.07: час 4 убран — у TP local_hour>=4 (медиана 11:30)
     - 3
-    - 4
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -440,7 +439,6 @@ supervisor_v4:
   seed_blocked_utc_hours:
     # МЕСТНОЕ UTC+3 (Москва), НЕ UTC; синхрон с block_entry_utc_hours
     - 3
-    - 4
   preferred_utc_hours:
     # местное UTC+3 — часы DEFENSIVE (все кроме block_entry)
     - 0
@@ -543,6 +541,9 @@ market_scanner:
     sl_buffer_pct: 0.25
     min_rr: 1.5
     use_closed_candle: false
+    use_dynamic_leverage: true
+    max_positions_bypass_min_score: 88
+    extra_position_slots: 2
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true

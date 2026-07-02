@@ -540,6 +540,9 @@ market_scanner:
     sl_buffer_pct: 0.25
     min_rr: 1.5
     use_closed_candle: false
+    use_dynamic_leverage: true
+    max_positions_bypass_min_score: 88
+    extra_position_slots: 2
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true

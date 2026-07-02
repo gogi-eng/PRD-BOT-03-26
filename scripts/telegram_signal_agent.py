@@ -1080,7 +1080,21 @@ class TelegramSignalAgent:
         )
         self.timezone_offset = int(get_cfg(self.cfg, "timezone_offset", "", 3) or 3)
         self.default_leverage = int(self.agent_cfg.get("default_leverage", get_cfg(self.cfg, "trading", "leverage", 10)))
-        self.max_leverage = int(self.agent_cfg.get("max_leverage", 10))
+        _agent_max = self.agent_cfg.get("max_leverage")
+        if _agent_max is not None:
+            self.max_leverage = int(_agent_max or 10)
+        else:
+            from prd_agent.risk.dynamic_leverage import load_dynamic_leverage_settings
+
+            _dl = load_dynamic_leverage_settings(self.cfg)
+            self.max_leverage = int(_dl.max_leverage if _dl.enabled else _dl.fallback_leverage)
+        self._dynamic_leverage_settings = None
+        try:
+            from prd_agent.risk.dynamic_leverage import load_dynamic_leverage_settings
+
+            self._dynamic_leverage_settings = load_dynamic_leverage_settings(self.cfg)
+        except Exception:
+            pass
         self.margin_usdt = float(self.agent_cfg.get("margin_usdt", 3.0))
         self.max_notional_usdt = float(self.agent_cfg.get("max_notional_usdt", 30.0))
         self.execution_balance_reserve_pct = float(self.agent_cfg.get("execution_balance_reserve_pct", 18))
@@ -2396,6 +2410,31 @@ class TelegramSignalAgent:
         if not telegram_send(token, chat_id, "\n".join(text_lines)):
             LOG.warning("Scanner exec notify skipped %s %s", action, signal.symbol)
 
+    def _market_scanner_execute_blocked_by_hour(self) -> tuple[bool, str]:
+        """Блок исполнения сканера до local_hour (timezone_offset). 0 = выключено."""
+        min_hour = int(getattr(self, "market_scanner_execute_local_hours_min", 0) or 0)
+        if min_hour <= 0:
+            return False, ""
+        now_utc = datetime.now(timezone.utc)
+        local_hour = (now_utc + timedelta(hours=int(self.timezone_offset))).hour
+        if local_hour < min_hour:
+            return True, f"local_hour={local_hour}<{min_hour}"
+        return False, ""
+
+    def _spike_scanner_leverage(self, setup_score: int) -> int:
+        """Плечо 20–50x для SPIKE SCANNER по скору (через trading.dynamic_leverage)."""
+        from prd_agent.risk.dynamic_leverage import resolve_trade_leverage
+
+        sc = self._spike_scalp_cfg
+        use_dyn = bool(getattr(sc, "use_dynamic_leverage", True))
+        settings = self._dynamic_leverage_settings
+        if use_dyn and settings is not None and settings.enabled:
+            conf = max(0.0, min(1.0, float(setup_score or 0) / 100.0))
+            lev = resolve_trade_leverage(conf, settings)
+        else:
+            lev = int(self.default_leverage)
+        return max(1, min(int(lev), int(self.max_leverage)))
+
     async def _try_execute_market_setup(self, setup: MarketSetup) -> None:
         spike = bool(getattr(setup, "spike_mode", False))
         if spike:
@@ -2437,7 +2476,11 @@ class TelegramSignalAgent:
             f"{setup.symbol}|{setup.checked_at_utc}|{scen}|{setup.score}|exec".encode("utf-8")
         ).hexdigest()
         msg_id = int(digest[:8], 16) % (2**30)
-        lev = max(1, min(int(self.default_leverage), int(self.max_leverage)))
+        lev = (
+            self._spike_scanner_leverage(int(setup.score or 0))
+            if spike
+            else max(1, min(int(self.default_leverage), int(self.max_leverage)))
+        )
 
         sig = TelegramSignal(
             source="SPIKE_SCANNER" if spike else "MARKET_SCANNER",

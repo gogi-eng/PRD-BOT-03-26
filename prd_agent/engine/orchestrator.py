@@ -1533,6 +1533,11 @@ class UnifiedOrchestrator:
         last = getattr(self.supervisor, "_last_skipped_bt_summary", None) or {}
         return self.supervisor.skipped_bt.build_telegram_report(h, last_run=last)
 
+    def get_hermes_briefing(self) -> str:
+        from prd_agent.analysis.hermes_briefing import build_hermes_telegram_briefing
+
+        return build_hermes_telegram_briefing(self.root)
+
     async def get_liquidation_safety_report(self) -> str:
         from prd_agent.positions.liquidation_guard import (
             LiquidationGuardConfig,

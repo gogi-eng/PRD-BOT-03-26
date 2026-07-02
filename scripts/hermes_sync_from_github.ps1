@@ -50,7 +50,7 @@ function Sync-HermesFromGitHub {
             $exit = Invoke-GitPull -Branch "master"
         }
         if ($exit -ne 0) {
-            throw "git pull failed (exit $exit)"
+            Write-Warning "git pull failed (exit $exit); copying local Hermes files"
         }
     } finally {
         Pop-Location
@@ -67,6 +67,17 @@ function Sync-HermesFromGitHub {
     }
     $dst = Join-Path $dstDir "HERMES_LIVE.md"
     Copy-Item -Path $src -Destination $dst -Force
+
+    $hermesData = Join-Path $PrdBotRoot "data\hermes"
+    if (-not (Test-Path $hermesData)) {
+        New-Item -ItemType Directory -Path $hermesData -Force | Out-Null
+    }
+    foreach ($name in @("winning_entry_rules.json", "HERMES_LIVE.md", "meta.json")) {
+        $f = Join-Path $HermesDir $name
+        if (Test-Path $f) {
+            Copy-Item -Path $f -Destination (Join-Path $hermesData $name) -Force
+        }
+    }
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "[$stamp] Updated: $dst"
 }

@@ -16,16 +16,16 @@ RULE_POINTS: Dict[str, float] = {
     "htf_aligned": 18.0,
     "htf_misaligned": -20.0,
     "regime_trend": 15.0,
-    "regime_chop": -8.0,
+    "regime_chop": -15.0,
     "adx_ok": 12.0,
     "adx_strong": 8.0,
     "adx_weak": -15.0,
-    "atr_sweet": 10.0,
+    "atr_sweet": 5.0,
     "atr_extreme": 5.0,
     "imb_strong": 10.0,
     "volume_2x": 5.0,
     "short_green_hour": 5.0,
-    "spread_wide": -5.0,
+    "spread_wide": -10.0,
 }
 
 POSITIVE_RULE_IDS = frozenset(rid for rid, pts in RULE_POINTS.items() if pts > 0)
