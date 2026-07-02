@@ -129,3 +129,15 @@ def test_production_config_has_spike_scalp_no_adanos():
     assert "enabled: true" in text.split("spike_scalp:")[1].split("scanner_reversal_exit")[0]
     assert "adanos:" not in text
     assert "ADANOS_API_KEY" not in text
+
+
+def test_agent_world_config_has_spike_scalp_no_adanos():
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "deploy" / "config.agent_world_sandbox.yaml").read_text(encoding="utf-8")
+    assert "spike_scalp:" in text
+    spike_block = text.split("spike_scalp:", 1)[1].split("scanner_reversal_exit", 1)[0]
+    assert "enabled: true" in spike_block
+    assert "adanos:" not in text
+    assert "ADANOS_API_KEY" not in text
+    assert "external_sentiment:" in text
+    assert "enabled: false" in text.split("external_sentiment:", 1)[1].split("ta_scanner", 1)[0]
