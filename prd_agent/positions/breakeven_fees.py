@@ -60,25 +60,38 @@ def slippage_margin_pct_from_cfg(cfg: Mapping[str, Any]) -> float:
         return DEFAULT_SLIPPAGE_MARGIN_PCT
 
 
+def fee_multiplier_from_cfg(cfg: Mapping[str, Any]) -> float:
+    positions = cfg.get("positions") if isinstance(cfg.get("positions"), dict) else {}
+    raw = positions.get("fee_breakeven") if isinstance(positions.get("fee_breakeven"), dict) else {}
+    try:
+        mult = float(raw.get("fee_multiplier", 1.5) or 1.5)
+    except (TypeError, ValueError):
+        mult = 1.5
+    return max(1.0, mult)
+
+
 def fee_buffer_pct_from_bot_cfg(
     cfg: Mapping[str, Any],
     *,
     yaml_override: float | None = None,
 ) -> float:
     """
-    Буфер % от entry: комиссия open+close (taker/maker из config) + slippage.
-    yaml_override — be_fee_buffer_pct из tp_progress_exit (не ниже расчётного минимума).
+    Буфер % от entry для безубытка: fee_multiplier × (комиссия вход+выход).
+
+    По умолчанию fee_multiplier=1.5 → «вход ± 1.5 комиссии от цены».
+    yaml_override — be_fee_buffer_pct из tp_progress_exit (не ниже расчётного).
     """
     fee_cfg = fee_breakeven_config_from_positions(cfg)
-    slip = slippage_margin_pct_from_cfg(cfg)
-    computed = round_trip_fee_buffer_pct(
-        fee_rate_per_side=fee_cfg.entry_rate(),
-        slippage_margin_pct=slip,
-    )
-    computed_exit = fee_cfg.entry_rate() * 100.0 + fee_cfg.exit_rate() * 100.0 + slip
-    computed = max(computed, computed_exit, MIN_BE_FEE_BUFFER_PCT)
+    mult = fee_multiplier_from_cfg(cfg)
+    round_trip_pct = (fee_cfg.entry_rate() + fee_cfg.exit_rate()) * 100.0
+    computed = mult * round_trip_pct
     if yaml_override is not None:
-        return effective_be_fee_buffer_pct(max(yaml_override, computed))
+        try:
+            y = float(yaml_override)
+        except (TypeError, ValueError):
+            y = 0.0
+        if y > 0:
+            return max(computed, y, MIN_BE_FEE_BUFFER_PCT)
     return max(computed, MIN_BE_FEE_BUFFER_PCT)
 
 
@@ -90,7 +103,9 @@ def breakeven_stop_price(
     """
     Уровень SL: при срабатывании цена покрывает комиссии (не «голый» entry).
 
-    fee_buffer_pct — суммарный % от entry (open+close+slippage), не ставка одной ноги.
+    Long: entry + buffer (выше входа).
+    Short: entry - buffer (ниже входа).
+    fee_buffer_pct — % от entry = fee_multiplier × round-trip commission (см. config).
     """
     if entry <= 0:
         return 0.0

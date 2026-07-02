@@ -227,7 +227,7 @@ positions:
     enabled: true
     breakeven_at_profit_pct: 0.9
     sr_trail_at_profit_pct: 1.5
-    be_fee_buffer_pct: 0.15
+    be_fee_buffer_pct: 0.165
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -238,6 +238,7 @@ positions:
     entry_as_maker: false
     exit_as_maker: false
     slippage_margin_pct: 0.04
+    fee_multiplier: 1.5
   pump_dump_trailing:
     trailing_activation_pct: 1.0
     trailing_distance_pct: 0.55
