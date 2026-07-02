@@ -232,6 +232,12 @@ positions:
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
     min_valid_tp_distance_pct: 0.08
+  fee_breakeven:
+    taker_rate: 0.00055
+    maker_rate: 0.0002
+    entry_as_maker: false
+    exit_as_maker: false
+    slippage_margin_pct: 0.04
   pump_dump_trailing:
     trailing_activation_pct: 1.0
     trailing_distance_pct: 0.55
