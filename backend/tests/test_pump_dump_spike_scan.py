@@ -274,14 +274,15 @@ def test_agent_world_deploy_yaml_position_limits():
 
     path = Path(__file__).resolve().parents[2] / "deploy" / "config.agent_world_sandbox.yaml"
     cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert int(cfg["trading"]["max_positions"]) == 6
-    assert int(cfg["telegram_signal_agent"]["auto_execute_max_open_positions"]) == 6
+    assert int(cfg["trading"]["max_positions"]) == 8
     spike = cfg["market_scanner"]["spike_scalp"]
     assert int(spike["extra_position_slots"]) == 2
-    assert int(spike["max_positions_bypass_min_score"]) == 78
+    assert int(spike["max_positions_bypass_min_score"]) == 88
+    assert spike.get("use_dynamic_leverage") is True
     assert int(spike["max_symbols"]) == 50
-    assert int(spike["top_n"]) == 2
+    assert int(spike["top_n"]) == 1
     spike_cfg = SpikeScanConfig.from_cfg(cfg)
+    cap_base = int(cfg["telegram_signal_agent"].get("auto_execute_max_open_positions") or 6)
     assert effective_scanner_open_cap(
-        6, source="SPIKE_SCANNER", confidence=100, spike_cfg=spike_cfg
-    ) == 8
+        cap_base, source="SPIKE_SCANNER", confidence=100, spike_cfg=spike_cfg
+    ) == cap_base + 2

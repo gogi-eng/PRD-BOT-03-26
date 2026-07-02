@@ -100,6 +100,8 @@ class SpikeScanConfig:
 
     extra_position_slots: int = 0
 
+    use_dynamic_leverage: bool = True
+
 
 
     @classmethod
@@ -199,6 +201,8 @@ class SpikeScanConfig:
             max_positions_bypass_min_score=int(raw.get("max_positions_bypass_min_score", 0)),
 
             extra_position_slots=int(raw.get("extra_position_slots", 0)),
+
+            use_dynamic_leverage=bool(raw.get("use_dynamic_leverage", True)),
 
         )
 
