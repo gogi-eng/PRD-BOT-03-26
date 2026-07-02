@@ -1,1 +1,11 @@
-from .bybit_client import BybitClient
+from __future__ import annotations
+
+__all__ = ["BybitClient"]
+
+
+def __getattr__(name: str):
+    if name == "BybitClient":
+        from .bybit_client import BybitClient
+
+        return BybitClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

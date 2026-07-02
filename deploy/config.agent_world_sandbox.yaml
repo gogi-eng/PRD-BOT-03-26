@@ -268,6 +268,12 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
+  fee_breakeven:
+    taker_rate: 0.00055
+    maker_rate: 0.0002
+    entry_as_maker: false
+    exit_as_maker: false
+    slippage_margin_pct: 0.04
 
 # Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
 manual_management:

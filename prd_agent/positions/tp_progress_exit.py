@@ -11,7 +11,9 @@ from analysis.structure_zones import StructureZoneAnalyzer
 from prd_agent.positions.breakeven_fees import (
     DEFAULT_BE_FEE_BUFFER_PCT,
     breakeven_stop_price,
+    clamp_sl_for_profit_lock,
     effective_be_fee_buffer_pct,
+    fee_buffer_pct_from_bot_cfg,
 )
 from prd_agent.positions.sr_sl_tp_adjust import _simple_atr
 
@@ -256,6 +258,18 @@ def evaluate_tp_progress_exit(
                     f"S/R трейл: прибыль {profit_pct_val:.2f}% "
                     f">= {cfg.sr_trail_at_profit_pct:.2f}% от входа"
                 )
+
+    if suggested is not None and profit_pct_val > 0:
+        clamped = clamp_sl_for_profit_lock(
+            side,
+            entry,
+            suggested,
+            cfg.be_fee_buffer_pct,
+            in_profit=True,
+        )
+        if abs(clamped - suggested) > 1e-12:
+            note = f"{note}; BE-fee clamp {suggested:.6f}→{clamped:.6f}"
+            suggested = clamped
 
     return TpProgressResult(progress, suggested, phase, note)
 

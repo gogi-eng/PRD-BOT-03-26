@@ -24,7 +24,12 @@ from prd_agent.positions.exit_management import (
     profit_pct,
     progress_in_atr,
 )
-from prd_agent.positions.breakeven_fees import breakeven_stop_price, effective_be_fee_buffer_pct
+from prd_agent.positions.breakeven_fees import (
+    breakeven_stop_price,
+    clamp_sl_for_profit_lock,
+    effective_be_fee_buffer_pct,
+    fee_buffer_pct_from_bot_cfg,
+)
 from prd_agent.positions.adaptive_trailing import (
     AdaptiveTrailingConfig,
     compute_adaptive_distance_factor,
@@ -127,6 +132,7 @@ class PositionSteward:
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
         self._default_profile = TrailingProfile.from_positions_cfg(p)
         self._adaptive_trailing = AdaptiveTrailingConfig.from_cfg(p)
+        self._be_fee_buffer_pct = fee_buffer_pct_from_bot_cfg(cfg)
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing"
         )
@@ -272,7 +278,12 @@ class PositionSteward:
         if dist <= 0:
             return None
 
-        be_fee_pct = effective_be_fee_buffer_pct(profile.tp_progress.be_fee_buffer_pct)
+        be_fee_pct = effective_be_fee_buffer_pct(
+            max(
+                self._be_fee_buffer_pct,
+                profile.tp_progress.be_fee_buffer_pct,
+            )
+        )
         be_sl_floor = breakeven_stop_price(pos.side, entry, be_fee_pct)
 
         if is_long:
@@ -515,6 +526,30 @@ class PositionSteward:
 
             if new_sl is None:
                 continue
+
+            be_fee_pct = effective_be_fee_buffer_pct(
+                max(self._be_fee_buffer_pct, profile.tp_progress.be_fee_buffer_pct)
+            )
+            if p_pct > 0:
+                clamped = clamp_sl_for_profit_lock(
+                    pos.side,
+                    pos.entry,
+                    new_sl,
+                    be_fee_pct,
+                    in_profit=True,
+                )
+                if abs(clamped - new_sl) > 1e-12:
+                    logger.info(
+                        "BE-fee clamp %s %s: SL %.6f → %.6f (buf=%.2f%%, pnl=%.2f%%)",
+                        sym,
+                        pos.side,
+                        new_sl,
+                        clamped,
+                        be_fee_pct,
+                        p_pct,
+                    )
+                    new_sl = clamped
+
             if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) / max(pos.last_sl_sent, 1e-9) < 0.0003:
                 continue
             client = exchange._client
