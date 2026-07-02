@@ -258,6 +258,16 @@ positions:
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
       enabled: false
+  adaptive_trailing:
+    enabled: true
+    lookback_bars: 3
+    fast_move_pct: 1.0
+    slow_move_pct: 0.3
+    tight_distance_factor: 0.55
+    normal_distance_factor: 1.0
+    apply_to_manual: true
+    apply_to_pump_dump: true
+    apply_to_bot: true
 
 # Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
 manual_management:
