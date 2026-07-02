@@ -3702,6 +3702,7 @@ class TelegramSignalAgent:
                 cfg=cfg,
                 cooldown_state=rows,
                 notify=_notify if bool(cfg.get("alert_telegram", True)) else None,
+                bot_cfg=self.cfg,
             )
             if res.handled:
                 self._save_state()

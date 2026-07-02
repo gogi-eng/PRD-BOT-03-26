@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from analysis.structure_zones import StructureZoneAnalyzer
 
@@ -34,7 +34,12 @@ class TpProgressExitConfig:
     min_profit_pct_for_be: float = 1.0
 
     @classmethod
-    def from_cfg(cls, positions_cfg: Dict[str, Any]) -> TpProgressExitConfig:
+    def from_cfg(
+        cls,
+        positions_cfg: Dict[str, Any],
+        *,
+        root_cfg: Optional[Mapping[str, Any]] = None,
+    ) -> TpProgressExitConfig:
         raw = positions_cfg.get("tp_progress_exit")
         if not isinstance(raw, dict):
             raw = {}
@@ -47,13 +52,19 @@ class TpProgressExitConfig:
             sr_profit = float(raw.get("sr_trail_at_profit_pct") or be_profit + 0.5)
         else:
             sr_profit = max(be_profit + 0.45, legacy_be + 0.45)
+        yaml_be = float(raw.get("be_fee_buffer_pct", 0) or 0)
+        if root_cfg is not None:
+            be_fee = fee_buffer_pct_from_bot_cfg(
+                root_cfg,
+                yaml_override=yaml_be if yaml_be > 0 else None,
+            )
+        else:
+            be_fee = effective_be_fee_buffer_pct(yaml_be if yaml_be > 0 else None)
         return cls(
             enabled=bool(raw.get("enabled", True)),
             breakeven_at_profit_pct=be_profit,
             sr_trail_at_profit_pct=sr_profit,
-            be_fee_buffer_pct=effective_be_fee_buffer_pct(
-                float(raw.get("be_fee_buffer_pct", DEFAULT_BE_FEE_BUFFER_PCT) or 0)
-            ),
+            be_fee_buffer_pct=be_fee,
             sr_trail_enabled=bool(raw.get("sr_trail_enabled", True)),
             sr_sl_buffer_atr=float(raw.get("sr_sl_buffer_atr", 0.15) or 0.15),
             sr_level_index=int(raw.get("sr_level_index", 1) or 1),
@@ -231,9 +242,13 @@ def evaluate_tp_progress_exit(
     note = f"прибыль от входа {profit_pct_val:.2f}%"
 
     if profit_pct_val >= cfg.breakeven_at_profit_pct:
-        suggested = tighten_stop(side, current_sl, be_sl, price)
+        # Только безубыток: вход ± 1.5×комиссия — не смешиваем с текущим SL
+        suggested = be_sl
         phase = "breakeven"
-        note = f"BE: прибыль {profit_pct_val:.2f}% >= {cfg.breakeven_at_profit_pct:.2f}% от входа"
+        note = (
+            f"BE: прибыль {profit_pct_val:.2f}% >= {cfg.breakeven_at_profit_pct:.2f}% "
+            f"(SL=вход±{cfg.be_fee_buffer_pct:.3f}% комиссии)"
+        )
 
     if cfg.sr_trail_enabled and profit_pct_val >= cfg.sr_trail_at_profit_pct and klines:
         sr_sl = trailing_sl_behind_sr(
