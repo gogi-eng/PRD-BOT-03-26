@@ -186,6 +186,7 @@ def compute_tightened_sl(
     invalidation: float,
     cfg: Mapping[str, Any],
     bot_cfg: Optional[Mapping[str, Any]] = None,
+    hold_hours: Optional[float] = None,
 ) -> Optional[float]:
     is_long = normalize_pos_side(position_side) == "BUY"
     if mark <= 0 and entry <= 0:
@@ -196,7 +197,11 @@ def compute_tightened_sl(
     inv = float(invalidation or 0)
 
     full_cfg = bot_cfg if isinstance(bot_cfg, dict) else {}
-    be_fee_pct = fee_buffer_pct_from_bot_cfg(full_cfg) if full_cfg else 0.15
+    be_fee_pct = (
+        fee_buffer_pct_from_bot_cfg(full_cfg, hold_hours=hold_hours)
+        if full_cfg
+        else 0.15
+    )
     be_sl = breakeven_stop_price(position_side, entry, be_fee_pct) if entry > 0 else 0.0
 
     candidates: list[float] = []
@@ -306,6 +311,7 @@ async def handle_scanner_reversal(
     can_tighten = bool(cfg.get("tighten_sl", True))
     min_age = float(cfg.get("min_position_age_min", 15) or 0)
     age = position_age_minutes(position, now=now)
+    hold_h = (age / 60.0) if age is not None and age > 0 else None
     if can_tighten and min_age > 0:
         if age is None:
             can_tighten = False
@@ -321,6 +327,7 @@ async def handle_scanner_reversal(
             invalidation=inv,
             cfg=cfg,
             bot_cfg=bot_cfg,
+            hold_hours=hold_h,
         )
         if candidate is not None:
             res = await client.update_stop_loss(sym, candidate, position_idx=_position_idx(position))

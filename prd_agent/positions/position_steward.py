@@ -27,7 +27,6 @@ from prd_agent.positions.exit_management import (
 from prd_agent.positions.breakeven_fees import (
     breakeven_stop_price,
     clamp_sl_for_profit_lock,
-    effective_be_fee_buffer_pct,
     fee_buffer_pct_from_bot_cfg,
 )
 from prd_agent.positions.adaptive_trailing import (
@@ -150,6 +149,22 @@ class PositionSteward:
         self._auto_clean_stale_registry = bool(ps.get("auto_clean_stale_registry", True))
         self._auto_close_journal_ghosts = bool(ps.get("auto_close_journal_ghosts", True))
         self._liq_guard = LiquidationGuardConfig.from_cfg(cfg)
+
+    def _be_fee_buffer_for(
+        self,
+        pos: TrackedPosition,
+        profile: TrailingProfile,
+    ) -> float:
+        hold_h: Optional[float] = None
+        if pos.opened_at_utc:
+            mins = age_minutes(pos.opened_at_utc)
+            if mins > 0:
+                hold_h = mins / 60.0
+        return fee_buffer_pct_from_bot_cfg(
+            self.cfg,
+            yaml_override=profile.tp_progress.be_fee_buffer_pct,
+            hold_hours=hold_h,
+        )
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
@@ -278,12 +293,7 @@ class PositionSteward:
         if dist <= 0:
             return None
 
-        be_fee_pct = effective_be_fee_buffer_pct(
-            max(
-                self._be_fee_buffer_pct,
-                profile.tp_progress.be_fee_buffer_pct,
-            )
-        )
+        be_fee_pct = self._be_fee_buffer_for(pos, profile)
         be_sl_floor = breakeven_stop_price(pos.side, entry, be_fee_pct)
 
         if is_long:
@@ -495,6 +505,7 @@ class PositionSteward:
                     atr=atr,
                     opened_at_iso=pos.opened_at_utc,
                     min_activation_profit_pct=profile.activation_pct,
+                    bot_cfg=self.cfg,
                 )
                 if tp_res.suggested_sl is not None:
                     new_sl = tp_res.suggested_sl
@@ -527,9 +538,7 @@ class PositionSteward:
             if new_sl is None:
                 continue
 
-            be_fee_pct = effective_be_fee_buffer_pct(
-                max(self._be_fee_buffer_pct, profile.tp_progress.be_fee_buffer_pct)
-            )
+            be_fee_pct = self._be_fee_buffer_for(pos, profile)
             if p_pct > 0:
                 clamped = clamp_sl_for_profit_lock(
                     pos.side,

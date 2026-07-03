@@ -208,12 +208,26 @@ def evaluate_tp_progress_exit(
     atr: float,
     opened_at_iso: str = "",
     min_activation_profit_pct: float = 0.0,
+    bot_cfg: Optional[Mapping[str, Any]] = None,
 ) -> TpProgressResult:
-    del opened_at_iso  # SL только от % прибыли от входа, не от времени
     if not cfg.enabled:
         return TpProgressResult(None, None, "off", "tp_progress disabled")
 
-    from prd_agent.positions.exit_management import profit_pct
+    from prd_agent.positions.exit_management import age_minutes, profit_pct
+
+    hold_h: Optional[float] = None
+    if opened_at_iso:
+        mins = age_minutes(opened_at_iso)
+        if mins > 0:
+            hold_h = mins / 60.0
+    if bot_cfg is not None:
+        be_fee_pct = fee_buffer_pct_from_bot_cfg(
+            bot_cfg,
+            yaml_override=cfg.be_fee_buffer_pct,
+            hold_hours=hold_h,
+        )
+    else:
+        be_fee_pct = cfg.be_fee_buffer_pct
 
     if not is_take_profit_valid(
         side,
@@ -236,7 +250,7 @@ def evaluate_tp_progress_exit(
             f"прибыль от входа {profit_pct_val:.2f}% < {min_activation_profit_pct:.2f}% (старт SL)",
         )
 
-    be_sl = breakeven_stop_price(side, entry, cfg.be_fee_buffer_pct)
+    be_sl = breakeven_stop_price(side, entry, be_fee_pct)
     suggested: Optional[float] = None
     phase = "none"
     note = f"прибыль от входа {profit_pct_val:.2f}%"
@@ -247,7 +261,7 @@ def evaluate_tp_progress_exit(
         phase = "breakeven"
         note = (
             f"BE: прибыль {profit_pct_val:.2f}% >= {cfg.breakeven_at_profit_pct:.2f}% "
-            f"(SL=вход±{cfg.be_fee_buffer_pct:.3f}% комиссии)"
+            f"(SL=вход±{be_fee_pct:.3f}% комиссии+финанс.)"
         )
 
     if cfg.sr_trail_enabled and profit_pct_val >= cfg.sr_trail_at_profit_pct and klines:
@@ -279,7 +293,7 @@ def evaluate_tp_progress_exit(
             side,
             entry,
             suggested,
-            cfg.be_fee_buffer_pct,
+            be_fee_pct,
             in_profit=True,
         )
         if abs(clamped - suggested) > 1e-12:

@@ -267,6 +267,11 @@ positions:
     exit_as_maker: false
     slippage_margin_pct: 0.04
     fee_multiplier: 1.5
+    include_funding: true
+    funding_interval_hours: 8
+    funding_rate_assumed: 0.0001
+    funding_reserve_hours: 24
+    funding_rate_cap: 0.001
 
 manual_management:
   set_exchange_levels_on_adopt: false

@@ -1,6 +1,7 @@
-"""Цена SL в безубыток с учётом комиссии open+close (Bybit linear)."""
+"""Цена SL в безубыток: комиссия вход+выход + финансирование (Bybit linear)."""
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Mapping, Optional
 
 from exchange.bybit_fees import DEFAULT_TAKER_RATE, BybitFeeConfig
@@ -9,6 +10,10 @@ from exchange.bybit_fees import DEFAULT_TAKER_RATE, BybitFeeConfig
 DEFAULT_BE_FEE_BUFFER_PCT = 0.15
 MIN_BE_FEE_BUFFER_PCT = 0.12
 DEFAULT_SLIPPAGE_MARGIN_PCT = 0.04
+DEFAULT_FUNDING_INTERVAL_HOURS = 8.0
+DEFAULT_FUNDING_RATE_ASSUMED = 0.0001  # 0.01% номинала за 8ч (консервативно)
+DEFAULT_FUNDING_RESERVE_HOURS = 24.0
+DEFAULT_FUNDING_RATE_CAP = 0.001
 
 
 def _is_long(side: str) -> bool:
@@ -34,10 +39,15 @@ def round_trip_fee_buffer_pct(
     return fee_rate_per_side * 2.0 * 100.0 + max(0.0, slippage_margin_pct)
 
 
-def fee_breakeven_config_from_positions(cfg: Mapping[str, Any]) -> BybitFeeConfig:
-    """Ставки комиссий из positions.fee_breakeven или fallback taker×2."""
+def _fee_breakeven_raw(cfg: Mapping[str, Any]) -> Dict[str, Any]:
     positions = cfg.get("positions") if isinstance(cfg.get("positions"), dict) else {}
     raw = positions.get("fee_breakeven") if isinstance(positions.get("fee_breakeven"), dict) else {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def fee_breakeven_config_from_positions(cfg: Mapping[str, Any]) -> BybitFeeConfig:
+    """Ставки комиссий из positions.fee_breakeven или fallback taker×2."""
+    raw = _fee_breakeven_raw(cfg)
     if not raw:
         return BybitFeeConfig()
     taker = float(raw.get("taker_rate", DEFAULT_TAKER_RATE) or DEFAULT_TAKER_RATE)
@@ -52,8 +62,7 @@ def fee_breakeven_config_from_positions(cfg: Mapping[str, Any]) -> BybitFeeConfi
 
 
 def slippage_margin_pct_from_cfg(cfg: Mapping[str, Any]) -> float:
-    positions = cfg.get("positions") if isinstance(cfg.get("positions"), dict) else {}
-    raw = positions.get("fee_breakeven") if isinstance(positions.get("fee_breakeven"), dict) else {}
+    raw = _fee_breakeven_raw(cfg)
     try:
         return float(raw.get("slippage_margin_pct", DEFAULT_SLIPPAGE_MARGIN_PCT) or DEFAULT_SLIPPAGE_MARGIN_PCT)
     except (TypeError, ValueError):
@@ -61,8 +70,7 @@ def slippage_margin_pct_from_cfg(cfg: Mapping[str, Any]) -> float:
 
 
 def fee_multiplier_from_cfg(cfg: Mapping[str, Any]) -> float:
-    positions = cfg.get("positions") if isinstance(cfg.get("positions"), dict) else {}
-    raw = positions.get("fee_breakeven") if isinstance(positions.get("fee_breakeven"), dict) else {}
+    raw = _fee_breakeven_raw(cfg)
     try:
         mult = float(raw.get("fee_multiplier", 1.5) or 1.5)
     except (TypeError, ValueError):
@@ -70,21 +78,67 @@ def fee_multiplier_from_cfg(cfg: Mapping[str, Any]) -> float:
     return max(1.0, mult)
 
 
+def funding_buffer_pct(
+    cfg: Mapping[str, Any],
+    *,
+    hold_hours: float | None = None,
+    funding_rate_per_interval: float | None = None,
+) -> float:
+    """
+    Резерв % от entry на финансирование (каждые funding_interval_hours).
+
+    hold_hours — сколько позиция уже открыта; если неизвестно — funding_reserve_hours из config.
+    """
+    raw = _fee_breakeven_raw(cfg)
+    if not bool(raw.get("include_funding", True)):
+        return 0.0
+    try:
+        interval_h = float(raw.get("funding_interval_hours", DEFAULT_FUNDING_INTERVAL_HOURS) or DEFAULT_FUNDING_INTERVAL_HOURS)
+    except (TypeError, ValueError):
+        interval_h = DEFAULT_FUNDING_INTERVAL_HOURS
+    interval_h = max(1.0, interval_h)
+    try:
+        reserve_h = float(raw.get("funding_reserve_hours", DEFAULT_FUNDING_RESERVE_HOURS) or DEFAULT_FUNDING_RESERVE_HOURS)
+    except (TypeError, ValueError):
+        reserve_h = DEFAULT_FUNDING_RESERVE_HOURS
+    try:
+        assumed = float(raw.get("funding_rate_assumed", DEFAULT_FUNDING_RATE_ASSUMED) or DEFAULT_FUNDING_RATE_ASSUMED)
+    except (TypeError, ValueError):
+        assumed = DEFAULT_FUNDING_RATE_ASSUMED
+    try:
+        rate_cap = float(raw.get("funding_rate_cap", DEFAULT_FUNDING_RATE_CAP) or DEFAULT_FUNDING_RATE_CAP)
+    except (TypeError, ValueError):
+        rate_cap = DEFAULT_FUNDING_RATE_CAP
+    if funding_rate_per_interval is not None:
+        rate = abs(float(funding_rate_per_interval))
+    else:
+        rate = assumed
+    rate = min(max(rate, assumed), rate_cap)
+    if hold_hours is not None and hold_hours > 0:
+        hours = max(hold_hours, reserve_h)
+    else:
+        hours = reserve_h
+    intervals = max(1.0, math.ceil(hours / interval_h))
+    return intervals * rate * 100.0
+
+
 def fee_buffer_pct_from_bot_cfg(
     cfg: Mapping[str, Any],
     *,
     yaml_override: float | None = None,
+    hold_hours: float | None = None,
+    funding_rate: float | None = None,
 ) -> float:
     """
-    Буфер % от entry для безубытка: fee_multiplier × (комиссия вход+выход).
-
-    По умолчанию fee_multiplier=1.5 → «вход ± 1.5 комиссии от цены».
-    yaml_override — be_fee_buffer_pct из tp_progress_exit (не ниже расчётного).
+    Буфер % от entry для безубытка:
+    fee_multiplier × (комиссия вход+выход) + финансирование за время удержания.
     """
     fee_cfg = fee_breakeven_config_from_positions(cfg)
     mult = fee_multiplier_from_cfg(cfg)
     round_trip_pct = (fee_cfg.entry_rate() + fee_cfg.exit_rate()) * 100.0
-    computed = mult * round_trip_pct
+    trade_buf = mult * round_trip_pct
+    funding_buf = funding_buffer_pct(cfg, hold_hours=hold_hours, funding_rate_per_interval=funding_rate)
+    computed = trade_buf + funding_buf
     if yaml_override is not None:
         try:
             y = float(yaml_override)
@@ -101,11 +155,10 @@ def breakeven_stop_price(
     fee_buffer_pct: float | None = None,
 ) -> float:
     """
-    Уровень SL: при срабатывании цена покрывает комиссии (не «голый» entry).
+    Уровень SL: при срабатывании цена покрывает комиссии и финансирование.
 
     Long: entry + buffer (выше входа).
     Short: entry - buffer (ниже входа).
-    fee_buffer_pct — % от entry = fee_multiplier × round-trip commission (см. config).
     """
     if entry <= 0:
         return 0.0
@@ -129,13 +182,15 @@ def net_pnl_pct_at_stop(
     entry: float,
     stop: float,
     fee_cfg: Optional[BybitFeeConfig] = None,
+    *,
+    funding_buffer_pct_val: float = 0.0,
 ) -> float:
-    """PnL % при выходе по stop с учётом комиссий open+close."""
+    """PnL % при выходе по stop с учётом комиссий open+close и финансирования."""
     gross = gross_pnl_pct_at_stop(side, entry, stop)
     cfg = fee_cfg or BybitFeeConfig()
     if not cfg.enabled:
-        return gross
-    return gross - cfg.round_trip_fee_pct()
+        return gross - max(0.0, funding_buffer_pct_val)
+    return gross - cfg.round_trip_fee_pct() - max(0.0, funding_buffer_pct_val)
 
 
 def is_stop_in_loss_after_fees(
