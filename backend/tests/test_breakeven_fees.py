@@ -8,6 +8,7 @@ from prd_agent.positions.breakeven_fees import (
     clamp_sl_for_profit_lock,
     effective_be_fee_buffer_pct,
     fee_buffer_pct_from_bot_cfg,
+    funding_buffer_pct,
     is_stop_in_loss_after_fees,
     net_pnl_pct_at_stop,
     round_trip_fee_buffer_pct,
@@ -76,12 +77,13 @@ def test_fee_buffer_from_bot_config():
 
 
 def test_fee_multiplier_15_round_trip():
-    """Вход ± 1.5× комиссия: 0.055%×2×1.5 = 0.165% от цены."""
+    """Вход ± 1.5× комиссия: 0.055%×2×1.5 = 0.165% от цены (без funding)."""
     cfg = {
         "positions": {
             "fee_breakeven": {
                 "taker_rate": 0.00055,
                 "fee_multiplier": 1.5,
+                "include_funding": False,
             }
         }
     }
@@ -100,7 +102,11 @@ def test_birb_short_mark_retrace_clamped_to_be():
     mark = 0.08680  # ещё в плюсе, но близко к входу
     bot_cfg = {
         "positions": {
-            "fee_breakeven": {"taker_rate": 0.00055, "fee_multiplier": 1.5}
+            "fee_breakeven": {
+                "taker_rate": 0.00055,
+                "fee_multiplier": 1.5,
+                "include_funding": False,
+            }
         }
     }
     rev_cfg = {"tighten_from_mark_pct": 0.35, "min_sl_improve_pct": 0.0}
@@ -124,4 +130,36 @@ def test_net_pnl_at_be_stop_is_non_negative():
     buf = effective_be_fee_buffer_pct(0.15)
     sl = breakeven_stop_price("Sell", entry, buf)
     net = net_pnl_pct_at_stop("Sell", entry, sl)
+    assert net >= -0.01
+
+
+def test_funding_increases_be_buffer_with_hold_time():
+    cfg = {
+        "positions": {
+            "fee_breakeven": {
+                "taker_rate": 0.00055,
+                "fee_multiplier": 1.5,
+                "include_funding": True,
+                "funding_rate_assumed": 0.0001,
+                "funding_interval_hours": 8,
+                "funding_reserve_hours": 24,
+            }
+        }
+    }
+    trade_only = fee_buffer_pct_from_bot_cfg(
+        {**cfg, "positions": {**cfg["positions"], "fee_breakeven": {**cfg["positions"]["fee_breakeven"], "include_funding": False}}}
+    )
+    with_funding = fee_buffer_pct_from_bot_cfg(cfg)
+    assert with_funding > trade_only
+    assert abs(funding_buffer_pct(cfg) - 0.03) < 0.001  # 3×8ч × 0.01%
+    long_hold = fee_buffer_pct_from_bot_cfg(cfg, hold_hours=48.0)
+    assert long_hold > with_funding
+    entry = 100.0
+    sl_short = breakeven_stop_price("Sell", entry, long_hold)
+    net = net_pnl_pct_at_stop(
+        "Sell",
+        entry,
+        sl_short,
+        funding_buffer_pct_val=funding_buffer_pct(cfg, hold_hours=48.0),
+    )
     assert net >= -0.01
