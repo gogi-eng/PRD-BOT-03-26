@@ -70,7 +70,7 @@ fi
 
 bash scripts/install_agent_world_config.sh
 
-mkdir -p reports/world reports/telegram_signals data/ledger data/trades
+mkdir -p reports/world reports/telegram_signals data/ledger data/trades data/kill_switch
 
 if [[ ! -f .env ]]; then
   echo ""

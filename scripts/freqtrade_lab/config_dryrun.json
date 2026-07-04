@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "max_open_trades": 3,
+  "stake_currency": "USDT",
+  "stake_amount": 20,
+  "tradable_balance_ratio": 0.35,
+  "fiat_display_currency": "USD",
+  "dry_run": true,
+  "dry_run_wallet": 1000,
+  "cancel_open_orders_on_exit": true,
+  "trading_mode": "futures",
+  "margin_mode": "isolated",
+  "unfilledtimeout": {"entry": 10, "exit": 10, "exit_timeout_count": 0, "unit": "minutes"},
+  "entry_pricing": {"price_side": "same", "use_order_book": true, "order_book_top": 1},
+  "exit_pricing": {"price_side": "same", "use_order_book": true, "order_book_top": 1},
+  "exchange": {
+    "name": "bybit",
+    "key": "",
+    "secret": "",
+    "ccxt_config": {"enableRateLimit": true},
+    "ccxt_async_config": {"enableRateLimit": true},
+    "pair_whitelist": ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"],
+    "pair_blacklist": []
+  },
+  "pairlists": [{"method": "StaticPairList"}],
+  "telegram": {
+    "enabled": false,
+    "token": "dry-run",
+    "chat_id": "0"
+  },
+  "api_server": {
+    "enabled": false,
+    "listen_ip_address": "127.0.0.1",
+    "listen_port": 8080,
+    "verbosity": "error",
+    "jwt_secret_key": "somethingRandomSomethingRandom1234567890",
+    "CORS_origins": [],
+    "username": "freqtrader",
+    "password": "freqtrader"
+  },
+  "bot_name": "prd-bot-lab",
+  "initial_state": "running",
+  "force_entry_enable": false,
+  "internals": {"process_throttle_secs": 5}
+}
