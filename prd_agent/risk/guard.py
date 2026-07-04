@@ -6,7 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from prd_agent.risk.kill_switch import kill_switch_active
 
 
 class GuardStatus(Enum):
@@ -34,7 +36,8 @@ class DayStats:
 
 
 class RiskGuard:
-    def __init__(self, cfg: Dict, initial_balance: float = 0.0):
+    def __init__(self, cfg: Dict[str, Any], initial_balance: float = 0.0):
+        self._cfg = cfg
         r = cfg.get("risk", {})
         self.max_consecutive_losses = int(r.get("max_consecutive_losses", 4))
         self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", 5.0))
@@ -273,6 +276,10 @@ class RiskGuard:
     def can_trade(self, symbol: str = "") -> Tuple[bool, str]:
         self._ensure_today()
         self._maybe_clear_daily_loss_stop()
+
+        ks_on, ks_reason = kill_switch_active(self._cfg)
+        if ks_on:
+            return False, ks_reason
 
         if self.status == GuardStatus.EMERGENCY:
             return False, f"EMERGENCY: {self.stop_reason}"

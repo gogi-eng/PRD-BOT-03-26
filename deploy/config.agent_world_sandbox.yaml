@@ -90,6 +90,9 @@ risk:
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 10
   max_trades_per_day: 50
+  # Файл на сервере: touch data/kill_switch/STOP_TRADING — стоп новых входов
+  kill_switch_file: data/kill_switch/STOP_TRADING
+  kill_switch_hint: "удалите data/kill_switch/STOP_TRADING для возобновления"
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
 entry_pipeline:
@@ -321,6 +324,9 @@ orderbook_entry:
   direction_guard_ratio: 1.3
   block_on_direction_guard: true
   fallback_on_fetch_error: true
+  # Hermes spread_wide: не входить при широком спреде (spread_pct в %)
+  max_spread_pct: 0.12
+  block_on_spread_guard: true
 
 execution_sr_zones:
   enabled: true
@@ -377,7 +383,9 @@ entry:
   volatility_floor_atr_pct: 0.06
   require_4h_trend: false
   strict_htf_mode: true
-  min_orderflow_imbalance: 1.24
+  # Hermes 04.07: orderflow — главный блокер входов; тест 1.20 только песочница
+  min_orderflow_imbalance: 1.20
+  max_spread_pct: 0.12
   min_smc_score: 0.60
   ema_guard_min_diff_pct: 0.30
   momentum_guard_min_pct: 0.15

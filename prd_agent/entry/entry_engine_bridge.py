@@ -63,8 +63,25 @@ def _orderbook_entry_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "direction_guard_ratio": 1.3,
         "block_on_direction_guard": True,
         "fallback_on_fetch_error": True,
+        # 0 = выкл; spread_pct в % ((ask-bid)/mid*100), как в orderflow_analyzer
+        "max_spread_pct": 0.0,
+        "block_on_spread_guard": True,
     }
     return {**defaults, **raw}
+
+
+def _check_spread_guard(orderflow: OrderflowSnapshot, cfg: Dict[str, Any]) -> str:
+    ob = _orderbook_entry_cfg(cfg)
+    limit = float(ob.get("max_spread_pct", 0.0) or 0.0)
+    if limit <= 0:
+        entry_limit = float((cfg.get("entry") or {}).get("max_spread_pct", 0.0) or 0.0)
+        limit = entry_limit
+    if limit <= 0:
+        return ""
+    spread = float(orderflow.spread_pct or 0.0)
+    if spread > limit + 1e-9:
+        return f"spread_guard (spread={spread:.4f}% > max {limit:.4f}%)"
+    return ""
 
 
 @dataclass
@@ -391,6 +408,9 @@ class EntryEngineBridge:
             ctx = await fetch_orderbook_context(exchange, sig.symbol, current_price, self.cfg)
             if ctx is not None:
                 ob_meta = {**ctx.meta, "orderbook_source": "bybit"}
+                spread_block = _check_spread_guard(ctx.orderflow, self.cfg)
+                if spread_block and bool(ob_cfg.get("block_on_spread_guard", True)):
+                    return ctx.orderflow, ctx.liq, ob_meta, spread_block
                 guard_reason = _check_orderbook_direction_guard(sig, ctx.orderflow, self.cfg)
                 if guard_reason and bool(ob_cfg.get("block_on_direction_guard", True)):
                     return ctx.orderflow, ctx.liq, ob_meta, guard_reason
