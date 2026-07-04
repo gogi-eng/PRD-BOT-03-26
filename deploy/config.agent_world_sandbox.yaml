@@ -8,6 +8,7 @@ bybit:
   api_secret: ""
   testnet: false
   category: linear
+  # orderbook_ws не добавлять: config_validate extra=forbid; стакан WS — defaults в коде
 
 # Фаза A: кеш read-запросов Bybit (цена, свечи, тикеры) + лимит параллелизма
 api_cache:
@@ -176,6 +177,20 @@ signals:
   min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
   whale_news_enabled: true
+
+external_sentiment:
+  cache_sec: 3600
+  enabled: true
+  coinugget_style:
+    enabled: true
+    kline_interval: '15'
+    klines_limit: 60
+    max_symbols: 20
+    min_confidence: 0.68
+    rsi_overbought: 70
+    rsi_oversold: 30
+    rsi_period: 14
+    volume_spike_mult: 2.0
 
 ta_scanner:
   enabled: true
