@@ -166,9 +166,10 @@ risk_presets:
     entry_pipeline:
       mode: aggressive
 
+# spike-only (песочница): только SPIKE SCANNER 15m; own/TA/TG/whale/ext отключены ниже.
 signals:
-  own_agents_enabled: true
-  telegram_inbox_enabled: true
+  own_agents_enabled: false
+  telegram_inbox_enabled: false
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
@@ -176,11 +177,11 @@ signals:
   min_analysis_confidence: 0.88
   min_multi_agent_score: 0.4
   signal_notify_cooldown_sec: 900
-  whale_news_enabled: true
+  whale_news_enabled: false
 
 external_sentiment:
   cache_sec: 3600
-  enabled: true
+  enabled: false
   coinugget_style:
     enabled: true
     kline_interval: '15'
@@ -193,7 +194,7 @@ external_sentiment:
     volume_spike_mult: 2.0
 
 ta_scanner:
-  enabled: true
+  enabled: false
   min_24h_change_pct: 1.0
   min_intraday_range_pct: 0.8
   max_symbols: 15
@@ -367,7 +368,7 @@ pullback_entry:
 
 # Сигналы Mirror pump/dump: без отката, market-вход, быстрый трейлинг
 pump_dump_trade:
-  enabled: true
+  enabled: false
   min_confidence: 0.65
   min_rr_ratio: 1.5
   inbox_replay_sec: 7200
@@ -543,7 +544,7 @@ agent_world:
   max_items_per_feed: 15
   poll_interval_sec: 120
   max_summary_chars: 2200
-  allow_auto_execute: true
+  allow_auto_execute: false
   max_market_drift_pct: 0.015
   max_limit_drift_pct: 0.022
   max_skip_drift_pct: 0.035
@@ -551,6 +552,7 @@ agent_world:
 
 market_scanner:
   enabled: true
+  bos_scan_enabled: false
   interval_sec: 300
   run_loop_in_unified_bot: true
   run_loop_in_signal_agent: false
