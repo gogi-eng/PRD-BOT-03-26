@@ -281,8 +281,29 @@ def test_agent_world_deploy_yaml_position_limits():
     assert spike.get("use_dynamic_leverage") is True
     assert int(spike["max_symbols"]) == 50
     assert int(spike["top_n"]) == 1
+    assert cfg["market_scanner"]["bos_scan_enabled"] is False
+    assert cfg["signals"]["own_agents_enabled"] is False
+    assert cfg["market_scanner"]["spike_scalp"]["auto_execute"] is True
     spike_cfg = SpikeScanConfig.from_cfg(cfg)
     cap_base = int(cfg["telegram_signal_agent"].get("auto_execute_max_open_positions") or 6)
     assert effective_scanner_open_cap(
         cap_base, source="SPIKE_SCANNER", confidence=100, spike_cfg=spike_cfg
     ) == cap_base + 2
+
+
+def test_bos_scan_disabled_stops_market_scan_keeps_spike():
+    from prd_agent.market.market_scanner_bridge import (
+        unified_should_run_market_scan,
+        unified_should_run_spike_scan,
+    )
+
+    cfg = {
+        "market_scanner": {
+            "enabled": True,
+            "run_loop_in_unified_bot": True,
+            "bos_scan_enabled": False,
+            "spike_scalp": {"enabled": True, "interval_sec": 90},
+        }
+    }
+    assert unified_should_run_market_scan(cfg) is False
+    assert unified_should_run_spike_scan(cfg) is True

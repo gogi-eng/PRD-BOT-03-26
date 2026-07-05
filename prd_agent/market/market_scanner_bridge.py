@@ -24,6 +24,8 @@ def market_scanner_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 def unified_should_run_market_scan(cfg: Dict[str, Any]) -> bool:
     mc = market_scanner_cfg(cfg)
+    if not bool(mc.get("bos_scan_enabled", True)):
+        return False
     return bool(mc.get("enabled")) and bool(mc.get("run_loop_in_unified_bot", True))
 
 
