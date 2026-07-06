@@ -70,6 +70,23 @@ def age_minutes(opened_at_iso: str, now: Optional[datetime] = None) -> float:
         return 0.0
 
 
+def time_stop_minutes_for_early_exit_bars(
+    early_exit_bars: int,
+    *,
+    baseline_bars: int = 45,
+    baseline_minutes: float = 120.0,
+) -> float:
+    """
+    В unified-боте «early exit» реализован через time_stop.
+    Масштабируем time_stop_minutes пропорционально entry.early_exit_bars.
+    """
+    if early_exit_bars <= 0:
+        return baseline_minutes
+    if baseline_bars <= 0:
+        return baseline_minutes
+    return early_exit_bars * (baseline_minutes / baseline_bars)
+
+
 def effective_breakeven_pct(
     base_pct: float,
     *,

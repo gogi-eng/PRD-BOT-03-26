@@ -390,7 +390,7 @@ entry:
   sell_volume_guard_min_ratio: 0.35
   impulse_min_body_atr: 0.45
   retest_max_body_ratio: 0.85
-  early_exit_bars: 45
+  early_exit_bars: 65
   early_exit_min_profit_atr: 0.35
   ema_exit_confirm_bars: 3
   trained_model_enabled: true

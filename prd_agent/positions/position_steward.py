@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -23,6 +23,7 @@ from prd_agent.positions.exit_management import (
     late_retrace_active,
     profit_pct,
     progress_in_atr,
+    time_stop_minutes_for_early_exit_bars,
 )
 from prd_agent.positions.breakeven_fees import (
     breakeven_stop_price,
@@ -130,11 +131,16 @@ class PositionSteward:
         self.atr_period = int(p.get("atr_period", 14))
         self.notify_trailing = bool(p.get("notify_trailing_telegram", False))
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
-        self._default_profile = TrailingProfile.from_positions_cfg(p, root_cfg=cfg)
+        entry = cfg.get("entry") if isinstance(cfg.get("entry"), dict) else {}
+        early_exit_bars = int(entry.get("early_exit_bars", 0) or 0)
+        if early_exit_bars > 0:
+            linked_min = time_stop_minutes_for_early_exit_bars(early_exit_bars)
+            self.exit_cfg.time_stop_minutes = linked_min
+        self._default_profile = self._profile_with_early_exit(p)
         self._adaptive_trailing = AdaptiveTrailingConfig.from_cfg(p)
         self._be_fee_buffer_pct = fee_buffer_pct_from_bot_cfg(cfg)
-        self._pump_dump_profile = TrailingProfile.from_positions_cfg(
-            p, subsection="pump_dump_trailing", root_cfg=cfg
+        self._pump_dump_profile = self._profile_with_early_exit(
+            p, subsection="pump_dump_trailing"
         )
         ps = cfg.get("position_sync", {}) if isinstance(cfg.get("position_sync"), dict) else {}
         self._sync_guard.enabled = bool(ps.get("alert_on_mismatch", True))
@@ -150,6 +156,25 @@ class PositionSteward:
         self._auto_clean_stale_registry = bool(ps.get("auto_clean_stale_registry", True))
         self._auto_close_journal_ghosts = bool(ps.get("auto_close_journal_ghosts", True))
         self._liq_guard = LiquidationGuardConfig.from_cfg(cfg)
+
+    def _profile_with_early_exit(
+        self,
+        positions_cfg: Dict[str, Any],
+        *,
+        subsection: str = "",
+    ) -> TrailingProfile:
+        profile = TrailingProfile.from_positions_cfg(
+            positions_cfg,
+            subsection=subsection,
+            root_cfg=self.cfg,
+        )
+        entry = self.cfg.get("entry") if isinstance(self.cfg.get("entry"), dict) else {}
+        early_exit_bars = int(entry.get("early_exit_bars", 0) or 0)
+        if early_exit_bars <= 0:
+            return profile
+        linked_min = time_stop_minutes_for_early_exit_bars(early_exit_bars)
+        em = replace(profile.exit_management, time_stop_minutes=linked_min)
+        return replace(profile, exit_management=em)
 
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
