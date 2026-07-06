@@ -17,7 +17,7 @@ def test_candidate_unblock_tuning_values_present():
     assert "ema_guard_min_diff_pct: 0.30" in source
     assert "impulse_min_body_atr: 0.45" in source
     assert "retest_max_body_ratio: 0.85" in source
-    assert "early_exit_bars: 45" in source
+    assert "early_exit_bars: 65" in source
     assert "early_exit_min_profit_atr: 0.35" in source
     assert "ema_exit_confirm_bars: 3" in source
     assert "signal_cooldown_sec: 5400" in source

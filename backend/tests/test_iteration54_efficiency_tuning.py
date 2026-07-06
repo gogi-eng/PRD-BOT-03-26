@@ -14,7 +14,7 @@ def test_config_has_efficiency_tuning_keys():
     assert "ema_exit_buffer_pct: 0.15" in source
     assert "buy_momentum_guard_min_pct: 0.35" in source
     assert "buy_volume_guard_min_ratio: 0.50" in source
-    assert "early_exit_bars: 45" in source
+    assert "early_exit_bars: 65" in source
     assert "early_exit_min_profit_atr: 0.35" in source
     assert "symbol_loss_streak_threshold: 2" in source
     assert "symbol_loss_streak_cooldown_sec: 28800" in source
