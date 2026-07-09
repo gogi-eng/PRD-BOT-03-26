@@ -11,8 +11,8 @@ adaptive_regime_presets:
   trend_volatility_floor_atr_pct: 0.06
 agent_world:
   allow_auto_execute: true
-  enabled: true
   duplicate_symbol_cooldown_sec: 3600
+  enabled: true
   max_items_per_feed: 15
   max_limit_drift_pct: 0.022
   max_market_drift_pct: 0.015
@@ -21,14 +21,10 @@ agent_world:
   openrouter_daily_budget_usd: 0
   poll_interval_sec: 120
   queue_path: reports/world/world_events.jsonl
-  require_stop_loss: false
   rss_urls:
   - https://cointelegraph.com/rss
   - https://www.coindesk.com/arc/outboundfeeds/rss/
   - https://feeds.feedburner.com/CoinDesk
-  - https://feeds.bbci.co.uk/news/world/rss.xml
-  - https://feeds.bbci.co.uk/news/business/rss.xml
-  - https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en
   writer_state_path: reports/world/agent_world_writer_state.json
 ai:
   provider: openrouter
@@ -44,9 +40,9 @@ ai4trade_notify:
   - ETH
   telegram_min_interval_sec: 1800
 analytics:
+  daily_pnl_days: 7
   portfolio_quality_hours: 168
   report_hours: 24
-  daily_pnl_days: 7
   skipped_lab_hours: 168
 api_cache:
   enabled: true
@@ -55,39 +51,26 @@ api_cache:
   price_ttl_sec: 8
   tickers_ttl_sec: 30
 bot:
-  signal_only: false
   signal_cooldown_sec: 5400
 bot_manager:
   enabled: true
   interval_sec: 3600
   log_tail_lines: 35
   notify_telegram: true
-bot_memory:
-  enabled: true
-  path: data/bot_memory
-  use_mem0: false
-  user_id: prd_bot_owner
-multi_agent_review:
-  advisory_only: true
-  block_on_bear_majority: false
-  enabled: true
-  min_consensus_votes: 2
 bybit:
   api_key: ''
   api_secret: ''
   category: linear
   testnet: false
-  orderbook_ws:
-    depth: 50
+  # orderbook_ws не добавлять: config_validate extra=forbid; стакан WS — defaults в коде
+derivatives_entry_guard:
+  block_on_extreme_funding: true
+  enabled: false
+  long_short_ratio:
+    block_on_crowd: true
     enabled: true
-    max_age_sec: 5.0
-correction_agent:
-  enabled: true
-  sample_max_symbols: 40
-  spread_norm: 0.5
-  train_every_ticks: 20
-  veto_risk_threshold: 0.8
-  vol_norm: 1000.0
+    long_crowded_buy_ratio: 0.72
+    short_crowded_buy_ratio: 0.28
 entry:
   buy_momentum_guard_min_pct: 0.35
   buy_volume_guard_min_ratio: 0.5
@@ -99,7 +82,6 @@ entry:
   entry_threshold_soft: 0.55
   impulse_min_body_atr: 0.45
   min_orderflow_imbalance: 1.24
-  min_rr_ratio: 2.0
   min_smc_score: 0.6
   min_volatility_pct: 0.06
   momentum_guard_min_pct: 0.15
@@ -117,26 +99,49 @@ entry:
   volume_guard_min_ratio: 0.35
 entry_guard:
   enabled: true
-  max_limit_drift_pct: 0.01
-  max_market_drift_pct: 0.006
+  max_limit_drift_pct: 0.013
+  max_market_drift_pct: 0.009
   max_skip_drift_pct: 0.015
   telegram_limit_entry: true
   telegram_sources:
   - telegram
   - tg
   - tg_inbox
+entry_pipeline:
+  enabled: true
+  mode: balanced
+  partial_pass_band: 1.0
+  partial_pass_size_mult: 0.4
+  regime_thresholds:
+    breakout: 5.5
+    chop: 6.0
+    enabled: false
+    trend: 5.0
 execution_sr_zones:
   enabled: true
   kline_interval: '15'
   kline_limit: 120
-  preserve_min_rr: 2.0
+  min_tp_distance_pct: 1.0
   prefer_far_tp: true
-  tp_sr_level_index: 2
-  target_initial_tp_rr: 6.0
+  preserve_min_rr: 2.0
   sl_extra_buffer_atr: 0.18
   sl_sr_level_index: 0
+  target_initial_tp_rr: 6.0
   tp_extra_buffer_atr: 0.08
-  min_tp_distance_pct: 1.0
+  tp_sr_level_index: 2
+external_sentiment:
+  cache_sec: 3600
+  coinugget_style:
+    enabled: true
+    kline_interval: '15'
+    klines_limit: 60
+    max_symbols: 20
+    min_confidence: 0.68
+    rsi_overbought: 70
+    rsi_oversold: 30
+    rsi_period: 14
+    volume_spike_mult: 2.0
+  enabled: true
 feedback_loop:
   base_dataset_path: training_data.json
   dataset_path: signal_only_feedback_data.json
@@ -187,31 +192,34 @@ market_scanner:
   run_loop_in_signal_agent: true
   run_loop_in_unified_bot: false
   scanner_reversal_exit:
-    enabled: true
     alert_telegram: true
-    tighten_sl: true
-    min_score: 77
-    require_confirmed_bos: true
-    min_position_age_min: 15
-    tighten_from_mark_pct: 0.35
-    entry_buffer_pct: 0.05
-    min_sl_improve_pct: 0.03
-    symbol_cooldown_sec: 1800
-  spike_scalp:
     enabled: true
-    interval_sec: 90
-    kline_interval: "15"
-    min_move_pct: 4.0
-    min_24h_volume_usdt: 4000000
-    max_symbols: 50
-    top_n: 1
+    entry_buffer_pct: 0.05
+    min_position_age_min: 15
+    min_score: 77
+    min_sl_improve_pct: 0.03
+    require_confirmed_bos: true
     symbol_cooldown_sec: 1800
+    tighten_from_mark_pct: 0.35
+    tighten_sl: true
+  spike_scalp:
     auto_execute: true
+    enabled: true
     execute_min_score: 72
+    extra_position_slots: 2
+    interval_sec: 90
+    kline_interval: '15'
+    max_positions_bypass_min_score: 88
+    max_symbols: 50
+    min_24h_volume_usdt: 10000000
+    min_move_pct: 4.0
+    min_rr: 1.5
     min_volume_ratio: 1.25
     sl_buffer_pct: 0.25
-    min_rr: 1.5
+    symbol_cooldown_sec: 1800
+    top_n: 1
     use_closed_candle: false
+    use_dynamic_leverage: true
 openrouter:
   api_key: ''
   model: google/gemini-2.5-flash
@@ -230,18 +238,23 @@ position_sync:
   max_mismatch_alerts_per_cycle: 1
   preserve_existing_sl_tp: true
 positions:
-  adopt_manual: true
-  liquidation_guard:
+  adaptive_trailing:
+    apply_to_bot: true
+    apply_to_manual: true
+    apply_to_pump_dump: true
     enabled: true
-    buffer_pct: 0.85
-    skip_manual: true
-    emergency_close: true
-  breakeven_after_pct: 1.5
+    fast_move_pct: 1.0
+    lookback_bars: 3
+    normal_distance_factor: 1.0
+    slow_move_pct: 0.3
+    tight_distance_factor: 0.55
+  adopt_manual: true
+  breakeven_after_pct: 2.0
   exit_management:
     close_on_late_retrace: false
     close_on_time_stop: true
     early_breakeven_atr_mult: 1.2
-    early_breakeven_enabled: true
+    early_breakeven_enabled: false
     early_breakeven_pct: 0.85
     enabled: true
     late_breakeven_enabled: true
@@ -250,45 +263,57 @@ positions:
     time_stop_enabled: true
     time_stop_min_atr_progress: 0.25
     time_stop_minutes: 120
+  fee_breakeven:
+    entry_as_maker: false
+    exit_as_maker: false
+    fee_multiplier: 2.0
+    funding_interval_hours: 8
+    funding_rate_assumed: 0.0001
+    funding_rate_cap: 0.001
+    funding_reserve_hours: 24
+    include_funding: true
+    maker_rate: 0.0002
+    slippage_margin_pct: 0.06
+    taker_rate: 0.00055
+  liquidation_guard:
+    buffer_pct: 0.85
+    emergency_close: true
+    enabled: true
+    skip_manual: true
   lock_initial_sl: false
   notify_trailing_telegram: false
   pump_dump_trailing:
-    breakeven_after_pct: 0.85
+    breakeven_after_pct: 2.0
     exit_management:
       early_breakeven_enabled: false
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
-      enabled: false
-    trailing_activation_pct: 1.0
-    trailing_distance_atr_mult: 1.15
-    trailing_distance_pct: 0.55
-    trailing_min_distance_pct: 0.35
+      be_fee_buffer_pct: 0.22
+      breakeven_at_profit_pct: 0.28
+      enabled: true
+      min_valid_tp_distance_pct: 0.08
+      sr_level_index: 1
+      sr_sl_buffer_atr: 0.22
+      sr_trail_at_profit_pct: 2.2
+      sr_trail_enabled: true
+    trailing_activation_pct: 2.0
+    trailing_distance_atr_mult: 1.45
+    trailing_distance_pct: 2.0
+    trailing_min_distance_pct: 1.0
   tp_progress_exit:
-    be_fee_buffer_pct: 0.165
-    breakeven_at_profit_pct: 0.9
+    be_fee_buffer_pct: 0.22
+    breakeven_at_profit_pct: 0.28
     enabled: true
     min_valid_tp_distance_pct: 0.08
     sr_level_index: 1
     sr_sl_buffer_atr: 0.22
-    sr_trail_at_profit_pct: 1.5
+    sr_trail_at_profit_pct: 2.2
     sr_trail_enabled: true
-  trailing_activation_pct: 1.8
+  trailing_activation_pct: 2.0
   trailing_distance_atr_mult: 1.45
-  trailing_distance_pct: 2.4
+  trailing_distance_pct: 2.0
   trailing_enabled: true
   trailing_min_distance_pct: 1.0
-  fee_breakeven:
-    taker_rate: 0.00055
-    maker_rate: 0.0002
-    entry_as_maker: false
-    exit_as_maker: false
-    slippage_margin_pct: 0.04
-    fee_multiplier: 1.5
-    include_funding: true
-    funding_interval_hours: 8
-    funding_rate_assumed: 0.0001
-    funding_reserve_hours: 24
-    funding_rate_cap: 0.001
 profit_lock:
   cooldown_sec: 3600
   decline_duration_sec: 300
@@ -323,7 +348,7 @@ quality_gate:
   enabled: true
   min_24h_volume_usdt: 10000000
   min_confidence: 0.85
-  min_rr_ratio: 2.0
+  min_rr_ratio: 1.8
   require_sl_tp: true
 reporter:
   high_confidence_threshold: 0.9
@@ -334,36 +359,8 @@ risk:
   daily_loss_blocks_until_next_day: true
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
-  max_daily_loss_usdt: 50
+  max_daily_loss_usdt: 10
   max_trades_per_day: 50
-
-# Scoring входа (strict/balanced/aggressive) — связка с пресетами Telegram
-entry_pipeline:
-  enabled: true
-  mode: balanced
-  partial_pass_band: 1.0
-  partial_pass_size_mult: 0.40
-  regime_thresholds:
-    enabled: false
-    trend: 5.0
-    chop: 6.0
-    breakout: 5.5
-
-derivatives_entry_guard:
-  enabled: false
-  block_on_extreme_funding: true
-  block_on_crowded_funding: false
-  high_funding_threshold: 0.0005
-  extreme_funding_threshold: 0.001
-  oi_spike_pct_threshold: 5.0
-  oi_spike_block_with_crowd: true
-  long_short_ratio:
-    enabled: true
-    block_on_crowd: true
-    long_crowded_buy_ratio: 0.72
-    short_crowded_buy_ratio: 0.28
-    period: "1h"
-
 risk_presets:
   aggressive:
     entry_pipeline:
@@ -398,9 +395,19 @@ risk_presets:
     trading:
       min_signal_confidence: 0.85
       risk_pct_per_trade: 0.35
-risk_presets_meta:
-  active: normal
-  applied_at: '2026-06-13T06:34:18.228914+00:00'
+rule_weight_learning:
+  caution_threshold: 40
+  enabled: true
+  favorable_threshold: 65
+  lookback_days: 14
+  max_confidence_boost: 0.05
+  max_size_mult: 1.12
+  max_weight_mult: 1.35
+  min_samples: 5
+  min_total_pnl: 0.0
+  min_win_rate: 0.52
+  neutral_threshold: 50
+  refresh_interval_sec: 3600
 self_improvement:
   auto_apply_low_risk: true
   enabled: true
@@ -409,7 +416,7 @@ self_improvement:
   require_approval_critical: true
   sandbox_dir: data/sandbox
 signals:
-  min_analysis_confidence: 0.88
+  min_analysis_confidence: 0.85
   min_multi_agent_score: 0.4
   min_telegram_confidence: 0.65
   own_agents_enabled: true
@@ -419,19 +426,6 @@ signals:
   telegram_inbox_only_approved: true
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   whale_news_enabled: true
-external_sentiment:
-  cache_sec: 900
-  enabled: true
-  coinugget_style:
-    enabled: true
-    kline_interval: '15'
-    klines_limit: 60
-    max_symbols: 20
-    min_confidence: 0.68
-    rsi_overbought: 70
-    rsi_oversold: 30
-    rsi_period: 14
-    volume_spike_mult: 2.0
 supervisor_v4:
   defensive_day_loss_usdt: -15
   enabled: true
@@ -455,17 +449,20 @@ supervisor_v4:
   - 0
   - 1
   - 2
-  - 4
   - 5
   - 6
+  - 7
   - 8
   - 9
   - 10
   - 11
+  - 12
   - 13
   - 14
   - 15
   - 16
+  - 17
+  - 18
   - 19
   - 20
   - 21
@@ -477,21 +474,12 @@ supervisor_v4:
   - DUSKUSDT
   seed_blocked_utc_hours:
   - 3
-  - 7
-  - 12
-  - 17
-  - 18
+  - 4
   skipped_backtest_interval_hours: 3.5
   skipped_signal_backtest:
     auto_tune_filters: true
     auto_tune_min_samples: 5
     enabled: true
-    fees:
-      enabled: true
-      entry_as_maker: false
-      exit_as_maker: false
-      maker_rate: 0.0002
-      taker_rate: 0.00055
     kline_interval: '15'
     lookback_hours: 72
     max_kline_limit: 200
@@ -528,7 +516,7 @@ telegram_signal_agent:
   allowed_chats: []
   audit_jsonl_enabled: true
   auto_execute: true
-  auto_execute_max_open_positions: 8
+  auto_execute_max_open_positions: 6
   control_panel_enabled: false
   enabled: true
   ignore_bot_echo_messages: true
@@ -697,43 +685,40 @@ telegram_signal_agent:
   inbox_jsonl_enabled: true
   infer_side_from_sr: true
   market_scanner_auto_execute: true
+  market_scanner_bos_watchlist_enabled: true
+  market_scanner_bos_watchlist_max: 30
+  market_scanner_bos_watchlist_timeout_hours: 6
   market_scanner_enabled: true
   market_scanner_execute_min_score: 75
   market_scanner_execute_require_confirmed_bos: true
-  market_scanner_bos_watchlist_enabled: true
-  market_scanner_bos_watchlist_timeout_hours: 6
-  market_scanner_bos_watchlist_max: 30
   market_scanner_interval_sec: 600
   market_scanner_max_symbols: 60
   market_scanner_min_score_to_notify: 58
   market_scanner_symbol_cooldown_sec: 3600
   market_scanner_top_n: 3
-  risk_guards:
-    enabled: true
-    min_rr: 2.0
-    enforce_geometry: true
-  scanner_reversal_exit:
-    enabled: true
-    alert_telegram: true
-    tighten_sl: true
-    min_score: 77
-    require_confirmed_bos: true
-    min_position_age_min: 15
-    tighten_from_mark_pct: 0.35
-    entry_buffer_pct: 0.05
-    min_sl_improve_pct: 0.03
-    symbol_cooldown_sec: 1800
   min_openrouter_confidence: 68
   photo_ocr_enabled: true
   require_stop_loss: true
+  risk_guards:
+    enabled: true
+    enforce_geometry: true
+    min_rr: 2.0
+  scanner_reversal_exit:
+    alert_telegram: true
+    enabled: true
+    entry_buffer_pct: 0.05
+    min_position_age_min: 15
+    min_score: 77
+    min_sl_improve_pct: 0.03
+    require_confirmed_bos: true
+    symbol_cooldown_sec: 1800
+    tighten_from_mark_pct: 0.35
+    tighten_sl: true
   session_name: telegram_user_signal_agent
   signal_parse_simple: true
   signal_quality:
     enabled: true
     min_structure_score: 58
-    openrouter_min_structure_score: 45
-    openrouter_skip_if_structure_score_ge: 78
-    prefer_rule_based_when_structured: true
     require_stop_loss: true
     skip_noise_posts: true
   telegram_notify: true
@@ -753,26 +738,13 @@ telegram_signal_agent:
   - Wolf of Trading®
 timezone_offset: 3
 trade_journal:
-  rotate_keep_files: 14
-  rotate_max_mb: 8
-  store_entry_context: true
-  store_entry_candles: true
   entry_candles_count: 60
   entry_candles_interval: '15'
   entry_htf_interval: '240'
-rule_weight_learning:
-  enabled: true
-  lookback_days: 14
-  min_samples: 5
-  min_win_rate: 0.52
-  min_total_pnl: 0.0
-  max_weight_mult: 1.35
-  max_size_mult: 1.12
-  max_confidence_boost: 0.05
-  refresh_interval_sec: 3600
-  favorable_threshold: 65
-  neutral_threshold: 50
-  caution_threshold: 40
+  rotate_keep_files: 14
+  rotate_max_mb: 8
+  store_entry_candles: true
+  store_entry_context: true
 trading:
   adaptive_loop:
     active_sec: 45
@@ -783,10 +755,7 @@ trading:
   auto_start: true
   block_entry_utc_hours:
   - 3
-  - 7
-  - 12
-  - 17
-  - 18
+  - 4
   dynamic_leverage:
     enabled: true
     max: 50
@@ -800,7 +769,7 @@ trading:
   min_24h_volume_usdt: 10000000
   min_multi_agent_score: 0.4
   min_own_agent_confidence: 0.82
-  min_signal_confidence: 0.85
+  min_signal_confidence: 0.82
   risk_pct_per_trade: 0.35
   symbol_blacklist:
   - ATUSDT
@@ -838,21 +807,18 @@ whale_news:
   rss_urls:
   - https://feeds.feedburner.com/CoinDesk
   - https://cointelegraph.com/rss
-  - https://feeds.bbci.co.uk/news/world/rss.xml
-  - https://feeds.bbci.co.uk/news/business/rss.xml
-  - https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en
 zone_entry:
   block_if_no_zone: false
   enabled: true
   entry_at_zone: mid
   kline_interval: '15'
   prefer_bos_retest: true
-  retest_watchlist:
-    enabled: true
-    ttl_minutes: 90
-    scan_candles: 12
   require_entry_engine_pass: false
   require_impulse_retest: true
+  retest_watchlist:
+    enabled: true
+    scan_candles: 12
+    ttl_minutes: 90
   skip_pullback_when_retest_ok: true
   skip_sources_with_levels:
   - telegram
@@ -862,13 +828,3 @@ zone_entry:
   - own_multi_agent
   - ta_volatility
   - hybrid
-orderbook_entry:
-  enabled: true
-  depth_levels: 200
-  trades_limit: 120
-  orderflow_depth: 25
-  wall_threshold_mult: 2.0
-  direction_guard_enabled: true
-  direction_guard_ratio: 1.3
-  block_on_direction_guard: true
-  fallback_on_fetch_error: true

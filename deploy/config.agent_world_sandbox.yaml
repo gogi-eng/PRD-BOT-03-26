@@ -235,7 +235,7 @@ positions:
   trailing_distance_pct: 2.0
   trailing_distance_atr_mult: 1.9
   trailing_min_distance_pct: 1.1
-  breakeven_after_pct: 1.8
+  breakeven_after_pct: 2.0
   notify_trailing_telegram: false
   exit_management:
     enabled: true
@@ -252,24 +252,31 @@ positions:
     late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_profit_pct: 1.05
-    sr_trail_at_profit_pct: 1.8
-    be_fee_buffer_pct: 0.165
+    breakeven_at_profit_pct: 0.28
+    sr_trail_at_profit_pct: 2.2
+    be_fee_buffer_pct: 0.22
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
     min_valid_tp_distance_pct: 0.08
   pump_dump_trailing:
-    trailing_activation_pct: 1.0
-    trailing_distance_pct: 0.55
-    trailing_distance_atr_mult: 1.15
-    trailing_min_distance_pct: 0.35
-    breakeven_after_pct: 0.85
+    trailing_activation_pct: 2.0
+    trailing_distance_pct: 2.0
+    trailing_distance_atr_mult: 1.45
+    trailing_min_distance_pct: 1.0
+    breakeven_after_pct: 2.0
     exit_management:
       early_breakeven_enabled: false
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
-      enabled: false
+      enabled: true
+      breakeven_at_profit_pct: 0.28
+      sr_trail_at_profit_pct: 2.2
+      be_fee_buffer_pct: 0.22
+      sr_trail_enabled: true
+      sr_sl_buffer_atr: 0.22
+      sr_level_index: 1
+      min_valid_tp_distance_pct: 0.08
   adaptive_trailing:
     enabled: true
     lookback_bars: 3
@@ -285,8 +292,8 @@ positions:
     maker_rate: 0.0002
     entry_as_maker: false
     exit_as_maker: false
-    slippage_margin_pct: 0.04
-    fee_multiplier: 1.5
+    slippage_margin_pct: 0.06
+    fee_multiplier: 2.0
     include_funding: true
     funding_interval_hours: 8
     funding_rate_assumed: 0.0001
