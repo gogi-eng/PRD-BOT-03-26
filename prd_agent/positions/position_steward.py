@@ -46,6 +46,12 @@ from prd_agent.positions.bot_position_registry import (
     symbols_open_in_journal,
     unregister_bot_symbol,
 )
+from prd_agent.positions.session_boundary_close import (
+    SessionBoundaryCloseConfig,
+    _local_now,
+    session_flush_key,
+    should_run_session_flush,
+)
 from prd_agent.positions.sync_guard import PositionSyncGuard
 from prd_agent.signals.pump_dump_mode import TrailingProfile
 
@@ -81,6 +87,7 @@ class PositionSteward:
         self._data_dir = root / "data"
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._sync_guard = PositionSyncGuard()
+        self._session_flush_done: set[str] = set()
         self.apply_config(cfg)
         self._load_bot_registry()
 
@@ -149,6 +156,7 @@ class PositionSteward:
         self._auto_clean_stale_registry = bool(ps.get("auto_clean_stale_registry", True))
         self._auto_close_journal_ghosts = bool(ps.get("auto_close_journal_ghosts", True))
         self._liq_guard = LiquidationGuardConfig.from_cfg(cfg)
+        self._session_boundary = SessionBoundaryCloseConfig.from_cfg(cfg)
 
     def _be_fee_buffer_for(
         self,
@@ -343,15 +351,68 @@ class PositionSteward:
         logger.warning("Close failed %s: %s", pos.symbol, err)
         return None
 
+    async def _flush_session_boundary_positions(
+        self,
+        exchange,
+        positions: List[Dict],
+        *,
+        slot: str,
+    ) -> List[str]:
+        notes: List[str] = []
+        reason = f"session_boundary_close@{slot}"
+        for row in positions:
+            sym = str(row.get("symbol", "")).upper()
+            if not sym:
+                continue
+            pos = self._tracked.get(sym)
+            if pos is None:
+                adopted = self._adopt_from_exchange(row)
+                if adopted is None:
+                    continue
+                pos = adopted
+            closed_msg = await self._try_close_position(exchange, pos, reason)
+            if closed_msg:
+                notes.append(f"🕐 {closed_msg}")
+                self._log_note_close(pos, "close_session_boundary", reason)
+                self._tracked.pop(sym, None)
+                if sym in self._bot_symbols:
+                    self._bot_symbols.discard(sym)
+                    unregister_bot_symbol(self._data_dir, sym)
+        if notes:
+            logger.info(
+                "Session boundary close %s MSK: closed %d position(s)",
+                slot,
+                len(notes),
+            )
+        return notes
+
     async def manage(self, exchange, positions: List[Dict]) -> List[str]:
         """Трейлинг SL, time-stop, breakeven. Возвращает сообщения для лога/Telegram."""
+        notes: List[str] = []
+        if positions:
+            ok_flush, slot = should_run_session_flush(
+                self._session_boundary,
+                sorted(self._session_flush_done),
+            )
+            if ok_flush and slot:
+                local_day = _local_now(self._session_boundary.timezone_offset).strftime(
+                    "%Y-%m-%d"
+                )
+                self._session_flush_done.add(session_flush_key(local_day, slot))
+                notes.extend(
+                    await self._flush_session_boundary_positions(
+                        exchange, positions, slot=slot
+                    )
+                )
+                if notes:
+                    return notes
+
         if (
             not self.enabled
             and not self.exit_cfg.enabled
             and not self._default_profile.tp_progress.enabled
         ):
-            return []
-        notes: List[str] = []
+            return notes
         live_syms = set()
         for row in positions:
             sym = str(row.get("symbol", "")).upper()
