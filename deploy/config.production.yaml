@@ -65,7 +65,7 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь → cron stop/start
     - 3
     - 4
     - 6
@@ -77,6 +77,9 @@ trading:
     - 17
     - 18
     - 19
+  non_trading_systemd:
+    enabled: true
+    resume_before_minutes: 5
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -208,12 +211,7 @@ profit_lock:
 positions:
   adopt_manual: true
   session_boundary_close:
-    enabled: true
-    close_at_local:
-      - "06:30"
-      - "11:00"
-      - "17:00"
-    window_minutes: 3
+    enabled: false
   liquidation_guard:
     enabled: true
     buffer_pct: 0.85
