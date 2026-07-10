@@ -71,6 +71,19 @@ class BybitAdapter:
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
         return list(await self._client.get_positions(symbol))
 
+    async def close_position(
+        self,
+        symbol: str,
+        side: str,
+        qty: Optional[float] = None,
+        position_idx: int = 0,
+    ) -> Dict:
+        if hasattr(self._client, "close_position"):
+            return await self._client.close_position(
+                symbol, side, qty=qty, position_idx=position_idx
+            )
+        return {"success": False, "orderId": "", "error": "close_position not supported"}
+
     async def has_open_position(self, symbol: str) -> bool:
         if hasattr(self._client, "has_open_position"):
             return bool(await self._client.has_open_position(symbol))
