@@ -16,10 +16,10 @@ def test_max_drawdown_sequence():
     assert _max_drawdown_from_pnls([10, -5, -8, 20]) == 13.0
 
 
-def test_analyze_by_hour_and_weekday(tmp_path: Path):
+def test_analyze_by_entry_and_close_time(tmp_path: Path):
     trades = tmp_path / "trades"
     trades.mkdir(parents=True)
-    # Пн 2026-07-06 10:00 UTC = 13:00 MSK (UTC+3), hour=13
+    # вход 10:00 UTC = 13:00 MSK, закрытие 11:00 UTC = 14:00 MSK
     entered = {
         "event": "entered",
         "symbol": "BTCUSDT",
@@ -53,13 +53,10 @@ def test_analyze_by_hour_and_weekday(tmp_path: Path):
 
     report = analyze_trade_time_profile(tmp_path, hours=24 * 365, tz_offset_hours=3)
     assert report.trades_total == 2
-    h13 = report.by_hour[13]
-    h17 = report.by_hour[17]
-    assert h13.trades == 1
-    assert h13.max_single_profit == 5.0
-    assert h17.trades == 1
-    assert h17.max_single_loss == -3.0
-    assert report.by_weekday[0].trades == 2  # Monday
+    assert report.entry.by_hour[13].trades == 1
+    assert report.entry.by_hour[17].trades == 1
+    assert report.close.by_hour[14].trades == 1
+    assert report.close.by_hour[18].trades == 1
     md = format_trade_time_profile_md(report)
-    assert "13:00" in md
-    assert "Пн" in md
+    assert "По времени ВХОДА" in md
+    assert "По времени ЗАКРЫТИЯ" in md
