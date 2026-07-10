@@ -72,7 +72,7 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь → cron stop/start
     - 3
     - 6
     - 7
@@ -83,6 +83,9 @@ trading:
     - 17
     - 18
     - 19
+  non_trading_systemd:
+    enabled: true
+    resume_before_minutes: 5
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -233,12 +236,7 @@ profit_lock:
 positions:
   adopt_manual: true
   session_boundary_close:
-    enabled: true
-    close_at_local:
-      - "06:30"
-      - "11:00"
-      - "17:00"
-    window_minutes: 3
+    enabled: false
   trailing_enabled: true
   # Hermes 07.07: тест — дать цене дышать до трейлинга (на сервере часто было 1.2/1.45)
   liquidation_guard:
