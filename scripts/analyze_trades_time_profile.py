@@ -2,7 +2,7 @@
 """
 Профиль сделок по времени суток и дням недели: PnL, макс. профит, просадка.
 
-Читает data/trades/trade_history.jsonl (+ archive/), время входа в сделку.
+Учитывает и ВХОД, и ЗАКРЫТИЕ каждой сделки (отдельные таблицы).
 
 Примеры (AGENT-WORLD / PROD):
   cd /root/AGENT-WORLD
@@ -29,7 +29,7 @@ from prd_agent.analysis.trade_time_profile import (  # noqa: E402
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Analyze max profit/drawdown by hour and weekday (entry time)"
+        description="Analyze max profit/drawdown by hour/weekday (entry and close time)"
     )
     ap.add_argument("--hours", type=float, default=168.0, help="Окно анализа (168 = 7 суток)")
     ap.add_argument("--data-dir", type=Path, default=ROOT / "data")
@@ -37,14 +37,9 @@ def main() -> int:
         "--tz",
         type=float,
         default=3.0,
-        help="Смещение от UTC для локального времени (3 = Москва)",
+        help="Смещение от UTC (3 = Москва)",
     )
-    ap.add_argument(
-        "--out",
-        type=Path,
-        default=None,
-        help="Markdown отчёт (по умолчанию reports/trades_time_profile_{hours}h.md)",
-    )
+    ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--json-out", type=Path, default=None)
     args = ap.parse_args()
 
@@ -68,6 +63,8 @@ def main() -> int:
     print(
         f"Time profile ({args.hours:g}h, UTC{args.tz:+.0f}): "
         f"trades={report.trades_total}, "
+        f"entry_ts={report.entry.trades_with_time}, "
+        f"close_ts={report.close.trades_with_time}, "
         f"PnL={report.summary.get('total_pnl', 0):+.2f} -> {out_md}"
     )
     return 0
