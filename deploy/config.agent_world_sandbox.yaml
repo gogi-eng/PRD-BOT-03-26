@@ -59,8 +59,8 @@ trading:
   risk_pct_per_trade: 0.15
   active_strategy: swing
   strategies:
-    # местное UTC+3 (timezone_offset): утро 8–11, золотое окно 14–19, вечер US 20–23
-    scalp_hours_local: [8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    # местное UTC+3: 9–10, 14–16, 20–23 (без 6–8, 11–13, 17–19)
+    scalp_hours_local: [9, 10, 14, 15, 16, 20, 21, 22, 23]
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
   symbol_rescan_interval_sec: 900
@@ -72,8 +72,17 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Hermes 02.07: час 4 убран — у TP local_hour>=4 (медиана 11:30)
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь
     - 3
+    - 6
+    - 7
+    - 8
+    - 11
+    - 12
+    - 13
+    - 17
+    - 18
+    - 19
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -223,6 +232,13 @@ profit_lock:
   skip_manual_positions: true
 positions:
   adopt_manual: true
+  session_boundary_close:
+    enabled: true
+    close_at_local:
+      - "06:30"
+      - "11:00"
+      - "17:00"
+    window_minutes: 3
   trailing_enabled: true
   # Hermes 07.07: тест — дать цене дышать до трейлинга (на сервере часто было 1.2/1.45)
   liquidation_guard:
@@ -476,26 +492,26 @@ supervisor_v4:
   seed_blocked_utc_hours:
     # МЕСТНОЕ UTC+3 (Москва), НЕ UTC; синхрон с block_entry_utc_hours
     - 3
+    - 6
+    - 7
+    - 8
+    - 11
+    - 12
+    - 13
+    - 17
+    - 18
+    - 19
   preferred_utc_hours:
-    # местное UTC+3 — часы DEFENSIVE (все кроме block_entry)
+    # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry)
     - 0
     - 1
     - 2
     - 5
-    - 6
-    - 7
-    - 8
     - 9
     - 10
-    - 11
-    - 12
-    - 13
     - 14
     - 15
     - 16
-    - 17
-    - 18
-    - 19
     - 20
     - 21
     - 22
