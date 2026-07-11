@@ -102,7 +102,10 @@ class SpikeScanConfig:
 
     use_dynamic_leverage: bool = True
 
-
+    # Где крутить цикл SPIKE (отдельно от market_scanner.run_loop_*).
+    # None = для unified унаследовать market_scanner.run_loop_in_unified_bot.
+    run_loop_in_unified_bot: Optional[bool] = None
+    run_loop_in_signal_agent: bool = False
 
     @classmethod
 
@@ -203,6 +206,13 @@ class SpikeScanConfig:
             extra_position_slots=int(raw.get("extra_position_slots", 0)),
 
             use_dynamic_leverage=bool(raw.get("use_dynamic_leverage", True)),
+
+            run_loop_in_unified_bot=(
+                bool(raw["run_loop_in_unified_bot"])
+                if "run_loop_in_unified_bot" in raw
+                else None
+            ),
+            run_loop_in_signal_agent=bool(raw.get("run_loop_in_signal_agent", False)),
 
         )
 
