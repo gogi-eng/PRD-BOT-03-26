@@ -8,45 +8,72 @@ alwaysApply: true
 ## Репозиторий и ветки
 
 - **GitHub:** `https://github.com/gogi-eng/PRD-BOT-03-26`
-- **Локальный проект:** `PRD-BOT-ALL/` (в workspace `.vscode`)
-- **Формат ветки:** `DD.MM.YY-OPT-ALL` — **каждый день новая ветка с датой этого дня**
-  - Пример 09.06.2026 → `09.06.26-OPT-ALL`
-  - Перед работой: вычислить сегодняшнюю дату, создать/переключиться на ветку `__.__.__-OPT-ALL`
-  - Push и деплой — **только в ветку текущего дня**, не в старые даты
+- **Локальный проект:** `PRD-BOT-ALL/` (в workspace `.vscode`) — один репозиторий, **разные ветки под каждый инстанс на сервере**
+- **Формат ветки:** `DD.MM.YY-<INSTANCE>` — **каждый календарный день (UTC+3) новая ветка**; не продолжать вчерашнюю ветку на следующий день
+
+| Инстанс | Папка на сервере | Пример ветки (18.06.2026) |
+|---------|------------------|---------------------------|
+| Прод | `/root/PRD-BOT-ALL` | `18.06.26-PRD-BOT-ALL` |
+| Песочница | `/root/AGENT-WORLD` | `18.06.26-AGENT-WORLD` |
+
+- **Часовой пояс даты:** UTC+3 (`timezone_offset: 3`) — местная дата, не UTC GitHub
+- **Перед работой:** вычислить **сегодняшнюю** дату UTC+3 → `git checkout -B DD.MM.YY-<INSTANCE>`; push/deплой **только** в ветку **сегодняшнего дня**
+- **Push и деплой** — **только** в ветку **сегодня + нужный INSTANCE**; не пушить прод в `*-AGENT-WORLD` и наоборот
+- **Устарело:** `DD.MM.YY-OPT-ALL` — не использовать для новых push/deплой
+
+### ОБЯЗАТЕЛЬНО: общая правка → push в ОБЕ ветки дня
+
+Если правка **общая** (затрагивает оба бота) — **всегда push в обе ветки** с **одной и той же датой**:
+
+1. `DD.MM.YY-PRD-BOT-ALL`
+2. `DD.MM.YY-AGENT-WORLD`
+
+**Считается общей:** любой `.py` в `prd_agent/`, `engine/`, `exchange/`, `analysis/`, общие `scripts/`, `deploy/*.service`, unit-файлы, багфиксы orchestrator/Telegram/Bybit — всё, что крутится на **обоих** серверах.
+
+**Только одна ветка:** правки **только** `deploy/config.production.yaml` / prod-специфичный config → только `*-PRD-BOT-ALL`. **Только** `deploy/config.agent_world_sandbox.yaml` / песочница → только `*-AGENT-WORLD`.
+
+**Порядок (обязательный):**
+1. Commit на первой ветке → `git push origin DD.MM.YY-<INSTANCE-1>`
+2. `git checkout -B DD.MM.YY-<INSTANCE-2>` → cherry-pick того же commit (или merge) → push
+3. Сообщить пользователю **оба** hash/ветки и команды деплоя **на оба** сервера
+
+**Запрещено:** оставить общий fix только в одной ветке; говорить «задеплойте сами вторую» без push.
 
 ## Сервер (DigitalOcean)
 
-- Путь: `/root/PRD-BOT-ALL`
+- Путь прод: `/root/PRD-BOT-ALL`
+- Путь песочницы: `/root/AGENT-WORLD`
 - Python: **`venv`** (не `.venv`)
-- systemd: `trading_bot` (`run_unified.py`), `telegram_signal_agent`
-- Секреты **только в `.env`** на сервере (и локально); в `config.yaml` — пустые `''`, без реальных ключей
-- **`config.yaml` — в Git:** коммитить и пушить при правках торговых параметров
+- systemd прод: `trading_bot` (`run_unified.py`), `telegram_signal_agent`
+- systemd песочница: `trading_bot_agent_world`, `telegram_signal_agent_world`
+- Секреты **только в `.env`**, никогда в `config.yaml` / коммиты
 
-### Деплой после push
+### Деплой после push (прод)
 
 ```bash
 cd /root/PRD-BOT-ALL
 cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)
-git fetch origin DD.MM.YY-OPT-ALL
+git fetch origin DD.MM.YY-PRD-BOT-ALL
 git reset --hard FETCH_HEAD
+bash scripts/install_production_config.sh
 sudo systemctl restart trading_bot
 sudo systemctl restart telegram_signal_agent
 ```
 
-Подставить актуальную ветку дня вместо `DD.MM.YY-OPT-ALL`. На сервере надёжнее `FETCH_HEAD`, чем `origin/ветка` (shallow-клон).
-
-### AGENT-WORLD (песочница)
+### Деплой после push (AGENT-WORLD)
 
 ```bash
 cd /root/AGENT-WORLD
-git fetch origin DD.MM.YY-OPT-ALL
+git fetch origin DD.MM.YY-AGENT-WORLD
 git reset --hard FETCH_HEAD
-sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
+sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WORLD
 ```
+
+Подставить актуальную дату и суффикс INSTANCE. На сервере надёжнее `FETCH_HEAD`, чем `origin/ветка` (shallow-клон).
 
 ## Push с Windows
 
-Если локальный git в `PRD-BOT-ALL` сломан — shallow clone в `C:\Temp\prd-bot-push`, копировать файлы, commit, `git push origin DD.MM.YY-OPT-ALL`.
+Если локальный git в `PRD-BOT-ALL` сломан — shallow clone в `C:\Temp\prd-bot-push`, копировать файлы, commit, `git push origin DD.MM.YY-<INSTANCE>`.
 
 ## Пользователь (постоянный контекст — не переспрашивать)
 
@@ -113,7 +140,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
 
 - **НИКАКИХ КОСТЫЛЕЙ — всё должно работать.** Не «затыкать дыру», а **чинить причину** в коде, config и деплое.
   - **Запрещено:** отключать фичи «чтобы не мешало», обходить баг `if false`, править только на сервере вручную, давать команды «пока так живите», оставлять настройки в config без реализации в коде, деплой-скрипты которые падают на `config.yaml` / `origin/ветка`.
-  - **Обязательно:** параметр в config → читается кодом; скрипт деплоя → обновляет код **и** перезапускает systemd; unit-файлы → в репозитории; push → в ветку **текущего дня**; перед выдачей — синтаксис, тесты, проверка логики.
+  - **Обязательно:** параметр в config → читается кодом; скрипт деплоя → обновляет код **и** перезапускает systemd; unit-файлы → в репозитории; push → ветка **дня + INSTANCE**; **общий fix → push в обе ветки** (`PRD-BOT-ALL` + `AGENT-WORLD`, cherry-pick); перед выдачей — синтаксис, тесты, проверка логики.
   - Если что-то не работает — **исправить и довести до рабочего состояния**, а не предлагать пользователю обходной путь.
 - **Не отключать** функции (Telegram polling, панель, торговлю, RSS, scanner) без **явного** согласия пользователя — не подменять рабочий режим «безопасной заглушкой».
 - **Не удалять** ветки/файлы на GitHub без явной просьбы пользователя.
@@ -142,13 +169,14 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
 | Деплой | **FETCH_HEAD, не origin/ветка** | сервер, deploy-скрипт | shallow-клон; `git reset --hard FETCH_HEAD` |
 | Деплой | **reset до checkout config** | `deploy_agent_world_algo.sh` | Бэкап config → fetch → **hard reset** |
 | Деплой | **Unit-файлы в репо** | `deploy/*.service` | Иначе сервисы не перезапускаются |
-| Ветки | **Дата сегодня в имени** | git | `DD.MM.YY-OPT-ALL`, проверять календарь |
+| Ветки | **Общий fix → обе ветки** | git | `DD.MM.YY-PRD-BOT-ALL` + `DD.MM.YY-AGENT-WORLD`; cherry-pick |
 | Лимиты | **max_positions и trade_ok** | config | `open >= max` → skip, не «баг» |
 | AI | **gemini-2.5-flash модель** | config openrouter | Не `gemini-2.0-flash-001` |
-| Секреты | **Только .env** | — | Никогда API/token в config/commit |
-| config.yaml | **В репо, без секретов** | корень проекта | Пустые `api_key`/`bot_token`; пушить при правках |
+| Секреты | **Только .env на сервере** | — | Никогда API/token в config/commit |
 | Telegram | **📅 По дням / 🧪 Лаборатория** | `trade_analytics.py`, `skipped_signal_backtest.py`, `control_bot.py` | `analytics.daily_pnl_days`, `skipped_lab_hours`; не удалять кнопки |
 | AGENT-WORLD | **derivatives_entry_guard Priority-1** | `derivatives_entry_guard.py`, `entry_pipeline` regime | `enabled: true` только песочница; prod `enabled: false` |
+| SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
+| Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
 
@@ -198,23 +226,24 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
 
 ### Деплой после push (оба инстанса при общем коде)
 
-**Прод:**
+**Прод** — ветка `DD.MM.YY-PRD-BOT-ALL`:
 ```bash
 cd /root/PRD-BOT-ALL
 cp config.yaml /root/config.yaml.bak.$(date +%Y%m%d_%H%M%S)
-git fetch origin DD.MM.YY-OPT-ALL
+git fetch origin DD.MM.YY-PRD-BOT-ALL
 git reset --hard FETCH_HEAD
+bash scripts/install_production_config.sh
 sudo systemctl restart trading_bot
 sudo systemctl restart telegram_signal_agent
 git rev-parse --short HEAD
 ```
 
-**AGENT-WORLD:**
+**AGENT-WORLD** — ветка `DD.MM.YY-AGENT-WORLD`:
 ```bash
 cd /root/AGENT-WORLD
-git fetch origin DD.MM.YY-OPT-ALL
+git fetch origin DD.MM.YY-AGENT-WORLD
 git reset --hard FETCH_HEAD
-sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-OPT-ALL
+sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WORLD
 git rev-parse --short HEAD
 ```
 

@@ -573,6 +573,8 @@ market_scanner:
   run_loop_in_signal_agent: false
   spike_scalp:
     enabled: true
+    run_loop_in_unified_bot: true
+    run_loop_in_signal_agent: false
     interval_sec: 90
     kline_interval: "15"
     min_move_pct: 4.0

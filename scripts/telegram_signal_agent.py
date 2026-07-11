@@ -1231,6 +1231,9 @@ class TelegramSignalAgent:
         self.spike_scalp_auto_execute = bool(self._spike_scalp_cfg.auto_execute)
         self.spike_scalp_symbol_cooldown_sec = int(self._spike_scalp_cfg.symbol_cooldown_sec)
         self.spike_scalp_top_n = int(self._spike_scalp_cfg.top_n)
+        self.spike_scalp_run_loop_in_signal_agent = bool(
+            self._spike_scalp_cfg.run_loop_in_signal_agent
+        )
         # Кнопки unified-бота (run_unified) — тот же TELEGRAM_TOKEN; панель агента по умолчанию выкл.
         self.control_panel_enabled = bool(self.agent_cfg.get("control_panel_enabled", False))
         if os.getenv("PRD_UNIFIED_POLLING", "").strip().lower() in ("1", "true", "yes", "on"):
@@ -4267,6 +4270,16 @@ class TelegramSignalAgent:
                 LOG.warning("Market scanner error: %s", exc)
             await asyncio.sleep(max(60.0, self.market_scanner_interval_sec))
 
+    async def _spike_scanner_loop(self) -> None:
+        while True:
+            try:
+                await self.run_spike_scan_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                LOG.warning("Spike scanner error: %s", exc)
+            await asyncio.sleep(max(45.0, self.spike_scalp_interval_sec))
+
     @staticmethod
     def _chat_source_label(chat: Any) -> str:
         return str(
@@ -4401,6 +4414,7 @@ class TelegramSignalAgent:
         while True:
             rating_task: asyncio.Task | None = None
             scanner_task: asyncio.Task | None = None
+            spike_task: asyncio.Task | None = None
             daily_task: asyncio.Task | None = None
             world_task: asyncio.Task | None = None
             panel_task: asyncio.Task | None = None
@@ -4485,6 +4499,13 @@ class TelegramSignalAgent:
                             "Market scanner loop skipped (market_scanner.run_loop_in_signal_agent=false; "
                             "ожидается цикл в run_unified / trading_bot)"
                         )
+                    if self.spike_scalp_enabled and self.spike_scalp_run_loop_in_signal_agent:
+                        spike_task = asyncio.create_task(self._spike_scanner_loop())
+                    elif self.spike_scalp_enabled and not self.spike_scalp_run_loop_in_signal_agent:
+                        LOG.info(
+                            "Spike scanner loop skipped (spike_scalp.run_loop_in_signal_agent=false; "
+                            "ожидается цикл в run_unified / trading_bot)"
+                        )
                     if self.agent_world_enabled:
                         world_task = asyncio.create_task(self._world_feed_loop())
                     if self.control_panel_enabled and os.getenv("TELEGRAM_TOKEN", "").strip():
@@ -4499,7 +4520,7 @@ class TelegramSignalAgent:
                     try:
                         await client.run_until_disconnected()
                     finally:
-                        for task in (rating_task, scanner_task, daily_task, world_task, panel_task):
+                        for task in (rating_task, scanner_task, spike_task, daily_task, world_task, panel_task):
                             if task is not None:
                                 task.cancel()
                                 try:
