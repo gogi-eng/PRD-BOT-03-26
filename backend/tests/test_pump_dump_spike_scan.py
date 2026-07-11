@@ -307,3 +307,39 @@ def test_bos_scan_disabled_stops_market_scan_keeps_spike():
     }
     assert unified_should_run_market_scan(cfg) is False
     assert unified_should_run_spike_scan(cfg) is True
+
+
+def test_spike_run_loop_decoupled_from_market_scanner():
+    from prd_agent.market.market_scanner_bridge import (
+        signal_agent_should_run_spike_scan,
+        unified_should_run_spike_scan,
+    )
+
+    cfg = {
+        "market_scanner": {
+            "enabled": True,
+            "run_loop_in_unified_bot": False,
+            "run_loop_in_signal_agent": True,
+            "spike_scalp": {
+                "enabled": True,
+                "run_loop_in_unified_bot": True,
+                "run_loop_in_signal_agent": False,
+            },
+        }
+    }
+    assert unified_should_run_spike_scan(cfg) is True
+
+    cfg_signal = {
+        "market_scanner": {
+            "enabled": True,
+            "run_loop_in_unified_bot": True,
+            "run_loop_in_signal_agent": False,
+            "spike_scalp": {
+                "enabled": True,
+                "run_loop_in_unified_bot": False,
+                "run_loop_in_signal_agent": True,
+            },
+        }
+    }
+    assert unified_should_run_spike_scan(cfg_signal) is False
+    assert signal_agent_should_run_spike_scan(cfg_signal) is True
