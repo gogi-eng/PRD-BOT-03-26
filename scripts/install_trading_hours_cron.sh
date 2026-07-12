@@ -27,7 +27,6 @@ while [[ $# -gt 0 ]]; do
     --remove) REMOVE=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
-  ;;
   esac
 done
 
@@ -57,6 +56,8 @@ fi
 
 CRON_LINES=()
 CRON_LINES+=("$MARKER_BEGIN")
+# Часы в cron-строках = МСК (block_entry_utc_hours). Без CRON_TZ сервер UTC запускает stop в 17:00 UTC (=20:00 МСК).
+CRON_LINES+=("CRON_TZ=Europe/Moscow")
 
 add_env_cron() {
   local repo="$1"
