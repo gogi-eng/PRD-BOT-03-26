@@ -40,9 +40,13 @@ def main() -> int:
 
     if args.print_cron:
         for w in windows:
-            print(f"{w.stop_cron} * * * {ctl} stop {args.env}  # block {w.start_hour:02d}-{w.end_hour:02d} MSK")
             print(
-                f"{w.resume_cron} * * * {ctl} start {args.env}  # resume before {w.end_hour + 1:02d}:00 MSK"
+                f"{w.stop_cron} * * * {ctl} stop {args.env}  "
+                f"# block {w.start_hour:02d}-{w.end_hour:02d} MSK (нужен CRON_TZ=Europe/Moscow)"
+            )
+            print(
+                f"{w.resume_cron} * * * {ctl} start {args.env}  "
+                f"# resume before {w.end_hour + 1:02d}:00 MSK"
             )
     return 0
 
