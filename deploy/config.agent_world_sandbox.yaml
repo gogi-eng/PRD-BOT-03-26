@@ -59,8 +59,8 @@ trading:
   risk_pct_per_trade: 0.15
   active_strategy: swing
   strategies:
-    # местное UTC+3: 9–10, 14–16, 20–23 (без 6–8, 11–13, 17–19)
-    scalp_hours_local: [9, 10, 14, 15, 16, 20, 21, 22, 23]
+    # местное UTC+3: 9–10, 14–15, 20–23 (без 6–8, 11–13, 16–18)
+    scalp_hours_local: [9, 10, 14, 15, 20, 21, 22, 23]
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
   symbol_rescan_interval_sec: 900
@@ -72,7 +72,7 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь → cron stop/start
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Лето: стоп 16–18 = открытие NY (9:30 EDT ≈ 16:30 МСК)
     - 3
     - 6
     - 7
@@ -80,9 +80,9 @@ trading:
     - 11
     - 12
     - 13
+    - 16
     - 17
     - 18
-    - 19
   non_trading_systemd:
     enabled: true
     resume_before_minutes: 5
@@ -496,9 +496,9 @@ supervisor_v4:
     - 11
     - 12
     - 13
+    - 16
     - 17
     - 18
-    - 19
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry)
     - 0
@@ -509,7 +509,7 @@ supervisor_v4:
     - 10
     - 14
     - 15
-    - 16
+    - 19
     - 20
     - 21
     - 22
@@ -580,8 +580,6 @@ market_scanner:
   run_loop_in_signal_agent: false
   spike_scalp:
     enabled: true
-    run_loop_in_unified_bot: true
-    run_loop_in_signal_agent: false
     interval_sec: 90
     kline_interval: "15"
     min_move_pct: 4.0
