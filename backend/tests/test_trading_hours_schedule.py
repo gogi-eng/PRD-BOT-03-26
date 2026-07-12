@@ -17,8 +17,8 @@ def test_merge_consecutive_hours():
 
 
 def test_windows_resume_five_min_before():
-    windows = windows_from_blocked_hours({6, 7, 8, 11, 12, 13, 17, 18, 19}, resume_before_minutes=5)
+    windows = windows_from_blocked_hours({6, 7, 8, 11, 12, 13, 16, 17, 18}, resume_before_minutes=5)
     by_stop = {w.stop_at: w.resume_at for w in windows}
     assert by_stop["06:00"] == "08:55"
     assert by_stop["11:00"] == "13:55"
-    assert by_stop["17:00"] == "19:55"
+    assert by_stop["16:00"] == "18:55"
