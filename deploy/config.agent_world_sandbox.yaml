@@ -59,8 +59,8 @@ trading:
   risk_pct_per_trade: 0.15
   active_strategy: swing
   strategies:
-    # местное UTC+3: 9–10, 14–16, 20–23 (без 6–8, 11–13, 17–19)
-    scalp_hours_local: [9, 10, 14, 15, 16, 20, 21, 22, 23]
+    # местное UTC+3: 9–10, 14–15, 20–23 (без 6–8, 11–13, 16–18)
+    scalp_hours_local: [9, 10, 14, 15, 20, 21, 22, 23]
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
   symbol_rescan_interval_sec: 900
@@ -72,7 +72,7 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Стыки сессий + ночь → cron stop/start
+    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Лето: стоп 16–18 = открытие NY (9:30 EDT ≈ 16:30 МСК)
     - 3
     - 6
     - 7
@@ -80,9 +80,9 @@ trading:
     - 11
     - 12
     - 13
+    - 16
     - 17
     - 18
-    - 19
   non_trading_systemd:
     enabled: true
     resume_before_minutes: 5
@@ -249,7 +249,7 @@ positions:
   trailing_distance_pct: 2.0
   trailing_distance_atr_mult: 1.9
   trailing_min_distance_pct: 1.1
-  breakeven_after_pct: 1.8
+  breakeven_after_pct: 2.0
   notify_trailing_telegram: false
   exit_management:
     enabled: true
@@ -266,24 +266,31 @@ positions:
     late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_profit_pct: 1.05
-    sr_trail_at_profit_pct: 1.8
-    be_fee_buffer_pct: 0.165
+    breakeven_at_profit_pct: 0.28
+    sr_trail_at_profit_pct: 2.2
+    be_fee_buffer_pct: 0.22
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
     min_valid_tp_distance_pct: 0.08
   pump_dump_trailing:
-    trailing_activation_pct: 1.0
-    trailing_distance_pct: 0.55
-    trailing_distance_atr_mult: 1.15
-    trailing_min_distance_pct: 0.35
-    breakeven_after_pct: 0.85
+    trailing_activation_pct: 2.0
+    trailing_distance_pct: 2.0
+    trailing_distance_atr_mult: 1.45
+    trailing_min_distance_pct: 1.0
+    breakeven_after_pct: 2.0
     exit_management:
       early_breakeven_enabled: false
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
-      enabled: false
+      enabled: true
+      breakeven_at_profit_pct: 0.28
+      sr_trail_at_profit_pct: 2.2
+      be_fee_buffer_pct: 0.22
+      sr_trail_enabled: true
+      sr_sl_buffer_atr: 0.22
+      sr_level_index: 1
+      min_valid_tp_distance_pct: 0.08
   adaptive_trailing:
     enabled: true
     lookback_bars: 3
@@ -299,8 +306,8 @@ positions:
     maker_rate: 0.0002
     entry_as_maker: false
     exit_as_maker: false
-    slippage_margin_pct: 0.04
-    fee_multiplier: 1.5
+    slippage_margin_pct: 0.06
+    fee_multiplier: 2.0
     include_funding: true
     funding_interval_hours: 8
     funding_rate_assumed: 0.0001
@@ -489,9 +496,9 @@ supervisor_v4:
     - 11
     - 12
     - 13
+    - 16
     - 17
     - 18
-    - 19
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry)
     - 0
@@ -502,7 +509,7 @@ supervisor_v4:
     - 10
     - 14
     - 15
-    - 16
+    - 19
     - 20
     - 21
     - 22
@@ -573,11 +580,9 @@ market_scanner:
   run_loop_in_signal_agent: false
   spike_scalp:
     enabled: true
-    run_loop_in_unified_bot: true
-    run_loop_in_signal_agent: false
     interval_sec: 90
     kline_interval: "15"
-    min_move_pct: 3.0
+    min_move_pct: 4.0
     min_24h_volume_usdt: 8000000
     max_symbols: 50
     top_n: 1
@@ -586,7 +591,7 @@ market_scanner:
     execute_min_score: 72
     min_volume_ratio: 1.25
     sl_buffer_pct: 0.25
-    min_rr: 2.0
+    min_rr: 1.5
     use_closed_candle: false
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
