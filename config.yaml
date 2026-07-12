@@ -65,7 +65,7 @@ trading:
     - CLOUSDT
     - DUSKUSDT
   block_entry_utc_hours:
-    # МЕСТНОЕ UTC+3 (Москва), НЕ UTC! Лето: стоп 16–18 = открытие NY (9:30 EDT ≈ 16:30 МСК)
+    # МЕСТНОЕ UTC+3. Вечер NY — ny_open_block (DST: лето 16–18, зима 17–19 МСК)
     - 3
     - 4
     - 6
@@ -74,12 +74,15 @@ trading:
     - 11
     - 12
     - 13
-    - 16
-    - 17
-    - 18
   non_trading_systemd:
     enabled: true
     resume_before_minutes: 5
+    ny_open_block:
+      enabled: true
+      market_tz: America/New_York
+      market_open_local: "09:30"
+      stop_before_open_minutes: 30
+      block_hours: 3
   symbol_blacklist_substrings:
     - USDC
     - USDE
@@ -475,11 +478,8 @@ supervisor_v4:
     - 11
     - 12
     - 13
-    - 16
-    - 17
-    - 18
   preferred_utc_hours:
-    # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry)
+    # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry + ny_open_block)
     - 0
     - 1
     - 2
@@ -488,6 +488,7 @@ supervisor_v4:
     - 10
     - 14
     - 15
+    - 16
     - 19
     - 20
     - 21

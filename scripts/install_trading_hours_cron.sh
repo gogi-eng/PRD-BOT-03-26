@@ -90,6 +90,10 @@ fi
 
 CRON_LINES+=("$MARKER_END")
 
+# Ежедневно 00:05 МСК — пересчёт cron при смене DST в NY (ny_open_block).
+REFRESH_REPO="${PROD_DIR:-$DEFAULT_REPO}"
+CRON_LINES+=("5 0 * * * cd ${REFRESH_REPO} && bash ${SCRIPT_DIR}/install_trading_hours_cron.sh --prod-dir ${PROD_DIR:-${REFRESH_REPO}} ${WORLD_DIR:+--world-dir ${WORLD_DIR}} >> /root/log_trading_hours_cron_refresh.log 2>&1")
+
 TMP="$(mktemp)"
 if [[ "$EUID" -eq 0 && "$TARGET_USER" != "root" ]]; then
   crontab -u "$TARGET_USER" -l 2>/dev/null | strip_block >"$TMP" || true

@@ -26,6 +26,7 @@ from prd_agent.supervisor.skipped_signal_backtest import SkippedSignalBacktester
 from prd_agent.supervisor.virtual_trade_engine import VirtualTradeEngine
 from prd_agent.supervisor.correction_agent import CorrectionAgent
 from prd_agent.supervisor.hermes_bypass import evaluate_hermes_bypass_level2
+from prd_agent.analysis.trading_hours_schedule import effective_blocked_local_hours
 from prd_agent.time_hours import entry_check_hour, format_blocked_hour_label, read_timezone_offset
 
 logger = logging.getLogger("prd_agent.supervisor.v4")
@@ -106,7 +107,9 @@ class SupervisorV4:
         seed_hours = sup.get("seed_blocked_utc_hours")
         if seed_hours is None:
             seed_hours = trading.get("block_entry_utc_hours") or []
-        self._seed_blocked_hours = {int(h) % 24 for h in (seed_hours or [])}
+        self._static_seed_hours = {int(h) % 24 for h in (seed_hours or [])}
+        self._seed_blocked_hours = effective_blocked_local_hours(cfg)
+        self._ny_block_cache_key = self._ny_block_refresh_key()
         preferred = sup.get("preferred_utc_hours") or [4]
         self._preferred_hours = {int(h) % 24 for h in preferred}
 
@@ -520,7 +523,23 @@ class SupervisorV4:
     def blocked_symbols(self) -> Set[str]:
         return self._seed_blocked_symbols | self._meta.learned_bad_symbols
 
+    def _ny_block_refresh_key(self) -> str:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+        except Exception:
+            return datetime.now(timezone.utc).date().isoformat()
+
+    def _refresh_ny_block_hours_if_needed(self) -> None:
+        key = self._ny_block_refresh_key()
+        if getattr(self, "_ny_block_cache_key", None) == key:
+            return
+        self._seed_blocked_hours = effective_blocked_local_hours(self.cfg)
+        self._ny_block_cache_key = key
+
     def blocked_hours(self) -> Set[int]:
+        self._refresh_ny_block_hours_if_needed()
         return self._seed_blocked_hours | self._meta.learned_bad_hours
 
     def can_enter(self, symbol: str = "", utc_hour: Optional[int] = None) -> Tuple[bool, str]:
