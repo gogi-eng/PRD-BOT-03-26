@@ -2,10 +2,34 @@
 """Тесты trading_hours_schedule."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from prd_agent.analysis.trading_hours_schedule import (
+    effective_blocked_local_hours,
     merge_consecutive_hours,
+    ny_open_block_hours_msk,
     windows_from_blocked_hours,
 )
+
+_MSK = timezone(timedelta(hours=3))
+
+_NY_CFG = {
+    "timezone_offset": 3,
+    "trading": {
+        "block_entry_utc_hours": [3, 4, 11],
+        "non_trading_systemd": {
+            "enabled": True,
+            "ny_open_block": {
+                "enabled": True,
+                "market_tz": "America/New_York",
+                "market_open_local": "09:30",
+                "stop_before_open_minutes": 30,
+                "block_hours": 3,
+            },
+        },
+    },
+    "supervisor_v4": {"seed_blocked_utc_hours": [3, 4, 11]},
+}
 
 
 def test_merge_consecutive_hours():
@@ -22,3 +46,22 @@ def test_windows_resume_five_min_before():
     assert by_stop["06:00"] == "08:55"
     assert by_stop["11:00"] == "13:55"
     assert by_stop["16:00"] == "18:55"
+
+
+def test_ny_open_block_summer_edt():
+    when = datetime(2026, 7, 12, 12, 0, tzinfo=_MSK)
+    hours = ny_open_block_hours_msk(_NY_CFG, when=when)
+    assert hours == {16, 17, 18}
+
+
+def test_ny_open_block_winter_est():
+    when = datetime(2026, 1, 15, 12, 0, tzinfo=_MSK)
+    hours = ny_open_block_hours_msk(_NY_CFG, when=when)
+    assert hours == {17, 18, 19}
+
+
+def test_effective_blocked_includes_ny_block():
+    when = datetime(2026, 7, 12, 12, 0, tzinfo=_MSK)
+    hours = effective_blocked_local_hours(_NY_CFG, when=when)
+    assert {16, 17, 18}.issubset(hours)
+    assert 3 in hours and 11 in hours
