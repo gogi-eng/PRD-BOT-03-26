@@ -59,6 +59,7 @@ def bypassable_supervisor_denial(
         return False
     if "чёрном списке" in low or "черном списке" in low:
         return False
+    supervisor._refresh_ny_block_hours_if_needed()
     if check_hour in supervisor._seed_blocked_hours:
         return False
     if "defensive" in low:

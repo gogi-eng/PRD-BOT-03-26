@@ -13,6 +13,8 @@ if str(ROOT) not in sys.path:
 from prd_agent.config import load_config  # noqa: E402
 from prd_agent.analysis.trading_hours_schedule import (  # noqa: E402
     format_windows_md,
+    ny_open_block_hours_msk,
+    read_ny_open_block_settings,
     read_trading_windows,
 )
 from prd_agent.time_hours import read_timezone_offset  # noqa: E402
@@ -37,6 +39,14 @@ def main() -> int:
         print(f"# Неторговые окна ({args.env})")
         for line in format_windows_md(windows, tz_offset=tz):
             print(line)
+        ny_raw = read_ny_open_block_settings(cfg)
+        if ny_raw:
+            ny_hours = sorted(ny_open_block_hours_msk(cfg))
+            print("")
+            print(
+                f"NY open block (DST {ny_raw.get('market_tz', 'America/New_York')}): "
+                f"МСК часы {ny_hours}"
+            )
 
     if args.print_cron:
         for w in windows:
