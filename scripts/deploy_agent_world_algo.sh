@@ -41,6 +41,19 @@ for cand in venv/bin/python3 venv/bin/python .venv/bin/python3; do
   fi
 done
 
+# Пустой/битый venv/ (папка есть, python нет) — python3 -m venv падает с File exists
+if [[ -z "$PYTHON" && -e "$REPO_DIR/venv" ]]; then
+  if [[ -x "$REPO_DIR/.venv/bin/python3" ]]; then
+    echo "Битый venv/ — симлинк на рабочий .venv/"
+    rm -rf "$REPO_DIR/venv"
+    ln -sfn .venv "$REPO_DIR/venv"
+    PYTHON="$REPO_DIR/venv/bin/python3"
+  else
+    echo "Удаляем битый venv/ (нет bin/python3) ..."
+    rm -rf "$REPO_DIR/venv"
+  fi
+fi
+
 if [[ -z "$PYTHON" ]]; then
   echo "Создаём venv ..."
   python3 -m venv venv
@@ -54,6 +67,7 @@ fi
 # systemd unit ожидает venv/ — на старых копиях AGENT-WORLD бывает только .venv/
 if [[ ! -x "$REPO_DIR/venv/bin/python3" && -x "$REPO_DIR/.venv/bin/python3" ]]; then
   echo "Симлинк venv → .venv (для systemd ExecStart)"
+  rm -rf "$REPO_DIR/venv"
   ln -sfn .venv "$REPO_DIR/venv"
   PYTHON="$REPO_DIR/venv/bin/python3"
 fi
@@ -114,6 +128,17 @@ if [[ -f deploy/telegram_signal_agent_world.service ]]; then
 fi
 
 bash scripts/install_agent_world_cron.sh --repo-dir "$REPO_DIR" --every 10
+
+# Cron stop/start ботов по неторговым окнам (UTC сервера).
+if [[ -f scripts/install_trading_hours_cron.sh ]]; then
+  PROD_ARG=""
+  if [[ -d /root/PRD-BOT-ALL ]]; then
+    PROD_ARG="--prod-dir /root/PRD-BOT-ALL"
+  fi
+  bash scripts/install_trading_hours_cron.sh ${PROD_ARG} --world-dir "$REPO_DIR" || {
+    echo "warn: install_trading_hours_cron.sh failed — выполните вручную" >&2
+  }
+fi
 
 echo ""
 echo "Готово. Лог: $REPO_DIR/bot.log"

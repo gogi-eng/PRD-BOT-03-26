@@ -49,14 +49,19 @@ def main() -> int:
             )
 
     if args.print_cron:
+        log_path = "/root/log_trading_hours_ctl.log"
         for w in windows:
+            stop_utc = w.stop_cron_utc(tz)
+            resume_utc = w.resume_cron_utc(tz)
             print(
-                f"{w.stop_cron} * * * {ctl} stop {args.env}  "
-                f"# block {w.start_hour:02d}-{w.end_hour:02d} MSK (нужен CRON_TZ=Europe/Moscow)"
+                f"{stop_utc} * * * {ctl} stop {args.env} "
+                f">> {log_path} 2>&1  "
+                f"# stop {w.stop_at} MSK (UTC{tz:+d}) block {w.start_hour:02d}-{w.end_hour:02d}"
             )
             print(
-                f"{w.resume_cron} * * * {ctl} start {args.env}  "
-                f"# resume before {w.end_hour + 1:02d}:00 MSK"
+                f"{resume_utc} * * * {ctl} start {args.env} "
+                f">> {log_path} 2>&1  "
+                f"# start {w.resume_at} MSK (UTC{tz:+d})"
             )
     return 0
 
