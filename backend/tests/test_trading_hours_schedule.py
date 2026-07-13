@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from prd_agent.analysis.trading_hours_schedule import (
     effective_blocked_local_hours,
+    local_hhmm_to_utc_cron,
     merge_consecutive_hours,
     ny_open_block_hours_msk,
     windows_from_blocked_hours,
@@ -65,3 +66,18 @@ def test_effective_blocked_includes_ny_block():
     hours = effective_blocked_local_hours(_NY_CFG, when=when)
     assert {16, 17, 18}.issubset(hours)
     assert 3 in hours and 11 in hours
+
+
+def test_local_hhmm_to_utc_cron_msk_plus3():
+    # DigitalOcean UTC: 16:00 MSK = 13:00 UTC
+    assert local_hhmm_to_utc_cron("16:00", 3) == "0 13"
+    assert local_hhmm_to_utc_cron("03:00", 3) == "0 0"
+    assert local_hhmm_to_utc_cron("18:55", 3) == "55 15"
+    assert local_hhmm_to_utc_cron("00:05", 3) == "5 21"
+
+
+def test_trading_window_utc_cron():
+    windows = windows_from_blocked_hours({16, 17, 18}, resume_before_minutes=5)
+    w = windows[0]
+    assert w.stop_cron_utc(3) == "0 13"
+    assert w.resume_cron_utc(3) == "55 15"

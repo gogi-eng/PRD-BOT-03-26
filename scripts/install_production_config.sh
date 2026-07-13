@@ -21,3 +21,14 @@ else
   python3 "${ROOT}/scripts/validate_config_yaml.py"
 fi
 echo "OK: $DST установлен. Ключи Bybit/Telegram возьмутся из .env если пусто в yaml."
+
+# Cron stop/start по неторговым окнам (UTC сервера, не CRON_TZ).
+if [[ -f "${ROOT}/scripts/install_trading_hours_cron.sh" ]]; then
+  WORLD_ARG=""
+  if [[ -d /root/AGENT-WORLD ]]; then
+    WORLD_ARG="--world-dir /root/AGENT-WORLD"
+  fi
+  bash "${ROOT}/scripts/install_trading_hours_cron.sh" --prod-dir "$ROOT" ${WORLD_ARG} || {
+    echo "warn: install_trading_hours_cron.sh failed — выполните вручную" >&2
+  }
+fi
