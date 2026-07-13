@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Cron: stop ботов в начале неторгового окна, start за 5 мин до конца (из block_entry_utc_hours).
+# Время в cron = UTC сервера (DigitalOcean), не МСК — CRON_TZ ненадёжен.
 #
 #   sudo bash scripts/install_trading_hours_cron.sh --prod-dir /root/PRD-BOT-ALL
 #   sudo bash scripts/install_trading_hours_cron.sh --world-dir /root/AGENT-WORLD
@@ -54,10 +55,11 @@ if [[ -z "$PROD_DIR" && -z "$WORLD_DIR" ]]; then
   PROD_DIR="$DEFAULT_REPO"
 fi
 
+chmod +x "${SCRIPT_DIR}/trading_hours_ctl.sh" 2>/dev/null || true
+
 CRON_LINES=()
 CRON_LINES+=("$MARKER_BEGIN")
-# Часы в cron-строках = МСК (block_entry_utc_hours). Без CRON_TZ сервер UTC запускает stop в 17:00 UTC (=20:00 МСК).
-CRON_LINES+=("CRON_TZ=Europe/Moscow")
+CRON_LINES+=("# server UTC cron — MSK times in comments (timezone_offset from config)")
 
 add_env_cron() {
   local repo="$1"
@@ -83,16 +85,35 @@ add_env_cron() {
 [[ -n "$PROD_DIR" ]] && add_env_cron "$(cd "$PROD_DIR" && pwd)" prod
 [[ -n "$WORLD_DIR" ]] && add_env_cron "$(cd "$WORLD_DIR" && pwd)" world
 
-if [[ "${#CRON_LINES[@]}" -le 1 ]]; then
+if [[ "${#CRON_LINES[@]}" -le 2 ]]; then
   echo "error: no cron lines generated (check config.yaml block_entry_utc_hours)" >&2
   exit 1
 fi
 
-CRON_LINES+=("$MARKER_END")
+# Ежедневно 00:05 МСК — пересчёт cron при смене DST в NY (21:05 UTC при offset=3).
+REFRESH_REPO="${PROD_DIR:-$WORLD_DIR:-$DEFAULT_REPO}"
+REFRESH_REPO="$(cd "$REFRESH_REPO" && pwd)"
+REFRESH_PY=""
+if [[ -x "${REFRESH_REPO}/venv/bin/python3" ]]; then
+  REFRESH_PY="${REFRESH_REPO}/venv/bin/python3"
+else
+  REFRESH_PY="$(command -v python3)"
+fi
+REFRESH_CRON="$(
+  cd "${REFRESH_REPO}" && PYTHONPATH="${REFRESH_REPO}" "$REFRESH_PY" -c "
+from prd_agent.analysis.trading_hours_schedule import local_hhmm_to_utc_cron
+print(local_hhmm_to_utc_cron('00:05', 3) + ' * * *')
+"
+)"
+WORLD_ARG=""
+[[ -n "$WORLD_DIR" ]] && WORLD_ARG="--world-dir $(cd "$WORLD_DIR" && pwd)"
+PROD_ARG=""
+[[ -n "$PROD_DIR" ]] && PROD_ARG="--prod-dir $(cd "$PROD_DIR" && pwd)"
+CRON_LINES+=(
+  "${REFRESH_CRON} cd ${REFRESH_REPO} && bash ${SCRIPT_DIR}/install_trading_hours_cron.sh ${PROD_ARG} ${WORLD_ARG} >> /root/log_trading_hours_cron_refresh.log 2>&1  # refresh 00:05 MSK"
+)
 
-# Ежедневно 00:05 МСК — пересчёт cron при смене DST в NY (ny_open_block).
-REFRESH_REPO="${PROD_DIR:-$DEFAULT_REPO}"
-CRON_LINES+=("5 0 * * * cd ${REFRESH_REPO} && bash ${SCRIPT_DIR}/install_trading_hours_cron.sh --prod-dir ${PROD_DIR:-${REFRESH_REPO}} ${WORLD_DIR:+--world-dir ${WORLD_DIR}} >> /root/log_trading_hours_cron_refresh.log 2>&1")
+CRON_LINES+=("$MARKER_END")
 
 TMP="$(mktemp)"
 if [[ "$EUID" -eq 0 && "$TARGET_USER" != "root" ]]; then
@@ -108,6 +129,6 @@ else
 fi
 rm -f "$TMP"
 
-echo "Installed trading_hours cron (${#CRON_LINES[@]} lines)"
+echo "Installed trading_hours cron (${#CRON_LINES[@]} lines, server UTC)"
 echo "Preview:"
 printf '%s\n' "${CRON_LINES[@]}"

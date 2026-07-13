@@ -30,10 +30,23 @@ class TradingWindow:
         h, m = _parse_hhmm(self.resume_at)
         return f"{m} {h}"
 
+    def stop_cron_utc(self, tz_offset: int) -> str:
+        return local_hhmm_to_utc_cron(self.stop_at, tz_offset)
+
+    def resume_cron_utc(self, tz_offset: int) -> str:
+        return local_hhmm_to_utc_cron(self.resume_at, tz_offset)
+
 
 def _parse_hhmm(value: str) -> Tuple[int, int]:
     parts = str(value).strip().split(":", 1)
     return int(parts[0]) % 24, int(parts[1]) % 60
+
+
+def local_hhmm_to_utc_cron(hhmm: str, tz_offset: int) -> str:
+    """Местное HH:MM → cron «минута час» для сервера в UTC (DigitalOcean)."""
+    h, m = _parse_hhmm(hhmm)
+    total_min = (h * 60 + m - int(tz_offset) * 60) % (24 * 60)
+    return f"{total_min % 60} {total_min // 60}"
 
 
 def _parse_hour_list(raw: Any) -> Set[int]:
