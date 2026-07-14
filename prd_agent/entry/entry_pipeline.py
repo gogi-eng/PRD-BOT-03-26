@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from prd_agent.signals.types import UnifiedSignal
 
-MAX_SCORE = 8.0
+MAX_SCORE = 9.5
 
 MODE_THRESHOLDS = {
     "strict": 6.0,
@@ -90,6 +90,8 @@ def evaluate_entry_pipeline(
     supervisor_ok: bool = True,
     atr_pct: float = 0.0,
     market_regime: str = "",
+    zone_play: str = "",
+    zone_play_bonus: float = 0.0,
 ) -> PipelineResult:
     pc = _pipeline_cfg(cfg)
     if not bool(pc.get("enabled", True)):
@@ -125,6 +127,15 @@ def evaluate_entry_pipeline(
         breakdown["structure"] = 1.0
     else:
         breakdown["structure"] = 0.0
+
+    play = str(zone_play or "").strip().lower()
+    bonus = max(0.0, min(1.5, float(zone_play_bonus or 0.0)))
+    if play == "breakout":
+        breakdown["zone_play"] = max(bonus, 1.0)
+    elif play == "bounce":
+        breakdown["zone_play"] = max(bonus, 0.75)
+    else:
+        breakdown["zone_play"] = 0.0
 
     rr = _rr_ratio(entry or float(sig.entry or 0), sl, tp, sig.side)
     qg = cfg.get("quality_gate", {}) if isinstance(cfg.get("quality_gate"), dict) else {}
