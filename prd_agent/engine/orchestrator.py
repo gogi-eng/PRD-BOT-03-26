@@ -31,6 +31,10 @@ from prd_agent.entry.entry_pipeline import evaluate_entry_pipeline
 from prd_agent.entry.entry_soft_rules import compute_soft_score
 from prd_agent.entry.retest_watchlist import RetestWatchlist
 from prd_agent.entry.rule_weight_tracker import RuleWeightTracker
+from prd_agent.entry.zone_corridor_play import (
+    evaluate_zone_corridor_play,
+    zone_corridor_enabled,
+)
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -1138,6 +1142,33 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
 
+        corridor = evaluate_zone_corridor_play(
+            side=sig.side,
+            price=float(eff_entry or 0),
+            klines=klines_entry or [],
+            cfg=self.cfg,
+            source=str(sig.source or ""),
+            has_bos=bool(zone_meta.get("has_bos")),
+            atr=float(atr_v or 0),
+        )
+        if zone_corridor_enabled(self.cfg) and corridor.reason:
+            logger.info(
+                "Zone corridor %s %s: play=%s allowed=%s %s",
+                sig.symbol,
+                sig.side,
+                corridor.play,
+                corridor.allowed,
+                corridor.reason,
+            )
+        if not corridor.allowed:
+            reason = corridor.reason or "zone_corridor: block"
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            if not self._is_silent_skip(reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+            return
+
         pipe = evaluate_entry_pipeline(
             sig,
             self.cfg,
@@ -1147,11 +1178,14 @@ class UnifiedOrchestrator:
             has_zone=bool(
                 zone_meta.get("has_bos")
                 or str(zone_meta.get("entry_zone", "")).lower() not in ("", "no_zone")
+                or corridor.play in ("bounce", "breakout")
             ),
-            has_bos=bool(zone_meta.get("has_bos")),
+            has_bos=bool(zone_meta.get("has_bos") or corridor.play == "breakout"),
             supervisor_ok=meta_ok,
             atr_pct=(atr_v / eff_entry if eff_entry > 0 and atr_v > 0 else 0.0),
             market_regime=market_regime,
+            zone_play=corridor.play if corridor.play in ("bounce", "breakout") else "",
+            zone_play_bonus=float(corridor.score_bonus or 0.0),
         )
         if not pipe.passed:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, pipe.reason)

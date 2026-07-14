@@ -74,6 +74,26 @@ trading:
     - 11
     - 12
     - 13
+  # Коридор S↔R: на проде ВЫКЛ до проверки на AGENT-WORLD
+  zone_corridor_play:
+    enabled: false
+    require_play: true
+    allow_bounce: true
+    allow_breakout: true
+    mid_range_skip: true
+    edge_fraction: 0.28
+    bounce_lookback_bars: 3
+    bounce_wick_atr_mult: 0.35
+    breakout_confirm_bars: 2
+    skip_fast_sources: true
+    apply_to_sources:
+      - own_multi_agent
+      - ta_volatility
+      - hybrid
+    skip_sources:
+      - telegram
+      - tg
+      - mirror_pump_dump
   non_trading_systemd:
     enabled: true
     resume_before_minutes: 5
