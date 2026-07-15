@@ -207,6 +207,10 @@ from telegram_agent.sr_execution_adjust import (  # noqa: E402
     infer_side_from_zones,
 )
 from prd_agent.risk.rr_enforce import enforce_min_rr_levels, resolve_effective_min_rr  # noqa: E402
+from prd_agent.entry.zone_corridor_play import (  # noqa: E402
+    evaluate_zone_corridor_play,
+    zone_corridor_enabled,
+)
 
 
 @dataclass
@@ -2474,6 +2478,41 @@ class TelegramSignalAgent:
         if side not in {"BUY", "SELL"}:
             LOG.warning("Market scanner exec: unknown scenario %r", scen)
             return
+
+        if zone_corridor_enabled(self.cfg):
+            kl: list = []
+            try:
+                if self.bybit is not None:
+                    kl = await self.bybit.get_klines(
+                        str(setup.symbol).upper(), interval="15", limit=80
+                    ) or []
+            except Exception as exc:
+                LOG.warning("Zone corridor: klines failed %s: %s", setup.symbol, exc)
+            src_name = "SPIKE_SCANNER" if spike else "MARKET_SCANNER"
+            corridor = evaluate_zone_corridor_play(
+                side=side,
+                price=float(setup.price or 0),
+                klines=kl,
+                cfg=self.cfg,
+                source=src_name,
+                has_bos=bool(getattr(setup, "confirmed_bos", False)) or (not spike),
+                atr=0.0,
+            )
+            LOG.info(
+                "Zone corridor %s %s: play=%s allowed=%s %s",
+                setup.symbol,
+                side,
+                corridor.play,
+                corridor.allowed,
+                corridor.reason or "",
+            )
+            if not corridor.allowed:
+                LOG.info(
+                    "Market scanner exec skipped zone_corridor: %s (%s)",
+                    setup.symbol,
+                    corridor.reason,
+                )
+                return
 
         digest = hashlib.sha256(
             f"{setup.symbol}|{setup.checked_at_utc}|{scen}|{setup.score}|exec".encode("utf-8")

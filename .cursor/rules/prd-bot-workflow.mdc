@@ -107,6 +107,14 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 - Минимальный diff, но **рабочий до конца** — без костылей и отключений фич.
 - Параметр в config → код его читает; иначе это баг, а не «настройка на будущее».
 
+### ОБЯЗАТЕЛЬНО: перед push / деплоем на сервер
+
+- **Проверить работоспособность ВСЕХ алгоритмов**, затронутых правкой: `py_compile` + релевантные pytest (+ ручной сценарий, если cron/systemd/Telegram).
+- **Запрещены заглушки:** `if False`, «временно отключено», пустые обработчики «на потом», параметры в config без чтения в коде.
+- **Запрещены скрытые правки:** любая смена поведения — явно сообщить пользователю (что изменилось и зачем), без молчаливых побочных фиксов.
+- **Config + код одной серией:** если алгоритм включён в yaml — он реально вызывается на всех нужных путях (orchestrator **и** SPIKE/scanner, если это торговая логика).
+- Слово «готово» / push — **только после** успешной проверки выше.
+
 ## Ключевые настройки config
 
 - `timezone_offset: 3` — часы в `block_entry_utc_hours` / `seed_blocked_utc_hours` = **местное UTC+3**, не UTC
@@ -175,6 +183,11 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Секреты | **Только .env на сервере** | — | Никогда API/token в config/commit |
 | Telegram | **📅 По дням / 🧪 Лаборатория** | `trade_analytics.py`, `skipped_signal_backtest.py`, `control_bot.py` | `analytics.daily_pnl_days`, `skipped_lab_hours`; не удалять кнопки |
 | AGENT-WORLD | **derivatives_entry_guard Priority-1** | `derivatives_entry_guard.py`, `entry_pipeline` regime | `enabled: true` только песочница; prod `enabled: false` |
+| Cron / стоп | **MSK→UTC, не CRON_TZ** | `trading_hours_schedule.py`, `install_trading_hours_cron.sh` | DigitalOcean = UTC; 16:00 МСК = `0 13 * * *`; **не** `CRON_TZ=Europe/Moscow` |
+| Cron / стоп | **Лог stop/start обязателен** | `trading_hours_ctl.sh` | `/root/log_trading_hours_ctl.log`; без лога правку не считать готовой |
+| Cron / стоп | **Проверка на сервере** | после деплоя cron | `crontab -l`, ручной `trading_hours_ctl.sh stop`, `systemctl is-active` — **до** «готово» |
+| Entry | **Коридор S↔R bounce/breakout** | `zone_corridor_play.py`, orchestrator, `telegram_signal_agent` | Песочница ON + SPIKE/scanner; прод `enabled: false` до проверки |
+| TP / SL | **BE+ с замком прибыли** | `tp_progress_exit.py` | `be_lock_extra_pct` — SL выше чистого безубытка (комиссии+lock) |
 | SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
 | Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
 

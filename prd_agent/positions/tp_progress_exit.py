@@ -24,6 +24,8 @@ class TpProgressExitConfig:
     breakeven_at_profit_pct: float = 1.05
     sr_trail_at_profit_pct: float = 1.8
     be_fee_buffer_pct: float = DEFAULT_BE_FEE_BUFFER_PCT
+    # Доп. запас прибыли сверх комиссий — SL выше «чистого» безубытка
+    be_lock_extra_pct: float = 0.0
     sr_trail_enabled: bool = True
     sr_sl_buffer_atr: float = 0.15
     sr_level_index: int = 1
@@ -60,11 +62,17 @@ class TpProgressExitConfig:
             )
         else:
             be_fee = effective_be_fee_buffer_pct(yaml_be if yaml_be > 0 else None)
+        try:
+            lock_extra = float(raw.get("be_lock_extra_pct", 0) or 0)
+        except (TypeError, ValueError):
+            lock_extra = 0.0
+        lock_extra = max(0.0, min(5.0, lock_extra))
         return cls(
             enabled=bool(raw.get("enabled", True)),
             breakeven_at_profit_pct=be_profit,
             sr_trail_at_profit_pct=sr_profit,
             be_fee_buffer_pct=be_fee,
+            be_lock_extra_pct=lock_extra,
             sr_trail_enabled=bool(raw.get("sr_trail_enabled", True)),
             sr_sl_buffer_atr=float(raw.get("sr_sl_buffer_atr", 0.15) or 0.15),
             sr_level_index=int(raw.get("sr_level_index", 1) or 1),
@@ -73,6 +81,11 @@ class TpProgressExitConfig:
             sr_trail_at_progress_pct=float(raw.get("sr_trail_at_progress_pct", 50) or 50),
             min_profit_pct_for_be=legacy_be,
         )
+
+    @property
+    def be_total_buffer_pct(self) -> float:
+        """Комиссии/фандинг + доп. замок прибыли."""
+        return float(self.be_fee_buffer_pct) + float(self.be_lock_extra_pct)
 
 
 @dataclass
@@ -228,6 +241,7 @@ def evaluate_tp_progress_exit(
         )
     else:
         be_fee_pct = cfg.be_fee_buffer_pct
+    be_total_pct = float(be_fee_pct) + float(cfg.be_lock_extra_pct)
 
     if not is_take_profit_valid(
         side,
@@ -250,18 +264,19 @@ def evaluate_tp_progress_exit(
             f"прибыль от входа {profit_pct_val:.2f}% < {min_activation_profit_pct:.2f}% (старт SL)",
         )
 
-    be_sl = breakeven_stop_price(side, entry, be_fee_pct)
+    be_sl = breakeven_stop_price(side, entry, be_total_pct)
     suggested: Optional[float] = None
     phase = "none"
     note = f"прибыль от входа {profit_pct_val:.2f}%"
 
     if profit_pct_val >= cfg.breakeven_at_profit_pct:
-        # Только безубыток: вход ± 1.5×комиссия — не смешиваем с текущим SL
+        # Безубыток + запас прибыли (be_lock_extra_pct), чтобы откат не уходил в минус
         suggested = be_sl
         phase = "breakeven"
         note = (
-            f"BE: прибыль {profit_pct_val:.2f}% >= {cfg.breakeven_at_profit_pct:.2f}% "
-            f"(SL=вход±{be_fee_pct:.3f}% комиссии+финанс.)"
+            f"BE+: прибыль {profit_pct_val:.2f}% >= {cfg.breakeven_at_profit_pct:.2f}% "
+            f"(SL=вход±{be_total_pct:.3f}% = fee {be_fee_pct:.3f}% "
+            f"+ lock {cfg.be_lock_extra_pct:.3f}%)"
         )
 
     if cfg.sr_trail_enabled and profit_pct_val >= cfg.sr_trail_at_profit_pct and klines:
@@ -293,7 +308,7 @@ def evaluate_tp_progress_exit(
             side,
             entry,
             suggested,
-            be_fee_pct,
+            be_total_pct,
             in_profit=True,
         )
         if abs(clamped - suggested) > 1e-12:
@@ -316,6 +331,7 @@ def format_tp_progress_status(cfg: TpProgressExitConfig) -> str:
     state = "ВКЛ" if cfg.enabled else "ВЫКЛ"
     return (
         f"Выход по TP: <b>{state}</b>\n"
-        f"BE при прибыли от входа <code>{cfg.breakeven_at_profit_pct:.2f}%</code>\n"
+        f"BE+ при прибыли от входа <code>{cfg.breakeven_at_profit_pct:.2f}%</code>\n"
+        f"Замок сверх комиссий <code>{cfg.be_lock_extra_pct:.2f}%</code>\n"
         f"S/R трейл при <code>{cfg.sr_trail_at_profit_pct:.2f}%</code> от входа"
     )
