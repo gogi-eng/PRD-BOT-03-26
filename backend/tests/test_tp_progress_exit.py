@@ -39,6 +39,8 @@ def test_evaluate_be_at_profit_pct_from_entry():
         breakeven_at_profit_pct=5.0,
         sr_trail_at_profit_pct=80.0,
         sr_trail_enabled=False,
+        be_fee_buffer_pct=0.15,
+        be_lock_extra_pct=0.40,
     )
     res = evaluate_tp_progress_exit(
         cfg=cfg,
@@ -53,8 +55,32 @@ def test_evaluate_be_at_profit_pct_from_entry():
     )
     assert res.progress_pct is not None
     assert res.suggested_sl is not None
-    assert res.suggested_sl >= 100.0
+    # fee 0.15% + lock 0.40% = 0.55% above entry
+    assert res.suggested_sl >= 100.55
     assert res.phase == "breakeven"
+
+
+def test_be_lock_extra_keeps_profit_cushion():
+    cfg = TpProgressExitConfig(
+        enabled=True,
+        breakeven_at_profit_pct=1.0,
+        sr_trail_enabled=False,
+        be_fee_buffer_pct=0.25,
+        be_lock_extra_pct=0.40,
+    )
+    res = evaluate_tp_progress_exit(
+        cfg=cfg,
+        side="Buy",
+        entry=100.0,
+        price=102.0,
+        take_profit=110.0,
+        current_sl=98.0,
+        klines=[],
+        atr=1.0,
+    )
+    assert res.suggested_sl is not None
+    assert res.suggested_sl >= 100.65
+    assert "lock" in (res.note or "").lower() or "BE+" in (res.note or "")
 
 
 def test_cycle_be_threshold():

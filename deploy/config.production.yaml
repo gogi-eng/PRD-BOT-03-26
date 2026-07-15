@@ -263,9 +263,10 @@ positions:
     late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_profit_pct: 0.28
-    sr_trail_at_profit_pct: 2.2
-    be_fee_buffer_pct: 0.22
+    breakeven_at_profit_pct: 1.0
+    sr_trail_at_profit_pct: 1.8
+    be_fee_buffer_pct: 0.30
+    be_lock_extra_pct: 0.35
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -293,9 +294,10 @@ positions:
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
       enabled: true
-      breakeven_at_profit_pct: 0.28
-      sr_trail_at_profit_pct: 2.2
-      be_fee_buffer_pct: 0.22
+      breakeven_at_profit_pct: 1.0
+      sr_trail_at_profit_pct: 1.8
+      be_fee_buffer_pct: 0.30
+      be_lock_extra_pct: 0.35
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
