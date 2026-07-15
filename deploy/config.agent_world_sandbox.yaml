@@ -91,15 +91,22 @@ trading:
     bounce_lookback_bars: 3
     bounce_wick_atr_mult: 0.35
     breakout_confirm_bars: 2
-    skip_fast_sources: true
+    # false = коридор проверяется и для SPIKE/scanner (иначе стратегия «зона↔зона» молчит)
+    skip_fast_sources: false
     apply_to_sources:
       - own_multi_agent
       - ta_volatility
       - hybrid
+      - spike_scalp
+      - SPIKE_SCANNER
+      - MARKET_SCANNER
+      - market_scanner
     skip_sources:
       - telegram
       - tg
       - mirror_pump_dump
+      - agent_world
+      - world_feed
   non_trading_systemd:
     # МЕСТНОЕ UTC+3. Вечер NY — ny_open_block (DST: лето 16–18, зима 17–19 МСК)
     - 3
@@ -298,9 +305,10 @@ positions:
     late_tighten_distance_factor: 0.85
   tp_progress_exit:
     enabled: true
-    breakeven_at_profit_pct: 0.28
-    sr_trail_at_profit_pct: 2.2
-    be_fee_buffer_pct: 0.22
+    breakeven_at_profit_pct: 1.0
+    sr_trail_at_profit_pct: 1.5
+    be_fee_buffer_pct: 0.30
+    be_lock_extra_pct: 0.40
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -316,9 +324,10 @@ positions:
       late_tighten_distance_factor: 0.65
     tp_progress_exit:
       enabled: true
-      breakeven_at_profit_pct: 0.28
-      sr_trail_at_profit_pct: 2.2
-      be_fee_buffer_pct: 0.22
+      breakeven_at_profit_pct: 1.0
+      sr_trail_at_profit_pct: 1.5
+      be_fee_buffer_pct: 0.30
+      be_lock_extra_pct: 0.40
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
