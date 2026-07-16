@@ -5,6 +5,9 @@
 bybit:
   api_key: ""
   api_secret: ""
+  # Отдельный read-only ключ для AI-монитора (BYBIT_READ_API_KEY в .env)
+  read_api_key: ""
+  read_api_secret: ""
   testnet: false
   category: linear
   # orderbook_ws не добавлять: config_validate extra=forbid; стакан WS — defaults в коде
@@ -32,6 +35,20 @@ bot_manager:
   interval_sec: 3600
   notify_telegram: true
   log_tail_lines: 35
+
+# AI-монитор Bybit (read-only): графики, позиции, сопровождение сделок
+bybit_monitor:
+  enabled: true
+  interval_sec: 300
+  notify_telegram: false
+  llm_summary: true
+  kline_interval: "15"
+  kline_limit: 96
+  include_funding: true
+  include_oi: true
+  include_liquidations: true
+  alert_upnl_change_usdt: 15.0
+  max_symbols: 8
 
 trading:
   auto_start: true
