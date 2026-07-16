@@ -59,6 +59,10 @@ from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.ops.runtime_controls import is_signal_only_active, load_runtime_controls
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
+from prd_agent.positions.open_position_gate import (
+    open_position_skip_reason,
+    symbols_with_open_positions,
+)
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 from prd_agent.supervisor.supervisor_v4 import SupervisorV4
@@ -670,12 +674,7 @@ class UnifiedOrchestrator:
 
     @classmethod
     def _symbols_with_open_positions(cls, positions: List[Dict]) -> Set[str]:
-        out: Set[str] = set()
-        for p in positions:
-            sym = str(p.get("symbol", "")).upper()
-            if sym and cls._position_size(p) > 0:
-                out.add(sym)
-        return out
+        return symbols_with_open_positions(positions)
 
     def _supervisor_can_enter(
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
@@ -793,7 +792,7 @@ class UnifiedOrchestrator:
         sym = sig.symbol.upper()
         try:
             if await self.exchange.has_open_position(sym):
-                reason = f"на бирже уже открыта позиция {sym} — новый ордер не отправляем"
+                reason = open_position_skip_reason(sym)
                 logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
                 if ledger_id:
                     self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
