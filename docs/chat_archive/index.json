@@ -1,9 +1,9 @@
 {
     "schema":  1,
-    "updated_at":  "2026-07-02T18:34:43",
+    "updated_at":  "2026-07-16T12:55:00",
     "timezone":  "UTC+3",
-    "source_root":  "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode\\agent-transcripts",
-    "session_count":  12,
+    "source_root":  "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-hermes-agent-main\\agent-transcripts",
+    "session_count":  13,
     "files":  [
                   {
                       "session_id":  "3413c6eb-58d6-4faf-a092-de2db9a2d693",
@@ -132,6 +132,23 @@
                       "bytes":  14198,
                       "sha256_src":  "f7d90e8ad44dc0529535fbed7656fa2a56c5768e3439b7e0b9f836f8d56489ec",
                       "mtime_src":  "2026-06-13T08:29:46.1970526Z"
+                  },
+                  {
+                      "session_id":  "863cb07a-e376-4576-9e50-97f4551e21e3",
+                      "kind":  "main",
+                      "rel_path":  "sessions/863cb07a-e376-4576-9e50-97f4551e21e3/863cb07a-e376-4576-9e50-97f4551e21e3.jsonl",
+                      "bytes":  139847,
+                      "title":  "Bybit AI monitor, position skip, FCC+Pi setup",
+                      "branch":  "16.07.26-CURSOR-CHAT-BYBIT-FCC",
+                      "summary_rel_path":  "cursor/16.07.26-bybit-ai-fcc-pi.ru.md",
+                      "mtime_src":  "2026-07-16T12:50:00Z"
+                  },
+                  {
+                      "session_id":  "863cb07a-e376-4576-9e50-97f4551e21e3",
+                      "kind":  "subagent",
+                      "rel_path":  "sessions/863cb07a-e376-4576-9e50-97f4551e21e3/subagents/0c073cab-1af9-4d6c-bc91-27ee46735f82.jsonl",
+                      "title":  "Explore PRD-BOT repo for Bybit integration",
+                      "mtime_src":  "2026-07-16T10:45:00Z"
                   }
               ]
 }
