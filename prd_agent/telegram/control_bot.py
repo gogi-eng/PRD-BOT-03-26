@@ -109,6 +109,9 @@ class ControlBot:
                     InlineKeyboardButton("🧠 Макро", callback_data="act:macro"),
                 ],
                 [
+                    InlineKeyboardButton("📡 Bybit AI", callback_data="act:bybit_monitor"),
+                ],
+                [
                     self._trailing_button(),
                 ],
                 [
@@ -181,6 +184,7 @@ class ControlBot:
             "hermes",
             "macro",
             "ta_scan",
+            "bybit_monitor",
             "bot_manager",
             "panel_flags",
             "help",
@@ -215,6 +219,16 @@ class ControlBot:
                     f"<b>Панель агента</b>\n\n{flags}\n\n<i>Флаги сохранены в state JSON.</i>",
                     html=True,
                 )
+                return
+            if action == "bybit_monitor":
+                await query.answer("📡 Bybit AI")
+                await self._safe_edit(
+                    query,
+                    "⏳ <b>Bybit AI</b>\n\nЧитаю позиции и графики (read-only)…",
+                    html=True,
+                )
+                text = await self.orch.get_bybit_monitor_report()
+                await self._safe_edit(query, text, html=True)
                 return
             if action == "ta_scan":
                 await query.answer("📉 TA-скан")
@@ -297,6 +311,8 @@ class ControlBot:
             return await self.orch.get_liquidation_safety_report()
         if action == "macro":
             return await self.orch.get_macro_briefing()
+        if action == "bybit_monitor":
+            return await self.orch.get_bybit_monitor_report()
         if action == "ta_scan":
             return await self.orch.get_ta_scan_report(prefer_cache=True)
         if action == "trailing_off":
