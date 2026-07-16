@@ -207,6 +207,10 @@ from telegram_agent.sr_execution_adjust import (  # noqa: E402
     infer_side_from_zones,
 )
 from prd_agent.risk.rr_enforce import enforce_min_rr_levels, resolve_effective_min_rr  # noqa: E402
+from prd_agent.positions.open_position_gate import (  # noqa: E402
+    has_open_position_for_symbol,
+    open_position_skip_reason,
+)
 from prd_agent.entry.zone_corridor_play import (  # noqa: E402
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
@@ -2308,6 +2312,12 @@ class TelegramSignalAgent:
     async def _execute(self, signal: TelegramSignal) -> dict[str, Any]:
         await self._ensure_execution()
         assert self.bybit is not None and self.execution is not None
+        if await self._symbol_has_open_position(signal.symbol):
+            return {
+                "success": False,
+                "orderId": "",
+                "error": open_position_skip_reason(signal.symbol),
+            }
         cap = int(self.auto_execute_max_open_positions or 0)
         if cap > 0:
             open_positions = await self.bybit.get_positions()
@@ -2694,6 +2704,24 @@ class TelegramSignalAgent:
             parser_confidence=parser_conf,
         )
         await self._maybe_classify_regime(signal)
+        if await self._symbol_has_open_position(signal.symbol):
+            reason = open_position_skip_reason(signal.symbol)
+            review_skip = {
+                "approve": False,
+                "confidence": 0,
+                "reason": reason,
+                "block_detail": reason,
+            }
+            self._post_signal_analytics(signal)
+            self._append_signal(signal, review_skip, "position_open_skip", None)
+            LOG.info(
+                "Signal skip %s %s from %s: %s",
+                signal.symbol,
+                signal.side,
+                source,
+                reason,
+            )
+            return
         risk_ok, risk_reason = self.risk_pipeline.pre_openrouter(signal)
         if not risk_ok:
             review_pre = {"approve": False, "confidence": 0, "reason": risk_reason}
@@ -3637,13 +3665,8 @@ class TelegramSignalAgent:
     async def _symbol_has_open_position(self, symbol: str) -> bool:
         await self._ensure_execution()
         assert self.bybit is not None
-        sym = str(symbol).upper()
-        for pos in await self.bybit.get_positions():
-            if str(pos.get("symbol", "")).upper() != sym:
-                continue
-            if float(pos.get("size", 0) or 0) > 0:
-                return True
-        return False
+        positions = await self.bybit.get_positions()
+        return has_open_position_for_symbol(positions, symbol)
 
     async def _get_open_position_row(self, symbol: str) -> dict[str, Any] | None:
         await self._ensure_execution()
@@ -4052,6 +4075,14 @@ class TelegramSignalAgent:
         for setup in setups[: max(1, self.spike_scalp_top_n)]:
             if self._spike_scanner_on_cooldown(setup.symbol):
                 continue
+            if await self._symbol_has_open_position(setup.symbol):
+                LOG.info(
+                    "Spike scanner skip notify/exec %s %s: position already open",
+                    setup.symbol,
+                    setup.scenario,
+                )
+                await self._try_execute_market_setup(setup)
+                continue
             self._mark_spike_scanner_notified(setup)
             self._save_state()
             self._notify_spike_setup(setup)
@@ -4262,6 +4293,14 @@ class TelegramSignalAgent:
         notified = 0
         for setup in setups[: max(1, self.market_scanner_top_n)]:
             if self._market_scanner_on_cooldown(setup.symbol, setup.scenario):
+                continue
+            if await self._symbol_has_open_position(setup.symbol):
+                LOG.info(
+                    "Market scanner skip notify %s %s: position already open",
+                    setup.symbol,
+                    setup.scenario,
+                )
+                await self._try_execute_market_setup(setup)
                 continue
             self._mark_market_scanner_notified(setup)
             self._save_state()
