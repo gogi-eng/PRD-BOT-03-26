@@ -34,6 +34,8 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
 
     _set(bybit, "api_key", "BYBIT_API_KEY")
     _set(bybit, "api_secret", "BYBIT_API_SECRET")
+    _set(bybit, "read_api_key", "BYBIT_READ_API_KEY")
+    _set(bybit, "read_api_secret", "BYBIT_READ_API_SECRET")
     _set(bybit, "testnet", "TESTNET", cast=bool)
     _set(tg, "bot_token", "TELEGRAM_TOKEN")
     _set(tg, "chat_id", "TELEGRAM_CHAT_ID")
