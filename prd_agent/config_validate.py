@@ -50,6 +50,8 @@ class _BybitSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key: str = ""
     api_secret: str = ""
+    read_api_key: str = ""
+    read_api_secret: str = ""
     testnet: bool = False
     category: str = "linear"
 
@@ -90,6 +92,21 @@ class _SupervisorV4Section(BaseModel):
     model_config = ConfigDict(extra="ignore")
     panic_consecutive_losses: int = Field(default=3, ge=1, le=20)
     panic_minutes: int = Field(default=90, ge=5, le=1440)
+
+
+class _BybitMonitorSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    interval_sec: float = Field(default=300, ge=60, le=3600)
+    notify_telegram: bool = False
+    llm_summary: bool = True
+    kline_interval: str = "15"
+    kline_limit: int = Field(default=96, ge=10, le=500)
+    include_funding: bool = True
+    include_oi: bool = True
+    include_liquidations: bool = True
+    alert_upnl_change_usdt: float = Field(default=15.0, ge=1.0, le=10000.0)
+    max_symbols: int = Field(default=8, ge=1, le=30)
 
 
 def _section(data: Dict[str, Any], name: str) -> Dict[str, Any]:
@@ -187,6 +204,7 @@ def validate_config_data(data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     risk = _section(data, "risk")
     qg = _section(data, "quality_gate")
     sup = _section(data, "supervisor_v4")
+    bybit_monitor = _section(data, "bybit_monitor")
 
     _validate_model(errors, "bybit", bybit, _BybitSection)
     _validate_model(errors, "telegram", telegram, _TelegramSection)
@@ -196,6 +214,8 @@ def validate_config_data(data: Dict[str, Any]) -> Tuple[bool, List[str]]:
         _validate_model(errors, "quality_gate", qg, _QualityGateSection)
     if sup:
         _validate_model(errors, "supervisor_v4", sup, _SupervisorV4Section)
+    if bybit_monitor:
+        _validate_model(errors, "bybit_monitor", bybit_monitor, _BybitMonitorSection)
 
     api_cache = _section(data, "api_cache")
     _num(errors, api_cache, "price_ttl_sec", lo=1, hi=120, path="api_cache")

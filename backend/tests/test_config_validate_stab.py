@@ -56,3 +56,24 @@ def test_supervisor_v4_panic_minutes_range():
     ok, errors = validate_config_data(cfg)
     assert not ok
     assert any("panic_minutes" in e for e in errors)
+
+
+def test_accepts_bybit_read_keys_and_monitor_section():
+    cfg = _minimal_cfg()
+    cfg["bybit"]["read_api_key"] = "read"
+    cfg["bybit"]["read_api_secret"] = "read_secret"
+    cfg["bybit_monitor"] = {
+        "enabled": True,
+        "interval_sec": 300,
+        "notify_telegram": False,
+        "llm_summary": True,
+        "kline_interval": "15",
+        "kline_limit": 96,
+        "include_funding": True,
+        "include_oi": True,
+        "include_liquidations": True,
+        "alert_upnl_change_usdt": 15.0,
+        "max_symbols": 8,
+    }
+    ok, errors = validate_config_data(cfg)
+    assert ok, errors
