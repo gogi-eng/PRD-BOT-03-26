@@ -50,19 +50,24 @@ def main() -> int:
 
     if args.print_cron:
         log_path = "/root/log_trading_hours_ctl.log"
+        trading = cfg.get("trading") if isinstance(cfg.get("trading"), dict) else {}
+        sched = trading.get("non_trading_systemd") if isinstance(trading.get("non_trading_systemd"), dict) else {}
+        stop_systemd = bool(sched.get("stop_systemd", False))
         for w in windows:
             stop_utc = w.stop_cron_utc(tz)
-            resume_utc = w.resume_cron_utc(tz)
             print(
                 f"{stop_utc} * * * {ctl} stop {args.env} "
                 f">> {log_path} 2>&1  "
-                f"# stop {w.stop_at} MSK (UTC{tz:+d}) block {w.start_hour:02d}-{w.end_hour:02d}"
+                f"# pre_block {w.stop_at} MSK block {w.start_hour:02d}-{w.end_hour:02d}"
+                f"{' + systemd stop' if stop_systemd else ' (bots stay up)'}"
             )
-            print(
-                f"{resume_utc} * * * {ctl} start {args.env} "
-                f">> {log_path} 2>&1  "
-                f"# start {w.resume_at} MSK (UTC{tz:+d})"
-            )
+            if stop_systemd:
+                resume_utc = w.resume_cron_utc(tz)
+                print(
+                    f"{resume_utc} * * * {ctl} start {args.env} "
+                    f">> {log_path} 2>&1  "
+                    f"# start {w.resume_at} MSK (UTC{tz:+d})"
+                )
     return 0
 
 
