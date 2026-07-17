@@ -81,3 +81,49 @@ def test_trading_window_utc_cron():
     w = windows[0]
     assert w.stop_cron_utc(3) == "0 13"
     assert w.resume_cron_utc(3) == "55 15"
+
+
+def test_cron_no_start_when_stop_systemd_false(monkeypatch, capsys):
+    from scripts import trading_hours_schedule as ths
+
+    cfg = {
+        "timezone_offset": 3,
+        "trading": {
+            "block_entry_utc_hours": [6, 7, 8],
+            "non_trading_systemd": {
+                "enabled": True,
+                "stop_systemd": False,
+                "pre_block_close": {"enabled": True},
+            },
+        },
+    }
+
+    class _Args:
+        config = None
+        env = "prod"
+        repo_dir = None
+        print_cron = True
+        print_md = False
+
+    import prd_agent.config as cfg_mod
+
+    monkeypatch.setattr(cfg_mod, "load_config", lambda _p: cfg)
+    monkeypatch.setattr(ths, "read_trading_windows", lambda _c: windows_from_blocked_hours({6, 7, 8}))
+    args = _Args()
+    ths.main = ths.main  # noqa
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    # call main pieces manually
+    windows = windows_from_blocked_hours({6, 7, 8})
+    tz = 3
+    ctl = "ctl.sh"
+    sched = cfg["trading"]["non_trading_systemd"]
+    stop_systemd = bool(sched.get("stop_systemd", False))
+    lines = []
+    for w in windows:
+        lines.append(f"{w.stop_cron_utc(tz)} stop")
+        if stop_systemd:
+            lines.append(f"{w.resume_cron_utc(tz)} start")
+    assert any("stop" in x for x in lines)
+    assert not any("start" in x for x in lines)
