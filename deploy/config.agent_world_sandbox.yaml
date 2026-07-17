@@ -108,16 +108,15 @@ trading:
       - agent_world
       - world_feed
   non_trading_systemd:
-    # МЕСТНОЕ UTC+3. Вечер NY — ny_open_block (DST: лето 16–18, зима 17–19 МСК)
-    - 3
-    - 6
-    - 7
-    - 8
-    - 11
-    - 12
-    - 13
-  non_trading_systemd:
     enabled: true
+    stop_systemd: false
+    pre_block_close:
+      enabled: true
+      losers_only: true
+      min_profit_pct_to_keep: 0.0
+      fee_buffer_pct: 0.12
+      trend_lookback_bars: 3
+      trend_kline_interval: "15"
     resume_before_minutes: 5
     ny_open_block:
       enabled: true

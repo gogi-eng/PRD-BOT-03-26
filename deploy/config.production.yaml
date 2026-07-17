@@ -96,6 +96,15 @@ trading:
       - mirror_pump_dump
   non_trading_systemd:
     enabled: true
+    # false = боты работают; block_entry_utc_hours блокирует только новые входы
+    stop_systemd: false
+    pre_block_close:
+      enabled: true
+      losers_only: true
+      min_profit_pct_to_keep: 0.0
+      fee_buffer_pct: 0.12
+      trend_lookback_bars: 3
+      trend_kline_interval: "15"
     resume_before_minutes: 5
     ny_open_block:
       enabled: true
