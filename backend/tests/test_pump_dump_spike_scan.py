@@ -343,3 +343,15 @@ def test_spike_run_loop_decoupled_from_market_scanner():
     }
     assert unified_should_run_spike_scan(cfg_signal) is False
     assert signal_agent_should_run_spike_scan(cfg_signal) is True
+
+
+def test_spike_scan_uses_separate_lock_filename():
+    """SPIKE не должен делить .market_scan.lock с длинным BOS-проходом."""
+    import inspect
+
+    from scripts.telegram_signal_agent import TelegramSignalAgent
+
+    src = inspect.getsource(TelegramSignalAgent.run_spike_scan_once)
+    assert 'lock_filename=".spike_scan.lock"' in src
+    sig = inspect.signature(TelegramSignalAgent._market_scan_cross_process_lock)
+    assert "lock_filename" in sig.parameters
