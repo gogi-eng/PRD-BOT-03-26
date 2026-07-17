@@ -33,6 +33,20 @@ bot_manager:
   notify_telegram: true
   log_tail_lines: 35
 
+# Read-only обзор позиций/графиков → кнопка «📡 Bybit AI» в Telegram-панели
+bybit_monitor:
+  enabled: true
+  interval_sec: 300
+  notify_telegram: false
+  llm_summary: true
+  kline_interval: "15"
+  kline_limit: 96
+  include_funding: true
+  include_oi: true
+  include_liquidations: true
+  alert_upnl_change_usdt: 15.0
+  max_symbols: 8
+
 trading:
   auto_start: true
   leverage: 20
