@@ -114,6 +114,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 - **Запрещены скрытые правки:** любая смена поведения — явно сообщить пользователю (что изменилось и зачем), без молчаливых побочных фиксов.
 - **Config + код одной серией:** если алгоритм включён в yaml — он реально вызывается на всех нужных путях (orchestrator **и** SPIKE/scanner, если это торговая логика).
 - Слово «готово» / push — **только после** успешной проверки выше.
+- **См. также** всегдашние правила файла `no-encoding-spike-config-regressions.mdc`: не портить UTF-8 на Windows; не оставлять фильтр только в orchestrator; не считать алгоритм живым без ключа в live `config.yaml` и строки в логе.
 
 ## Ключевые настройки config
 
@@ -188,6 +189,10 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Cron / стоп | **Проверка на сервере** | после деплоя cron | `crontab -l`, ручной `trading_hours_ctl.sh stop`, `systemctl is-active` — **до** «готово» |
 | Entry | **Коридор S↔R bounce/breakout** | `zone_corridor_play.py`, orchestrator, `telegram_signal_agent` | Песочница ON + SPIKE/scanner; прод `enabled: false` до проверки |
 | TP / SL | **BE+ с замком прибыли** | `tp_progress_exit.py` | `be_lock_extra_pct` — SL выше чистого безубытка (комиссии+lock) |
+| Soft | **weight_overrides песочница** | `entry_soft_rules.py`, sandbox yaml | Hermes negative lift: regime_trend/adx/imb ×0.55; прод без overrides |
+| Качество | **UTF-8: не ломать файлы** | Windows push / PowerShell | Не `Out-File`/`>` для `.py`; после правки `py_compile` + кириллица цела |
+| Качество | **Вход = все пути** | orchestrator + signal agent | Фильтр только в orchestrator при SPIKE-exec = баг |
+| Качество | **Live config + лог-маркер** | deploy install + journal/bot.log | Нет ключа в `config.yaml` / нет `Zone corridor` → не «готово» |
 | SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
 | Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
 

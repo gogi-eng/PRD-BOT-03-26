@@ -499,6 +499,26 @@ trade_journal:
   rotate_max_mb: 8
   rotate_keep_files: 14
 
+# Soft-score: Hermes 17.07 — ослабить правила с отрицательным lift (только песочница)
+rule_weight_learning:
+  enabled: true
+  lookback_days: 14
+  min_samples: 5
+  min_win_rate: 0.52
+  min_total_pnl: 0.0
+  max_weight_mult: 1.35
+  max_size_mult: 1.12
+  max_confidence_boost: 0.05
+  refresh_interval_sec: 3600
+  favorable_threshold: 65
+  neutral_threshold: 50
+  caution_threshold: 40
+  weight_overrides:
+    regime_trend: 0.55
+    adx_ok: 0.55
+    adx_strong: 0.55
+    imb_strong: 0.55
+
 quality_gate:
   enabled: true
   min_confidence: 0.85
