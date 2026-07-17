@@ -42,6 +42,33 @@ def test_soft_score_chop_penalty():
     assert res_chop.score < res_trend.score
 
 
+def test_soft_weight_overrides_weaken_negative_lift_rules():
+    """Hermes: ослабить regime_trend/adx/imb через weight_overrides (< 1)."""
+    ctx = {
+        "regime": "trend",
+        "adx": 30,
+        "atr_pct": 0.5,
+        "normalized_imbalance": 0.35,
+        "local_hour": 12,
+    }
+    base = compute_soft_score(ctx, side="BUY", cfg={"timezone_offset": 3})
+    weak_cfg = {
+        "timezone_offset": 3,
+        "rule_weight_learning": {
+            "weight_overrides": {
+                "regime_trend": 0.55,
+                "adx_ok": 0.55,
+                "adx_strong": 0.55,
+                "imb_strong": 0.55,
+            }
+        },
+    }
+    weak = compute_soft_score(ctx, side="BUY", cfg=weak_cfg)
+    assert weak.score < base.score
+    assert weak.breakdown["regime_trend"] < base.breakdown["regime_trend"]
+    assert abs(weak.breakdown["regime_trend"] - RULE_POINTS["regime_trend"] * 0.55) < 0.01
+
+
 def test_build_briefing_from_fixture(tmp_path: Path):
     rules = {
         "hours": 72,

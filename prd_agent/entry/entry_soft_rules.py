@@ -158,7 +158,10 @@ def compute_soft_score(
     rule_weights: Optional[Mapping[str, float]] = None,
 ) -> SoftScoreResult:
     """
-    Entry Soft Score с учётом обученных весов (мультипликаторы ≥ 1 только для + правил).
+    Entry Soft Score с учётом обученных весов и ручных weight_overrides из config.
+
+    weight_overrides (rule_weight_learning): множитель к баллам правила (можно < 1 —
+    ослабить правила с отрицательным lift по Hermes, только песочница).
     """
     cfg = cfg or {}
     rwl = cfg.get("rule_weight_learning", {})
@@ -166,8 +169,17 @@ def compute_soft_score(
         rwl = {}
     tz = int(cfg.get("timezone_offset", 3) or 3)
     weights = dict(rule_weights or {})
+    raw_ov = rwl.get("weight_overrides")
+    overrides: Dict[str, float] = {}
+    if isinstance(raw_ov, Mapping):
+        for k, v in raw_ov.items():
+            try:
+                overrides[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
     max_conf_boost = float(rwl.get("max_confidence_boost", 0.05) or 0.05)
     max_size_mult = float(rwl.get("max_size_mult", 1.12) or 1.12)
+    max_w = float(rwl.get("max_weight_mult", 1.35) or 1.35)
 
     active = detect_active_rules(entry_context, side=side, tz_offset=tz)
     breakdown: Dict[str, float] = {}
@@ -181,6 +193,9 @@ def compute_soft_score(
         mult = 1.0
         if base > 0 and rid in POSITIVE_RULE_IDS:
             mult = float(weights.get(rid, 1.0) or 1.0)
+            if rid in overrides:
+                mult *= float(overrides[rid])
+            mult = max(0.15, min(max_w, mult))
             if mult > 1.001:
                 validated_hits += 1
         pts = base * mult
