@@ -194,6 +194,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Качество | **Вход = все пути** | orchestrator + signal agent | Фильтр только в orchestrator при SPIKE-exec = баг |
 | Качество | **Live config + лог-маркер** | deploy install + journal/bot.log | Нет ключа в `config.yaml` / нет `Zone corridor` → не «готово» |
 | SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
+| SPIKE прод | **цикл в signal agent** | `deploy/config.production.yaml` | `spike_scalp.run_loop_in_signal_agent: true`; иначе enabled=true, но цикл не стартует |
 | Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)

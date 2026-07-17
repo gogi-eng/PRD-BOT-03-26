@@ -578,6 +578,10 @@ market_scanner:
   run_loop_in_signal_agent: true
   spike_scalp:
     enabled: true
+    # Прод: цикл в telegram_signal_agent (BOS-сканер там же).
+    # Без run_loop_in_signal_agent=true SPIKE молчит (default false).
+    run_loop_in_signal_agent: true
+    run_loop_in_unified_bot: false
     interval_sec: 90
     kline_interval: "15"
     min_move_pct: 4.0
