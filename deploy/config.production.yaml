@@ -486,7 +486,7 @@ rule_weight_learning:
   favorable_threshold: 65
   neutral_threshold: 50
   caution_threshold: 40
-  # Hermes: ослабить soft-правила с отрицательным lift (как на AGENT-WORLD)
+  # Ослабить soft-правила с отрицательным lift (как на AGENT-WORLD)
   weight_overrides:
     regime_trend: 0.55
     adx_ok: 0.55
@@ -571,6 +571,16 @@ supervisor_v4:
     rr_weight: 0.20
     virtual_wr_soft_cap: 40
     virtual_wr_boost_cap: 55
+  # Hermes advisor / bypass — ОТКЛЮЧЁН (19.07.26)
+  hermes_link:
+    respect_entry_profile: false
+    hermes_bypass:
+      enabled: false
+      level: 2
+
+# Hermes (брифинг / ZeroOne / feed) — полностью выключен
+hermes:
+  enabled: false
 
 feedback_loop:
   enabled: true

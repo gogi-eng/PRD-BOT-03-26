@@ -11,7 +11,6 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
-from prd_agent.analysis.bybit_monitor import BybitMonitorAgent
 from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import LedgerEntry, SignalLedger, SignalStatus
 from prd_agent.analysis.trade_analytics import (
@@ -107,7 +106,6 @@ class UnifiedOrchestrator:
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
         self.macro_ai = MacroAI(cfg)
-        self.bybit_monitor = BybitMonitorAgent(cfg)
         self.bot_manager = BotManagerAgent(cfg)
         an = cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", 24))
@@ -143,7 +141,6 @@ class UnifiedOrchestrator:
         self._spike_scan_interval_sec = float(_sp.get("interval_sec", 90))
         self._spike_scan_task: Optional[asyncio.Task] = None
         self._bot_manager_task: Optional[asyncio.Task] = None
-        self._bybit_monitor_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -496,12 +493,6 @@ class UnifiedOrchestrator:
                 "BOT MANAGER: цикл советов, интервал %.0f сек",
                 self.bot_manager.interval_sec,
             )
-        if self.bybit_monitor.enabled and self.bybit_monitor.notify_telegram:
-            self._bybit_monitor_task = asyncio.create_task(self._bybit_monitor_loop())
-            logger.info(
-                "BYBIT MONITOR: фоновые алерты, интервал %.0f сек",
-                self.bybit_monitor.interval_sec,
-            )
         while self._running:
             try:
                 await self._cycle()
@@ -522,9 +513,6 @@ class UnifiedOrchestrator:
         if self._bot_manager_task is not None:
             self._bot_manager_task.cancel()
             self._bot_manager_task = None
-        if self._bybit_monitor_task is not None:
-            self._bybit_monitor_task.cancel()
-            self._bybit_monitor_task = None
 
     async def close(self) -> None:
         self.stop()
@@ -546,14 +534,6 @@ class UnifiedOrchestrator:
             except asyncio.CancelledError:
                 pass
             self._bot_manager_task = None
-        if self._bybit_monitor_task is not None:
-            try:
-                await self._bybit_monitor_task
-            except asyncio.CancelledError:
-                pass
-            self._bybit_monitor_task = None
-        if self.bybit_monitor._read_exchange is not None:
-            await self.bybit_monitor._read_exchange.close()
         await self.exchange.close()
 
     async def _market_scanner_loop(self) -> None:
@@ -599,20 +579,6 @@ class UnifiedOrchestrator:
             except Exception as exc:
                 logger.warning("BOT MANAGER: %s", exc)
             await asyncio.sleep(max(300.0, self.bot_manager.interval_sec))
-
-    async def _bybit_monitor_loop(self) -> None:
-        """Фоновый read-only мониторинг позиций (уведомления в Telegram)."""
-        await asyncio.sleep(120)
-        while self._running:
-            try:
-                text = await self.bybit_monitor.maybe_scheduled_alert(self)
-                if text:
-                    await self.notifier.send(text)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.warning("BYBIT MONITOR: %s", exc)
-            await asyncio.sleep(max(120.0, self.bybit_monitor.interval_sec))
 
     async def get_bot_manager_review(self) -> str:
         return await self.bot_manager.run_review(self)
@@ -680,12 +646,8 @@ class UnifiedOrchestrator:
     def _supervisor_can_enter(
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
     ) -> Tuple[bool, str]:
-        ctx = self._build_soft_score_context(sig, atr_pct_frac=atr_pct_frac)
-        return self.supervisor.can_enter_with_hermes(
-            sig.symbol.upper(),
-            sig=sig,
-            entry_context=ctx,
-        )
+        # Hermes bypass отключён — только обычный supervisor
+        return self.supervisor.can_enter(sig.symbol.upper())
 
     def _build_soft_score_context(
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
@@ -1602,6 +1564,13 @@ class UnifiedOrchestrator:
         return self.supervisor.skipped_bt.build_telegram_report(h, last_run=last)
 
     def get_hermes_briefing(self) -> str:
+        hermes = self.cfg.get("hermes", {}) if isinstance(self.cfg.get("hermes"), dict) else {}
+        if not bool(hermes.get("enabled", False)):
+            return (
+                "<b>📊 Hermes отключён</b>\n\n"
+                "Модуль советов Hermes выключен в config (`hermes.enabled: false`).\n"
+                "Используйте <b>📅 По дням</b> и <b>🧪 Лаборатория</b>."
+            )
         from prd_agent.analysis.hermes_briefing import build_hermes_telegram_briefing
 
         return build_hermes_telegram_briefing(self.root)
@@ -1647,9 +1616,6 @@ class UnifiedOrchestrator:
             "достигает защитного уровня.</i>"
         )
         return "\n".join(lines)
-
-    async def get_bybit_monitor_report(self) -> str:
-        return await self.bybit_monitor.build_report(self)
 
     async def get_macro_briefing(self) -> str:
         positions: List[Dict] = []

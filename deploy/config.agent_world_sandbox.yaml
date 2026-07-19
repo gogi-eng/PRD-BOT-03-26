@@ -515,7 +515,7 @@ trade_journal:
   rotate_max_mb: 8
   rotate_keep_files: 14
 
-# Soft-score: Hermes — ослабить правила с отрицательным lift (прод + песочница)
+# Soft-score: ослабить правила с отрицательным lift (прод + песочница)
 rule_weight_learning:
   enabled: true
   lookback_days: 14
@@ -612,6 +612,16 @@ supervisor_v4:
     rr_weight: 0.20
     virtual_wr_soft_cap: 40
     virtual_wr_boost_cap: 55
+  # Hermes advisor / bypass — ОТКЛЮЧЁН (19.07.26)
+  hermes_link:
+    respect_entry_profile: false
+    hermes_bypass:
+      enabled: false
+      level: 2
+
+# Hermes (брифинг / ZeroOne / feed) — полностью выключен
+hermes:
+  enabled: false
 
 feedback_loop:
   enabled: true
@@ -775,7 +785,7 @@ analytics:
   report_hours: 24
   daily_pnl_days: 7
   skipped_lab_hours: 168
-  # Hermes: раз в неделю отчёт прибыльных часов/дней → правки block_entry в config вручную
+  # Бывший Hermes weekly — не используется; правки часов вручную по Лаборатории
 
 ai:
   provider: openrouter
