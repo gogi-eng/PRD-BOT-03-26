@@ -147,13 +147,14 @@ def test_no_bypass_low_confidence(tmp_path) -> None:
     assert not ok
 
 
-def test_deploy_configs_have_hermes_bypass_enabled() -> None:
+def test_deploy_configs_have_hermes_disabled() -> None:
     import yaml
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
     for name in ("config.production.yaml", "config.agent_world_sandbox.yaml"):
         cfg = yaml.safe_load((root / "deploy" / name).read_text(encoding="utf-8"))
+        assert cfg.get("hermes", {}).get("enabled") is False
         hb = cfg["supervisor_v4"]["hermes_link"]["hermes_bypass"]
-        assert hb.get("enabled") is True
-        assert hb.get("level") == 2
+        assert hb.get("enabled") is False
+        assert cfg["supervisor_v4"]["hermes_link"].get("respect_entry_profile") is False

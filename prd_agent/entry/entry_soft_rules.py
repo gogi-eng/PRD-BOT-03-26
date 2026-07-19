@@ -161,7 +161,7 @@ def compute_soft_score(
     Entry Soft Score с учётом обученных весов и ручных weight_overrides из config.
 
     weight_overrides (rule_weight_learning): множитель к баллам правила (можно < 1 —
-    ослабить правила с отрицательным lift по Hermes).
+    ослабить правила с отрицательным lift по статистике сделок).
     """
     cfg = cfg or {}
     rwl = cfg.get("rule_weight_learning", {})
