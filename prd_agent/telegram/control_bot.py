@@ -90,9 +90,6 @@ class ControlBot:
                     InlineKeyboardButton("🧪 Лаборатория", callback_data="act:skipped_lab"),
                 ],
                 [
-                    InlineKeyboardButton("📊 Hermes", callback_data="act:hermes"),
-                ],
-                [
                     InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
                     InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
                 ],
@@ -304,7 +301,11 @@ class ControlBot:
         if action == "skipped_lab":
             return self.orch.get_skipped_lab_report()
         if action == "hermes":
-            return self.orch.get_hermes_briefing()
+            return (
+                "<b>📊 Hermes отключён</b>\n\n"
+                "Советы Hermes больше не используются.\n"
+                "Смотрите <b>📅 По дням</b> и <b>🧪 Лаборатория</b>."
+            )
         if action == "help":
             return build_panel_help_text(self.cfg, self.orch.root)
         if action == "liq_guard":
