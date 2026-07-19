@@ -50,21 +50,61 @@ def test_windows_resume_five_min_before():
 
 
 def test_ny_open_block_summer_edt():
-    when = datetime(2026, 7, 12, 12, 0, tzinfo=_MSK)
+    when = datetime(2026, 7, 13, 12, 0, tzinfo=_MSK)  # Monday
     hours = ny_open_block_hours_msk(_NY_CFG, when=when)
     assert hours == {16, 17, 18}
 
 
 def test_ny_open_block_winter_est():
-    when = datetime(2026, 1, 15, 12, 0, tzinfo=_MSK)
+    when = datetime(2026, 1, 15, 12, 0, tzinfo=_MSK)  # Thursday
     hours = ny_open_block_hours_msk(_NY_CFG, when=when)
     assert hours == {17, 18, 19}
 
 
+def test_ny_open_block_skipped_on_weekend():
+    # Saturday 18.07.2026 — раньше ошибочно ставило 16–18 МСК
+    when = datetime(2026, 7, 18, 16, 0, tzinfo=_MSK)
+    assert ny_open_block_hours_msk(_NY_CFG, when=when) == set()
+    when_sun = datetime(2026, 7, 19, 12, 0, tzinfo=_MSK)
+    assert ny_open_block_hours_msk(_NY_CFG, when=when_sun) == set()
+
+
+def test_ny_open_block_skipped_on_us_holiday():
+    # Independence Day 2026 — Saturday observed Friday 2026-07-03
+    when = datetime(2026, 7, 3, 12, 0, tzinfo=_MSK)
+    assert ny_open_block_hours_msk(_NY_CFG, when=when) == set()
+
+
+def test_ny_open_block_weekend_override_disabled():
+    cfg = {
+        **_NY_CFG,
+        "trading": {
+            **_NY_CFG["trading"],
+            "non_trading_systemd": {
+                **_NY_CFG["trading"]["non_trading_systemd"],
+                "ny_open_block": {
+                    **_NY_CFG["trading"]["non_trading_systemd"]["ny_open_block"],
+                    "skip_weekends": False,
+                    "skip_us_holidays": False,
+                },
+            },
+        },
+    }
+    when = datetime(2026, 7, 18, 16, 0, tzinfo=_MSK)
+    assert ny_open_block_hours_msk(cfg, when=when) == {16, 17, 18}
+
+
 def test_effective_blocked_includes_ny_block():
-    when = datetime(2026, 7, 12, 12, 0, tzinfo=_MSK)
+    when = datetime(2026, 7, 13, 12, 0, tzinfo=_MSK)  # Monday
     hours = effective_blocked_local_hours(_NY_CFG, when=when)
     assert {16, 17, 18}.issubset(hours)
+    assert 3 in hours and 11 in hours
+
+
+def test_effective_blocked_weekend_keeps_static_hours_only():
+    when = datetime(2026, 7, 18, 16, 0, tzinfo=_MSK)
+    hours = effective_blocked_local_hours(_NY_CFG, when=when)
+    assert 16 not in hours and 17 not in hours and 18 not in hours
     assert 3 in hours and 11 in hours
 
 
@@ -81,49 +121,3 @@ def test_trading_window_utc_cron():
     w = windows[0]
     assert w.stop_cron_utc(3) == "0 13"
     assert w.resume_cron_utc(3) == "55 15"
-
-
-def test_cron_no_start_when_stop_systemd_false(monkeypatch, capsys):
-    from scripts import trading_hours_schedule as ths
-
-    cfg = {
-        "timezone_offset": 3,
-        "trading": {
-            "block_entry_utc_hours": [6, 7, 8],
-            "non_trading_systemd": {
-                "enabled": True,
-                "stop_systemd": False,
-                "pre_block_close": {"enabled": True},
-            },
-        },
-    }
-
-    class _Args:
-        config = None
-        env = "prod"
-        repo_dir = None
-        print_cron = True
-        print_md = False
-
-    import prd_agent.config as cfg_mod
-
-    monkeypatch.setattr(cfg_mod, "load_config", lambda _p: cfg)
-    monkeypatch.setattr(ths, "read_trading_windows", lambda _c: windows_from_blocked_hours({6, 7, 8}))
-    args = _Args()
-    ths.main = ths.main  # noqa
-    import argparse
-
-    ap = argparse.ArgumentParser()
-    # call main pieces manually
-    windows = windows_from_blocked_hours({6, 7, 8})
-    tz = 3
-    ctl = "ctl.sh"
-    sched = cfg["trading"]["non_trading_systemd"]
-    stop_systemd = bool(sched.get("stop_systemd", False))
-    lines = []
-    for w in windows:
-        lines.append(f"{w.stop_cron_utc(tz)} stop")
-        if stop_systemd:
-            lines.append(f"{w.resume_cron_utc(tz)} start")
-    assert any("stop" in x for x in lines)
-    assert not any("start" in x for x in lines)

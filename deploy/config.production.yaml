@@ -122,6 +122,9 @@ trading:
     resume_before_minutes: 5
     ny_open_block:
       enabled: true
+      # false только для отладки: иначе сб/вс и праздники США без блока 16–18 МСК
+      skip_weekends: true
+      skip_us_holidays: true
       market_tz: America/New_York
       market_open_local: "09:30"
       stop_before_open_minutes: 30
