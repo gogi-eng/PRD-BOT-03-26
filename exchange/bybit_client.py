@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode
@@ -16,6 +17,8 @@ try:
     from exchange.circuit_breaker import ApiCircuitBreaker
 except ImportError:
     from circuit_breaker import ApiCircuitBreaker  # type: ignore
+
+logger = logging.getLogger("prd_agent.bybit")
 
 
 def _apply_orderbook_levels(side_map: Dict[str, str], updates: List[List[str]]) -> None:
@@ -500,8 +503,41 @@ class BybitClient:
         return len(rows) > 0
 
     async def get_balance(self) -> float:
+        """USDT на счёте: walletBalance, иначе equity (если API отдал пустой wallet)."""
         snap = await self.get_wallet_snapshot()
-        return snap.get("wallet_balance", 0.0)
+        wallet = float(snap.get("wallet_balance", 0) or 0)
+        equity = float(snap.get("equity", 0) or 0)
+        available = float(snap.get("available_balance", 0) or 0)
+        if wallet > 0:
+            return wallet
+        if equity > 0:
+            logger.warning(
+                "wallet_balance=0, fallback equity=%.4f available=%.4f err=%s",
+                equity,
+                available,
+                snap.get("_error") or "",
+            )
+            return equity
+        if available > 0:
+            logger.warning(
+                "wallet_balance=0 equity=0, fallback available=%.4f err=%s",
+                available,
+                snap.get("_error") or "",
+            )
+            return available
+        if snap.get("_error"):
+            logger.warning(
+                "get_balance=0: wallet API error %s code=%s",
+                snap.get("_error"),
+                snap.get("_code"),
+            )
+        else:
+            logger.warning(
+                "get_balance=0: empty wallet snapshot equity=%.4f available=%.4f",
+                equity,
+                available,
+            )
+        return 0.0
 
     async def get_usdt_available_balance(self) -> float:
         """Алиас для telegram_signal_agent и старых вызовов."""
@@ -510,12 +546,57 @@ class BybitClient:
     async def get_available_balance(self) -> float:
         """Свободная маржа для нового ордера (не walletBalance — он включает занятую маржу)."""
         snap = await self.get_wallet_snapshot()
-        return snap.get("available_balance", 0.0)
+        avail = float(snap.get("available_balance", 0) or 0)
+        if avail > 0:
+            return avail
+        # Если available пустой, но equity/wallet есть — не блокируем сайзинг нулём молча
+        wallet = float(snap.get("wallet_balance", 0) or 0)
+        equity = float(snap.get("equity", 0) or 0)
+        fallback = wallet if wallet > 0 else equity
+        if fallback > 0 and snap.get("_error"):
+            logger.warning(
+                "available_balance=0 after API error, fallback=%.4f", fallback
+            )
+        return fallback if fallback > 0 else 0.0
 
-    async def get_wallet_snapshot(self) -> Dict[str, float]:
-        result = await self._request("GET", "/v5/account/wallet-balance", {"accountType": "UNIFIED"}, private=True)
-        out = {"wallet_balance": 0.0, "available_balance": 0.0, "equity": 0.0}
-        if not result or not result.get("list"):
+    async def get_wallet_snapshot(self) -> Dict[str, Any]:
+        """Снимок UNIFIED-кошелька. При ошибке API — retry и поля _error/_code."""
+        out: Dict[str, Any] = {
+            "wallet_balance": 0.0,
+            "available_balance": 0.0,
+            "equity": 0.0,
+        }
+        result = await self._request(
+            "GET", "/v5/account/wallet-balance", {"accountType": "UNIFIED"}, private=True
+        )
+        if isinstance(result, dict) and result.get("_error"):
+            logger.warning(
+                "wallet-balance API error: %s code=%s — retry once",
+                result.get("_error"),
+                result.get("_code"),
+            )
+            await asyncio.sleep(0.6)
+            result = await self._request(
+                "GET",
+                "/v5/account/wallet-balance",
+                {"accountType": "UNIFIED"},
+                private=True,
+            )
+        if isinstance(result, dict) and result.get("_error"):
+            out["_error"] = str(result.get("_error") or "wallet API error")
+            out["_code"] = result.get("_code")
+            logger.warning(
+                "wallet-balance failed after retry: %s code=%s",
+                out["_error"],
+                out["_code"],
+            )
+            return out
+        if not result or not isinstance(result, dict) or not result.get("list"):
+            logger.warning(
+                "wallet-balance empty result keys=%s",
+                list(result.keys()) if isinstance(result, dict) else type(result),
+            )
+            out["_error"] = "empty_wallet_list"
             return out
         acc = result["list"][0]
         total_avail = float(acc.get("totalAvailableBalance", 0) or 0)
@@ -527,12 +608,21 @@ class BybitClient:
                 continue
             out["wallet_balance"] = float(coin.get("walletBalance", 0) or 0)
             if out["available_balance"] <= 0:
-                for key in ("availableToWithdraw", "availableBalance", "equity"):
+                for key in ("availableToWithdraw", "availableBalance", "equity", "usdValue"):
                     val = float(coin.get(key, 0) or 0)
                     if val > 0:
                         out["available_balance"] = val
                         break
+            # Иногда Bybit на рестарте отдаёт walletBalance=0 при ненулевом equity/usdValue
+            if out["wallet_balance"] <= 0:
+                for key in ("equity", "usdValue", "walletBalance"):
+                    val = float(coin.get(key, 0) or 0)
+                    if val > 0:
+                        out["wallet_balance"] = val
+                        break
             break
+        if out["wallet_balance"] <= 0 and out["equity"] > 0:
+            out["wallet_balance"] = out["equity"]
         if out["available_balance"] <= 0 and out["wallet_balance"] > 0:
             out["available_balance"] = out["wallet_balance"]
         return out

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 try:
@@ -11,6 +11,75 @@ except ImportError:  # pragma: no cover
     ZoneInfo = None  # type: ignore[misc, assignment]
 
 from prd_agent.time_hours import read_timezone_offset
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
+    """weekday: Mon=0 … Sun=6; n=1 — первая такая неделя, n=-1 — последняя."""
+    if n > 0:
+        d = date(year, month, 1)
+        shift = (weekday - d.weekday()) % 7
+        d = d + timedelta(days=shift + 7 * (n - 1))
+        return d
+    if month == 12:
+        d = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        d = date(year, month + 1, 1) - timedelta(days=1)
+    shift = (d.weekday() - weekday) % 7
+    return d - timedelta(days=shift)
+
+
+def _easter_sunday(year: int) -> date:
+    """Пасха (григорианский алгоритм) — для Good Friday NYSE."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    ll = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ll) // 451
+    month, day = divmod(h + ll - 7 * m + 114, 31)
+    return date(year, month, day + 1)
+
+
+def _observed_us_holiday(d: date) -> date:
+    """Если праздник в сб → пятница до, в вс → понедельник после."""
+    if d.weekday() == 5:  # Saturday
+        return d - timedelta(days=1)
+    if d.weekday() == 6:  # Sunday
+        return d + timedelta(days=1)
+    return d
+
+
+def us_equity_market_holidays(year: int) -> Set[date]:
+    """Основные праздники NYSE (observed) — блок «открытие NY» в эти дни не нужен."""
+    fixed = [
+        date(year, 1, 1),
+        date(year, 6, 19),
+        date(year, 7, 4),
+        date(year, 12, 25),
+    ]
+    floating = [
+        _nth_weekday_of_month(year, 1, 0, 3),   # MLK
+        _nth_weekday_of_month(year, 2, 0, 3),   # Presidents
+        _easter_sunday(year) - timedelta(days=2),  # Good Friday
+        _nth_weekday_of_month(year, 5, 0, -1),  # Memorial
+        _nth_weekday_of_month(year, 9, 0, 1),   # Labor
+        _nth_weekday_of_month(year, 11, 3, 4),  # Thanksgiving
+    ]
+    out: Set[date] = set()
+    for d in fixed + floating:
+        out.add(_observed_us_holiday(d))
+    return out
+
+
+def is_us_equity_session_day(when_ny: datetime) -> bool:
+    """True = обычный торговый день NYSE (не сб/вс и не праздник США)."""
+    d = when_ny.date()
+    if d.weekday() >= 5:
+        return False
+    return d not in us_equity_market_holidays(d.year)
 
 
 @dataclass(frozen=True)
@@ -74,7 +143,11 @@ def ny_open_block_hours_msk(
     *,
     when: Optional[datetime] = None,
 ) -> Set[int]:
-    """МСК-часы вокруг открытия NYSE; летом 16–18, зимой 17–19 (авто DST)."""
+    """МСК-часы вокруг открытия NYSE; летом 16–18, зимой 17–19 (авто DST).
+
+    В выходные и праздники США блок не ставится: крипторынок работает,
+    а «открытие Нью-Йорка» в эти дни не существует.
+    """
     raw = read_ny_open_block_settings(cfg)
     if not raw:
         return set()
@@ -86,9 +159,15 @@ def ny_open_block_hours_msk(
     market_open = str(raw.get("market_open_local", "09:30") or "09:30")
     stop_before = max(0, int(raw.get("stop_before_open_minutes", 30) or 30))
     block_hours = max(1, min(6, int(raw.get("block_hours", 3) or 3)))
+    skip_weekends = bool(raw.get("skip_weekends", True))
+    skip_us_holidays = bool(raw.get("skip_us_holidays", True))
     when = when or datetime.now(msk_zone)
     ny_zone = ZoneInfo(market_tz)
     ny_now = when.astimezone(ny_zone)
+    if skip_weekends and ny_now.weekday() >= 5:
+        return set()
+    if skip_us_holidays and ny_now.date() in us_equity_market_holidays(ny_now.year):
+        return set()
     open_h, open_m = _parse_hhmm(market_open)
     ny_open = ny_now.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
     ny_stop = ny_open - timedelta(minutes=stop_before)
