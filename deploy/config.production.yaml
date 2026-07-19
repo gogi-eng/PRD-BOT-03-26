@@ -486,6 +486,12 @@ rule_weight_learning:
   favorable_threshold: 65
   neutral_threshold: 50
   caution_threshold: 40
+  # Hermes: ослабить soft-правила с отрицательным lift (как на AGENT-WORLD)
+  weight_overrides:
+    regime_trend: 0.55
+    adx_ok: 0.55
+    adx_strong: 0.55
+    imb_strong: 0.55
 
 quality_gate:
   enabled: true

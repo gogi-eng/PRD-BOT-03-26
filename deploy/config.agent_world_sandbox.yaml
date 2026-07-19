@@ -515,7 +515,7 @@ trade_journal:
   rotate_max_mb: 8
   rotate_keep_files: 14
 
-# Soft-score: Hermes 17.07 — ослабить правила с отрицательным lift (только песочница)
+# Soft-score: Hermes — ослабить правила с отрицательным lift (прод + песочница)
 rule_weight_learning:
   enabled: true
   lookback_days: 14
