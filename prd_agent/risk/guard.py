@@ -241,11 +241,13 @@ class RiskGuard:
         if pnl > 0:
             s.wins += 1
             self._consecutive_losses = 0
-        else:
+            s.consecutive_losses = 0
+        elif pnl < 0:
             s.losses += 1
             self._consecutive_losses += 1
             s.consecutive_losses = self._consecutive_losses
             self.last_loss_time = datetime.now(timezone.utc)
+        # pnl == 0 (безубыток): не win и не loss для серии — счётчик подряд не трогаем
         self._check_auto_stop()
         self._maybe_clear_daily_loss_stop()
 
