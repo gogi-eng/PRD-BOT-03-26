@@ -638,6 +638,8 @@ telegram_signal_agent:
   enabled: false
   auto_execute: false
   auto_execute_max_open_positions: 6
+  # SPIKE/scanner: номинал = 80% баланса Bybit
+  max_notional_balance_pct: 80
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true
