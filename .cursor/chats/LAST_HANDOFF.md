@@ -2,7 +2,7 @@
 
 Краткая шпаргалка для продолжения на другом компьютере.
 
-Обновлено: 2026-06-30 08:59 UTC
+Обновлено: 2026-07-21 06:35 UTC
 
 - **Чат:** `6aae46dd-a66c-41b2-816d-e8b0d328b395`
 - **Заголовок:** "C:\Users\v.dubovik\Downloads\bot_analysis_ru.pdf" и "C:\Users\v.dubovik\.vscode\PRD-BOT-26.05.26-ALL\chat-Анализ бота и
@@ -20,7 +20,7 @@ git pull
 # "C:\Users\v.dubovik\Downloads\bot_analysis_ru.pdf" и "C:\Users\v.dubovik\.vscode\PRD-BOT-26.05.26-ALL\chat-Анализ бота и
 
 - **id:** `6aae46dd-a66c-41b2-816d-e8b0d328b395`
-- **exported:** 2026-06-30 08:59:05 UTC
+- **exported:** 2026-07-21 06:35:00 UTC
 - **host:** SNIOT-404-4A
 - **project:** `c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL`
 - **source:** `C:\Users\v.dubovik\.cursor\projects\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\agent-transcripts\6aae46dd-a66c-41b2-816d-e8b0d328b395\6aae46dd-a66c-41b2-816d-e8b0d328b395.jsonl`
