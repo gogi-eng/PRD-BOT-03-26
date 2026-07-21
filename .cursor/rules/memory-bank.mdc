@@ -1,0 +1,31 @@
+---
+description: Memory Bank — ОБЯЗАТЕЛЬНО читать в каждой сессии; автообновление после правок
+alwaysApply: true
+---
+
+# Memory Bank (обязательная память Cursor)
+
+Источник правды в git: `PRD-BOT-ALL/.cursor/memory-bank/`  
+(копии: `.vscode/.cursor/memory-bank/`, `AGENT-WORLD/.cursor/memory-bank/` — держать синхронно).
+
+## ЖЁСТКОЕ правило (любой ПК, любой чат по этому workspace)
+
+1. **В начале каждой сессии** по боту / деплою / config / логам — **сначала прочитать**:
+   - `PRD-BOT-ALL/.cursor/memory-bank/activeContext.md`
+   - `PRD-BOT-ALL/.cursor/memory-bank/productContext.md`
+   - при необходимости `progress.md`, `decisionLog.md`
+2. **Не ждать** команды «обнови память»: после **значимой** работы в том же ходе обновить файлы memory-bank (фокус, прогресс, решения).
+3. Команда пользователя **UMB** / **«обнови память»** = полная синхронизация чата → memory-bank **сразу**.
+4. После обновления — копировать файлы в `.vscode/.cursor/memory-bank/` и `AGENT-WORLD/.cursor/memory-bank/`.
+5. При push дневной ветки — **включать** `.cursor/memory-bank/` и `.cursor/rules/memory-bank.mdc` в commit (общий код → обе ветки), чтобы на другом ПК хватило `git pull`.
+6. Секреты (.env, API keys, токены) в memory-bank **запрещены**.
+
+## Файлы
+
+| Файл | Содержание |
+|------|------------|
+| `productContext.md` | Кто пользователь, инстансы, цели |
+| `activeContext.md` | Текущий фокус и открытые вопросы |
+| `progress.md` | Сделано / дальше |
+| `decisionLog.md` | Почему приняли решение |
+| `systemPatterns.md` | Паттерны входа/деплоя |
