@@ -233,9 +233,10 @@ risk_presets:
     entry_pipeline:
       mode: aggressive
 
-# spike-only (песочница): только SPIKE SCANNER 15m; own/TA/TG/whale/ext отключены ниже.
+# Фаза 1 soak: SPIKE + own_agents. Остальное выкл до проверки PnL по source.
+# Дальше по плану: 2) BOS scanner  3) TA  4) TG-inbox  5) whale/ext  6) RSS auto
 signals:
-  own_agents_enabled: false
+  own_agents_enabled: true
   telegram_inbox_enabled: false
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   telegram_inbox_only_approved: true
@@ -697,8 +698,9 @@ telegram_signal_agent:
   enabled: false
   auto_execute: false
   auto_execute_max_open_positions: 6
-  # SPIKE/scanner: номинал = 80% баланса Bybit (не фиксированные 30 USDT)
-  max_notional_balance_pct: 80
+  # Фаза 1 (SPIKE+own): 30% баланса на SPIKE-сделку, иначе own не хватает маржи.
+  # Было 80 при spike-only — вернуть после отключения own или при одном источнике.
+  max_notional_balance_pct: 30
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true
