@@ -33,10 +33,10 @@
       "host": "SNIOT-404-4A"
     },
     "6aae46dd-a66c-41b2-816d-e8b0d328b395": {
-      "sha256": "df7608e93ef1501a9e0eb531f77a46937fcbbb8dfe37e5df4abc9b5990ce77b6",
+      "sha256": "7b9a9b4e55e53e343e0013f88d0bd243e8f24cbffd8c979e0fd4fa3688bf96a8",
       "title": "\"C:\\Users\\v.dubovik\\Downloads\\bot_analysis_ru.pdf\" и \"C:\\Users\\v.dubovik\\.vscode\\PRD-BOT-26.05.26-ALL\\chat-Анализ бота и",
       "date": "2026-07-21",
-      "mtime": "2026-07-21 06:33 UTC",
+      "mtime": "2026-07-21 12:50 UTC",
       "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\6aae46dd-a66c-41b2-816d-e8b0d328b395\\6aae46dd-a66c-41b2-816d-e8b0d328b395.jsonl",
       "host": "SNIOT-404-4A"
     },
@@ -49,6 +49,6 @@
       "host": "SNIOT-404-4A"
     }
   },
-  "last_sync_utc": "2026-07-21 06:35:00 UTC",
+  "last_sync_utc": "2026-07-21 12:50:52 UTC",
   "host": "SNIOT-404-4A"
 }
