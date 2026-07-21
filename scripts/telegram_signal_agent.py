@@ -65,6 +65,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from prd_agent.risk.signal_notional import plan_signal_notional
+
 _TG_LOGGING_CONFIGURED = False
 
 
@@ -1101,6 +1103,10 @@ class TelegramSignalAgent:
             pass
         self.margin_usdt = float(self.agent_cfg.get("margin_usdt", 3.0))
         self.max_notional_usdt = float(self.agent_cfg.get("max_notional_usdt", 30.0))
+        # >0: max notional = pct% от баланса Bybit (вместо фиксированного max_notional_usdt)
+        self.max_notional_balance_pct = float(
+            self.agent_cfg.get("max_notional_balance_pct", 0) or 0
+        )
         self.execution_balance_reserve_pct = float(self.agent_cfg.get("execution_balance_reserve_pct", 18))
         self.market_scan_post_exec_delay_sec = float(self.agent_cfg.get("market_scan_post_exec_delay_sec", 2.0))
         _trading_max_pos = int((self.cfg.get("trading") or {}).get("max_positions", 0) or 0)
@@ -1437,7 +1443,8 @@ class TelegramSignalAgent:
                 "──────────────\n"
                 "Исполнение:\n"
                 "• При «MARKET SCANNER→Bybit» агент пытается открыть ордер после этого наблюдения "
-                "(без OpenRouter). Размер: margin_usdt×leverage из config, ограничен max_notional_usdt.\n"
+                "(без OpenRouter). Размер: max_notional_balance_pct% баланса Bybit "
+                "или margin_usdt×leverage / max_notional_usdt.\n"
                 "• SL = «Отмена сценария», TP = «Цель» из текста выше.\n"
                 "• Управление авто можно переключать кнопками (/start или /panel в этом чате с ботом).\n"
             )
@@ -2323,22 +2330,28 @@ class TelegramSignalAgent:
                 }
         price = signal.entry or await self.bybit.get_price(signal.symbol)
         leverage = max(1, min(int(signal.leverage or self.default_leverage), self.max_leverage))
-        notional = min(self.margin_usdt * leverage, self.max_notional_usdt)
         avail = await self.bybit.get_usdt_available_balance()
-        if avail > 0 and price > 0:
-            reserve = max(0.0, min(90.0, float(self.execution_balance_reserve_pct))) / 100.0
-            usable = avail * (1.0 - reserve)
-            # Грубая оценка: начальная маржа ≈ notional/leverage (USDT linear).
-            max_notional_from_wallet = usable * float(leverage)
-            if max_notional_from_wallet > 0 and max_notional_from_wallet + 1e-9 < notional:
-                LOG.info(
-                    "Caps notional by wallet: planned=%.4f USDT max_from_avail≈%.4f (avail=%.4f reserve=%.0f%%)",
-                    notional,
-                    max_notional_from_wallet,
-                    avail,
-                    float(self.execution_balance_reserve_pct),
-                )
-                notional = min(notional, max_notional_from_wallet)
+        try:
+            wallet = float(await self.bybit.get_balance())
+        except Exception:
+            wallet = float(avail or 0.0)
+        notional, size_reason = plan_signal_notional(
+            leverage=leverage,
+            margin_usdt=self.margin_usdt,
+            max_notional_usdt=self.max_notional_usdt,
+            max_notional_balance_pct=self.max_notional_balance_pct,
+            wallet_balance=wallet,
+            available_balance=float(avail or 0.0),
+            reserve_pct=float(self.execution_balance_reserve_pct),
+        )
+        LOG.info(
+            "Signal notional=%.4f USDT lev=%sx (%s) wallet=%.4f avail=%.4f",
+            notional,
+            leverage,
+            size_reason,
+            wallet,
+            float(avail or 0.0),
+        )
         qty = notional / price if price > 0 else 0.0
         if qty <= 0:
             raise RuntimeError("Calculated qty <= 0")
