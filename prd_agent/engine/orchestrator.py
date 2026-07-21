@@ -22,6 +22,7 @@ from prd_agent.analysis.trade_analytics import (
     summarize_trades,
 )
 from prd_agent.analysis.trade_journal import TradeJournal
+from prd_agent.analysis.trade_lifecycle import TradeLifecycleTracker
 from prd_agent.analysis.trade_monitor import TradeMonitor
 from prd_agent.config import load_config
 from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
@@ -93,6 +94,7 @@ class UnifiedOrchestrator:
         self.ledger = SignalLedger(self.data_dir / "ledger")
         self.monitor = TradeMonitor(self.data_dir / "trades")
         self.trade_journal = TradeJournal(self.data_dir, cfg)
+        self.trade_lifecycle = TradeLifecycleTracker(self.data_dir, cfg)
         self._min_analysis_conf = load_min_analysis_confidence(cfg)
         self._signal_cooldown = PerSymbolSignalCooldown(
             load_signal_notify_cooldown_sec(cfg)
@@ -269,6 +271,7 @@ class UnifiedOrchestrator:
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
         self.trade_companion.apply_config(self.cfg)
+        self.trade_lifecycle.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
         self.derivatives_guard = DerivativesEntryGuard(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
@@ -507,6 +510,8 @@ class UnifiedOrchestrator:
             )
         if self.trade_companion.enabled:
             logger.info("TRADE COMPANION: сопровождение открытых сделок включено")
+        if self.trade_lifecycle.enabled:
+            logger.info("TRADE LIFECYCLE: сбор статистики по сделкам включён")
         while self._running:
             try:
                 await self._cycle()
@@ -639,6 +644,9 @@ class UnifiedOrchestrator:
             self.risk.record_trade(pnl)
             self._closed_pnl_dedup.mark(oid)
             sym = str(r.get("symbol", "")).upper()
+            side_raw = str(r.get("side", "")).upper()
+            side = "Buy" if side_raw in ("BUY", "LONG") else "Sell" if side_raw in ("SELL", "SHORT") else side_raw
+            exit_p = float(r.get("avgExitPrice", 0) or 0)
             origin = resolve_closed_origin(
                 self.root / "data",
                 sym,
@@ -647,7 +655,20 @@ class UnifiedOrchestrator:
                 telegram_audit_path=audit_path if audit_path.exists() else None,
                 bot_symbols=bot_symbols,
             )
-            self.trade_journal.record_closed_from_exchange(r, origin=origin)
+            pending = self.trade_journal.peek_pending(sym, side=side, order_id=oid)
+            exit_ctx = self.trade_lifecycle.pop_exit_context(
+                sym,
+                side,
+                exit_price=exit_p,
+                pnl_usdt=pnl,
+                reason="exchange_closed",
+                pending=pending,
+            )
+            self.trade_journal.record_closed_from_exchange(
+                r,
+                origin=origin,
+                exit_context=exit_ctx,
+            )
         self.rule_weight_tracker.refresh_if_due(journal_path, force=False)
 
     @staticmethod
@@ -862,11 +883,22 @@ class UnifiedOrchestrator:
         await self._sync_orderbook_ws(positions)
         self.risk.open_positions_count = len(positions)
         await self._monitor_positions(positions)
+        self.trade_lifecycle.update_mark_prices(
+            positions,
+            self.position_steward._tracked,
+            bot_symbols=self.position_steward._bot_symbols,
+        )
         closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
         await self._sync_closed_pnl_to_risk()
         trail_notes = await self.position_steward.manage(self.exchange, positions)
         companion_notes = await self.trade_companion.manage_cycle(
             self.exchange, positions, self.position_steward
+        )
+        await self.trade_lifecycle.maybe_sample(
+            self.exchange,
+            positions,
+            self.position_steward._tracked,
+            bot_symbols=self.position_steward._bot_symbols,
         )
         for note in trail_notes + companion_notes:
             if note.startswith("📌") or note.startswith("⚠️") or note.startswith("🤖") or note.startswith("🎯") or note.startswith("🔒"):
