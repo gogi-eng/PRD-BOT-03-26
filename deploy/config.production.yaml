@@ -47,6 +47,12 @@ bybit_monitor:
   alert_upnl_change_usdt: 15.0
   max_symbols: 8
 
+# Агент сопровождения сделок — сначала песочница; на проде выключен до проверки
+trade_companion:
+  enabled: false
+  bot_positions_only: true
+  notify_telegram: true
+
 trading:
   auto_start: true
   leverage: 20
