@@ -31,9 +31,8 @@
 
 ## Как читать на другом ПК
 
-```bash
-cd путь/к/PRD-BOT-ALL
-git fetch origin
-git checkout 21.07.26-PRD-BOT-ALL   # или актуальная дневная ветка
-# открыть workspace с этим репо — правило memory-bank.mdc alwaysApply подтянет файлы
-```
+1. Войти в Cursor под тем же аккаунтом (ник).
+2. Вставить сниппет из `.cursor/USER-RULES-SNIPPET.txt` в **Settings → Rules → User Rules** (один раз — едет с аккаунтом).
+3. `git fetch` + checkout дневной ветки `21.07.26-PRD-BOT-ALL` (или новее) — в репо уже есть `.cursor/memory-bank/` и `memory-bank.mdc`.
+
+Hashes Memory Bank: PRD `e4f3bd5`, AW `bf9389d` (поверх `1ab59e4` / `f02a9aa`).
