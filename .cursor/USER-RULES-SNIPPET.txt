@@ -1,0 +1,9 @@
+# Вставьте это в Cursor → Settings → Rules → User Rules
+# (правила аккаунта едут с вашим ником на любой компьютер)
+
+Memory Bank PRD-BOT: в КАЖДОЙ сессии по боту сначала прочитай файлы
+PRD-BOT-ALL/.cursor/memory-bank/activeContext.md и productContext.md
+(если папки нет — git pull дневной ветки). После значимой работы сам обнови
+эти файлы и синхронизируй копии в .vscode/.cursor/memory-bank/ и
+AGENT-WORLD/.cursor/memory-bank/. Команда «UMB» / «обнови память» =
+полная запись чата в memory-bank. Секреты (.env, ключи) туда не писать.

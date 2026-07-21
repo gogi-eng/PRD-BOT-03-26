@@ -5,6 +5,14 @@ alwaysApply: true
 
 # PRD-BOT workflow
 
+## Memory Bank (память между сессиями и ПК)
+
+- Канон в git: `PRD-BOT-ALL/.cursor/memory-bank/` + правило `.cursor/rules/memory-bank.mdc` (`alwaysApply: true`)
+- **В начале сессии** читать `activeContext.md` + `productContext.md`
+- После значимой работы — **сразу** обновить memory-bank (не ждать «UMB»); копировать в `.vscode` и `AGENT-WORLD`
+- При push дневной ветки включать memory-bank в commit (общий → **обе** ветки), иначе на другом ПК памяти не будет
+- Дополнительно: короткая строка в **Cursor → Settings → Rules → User Rules** (синхронизируется с аккаунтом) — см. `PRD-BOT-ALL/.cursor/USER-RULES-SNIPPET.txt`
+
 ## Репозиторий и ветки
 
 - **GitHub:** `https://github.com/gogi-eng/PRD-BOT-03-26`
@@ -107,25 +115,6 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 - Минимальный diff, но **рабочий до конца** — без костылей и отключений фич.
 - Параметр в config → код его читает; иначе это баг, а не «настройка на будущее».
 
-### Целостность кода — ВСЕГДА (обязательно)
-
-При **любом** отключении модуля, рефакторинге, «уборке» legacy или правке одного файла — **проверять целостность всей цепочки**, а не только изменённый кусок.
-
-**Запрещено:**
-- Случайно удалять **другие** рабочие интеграции вместе с отключаемым модулем (пример: отключение Hermes **не должно** вырезать `bybit_monitor` из `orchestrator.py`).
-- Оставлять кнопку Telegram / ключ в config / вызов в коде **без** метода или реализации на другом конце (`control_bot` → `orch.get_*` → агент).
-- Считать «отключено в config» достаточным, если в Python остались мёртвые импорты, сломанные callback или `AttributeError` при нажатии кнопки.
-
-**Обязательный чеклист перед «готово» / push** (если трогали отключение, orchestrator, Telegram, config):
-1. **Кнопки:** для каждой кнопки в `control_bot.py` — метод в `orchestrator` (или другом обработчике) **существует** (`grep get_*`, `grep act:`).
-2. **Config → код:** если в yaml `enabled: true` — инициализация в orchestrator, вызов в цикле/кнопке, маркер в логе при старте (где применимо).
-3. **Diff-ревью:** в `git diff` нет удаления строк **не относящихся** к задаче; при `-` блоках — убедиться, что это намеренно.
-4. **Кросс-модули:** отключение модуля A **не ломает** модуль B (разные секции config, разные классы, разные кнопки).
-5. **Заглушки:** нет `if False`, пустых `return`, «временно отключено», параметров без чтения в коде.
-6. **Проверка:** `py_compile` + релевантные pytest; для Telegram-кнопок — grep цепочки callback → method → agent.
-
-**Урок (21.07.26):** коммит «disable Hermes» удалил из `orchestrator.py` импорт/инициализацию/`get_bybit_monitor_report()` для **Bybit AI**, хотя кнопка **📡 Bybit AI** осталась → в Telegram: «Ошибка кнопки bybit_monitor». Такие регрессы **недопустимы**.
-
 ### ОБЯЗАТЕЛЬНО: перед push / деплоем на сервер
 
 - **Проверить работоспособность ВСЕХ алгоритмов**, затронутых правкой: `py_compile` + релевантные pytest (+ ручной сценарий, если cron/systemd/Telegram).
@@ -170,7 +159,8 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
   - **Запрещено:** отключать фичи «чтобы не мешало», обходить баг `if false`, править только на сервере вручную, давать команды «пока так живите», оставлять настройки в config без реализации в коде, деплой-скрипты которые падают на `config.yaml` / `origin/ветка`.
   - **Обязательно:** параметр в config → читается кодом; скрипт деплоя → обновляет код **и** перезапускает systemd; unit-файлы → в репозитории; push → ветка **дня + INSTANCE**; **общий fix → push в обе ветки** (`PRD-BOT-ALL` + `AGENT-WORLD`, cherry-pick); перед выдачей — синтаксис, тесты, проверка логики.
   - Если что-то не работает — **исправить и довести до рабочего состояния**, а не предлагать пользователю обходной путь.
-- **Не отключать** функции (Telegram polling, панель, торговлю, RSS, scanner) без **явного** согласия пользователя — не подменять рабочий режим «безопасной заглушкой».
+- **Не отключать и не терять** функции ботов без **явного** согласия пользователя: Telegram polling/панель/**все кнопки**, торговлю, RSS, scanner, SPIKE, BE+, Zone, supervisor, hours/cron, bybit_monitor, bot_manager и любые другие уже рабочие алгоритмы. Не подменять «безопасной заглушкой» и не оставлять фичу только в parallel-ветке.
+- **Не удалять существующие функции** при новой дневной ветке / деплое: если функция уже была в репо или на сервере — обязана остаться в `DD.MM.YY-PRD-BOT-ALL` **и** `DD.MM.YY-AGENT-WORLD` (cherry-pick + ключ в `deploy/config.*.yaml` при необходимости). Иначе = регресс (как пропажа Bybit AI и любых «забытых» модулей после 17.07). См. `no-encoding-spike-config-regressions.mdc` §4.
 - **Не удалять** ветки/файлы на GitHub без явной просьбы пользователя.
 - Не коммитить без явной просьбы пользователя
 - Не создавать markdown/docs без запроса
@@ -208,15 +198,19 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Cron / стоп | **Проверка на сервере** | после деплоя cron | `crontab -l`, ручной `trading_hours_ctl.sh stop`, `systemctl is-active` — **до** «готово» |
 | Entry | **Коридор S↔R bounce/breakout** | `zone_corridor_play.py`, orchestrator, `telegram_signal_agent` | Песочница ON + SPIKE/scanner; прод `enabled: false` до проверки |
 | TP / SL | **BE+ с замком прибыли** | `tp_progress_exit.py` | `be_lock_extra_pct` — SL выше чистого безубытка (комиссии+lock) |
-| Soft | **weight_overrides песочница** | `entry_soft_rules.py`, sandbox yaml | Hermes negative lift: regime_trend/adx/imb ×0.55; прод без overrides |
+| Soft | **weight_overrides ×0.55** | `entry_soft_rules.py`, deploy yaml обоих | regime_trend/adx/imb; прод+песочница |
+| Hermes | **ОТКЛЮЧЁН 19.07** | `hermes.enabled: false`, panel, bypass | Не включать bypass/кнопку/gateway; Лаборатория/По дням вместо брифинга |
+| Risk | **pnl=0 не в серию** | `prd_agent/risk/guard.py` | Безубыток не +1 к consecutive / panic |
+| Telegram | **📡 Bybit AI** | `bybit_monitor`, `control_bot` | кнопка панели; в deploy yaml + install; **не терять** при дневной ветке |
+| Качество | **Не терять функции ботов** | cherry-pick / panel+loops+config | Новая `DD.MM.YY-*` без уже рабочих модулей/кнопок/SPIKE/BE+/monitor = запрещённый регресс |
 | Качество | **UTF-8: не ломать файлы** | Windows push / PowerShell | Не `Out-File`/`>` для `.py`; после правки `py_compile` + кириллица цела |
 | Качество | **Вход = все пути** | orchestrator + signal agent | Фильтр только в orchestrator при SPIKE-exec = баг |
 | Качество | **Live config + лог-маркер** | deploy install + journal/bot.log | Нет ключа в `config.yaml` / нет `Zone corridor` → не «готово» |
 | SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
-| WORLD фазы | **SPIKE+own фаза 1** | sandbox yaml | own ON; TA/TG/whale/BOS OFF; SPIKE notional 30% при совместной работе |
 | Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
-| Telegram | **Bybit AI ≠ Hermes** | `orchestrator.py`, `control_bot.py`, `bybit_monitor.py` | Кнопка `bybit_monitor` → `get_bybit_monitor_report()`; отключение Hermes **не** удаляет bybit_monitor |
-| Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
+| Часы / NY | **NY-блок не в сб/вс/праздники** | `trading_hours_schedule.py`, `ny_open_block` | `skip_weekends`/`skip_us_holidays` default true; иначе ложный блок 16–18 МСК |
+| Bybit wallet | **balance=0 → equity/retry** | `exchange/bybit_client.py` | Пустой list/`_error` не молчать; fallback equity; лог WARNING |
+| Память | **Memory Bank в git** | `.cursor/memory-bank/`, `memory-bank.mdc` | Читать каждую сессию; автообновлять; push в обе ветки дня |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
 
