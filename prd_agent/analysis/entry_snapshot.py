@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from prd_agent.analysis.trade_lifecycle import (
+    serialize_orderflow,
+    serialize_zone_context,
+    volume_gate_ratio,
+)
 from prd_agent.risk.rr_enforce import rr_ratio
 from prd_agent.signals.types import UnifiedSignal
 
@@ -162,6 +167,8 @@ async def build_entry_snapshot(
         ma = MarketAnalyzer()
         market = ma.analyze(bars, htf_bars if htf_bars else None)
         zone_context = StructureZoneAnalyzer().analyze(bars, float(entry or 0) or float(bars[-1]["close"]))
+        price_for_zone = float(entry or 0) or float(bars[-1]["close"])
+        smc = serialize_zone_context(zone_context, price_for_zone, side)
         ctx.update(
             {
                 "atr_pct": float(getattr(market, "atr_pct", 0.0) or 0.0),
@@ -171,11 +178,8 @@ async def build_entry_snapshot(
                 "trend": _enum_label(getattr(market, "trend", "")),
                 "htf_trend": _enum_label(getattr(market, "htf_trend", "")),
                 "volatility": _enum_label(getattr(market, "volatility", "")),
-                "entry_zone": str(
-                    getattr(zone_context.active_zone, "kind", "no_zone")
-                    if getattr(zone_context, "active_zone", None)
-                    else "no_zone"
-                ),
+                "entry_zone": smc.get("entry_zone", "no_zone"),
+                "smc": smc,
             }
         )
     except Exception as exc:
@@ -185,10 +189,15 @@ async def build_entry_snapshot(
     if orderflow is not None:
         ctx["normalized_imbalance"] = float(getattr(orderflow, "normalized_imbalance", 0.0) or 0.0)
         ctx["spread_pct"] = float(getattr(orderflow, "spread_pct", 0.0) or 0.0)
+        ctx["orderflow"] = serialize_orderflow(orderflow)
 
     vol24 = await _volume_24h(exchange, sym)
     if vol24 > 0:
         ctx["volume_24h_usdt"] = round(vol24, 2)
+        min_vol = float(
+            (cfg.get("quality_gate", {}) or {}).get("min_24h_volume_usdt", 10_000_000) or 10_000_000
+        )
+        ctx["volume_vs_gate"] = volume_gate_ratio(vol24, min_vol)
 
     tz_off = int(cfg.get("timezone_offset", 3) or 3)
     ctx["local_hour"] = (datetime.now(timezone.utc).hour + tz_off) % 24

@@ -53,6 +53,13 @@ trade_companion:
   bot_positions_only: true
   notify_telegram: true
 
+# Статистика сделок (наблюдение, не меняет торговлю)
+trade_lifecycle:
+  enabled: true
+  bot_positions_only: true
+  sample_interval_sec: 300
+  store_periodic_samples: true
+
 trading:
   auto_start: true
   leverage: 20

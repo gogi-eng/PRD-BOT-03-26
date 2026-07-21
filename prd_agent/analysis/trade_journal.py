@@ -112,6 +112,7 @@ class TradeJournal:
         exit_price: float = 0.0,
         qty: float = 0.0,
         origin: str = "bot",
+        exit_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         sym = symbol.upper()
         logger.info("CLOSED %s: pnl=$%.2f reason=%s", sym, pnl, reason)
@@ -149,6 +150,10 @@ class TradeJournal:
                 closed_row["stop_loss"] = pending.get("stop_loss")
             if pending.get("take_profit"):
                 closed_row["take_profit"] = pending.get("take_profit")
+            if pending.get("leverage"):
+                closed_row["leverage"] = pending.get("leverage")
+        if isinstance(exit_context, dict) and exit_context:
+            closed_row["exit_context"] = exit_context
         self._append(closed_row)
         if order_id and order_id in self._pending:
             del self._pending[order_id]
@@ -156,7 +161,27 @@ class TradeJournal:
         self._pending.pop(key, None)
         self._pending.pop(sym, None)
 
-    def record_closed_from_exchange(self, row: Dict[str, Any], *, origin: str = "bot") -> None:
+    def peek_pending(
+        self,
+        symbol: str,
+        *,
+        side: str = "",
+        order_id: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        sym = symbol.upper()
+        if order_id and order_id in self._pending:
+            return dict(self._pending[order_id])
+        key = f"{sym}:{side}" if side else sym
+        row = self._pending.get(key) or self._pending.get(sym)
+        return dict(row) if row else None
+
+    def record_closed_from_exchange(
+        self,
+        row: Dict[str, Any],
+        *,
+        origin: str = "bot",
+        exit_context: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Строка closed-pnl Bybit API."""
         sym = str(row.get("symbol", "")).upper()
         pnl = float(row.get("closedPnl", 0) or 0)
@@ -176,4 +201,5 @@ class TradeJournal:
             exit_price=exit_p,
             qty=qty,
             origin=origin,
+            exit_context=exit_context,
         )
