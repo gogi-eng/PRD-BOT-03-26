@@ -60,6 +60,7 @@ from prd_agent.ops.runtime_controls import is_signal_only_active, load_runtime_c
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
 from prd_agent.positions.position_steward import PositionSteward
+from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 from prd_agent.supervisor.supervisor_v4 import SupervisorV4
 from prd_agent.signals.confidence_filter import (
@@ -104,6 +105,7 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
+        self.trade_companion = TradeCompanionAgent(cfg)
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
         self.macro_ai = MacroAI(cfg)
@@ -266,6 +268,7 @@ class UnifiedOrchestrator:
         )
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
+        self.trade_companion.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
         self.derivatives_guard = DerivativesEntryGuard(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
@@ -502,6 +505,8 @@ class UnifiedOrchestrator:
                 "BYBIT MONITOR: фоновые алерты, интервал %.0f сек",
                 self.bybit_monitor.interval_sec,
             )
+        if self.trade_companion.enabled:
+            logger.info("TRADE COMPANION: сопровождение открытых сделок включено")
         while self._running:
             try:
                 await self._cycle()
@@ -860,8 +865,11 @@ class UnifiedOrchestrator:
         closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
         await self._sync_closed_pnl_to_risk()
         trail_notes = await self.position_steward.manage(self.exchange, positions)
-        for note in trail_notes:
-            if note.startswith("📌") or note.startswith("⚠️"):
+        companion_notes = await self.trade_companion.manage_cycle(
+            self.exchange, positions, self.position_steward
+        )
+        for note in trail_notes + companion_notes:
+            if note.startswith("📌") or note.startswith("⚠️") or note.startswith("🤖") or note.startswith("🎯") or note.startswith("🔒"):
                 await self.notifier.send(note)
         balance_now = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance_now)
