@@ -107,6 +107,25 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 - Минимальный diff, но **рабочий до конца** — без костылей и отключений фич.
 - Параметр в config → код его читает; иначе это баг, а не «настройка на будущее».
 
+### Целостность кода — ВСЕГДА (обязательно)
+
+При **любом** отключении модуля, рефакторинге, «уборке» legacy или правке одного файла — **проверять целостность всей цепочки**, а не только изменённый кусок.
+
+**Запрещено:**
+- Случайно удалять **другие** рабочие интеграции вместе с отключаемым модулем (пример: отключение Hermes **не должно** вырезать `bybit_monitor` из `orchestrator.py`).
+- Оставлять кнопку Telegram / ключ в config / вызов в коде **без** метода или реализации на другом конце (`control_bot` → `orch.get_*` → агент).
+- Считать «отключено в config» достаточным, если в Python остались мёртвые импорты, сломанные callback или `AttributeError` при нажатии кнопки.
+
+**Обязательный чеклист перед «готово» / push** (если трогали отключение, orchestrator, Telegram, config):
+1. **Кнопки:** для каждой кнопки в `control_bot.py` — метод в `orchestrator` (или другом обработчике) **существует** (`grep get_*`, `grep act:`).
+2. **Config → код:** если в yaml `enabled: true` — инициализация в orchestrator, вызов в цикле/кнопке, маркер в логе при старте (где применимо).
+3. **Diff-ревью:** в `git diff` нет удаления строк **не относящихся** к задаче; при `-` блоках — убедиться, что это намеренно.
+4. **Кросс-модули:** отключение модуля A **не ломает** модуль B (разные секции config, разные классы, разные кнопки).
+5. **Заглушки:** нет `if False`, пустых `return`, «временно отключено», параметров без чтения в коде.
+6. **Проверка:** `py_compile` + релевантные pytest; для Telegram-кнопок — grep цепочки callback → method → agent.
+
+**Урок (21.07.26):** коммит «disable Hermes» удалил из `orchestrator.py` импорт/инициализацию/`get_bybit_monitor_report()` для **Bybit AI**, хотя кнопка **📡 Bybit AI** осталась → в Telegram: «Ошибка кнопки bybit_monitor». Такие регрессы **недопустимы**.
+
 ### ОБЯЗАТЕЛЬНО: перед push / деплоем на сервер
 
 - **Проверить работоспособность ВСЕХ алгоритмов**, затронутых правкой: `py_compile` + релевантные pytest (+ ручной сценарий, если cron/systemd/Telegram).
@@ -196,6 +215,8 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
 | SPIKE прод | **цикл в signal agent** | `deploy/config.production.yaml` | `spike_scalp.run_loop_in_signal_agent: true`; иначе enabled=true, но цикл не стартует |
 | Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
+| Telegram | **Bybit AI ≠ Hermes** | `orchestrator.py`, `control_bot.py`, `bybit_monitor.py` | Кнопка `bybit_monitor` → `get_bybit_monitor_report()`; отключение Hermes **не** удаляет bybit_monitor |
+| Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
 
