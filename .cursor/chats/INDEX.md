@@ -3,13 +3,16 @@
 Эти файлы создаёт `scripts/sync_cursor_chats.py`.
 На другом ПК: `git pull`, затем читайте `.cursor/chats/archive/`.
 
-Обновлено: 2026-07-21 12:50 UTC
+Обновлено: 2026-07-22 16:59 UTC
 
 | Дата | ID | Заголовок | Файл |
 |------|----|-----------|------|
-| 2026-07-21 | `6aae46dd` | "C:\Users\v.dubovik\Downloads\bot_analysis_ru.pdf" и "C:\Users\v.dubovik\.vscode | [6aae46dd-a66c-41b2-816d-e8b0d328b395.md](archive/6aae46dd-a66c-41b2-816d-e8b0d328b395.md) |
-| 2026-06-18 | `42e62502` | User: Сможешь исправить надписи на графиках и картинках? Kimi: Да, я могу помочь | [42e62502-c210-4bc5-9273-b77240d5f47d.md](archive/42e62502-c210-4bc5-9273-b77240d5f47d.md) |
-| 2026-06-17 | `a54dc4c8` | "C:\Users\v.dubovik\Downloads\bot_analysis_ru.pdf" и "C:\Users\v.dubovik\.vscode | [a54dc4c8-dbfa-4129-bc98-b8fb028fb358.md](archive/a54dc4c8-dbfa-4129-bc98-b8fb028fb358.md) |
-| 2026-06-16 | `32cdf071` | "C:\Users\v.dubovik\Desktop\Нормативка" найди в этих документах фразу "не нагруж | [32cdf071-1bf8-4de5-a196-19ee8a0f7e71.md](archive/32cdf071-1bf8-4de5-a196-19ee8a0f7e71.md) |
-| 2026-06-02 | `9aeeb5f4` | "C:\Users\v.dubovik\.vscode\PRD-BOT-03-26-25.05.26-ALL" надо увеличить количеств | [9aeeb5f4-61cc-4f1e-9de7-fea9a1814bdb.md](archive/9aeeb5f4-61cc-4f1e-9de7-fea9a1814bdb.md) |
-| 2026-05-25 | `5d32acbe` | https://github.com/gogi-eng/PRD-BOT-03-26.git Изучи все ветки этого репо, проана | [5d32acbe-e208-4c75-b8c2-06cab3d6e5a9.md](archive/5d32acbe-e208-4c75-b8c2-06cab3d6e5a9.md) |
+| 2026-05-17 | `705ec011` | Изучи проанализируй новую стратегию: "C:\Users\Labuh\.vscode\Новая стратегия.txt | [705ec011-c882-4248-bb2a-3e952c2b17de.md](archive/705ec011-c882-4248-bb2a-3e952c2b17de.md) |
+| 2026-05-10 | `929f3700` | (venv) root@snapshots-s-2vcpu-4gb-120gb-intel-fra1:~/PRD-BOT-NEW# tail -f bot.lo | [929f3700-8366-4bd0-98ee-fe5e1f6cde8d.md](archive/929f3700-8366-4bd0-98ee-fe5e1f6cde8d.md) |
+| 2026-05-09 | `649056e9` | Открытый интерес (Open Interest, OI) — один из самых недооценённых сигналов для  | [649056e9-e656-4df1-a74f-6f433897f150.md](archive/649056e9-e656-4df1-a74f-6f433897f150.md) |
+| 2026-05-08 | `d6e38fed` | ==================================== CYCLE 450 ================================= | [d6e38fed-b1fd-4795-a731-60562956dcf7.md](archive/d6e38fed-b1fd-4795-a731-60562956dcf7.md) |
+| 2026-05-08 | `2114229f` | Search through my recent agent transcripts to find conversations about: PRD | [2114229f-6f22-446d-9636-1c35da863607.md](archive/2114229f-6f22-446d-9636-1c35da863607.md) |
+| 2026-05-08 | `d6e38fed` | ==================================== CYCLE 450 ================================= | [d6e38fed-b1fd-4795-a731-60562956dcf7.md](archive/d6e38fed-b1fd-4795-a731-60562956dcf7.md) |
+| 2026-05-01 | `ccff72a8` | ==================================== CYCLE 450 ================================= | [ccff72a8-b7b1-4a06-953c-9f52391e5aa5.md](archive/ccff72a8-b7b1-4a06-953c-9f52391e5aa5.md) |
+| 2026-04-30 | `edf6a32f` | C:\Users\Labuh\.vscode\PRD-BOT-03-26-28.04.26_code-improvements изучи этот код,  | [edf6a32f-9d8e-4263-80f9-ee13a85b5f38.md](archive/edf6a32f-9d8e-4263-80f9-ee13a85b5f38.md) |
+| 2026-04-29 | `65d1cb0e` | C:\Users\Labuh\.vscode\PRD-BOT-03-26-28.04.26_code-improvements изучи этот код,  | [65d1cb0e-4d05-4cfb-a0de-5946435242d5.md](archive/65d1cb0e-4d05-4cfb-a0de-5946435242d5.md) |

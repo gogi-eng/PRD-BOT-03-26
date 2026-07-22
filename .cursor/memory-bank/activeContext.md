@@ -1,38 +1,53 @@
-# Активный контекст
+# Active Context
 
-Обновлено: 2026-07-21 (автоперенос текущей сессии)
+**Дата фокуса:** 22.07.2026 (UTC+3)  
+**Ветки дня (создать/использовать):** `22.07.26-PRD-BOT-ALL` / `22.07.26-AGENT-WORLD`  
+**Вчера tip (базовый код):** `21.07.26-PRD-BOT-ALL`=`7e5b64d` · `21.07.26-AGENT-WORLD`=`49e1473`
 
-## Сейчас в фокусе
+## Текущий фокус
 
-1. **Memory Bank в git** — чтобы Cursor под аккаунтом пользователя читал память на **любом ПК** после `git pull`
-2. Hermes **OFF**; OpenRouter оставлен (макро / Bybit AI / советы)
-3. Risk: **pnl=$0 не в серию** убытков (`6fac474` / `2846bb2` на `20.07.26-*`)
-4. NY-блок: `skip_weekends` + `skip_us_holidays`
-5. Soft ×0.55 на прод и AW
+1. **Memory Bank** — читать в начале каждой сессии; автообновлять после значимой работы; UMB = полная синхронизация; push с дневными ветками.
+2. **Trade Companion** (AW ON, prod OFF) — сопровождение позиций: TP дальше / закрытие по откату / SL к BE+.
+3. **Trade Lifecycle** — статистика сделки (стакан, OB/SMC, MFE/MAE, объём 24h) → `trade_history` + `trade_lifecycle.jsonl`.
+4. **Bybit AI** — кнопка `bybit_monitor` восстановлена после случайного удаления при disable Hermes.
+5. **Целостность кода** — правило: отключение модуля A не должно вырезать модуль B.
 
-## Итог этой длинной сессии (19–21.07)
+## Открытые вопросы / TODO
 
-- Разбор: суббота 18.07 «закрытие» = тихий рынок + ложный NY в выходные; balance=0 = сбой API кошелька (потом ~19 USDT снова)
-- Выходные/праздники: фикс `ny_open_block`
-- Wallet: retry + fallback equity
-- Soft ×0.55 на прод
-- Hermes полностью выкл (кнопка, bypass, `hermes.enabled: false`)
-- Ветки `19.07.26-*` → `20.07.26-*` (Hermes-off + flat PnL)
-- SSH с Cursor на VPS **timeout** — деплой только руками в консоли DO
-- Consecutive losses: 3 = panic supervisor, 4 = AUTO-STOP risk; $0 больше не +1
-- ESPORTS на AW — ещё **не** в blacklist (кандиддат)
-- Zone: ON песочница / OFF прод
+- [ ] Подтвердить деплой PROD: Companion/Lifecycle markers + HEAD дня
+- [ ] User Rules: вставлен ли сниппет Memory Bank в Cursor Settings
+- [ ] ESPORTSUSDT в blacklist AW — только по явной просьбе
+- [ ] Companion на проде — только после 3–5 дней soak на AW
+- [ ] Новый день → ветки `22.07.26-*` от tip `21.07.26-*`
 
-## Открыто
+## Недавние решения (не откатывать)
 
-- Подтвердить на сервере: hash `20.07.26-*`, `hermes.enabled: false`, процессы hermes мертвы
-- По запросу: blacklist ESPORTSUSDT на AW
-- Не снимать supervisor / $10 / max_positions
+| Решение | Где |
+|---------|-----|
+| Hermes OFF (systemd stop/disable) | оба сервера |
+| Soft-weights ×0.55 | AW only |
+| NY block weekends/holidays | оба |
+| Wallet harden: max(balance, wallet) | оба |
+| Flat PnL → не consecutive loss | оба |
+| Bybit AI ≠ Hermes (не удалять monitor) | оба |
+| Trade Companion enabled | AW true / prod false |
+| Trade Lifecycle enabled | оба true |
+| max_notional_balance_pct: 80 (потом AW own фаза: 30) | смотреть live config |
+| Own agents phase-1 на AW | `own_agents_enabled: true` + SPIKE |
 
-## Как читать на другом ПК
+## Маркеры логов (проверка после деплоя)
 
-1. Войти в Cursor под тем же аккаунтом (ник).
-2. Вставить сниппет из `.cursor/USER-RULES-SNIPPET.txt` в **Settings → Rules → User Rules** (один раз — едет с аккаунтом).
-3. `git fetch` + checkout дневной ветки `21.07.26-PRD-BOT-ALL` (или новее) — в репо уже есть `.cursor/memory-bank/` и `memory-bank.mdc`.
+- `TRADE COMPANION: сопровождение открытых сделок включено`
+- `TRADE LIFECYCLE: сбор статистики по сделкам включён`
+- `Bybit AI` кнопка → отчёт, не «Ошибка кнопки bybit_monitor»
 
-Hashes Memory Bank: PRD `e4f3bd5`, AW `bf9389d` (поверх `1ab59e4` / `f02a9aa`).
+## Ключевые hash (21.07 tip)
+
+| Что | AW | PRD |
+|-----|----|-----|
+| Memory Bank + rules | `49e1473` | `7e5b64d` |
+| Lifecycle (раньше) | `79525be` | `a437238` |
+| Companion (раньше) | `00bc7ef` | `a17f388` |
+| bybit_monitor restore | `fa64398` | `ef37bd0` |
+
+На AW после restart подтверждено в journal: Companion + Lifecycle включены.
