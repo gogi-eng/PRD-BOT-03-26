@@ -33,10 +33,10 @@
       "host": "SNIOT-404-4A"
     },
     "6aae46dd-a66c-41b2-816d-e8b0d328b395": {
-      "sha256": "7b9a9b4e55e53e343e0013f88d0bd243e8f24cbffd8c979e0fd4fa3688bf96a8",
+      "sha256": "7c52af201cea466c0d7c8b3fdf4926ad2e3a62bd919d0e112c17c879a9e06249",
       "title": "\"C:\\Users\\v.dubovik\\Downloads\\bot_analysis_ru.pdf\" и \"C:\\Users\\v.dubovik\\.vscode\\PRD-BOT-26.05.26-ALL\\chat-Анализ бота и",
-      "date": "2026-07-21",
-      "mtime": "2026-07-21 12:50 UTC",
+      "date": "2026-06-30",
+      "mtime": "2026-06-30 08:58 UTC",
       "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\6aae46dd-a66c-41b2-816d-e8b0d328b395\\6aae46dd-a66c-41b2-816d-e8b0d328b395.jsonl",
       "host": "SNIOT-404-4A"
     },
@@ -47,8 +47,72 @@
       "mtime": "2026-06-17 09:54 UTC",
       "source": "C:\\Users\\v.dubovik\\.cursor\\projects\\c-Users-v-dubovik-vscode-PRD-BOT-26-05-26-ALL\\agent-transcripts\\a54dc4c8-dbfa-4129-bc98-b8fb028fb358\\a54dc4c8-dbfa-4129-bc98-b8fb028fb358.jsonl",
       "host": "SNIOT-404-4A"
+    },
+    "649056e9-e656-4df1-a74f-6f433897f150": {
+      "sha256": "81445ac45e906ea6f8f7e6ece366d30f28b1582f77fd97461bc4fe7d477beb2e",
+      "title": "Открытый интерес (Open Interest, OI) — один из самых недооценённых сигналов для деривативной торговли. В твоём случае (б",
+      "date": "2026-05-09",
+      "mtime": "2026-05-09 11:04 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-03-26-28-04-26-code-improvements\\agent-transcripts\\649056e9-e656-4df1-a74f-6f433897f150\\649056e9-e656-4df1-a74f-6f433897f150.jsonl",
+      "host": "Revision-PC"
+    },
+    "65d1cb0e-4d05-4cfb-a0de-5946435242d5": {
+      "sha256": "3c2b334dba67f13c118eb50d988ed427fe05e6325e3ac15387dfa41cd596d330",
+      "title": "C:\\Users\\Labuh\\.vscode\\PRD-BOT-03-26-28.04.26_code-improvements изучи этот код, дай свои оценки!",
+      "date": "2026-04-29",
+      "mtime": "2026-04-29 04:53 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-03-26-28-04-26-code-improvements\\agent-transcripts\\65d1cb0e-4d05-4cfb-a0de-5946435242d5\\65d1cb0e-4d05-4cfb-a0de-5946435242d5.jsonl",
+      "host": "Revision-PC"
+    },
+    "ccff72a8-b7b1-4a06-953c-9f52391e5aa5": {
+      "sha256": "4e649bbeff93912b7244b2e97dcf031c9a0db52d34256a0709230e0d7b5df000",
+      "title": "==================================== CYCLE 450 ==================================== 19:31:41 [BOT] [CYCLE 450] stage=bal",
+      "date": "2026-05-01",
+      "mtime": "2026-05-01 05:14 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-03-26-28-04-26-code-improvements\\agent-transcripts\\ccff72a8-b7b1-4a06-953c-9f52391e5aa5\\ccff72a8-b7b1-4a06-953c-9f52391e5aa5.jsonl",
+      "host": "Revision-PC"
+    },
+    "d6e38fed-b1fd-4795-a731-60562956dcf7": {
+      "sha256": "e6744fc5c68863a1b2463cdd4af4c77653be3e03c3c07a766f8cf9ea81b7347e",
+      "title": "==================================== CYCLE 450 ==================================== 19:31:41 [BOT] [CYCLE 450] stage=bal",
+      "date": "2026-05-08",
+      "mtime": "2026-05-08 19:00 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-05-26-World-Agent\\agent-transcripts\\d6e38fed-b1fd-4795-a731-60562956dcf7\\d6e38fed-b1fd-4795-a731-60562956dcf7.jsonl",
+      "host": "Revision-PC"
+    },
+    "edf6a32f-9d8e-4263-80f9-ee13a85b5f38": {
+      "sha256": "5d8ca889b93c1f839d098f7fc83e9343473dc9c2cfa8e011f1e0d79db5f1d75d",
+      "title": "C:\\Users\\Labuh\\.vscode\\PRD-BOT-03-26-28.04.26_code-improvements изучи этот код, дай свои оценки!",
+      "date": "2026-04-30",
+      "mtime": "2026-04-30 10:05 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-03-26-28-04-26-code-improvements\\agent-transcripts\\edf6a32f-9d8e-4263-80f9-ee13a85b5f38\\edf6a32f-9d8e-4263-80f9-ee13a85b5f38.jsonl",
+      "host": "Revision-PC"
+    },
+    "2114229f-6f22-446d-9636-1c35da863607": {
+      "sha256": "a39a6c4e8fcf40a1d3f7765e7cb48b52b6686f04347bf801f73c6819f9fb6b35",
+      "title": "Search through my recent agent transcripts to find conversations about: PRD",
+      "date": "2026-05-08",
+      "mtime": "2026-05-08 12:34 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-05-26-World-Agent\\agent-transcripts\\2114229f-6f22-446d-9636-1c35da863607\\2114229f-6f22-446d-9636-1c35da863607.jsonl",
+      "host": "Revision-PC"
+    },
+    "705ec011-c882-4248-bb2a-3e952c2b17de": {
+      "sha256": "893f9481a60532e498335b89317af81d3661bb090e3d335f71bc7ea4d0497b7c",
+      "title": "Изучи проанализируй новую стратегию: \"C:\\Users\\Labuh\\.vscode\\Новая стратегия.txt\" Создай план новой структуры бота, в со",
+      "date": "2026-05-17",
+      "mtime": "2026-05-17 10:39 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-05-26-World-Agent\\agent-transcripts\\705ec011-c882-4248-bb2a-3e952c2b17de\\705ec011-c882-4248-bb2a-3e952c2b17de.jsonl",
+      "host": "Revision-PC"
+    },
+    "929f3700-8366-4bd0-98ee-fe5e1f6cde8d": {
+      "sha256": "540e52f7b425b7c7cd0f4898c7402ae87f043e921b1c7823333e190039146a9b",
+      "title": "(venv) root@snapshots-s-2vcpu-4gb-120gb-intel-fra1:~/PRD-BOT-NEW# tail -f bot.log 04:46:45 [BOT] [HEATMAP] directional f",
+      "date": "2026-05-10",
+      "mtime": "2026-05-10 18:03 UTC",
+      "source": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode-PRD-BOT-NEW\\agent-transcripts\\929f3700-8366-4bd0-98ee-fe5e1f6cde8d\\929f3700-8366-4bd0-98ee-fe5e1f6cde8d.jsonl",
+      "host": "Revision-PC"
     }
   },
-  "last_sync_utc": "2026-07-21 12:50:52 UTC",
-  "host": "SNIOT-404-4A"
+  "last_sync_utc": "2026-07-22 16:59:15 UTC",
+  "host": "Revision-PC"
 }
