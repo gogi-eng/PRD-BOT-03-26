@@ -226,6 +226,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Telegram | **Bybit AI ≠ Hermes** | `orchestrator.py`, `control_bot.py`, `bybit_monitor.py` | Кнопка `bybit_monitor` → `get_bybit_monitor_report()`; отключение Hermes **не** удаляет bybit_monitor |
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
+| Риск | **GARCH calm/normal/storm** | `volatility_regime_sizing.py`, orch + signal agent | AW ON / prod OFF; маркер `Volatility regime`; не угадывает сторону |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
 
@@ -315,6 +316,7 @@ python -m pytest backend/tests/<файл>.py -q --tb=short
 | `entry_engine_bridge`, orderbook | `test_entry_guard.py`, `test_smc_zones_and_entry.py` (если есть) |
 | orchestrator / RR | `test_sr_sl_tp_far_tp.py`, `test_signal_feedback_loop_and_sl_validation.py` |
 | `trade_analytics`, skipped lab, Telegram кнопки | `test_daily_pnl_and_lab_reports.py` |
+| `volatility_regime_sizing`, GARCH sizing | `test_volatility_regime_sizing.py` |
 | Крупный diff / несколько модулей | `python -m pytest backend/tests/ -q --tb=line -x` (или затронутые файлы) |
 
 После push — деплой **обоих** инстансов (если менялся общий код) и проверка `git rev-parse --short HEAD` = ожидаемый коммит.

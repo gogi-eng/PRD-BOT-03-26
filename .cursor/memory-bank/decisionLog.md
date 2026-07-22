@@ -13,9 +13,11 @@
 | 21.07 | Целостность при disable | Чеклист кнопка↔метод↔config; diff | no-encoding / integrity rules |
 | 21.07 | AW notional 30% + own ON | 80% SPIKE съедал депозит; фаза 1 | `max_notional_balance_pct: 30` |
 | 22.07 | Дневные ветки 22.07.26-* | Календарь UTC+3 | не продолжать 21.07 |
+| 22.07 | GARCH sizing AW only | BeInCrypto/Deutscher: vol→size, не направление | `volatility_regime_sizing` AW true / prod false; оба пути exec |
 
 ## Сессии
 
 - **21.07 Memory Bank:** всегда читать под аккаунтом Cursor; авто-UMB; push с дневной веткой
 - **21.07 bybit_monitor:** урок — при disable модуля A не удалять B
 - **21–22.07 Companion/Lifecycle:** push обе ветки; AW маркеры в journal подтверждены
+- **22.07 GARCH:** модуль + wiring orch/SPIKE; тесты 9; ждём push/деплой

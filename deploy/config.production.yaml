@@ -182,6 +182,29 @@ derivatives_entry_guard:
     short_crowded_buy_ratio: 0.28
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
+# GARCH sizing: на проде выкл. до soak на AGENT-WORLD
+volatility_regime_sizing:
+  enabled: false
+  advisory_only: false
+  block_on_storm: false
+  mode: regime
+  kline_interval: "15"
+  lookback_bars: 200
+  min_bars: 80
+  alpha: 0.08
+  beta: 0.90
+  calm_percentile: 30
+  storm_percentile: 70
+  regimes:
+    calm: 1.25
+    normal: 1.0
+    storm: 0.50
+  clamp_min: 0.35
+  clamp_max: 1.50
+  skip_fast_sources: false
+  apply_to_sources: []
+
+
 risk_presets:
   conservative:
     trading:

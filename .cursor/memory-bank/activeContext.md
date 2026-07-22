@@ -1,53 +1,36 @@
 # Active Context
 
 **Дата фокуса:** 22.07.2026 (UTC+3)  
-**Ветки дня (создать/использовать):** `22.07.26-PRD-BOT-ALL` / `22.07.26-AGENT-WORLD`  
-**Вчера tip (базовый код):** `21.07.26-PRD-BOT-ALL`=`7e5b64d` · `21.07.26-AGENT-WORLD`=`49e1473`
+**Ветки дня:** `22.07.26-PRD-BOT-ALL` / `22.07.26-AGENT-WORLD`
 
 ## Текущий фокус
 
-1. **Memory Bank** — читать в начале каждой сессии; автообновлять после значимой работы; UMB = полная синхронизация; push с дневными ветками.
-2. **Trade Companion** (AW ON, prod OFF) — сопровождение позиций: TP дальше / закрытие по откату / SL к BE+.
-3. **Trade Lifecycle** — статистика сделки (стакан, OB/SMC, MFE/MAE, объём 24h) → `trade_history` + `trade_lifecycle.jsonl`.
-4. **Bybit AI** — кнопка `bybit_monitor` восстановлена после случайного удаления при disable Hermes.
-5. **Целостность кода** — правило: отключение модуля A не должно вырезать модуль B.
+1. **GARCH volatility regime sizing** — calm/normal/storm → множитель размера позиции.
+   - Код: `prd_agent/risk/volatility_regime_sizing.py`
+   - Пути: orchestrator `_maybe_execute` **и** `telegram_signal_agent._execute` (SPIKE/scanner)
+   - Config: AW `enabled: true`, prod `enabled: false`
+   - Маркер лога: `Volatility regime`
+2. Memory Bank / чаты — уже в ветках дня (docs push ранее).
+3. Trade Companion (AW ON) / Lifecycle / Bybit AI — не трогать.
 
 ## Открытые вопросы / TODO
 
-- [ ] Подтвердить деплой PROD: Companion/Lifecycle markers + HEAD дня
-- [ ] User Rules: вставлен ли сниппет Memory Bank в Cursor Settings
-- [ ] ESPORTSUSDT в blacklist AW — только по явной просьбе
-- [ ] Companion на проде — только после 3–5 дней soak на AW
-- [ ] Новый день → ветки `22.07.26-*` от tip `21.07.26-*`
+- [ ] **Push + деплой GARCH** (общий код → обе ветки) — ждать явной просьбы пользователя на commit/push
+- [ ] После деплоя AW: `grep "Volatility regime"` в journal обоих сервисов + ключ в live `config.yaml`
+- [ ] Soak 3–5 дней на AW → решение включить на прод
+- [ ] Companion на проде — только после soak
 
-## Недавние решения (не откатывать)
+## Недавние решения
 
 | Решение | Где |
 |---------|-----|
-| Hermes OFF (systemd stop/disable) | оба сервера |
-| Soft-weights ×0.55 | AW only |
-| NY block weekends/holidays | оба |
-| Wallet harden: max(balance, wallet) | оба |
-| Flat PnL → не consecutive loss | оба |
-| Bybit AI ≠ Hermes (не удалять monitor) | оба |
-| Trade Companion enabled | AW true / prod false |
-| Trade Lifecycle enabled | оба true |
-| max_notional_balance_pct: 80 (потом AW own фаза: 30) | смотреть live config |
-| Own agents phase-1 на AW | `own_agents_enabled: true` + SPIKE |
+| GARCH sizing AW ON / prod OFF | `volatility_regime_sizing` |
+| Не блокирует вход по умолчанию (`block_on_storm: false`) | только размер |
+| SPIKE тоже под множитель (`skip_fast_sources: false`) | оба пути exec |
+| Hermes OFF; Bybit AI ≠ Hermes | оба |
 
-## Маркеры логов (проверка после деплоя)
+## Маркеры логов
 
-- `TRADE COMPANION: сопровождение открытых сделок включено`
-- `TRADE LIFECYCLE: сбор статистики по сделкам включён`
-- `Bybit AI` кнопка → отчёт, не «Ошибка кнопки bybit_monitor»
-
-## Ключевые hash (21.07 tip)
-
-| Что | AW | PRD |
-|-----|----|-----|
-| Memory Bank + rules | `49e1473` | `7e5b64d` |
-| Lifecycle (раньше) | `79525be` | `a437238` |
-| Companion (раньше) | `00bc7ef` | `a17f388` |
-| bybit_monitor restore | `fa64398` | `ef37bd0` |
-
-На AW после restart подтверждено в journal: Companion + Lifecycle включены.
+- `Volatility regime: GARCH calm/normal/storm включён`
+- `Volatility regime BTCUSDT BUY: storm mult=0.50 ...`
+- `TRADE COMPANION` / `TRADE LIFECYCLE` (прежние)

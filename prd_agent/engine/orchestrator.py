@@ -42,6 +42,10 @@ from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
 from prd_agent.risk.entry_guard import build_entry_execution_plan
 from prd_agent.risk.pullback_entry import check_pullback_entry
+from prd_agent.risk.volatility_regime_sizing import (
+    evaluate_volatility_regime_sizing,
+    log_volatility_regime_startup,
+)
 from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
@@ -110,6 +114,7 @@ class UnifiedOrchestrator:
         self.trade_companion = TradeCompanionAgent(cfg)
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
+        log_volatility_regime_startup(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bybit_monitor = BybitMonitorAgent(cfg)
         self.bot_manager = BotManagerAgent(cfg)
@@ -1397,6 +1402,25 @@ class UnifiedOrchestrator:
 
         if soft_size_mult > 1.0:
             qty = qty * soft_size_mult
+
+        try:
+            vol_reg = await evaluate_volatility_regime_sizing(
+                exchange=self.exchange,
+                symbol=sig.symbol,
+                cfg=self.cfg,
+                side=sig.side,
+                source=str(getattr(sig, "source", "") or ""),
+                klines=klines_entry or [],
+            )
+            if vol_reg.block_entry:
+                reason = f"volatility_regime_storm: {vol_reg.reason}"
+                logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+                self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+                return
+            if vol_reg.apply and vol_reg.size_mult > 0:
+                qty = qty * float(vol_reg.size_mult)
+        except Exception as exc:
+            logger.warning("volatility_regime_sizing failed %s: %s", sig.symbol, exc)
 
         notional = (qty * entry) / max(leverage, 1)
         min_margin = notional * 1.05
