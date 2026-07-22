@@ -48,12 +48,20 @@ bybit_monitor:
   max_symbols: 8
 
 # Агент сопровождения сделок — сначала песочница; на проде выключен до проверки
+# Алгоритмы как на AGENT-WORLD (22.07): Companion ON
 trade_companion:
-  enabled: false
+  enabled: true
   bot_positions_only: true
   notify_telegram: true
+  extend_tp_enabled: true
+  extend_tp_min_profit_pct: 2.5
+  extend_tp_min_progress_pct: 55
+  close_giveback_enabled: true
+  close_giveback_peak_min_pct: 2.0
+  close_giveback_from_peak_pct: 45
+  close_reversal_enabled: true
+  tighten_sl_on_weakness: true
 
-# Статистика сделок (наблюдение, не меняет торговлю)
 trade_lifecycle:
   enabled: true
   bot_positions_only: true
@@ -62,7 +70,7 @@ trade_lifecycle:
 
 trading:
   auto_start: true
-  leverage: 20
+  leverage: 10
   loop_interval_sec: 60
   adaptive_loop:
     enabled: true
@@ -73,14 +81,14 @@ trading:
   max_positions: 8
   dynamic_leverage:
     enabled: true
-    min: 20
-    max: 50
+    min: 5
+    max: 15
     min_confidence: 0.68
     max_confidence: 0.95
   min_signal_confidence: 0.85
   min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
-  risk_pct_per_trade: 0.35
+  risk_pct_per_trade: 0.15
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
   symbol_rescan_interval_sec: 900
@@ -101,9 +109,9 @@ trading:
     - 11
     - 12
     - 13
-  # Коридор S↔R: на проде ВЫКЛ до проверки на AGENT-WORLD
+  # Коридор S↔R: как на AGENT-WORLD (вкл. SPIKE/scanner)
   zone_corridor_play:
-    enabled: false
+    enabled: true
     require_play: true
     allow_bounce: true
     allow_breakout: true
@@ -112,15 +120,21 @@ trading:
     bounce_lookback_bars: 3
     bounce_wick_atr_mult: 0.35
     breakout_confirm_bars: 2
-    skip_fast_sources: true
+    skip_fast_sources: false
     apply_to_sources:
       - own_multi_agent
       - ta_volatility
       - hybrid
+      - spike_scalp
+      - SPIKE_SCANNER
+      - MARKET_SCANNER
+      - market_scanner
     skip_sources:
       - telegram
       - tg
       - mirror_pump_dump
+      - agent_world
+      - world_feed
   non_trading_systemd:
     enabled: true
     # false = боты работают; block_entry_utc_hours блокирует только новые входы
@@ -159,32 +173,42 @@ risk:
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 10
   max_trades_per_day: 50
+  kill_switch_file: data/kill_switch/STOP_TRADING
+  kill_switch_hint: "удалите data/kill_switch/STOP_TRADING для возобновления"
 
 # Scoring входа (strict/balanced/aggressive) — связка с пресетами Telegram
 entry_pipeline:
   enabled: true
   mode: balanced
-  partial_pass_band: 1.0
-  partial_pass_size_mult: 0.40
+  partial_pass_band: 1.2
+  partial_pass_size_mult: 0.35
   regime_thresholds:
-    enabled: false
-    trend: 5.0
-    chop: 6.0
-    breakout: 5.5
+    enabled: true
+    trend: 4.5
+    chop: 5.0
+    breakout: 4.8
 
 derivatives_entry_guard:
-  enabled: false
+  enabled: true
+  advisory_only: true
   block_on_extreme_funding: true
+  block_on_crowded_funding: false
+  high_funding_threshold: 0.0005
+  extreme_funding_threshold: 0.001
+  oi_spike_pct_threshold: 5.0
+  oi_spike_block_with_crowd: true
+  oi_significant_pct: 5.0
   long_short_ratio:
     enabled: true
     block_on_crowd: true
     long_crowded_buy_ratio: 0.72
     short_crowded_buy_ratio: 0.28
+    period: "1h"
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
-# GARCH sizing: на проде выкл. до soak на AGENT-WORLD
+# GARCH sizing: как на AGENT-WORLD
 volatility_regime_sizing:
-  enabled: false
+  enabled: true
   advisory_only: false
   block_on_storm: false
   mode: regime
@@ -241,7 +265,7 @@ risk_presets:
       mode: aggressive
 
 signals:
-  own_agents_enabled: true
+  own_agents_enabled: false
   telegram_inbox_enabled: true
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   telegram_inbox_only_approved: true
@@ -326,9 +350,9 @@ positions:
   tp_progress_exit:
     enabled: true
     breakeven_at_profit_pct: 1.0
-    sr_trail_at_profit_pct: 1.8
+    sr_trail_at_profit_pct: 1.5
     be_fee_buffer_pct: 0.30
-    be_lock_extra_pct: 0.35
+    be_lock_extra_pct: 0.40
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -357,9 +381,9 @@ positions:
     tp_progress_exit:
       enabled: true
       breakeven_at_profit_pct: 1.0
-      sr_trail_at_profit_pct: 1.8
+      sr_trail_at_profit_pct: 1.5
       be_fee_buffer_pct: 0.30
-      be_lock_extra_pct: 0.35
+      be_lock_extra_pct: 0.40
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
