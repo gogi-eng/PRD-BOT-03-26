@@ -9,6 +9,13 @@
 - [x] Копии в `.vscode` и `AGENT-WORLD`
 - [x] Tip 21.07: PRD `7e5b64d` · AW `49e1473`
 
+### GARCH sizing (22.07, код готов, push по просьбе)
+- [x] `prd_agent/risk/volatility_regime_sizing.py` — GARCH(1,1) calm/normal/storm
+- [x] Wiring: orchestrator + telegram_signal_agent `_execute`
+- [x] Config: AW `enabled: true`, prod `enabled: false`
+- [x] Тесты: `backend/tests/test_volatility_regime_sizing.py` (9 passed)
+- [ ] Push обе ветки дня + деплой AW (install config + restart)
+
 ### Trade / Telegram
 - [x] Trade Companion — AW ON, prod OFF (`00bc7ef` / `a17f388`)
 - [x] Trade Lifecycle — статистика сделок (`79525be` / `a437238`)
@@ -24,15 +31,14 @@
 
 ## Дальше
 
-1. Ветки **22.07.26-*** от tip 21.07 + push memory/chat archive
-2. Подтвердить деплой PROD lifecycle/companion markers
-3. Soak Companion на AW 3–5 дней → решение по prod
-4. Фаза 2 own+BOS на AW — по PnL own vs SPIKE
-5. User Rules сниппет на всех ПК аккаунта
+1. Push/деплой GARCH → проверка маркера `Volatility regime` на AW
+2. Soak Companion + GARCH на AW 3–5 дней → решение по prod
+3. Фаза 2 own+BOS на AW — по PnL own vs SPIKE
+4. User Rules сниппет на всех ПК аккаунта
 
 ## Не делать без явной просьбы
 
-- Включать Hermes / Companion на проде
+- Включать Hermes / Companion / GARCH на проде
 - Удалять bybit_monitor при правках Hermes
 - ESPORTS blacklist без просьбы
 - Ослаблять daily loss / max_positions по виртуальным TP Hermes

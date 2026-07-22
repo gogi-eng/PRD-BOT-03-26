@@ -213,6 +213,30 @@ derivatives_entry_guard:
     short_crowded_buy_ratio: 0.28
     period: "1h"
 
+# GARCH calm/normal/storm → множитель размера (Miles Deutscher / BeInCrypto идея).
+# Не угадывает LONG/SHORT — только «погоду» рынка для размера позиции.
+volatility_regime_sizing:
+  enabled: true
+  advisory_only: false
+  block_on_storm: false
+  mode: regime
+  kline_interval: "15"
+  lookback_bars: 200
+  min_bars: 80
+  alpha: 0.08
+  beta: 0.90
+  calm_percentile: 30
+  storm_percentile: 70
+  regimes:
+    calm: 1.25
+    normal: 1.0
+    storm: 0.50
+  clamp_min: 0.35
+  clamp_max: 1.50
+  skip_fast_sources: false
+  apply_to_sources: []
+
+
 multi_agent_review:
   enabled: true
   advisory_only: true

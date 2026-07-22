@@ -213,6 +213,12 @@ from prd_agent.entry.zone_corridor_play import (  # noqa: E402
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
 )
+from prd_agent.risk.volatility_regime_sizing import (  # noqa: E402
+    evaluate_volatility_regime_sizing,
+    log_volatility_regime_startup,
+    read_volatility_regime_cfg,
+    volatility_regime_enabled,
+)
 
 
 @dataclass
@@ -1300,6 +1306,7 @@ class TelegramSignalAgent:
             self._save_state()
         self.risk_pipeline = RiskPipeline.from_agent_cfg(self.agent_cfg.get("risk_guards"))
         self.exec_limiter = ExecutionLimiter.from_agent_cfg(self.state, self.agent_cfg.get("execution_limits"))
+        log_volatility_regime_startup(self.cfg, LOG)
         _ab_raw = self.agent_cfg.get("channel_auto_block", {})
         self.channel_auto_block_cfg = channel_auto_block_from_cfg(_ab_raw if isinstance(_ab_raw, dict) else None)
         self.channel_auto_block_notify_telegram = bool(_ab_raw.get("notify_telegram", True)) if isinstance(_ab_raw, dict) else True
@@ -2352,6 +2359,34 @@ class TelegramSignalAgent:
             wallet,
             float(avail or 0.0),
         )
+        if volatility_regime_enabled(self.cfg):
+            try:
+                vol_kl: list = []
+                if self.bybit is not None:
+                    _vrc = read_volatility_regime_cfg(self.cfg)
+                    _iv = str(_vrc.get("kline_interval", "15") or "15")
+                    _lim = int(_vrc.get("lookback_bars", 200) or 200)
+                    vol_kl = await self.bybit.get_klines(
+                        str(signal.symbol).upper(), interval=_iv, limit=_lim
+                    ) or []
+                vol_reg = await evaluate_volatility_regime_sizing(
+                    exchange=self.bybit,
+                    symbol=signal.symbol,
+                    cfg=self.cfg,
+                    side=signal.side,
+                    source=str(signal.source or ""),
+                    klines=vol_kl,
+                )
+                if vol_reg.block_entry:
+                    return {
+                        "success": False,
+                        "orderId": "",
+                        "error": f"volatility_regime_storm: {vol_reg.reason}",
+                    }
+                if vol_reg.apply and vol_reg.size_mult > 0:
+                    notional = notional * float(vol_reg.size_mult)
+            except Exception as exc:
+                LOG.warning("volatility_regime_sizing failed %s: %s", signal.symbol, exc)
         qty = notional / price if price > 0 else 0.0
         if qty <= 0:
             raise RuntimeError("Calculated qty <= 0")
