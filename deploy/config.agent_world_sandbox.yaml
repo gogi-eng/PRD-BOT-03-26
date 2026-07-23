@@ -727,6 +727,22 @@ market_scanner:
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
     extra_position_slots: 2
+    # SPIKE: ждать откат в FVG/зону или входить сразу, если отката не ждут.
+    pullback_entry:
+      enabled: true
+      wait_timeout_sec: 300
+      min_retrace_pct: 0.15
+      require_fvg: false
+      enter_immediate_if_no_fvg: true
+      enter_immediate_if_book_confirms: true
+      multi_tf_intervals: ["1", "5", "15"]
+      orderbook_depth: 50
+      direction_guard_ratio: 1.3
+      min_fvg_pct: 0.12
+      impulse_extend_pct: 0.25
+      absorption_ratio: 1.2
+      synthetic_retrace_pct: 0.20
+      watchlist_max: 12
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true

@@ -213,6 +213,14 @@ from prd_agent.entry.zone_corridor_play import (  # noqa: E402
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
 )
+from prd_agent.entry.spike_pullback_gate import (  # noqa: E402
+    SpikePullbackAction,
+    decide_spike_pullback,
+    evaluate_pending_pullback,
+    find_latest_fvg,
+    read_spike_pullback_cfg,
+    spike_pullback_enabled,
+)
 from prd_agent.risk.volatility_regime_sizing import (  # noqa: E402
     evaluate_volatility_regime_sizing,
     log_volatility_regime_startup,
@@ -2490,7 +2498,256 @@ class TelegramSignalAgent:
             lev = int(self.default_leverage)
         return max(1, min(int(lev), int(self.max_leverage)))
 
-    async def _try_execute_market_setup(self, setup: MarketSetup) -> None:
+    def _add_spike_pullback_watch(
+        self,
+        setup: MarketSetup,
+        *,
+        zone_low: float,
+        zone_high: float,
+        reason: str,
+    ) -> None:
+        pe = read_spike_pullback_cfg(self.cfg)
+        rows = self.state.setdefault("spike_pullback_watchlist", [])
+        if not isinstance(rows, list):
+            rows = []
+        sym = str(setup.symbol).upper()
+        scen = str(setup.scenario or "").upper()
+        watch_id = f"{sym}:{scen}"
+        now = utc_now()
+        expires = now + timedelta(seconds=max(30.0, float(pe.wait_timeout_sec)))
+        rows = [r for r in rows if isinstance(r, dict) and str(r.get("id", "")) != watch_id]
+        rows.append(
+            {
+                "id": watch_id,
+                "symbol": sym,
+                "scenario": scen,
+                "added_at": now.isoformat(),
+                "expires_at": expires.isoformat(),
+                "zone_low": float(zone_low or 0),
+                "zone_high": float(zone_high or 0),
+                "reason": str(reason or ""),
+                "setup": asdict(setup),
+            }
+        )
+        cap = max(1, int(pe.watchlist_max))
+        self.state["spike_pullback_watchlist"] = rows[-cap:]
+        self._save_state()
+        LOG.info(
+            "SPIKE pullback: WAIT %s %s zone=[%.8g, %.8g] until %s (%s)",
+            sym,
+            scen,
+            float(zone_low or 0),
+            float(zone_high or 0),
+            expires.isoformat(),
+            reason,
+        )
+
+    async def _evaluate_spike_pullback_watchlist(self) -> None:
+        if not spike_pullback_enabled(self.cfg):
+            return
+        if not (self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute):
+            return
+        rows = self.state.get("spike_pullback_watchlist", [])
+        if not isinstance(rows, list) or not rows:
+            return
+        await self._ensure_execution()
+        assert self.bybit is not None
+        pe = read_spike_pullback_cfg(self.cfg)
+        now = utc_now()
+        keep: list[dict[str, Any]] = []
+        changed = False
+
+        for item in rows:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            symbol = str(item.get("symbol", "")).upper()
+            setup_raw = item.get("setup", {})
+            if not symbol or not isinstance(setup_raw, dict):
+                changed = True
+                continue
+            try:
+                expires_at = datetime.fromisoformat(str(item.get("expires_at", "")))
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+            except Exception:
+                changed = True
+                continue
+            timed_out = now >= expires_at.astimezone(timezone.utc)
+            setup = self._market_setup_from_dict(setup_raw)
+            if setup is None:
+                changed = True
+                continue
+            setup = replace(setup, spike_mode=True)
+            side = "BUY" if str(setup.scenario).upper() == "PUMP" else "SELL"
+            try:
+                price = float(await self.bybit.get_price(symbol))
+                book = await self.bybit.get_orderbook(
+                    symbol, limit=max(5, int(pe.orderbook_depth))
+                )
+            except Exception as exc:
+                LOG.warning(
+                    "SPIKE pullback: watch fetch fail %s: %s",
+                    symbol,
+                    exc,
+                )
+                if not timed_out:
+                    keep.append(item)
+                else:
+                    LOG.info("SPIKE pullback: SKIP timeout %s (fetch fail)", symbol)
+                    changed = True
+                continue
+
+            decision = evaluate_pending_pullback(
+                side=side,
+                price=price,
+                zone_low=float(item.get("zone_low") or 0),
+                zone_high=float(item.get("zone_high") or 0),
+                orderbook=book if isinstance(book, dict) else None,
+                cfg=pe,
+                timed_out=timed_out,
+            )
+            if decision.action == SpikePullbackAction.SKIP:
+                if timed_out:
+                    LOG.info(
+                        "SPIKE pullback: SKIP timeout %s (%s)",
+                        symbol,
+                        decision.reason,
+                    )
+                else:
+                    LOG.info(
+                        "SPIKE pullback: SKIP %s (%s)",
+                        symbol,
+                        decision.reason,
+                    )
+                changed = True
+                continue
+            if decision.action == SpikePullbackAction.ENTER_AFTER_RETEST:
+                refreshed = replace(
+                    setup,
+                    price=float(price),
+                    checked_at_utc=utc_now().isoformat(),
+                    fvg_low=float(decision.zone_low or setup.fvg_low or 0),
+                    fvg_high=float(decision.zone_high or setup.fvg_high or 0),
+                )
+                LOG.info(
+                    "SPIKE pullback: ENTER after retest %s %s price=%.8g zone=[%.8g, %.8g] (%s)",
+                    symbol,
+                    side,
+                    price,
+                    decision.zone_low,
+                    decision.zone_high,
+                    decision.reason,
+                )
+                await self._try_execute_market_setup(
+                    refreshed, spike_pullback_ready=True
+                )
+                changed = True
+                continue
+            keep.append(item)
+
+        if changed or len(keep) != len(rows):
+            self.state["spike_pullback_watchlist"] = keep
+            self._save_state()
+
+    async def _spike_pullback_gate_decision(
+        self, setup: MarketSetup, side: str
+    ) -> SpikePullbackAction | None:
+        """
+        Перед SPIKE-ордером: ENTER_NOW / WAIT / SKIP.
+        None = гейт выключен (пропускаем проверку).
+        """
+        if not spike_pullback_enabled(self.cfg):
+            return None
+        pe = read_spike_pullback_cfg(self.cfg)
+        await self._ensure_execution()
+        assert self.bybit is not None
+        symbol = str(setup.symbol).upper()
+        price = float(setup.price or 0)
+        book: dict[str, Any] | None = None
+        klines_1m: list[dict[str, Any]] = []
+        klines_5m: list[dict[str, Any]] = []
+        klines_15m: list[dict[str, Any]] = []
+        try:
+            book = await self.bybit.get_orderbook(
+                symbol, limit=max(5, int(pe.orderbook_depth))
+            )
+        except Exception as exc:
+            LOG.warning("SPIKE pullback: orderbook fail %s: %s", symbol, exc)
+        intervals = list(pe.multi_tf_intervals) or ["1", "5", "15"]
+        for iv in intervals:
+            try:
+                kl = await self.bybit.get_klines(symbol, interval=str(iv), limit=40) or []
+            except Exception as exc:
+                LOG.warning("SPIKE pullback: klines %s %s: %s", symbol, iv, exc)
+                kl = []
+            if str(iv) == "1":
+                klines_1m = list(kl)
+            elif str(iv) == "5":
+                klines_5m = list(kl)
+            elif str(iv) in ("15", "15m"):
+                klines_15m = list(kl)
+        if not klines_15m:
+            try:
+                klines_15m = await self.bybit.get_klines(
+                    symbol, interval="15", limit=40
+                ) or []
+            except Exception:
+                klines_15m = []
+
+        fvg_low = float(setup.fvg_low or 0)
+        fvg_high = float(setup.fvg_high or 0)
+        if fvg_low <= 0 or fvg_high <= fvg_low:
+            for kl in (klines_1m, klines_5m, klines_15m):
+                if not kl:
+                    continue
+                fvg_low, fvg_high, _ = find_latest_fvg(kl, side, pe.min_fvg_pct)
+                if fvg_low > 0 and fvg_high > fvg_low:
+                    break
+
+        decision = decide_spike_pullback(
+            side=side,
+            price=price,
+            orderbook=book if isinstance(book, dict) else None,
+            klines_1m=klines_1m,
+            klines_5m=klines_5m,
+            klines_15m=klines_15m,
+            fvg_low=fvg_low,
+            fvg_high=fvg_high,
+            cfg=pe,
+        )
+        if decision.action == SpikePullbackAction.WAIT_PULLBACK:
+            patched = replace(
+                setup,
+                fvg_low=float(decision.zone_low or fvg_low or 0),
+                fvg_high=float(decision.zone_high or fvg_high or 0),
+            )
+            self._add_spike_pullback_watch(
+                patched,
+                zone_low=decision.zone_low,
+                zone_high=decision.zone_high,
+                reason=decision.reason,
+            )
+            return SpikePullbackAction.WAIT_PULLBACK
+        if decision.action == SpikePullbackAction.SKIP:
+            LOG.info(
+                "SPIKE pullback: SKIP %s %s (%s)",
+                symbol,
+                side,
+                decision.reason,
+            )
+            return SpikePullbackAction.SKIP
+        LOG.info(
+            "SPIKE pullback: ENTER_NOW %s %s (%s)",
+            symbol,
+            side,
+            decision.reason,
+        )
+        return SpikePullbackAction.ENTER_NOW
+
+    async def _try_execute_market_setup(
+        self, setup: MarketSetup, *, spike_pullback_ready: bool = False
+    ) -> None:
         spike = bool(getattr(setup, "spike_mode", False))
         if spike:
             if not (self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute):
@@ -2560,6 +2817,11 @@ class TelegramSignalAgent:
                     setup.symbol,
                     corridor.reason,
                 )
+                return
+
+        if spike and not spike_pullback_ready:
+            gate = await self._spike_pullback_gate_decision(setup, side)
+            if gate in (SpikePullbackAction.WAIT_PULLBACK, SpikePullbackAction.SKIP):
                 return
 
         digest = hashlib.sha256(
@@ -3305,6 +3567,7 @@ class TelegramSignalAgent:
                 target=float(raw.get("target") or 0),
                 reasons=[str(r) for r in reasons],
                 confirmed_bos=bool(raw.get("confirmed_bos", False)),
+                spike_mode=bool(raw.get("spike_mode", False)),
             )
         except (TypeError, ValueError):
             return None
@@ -3989,6 +4252,13 @@ class TelegramSignalAgent:
         )
         if not row:
             return None
+        fvg_low = 0.0
+        fvg_high = 0.0
+        if spike_pullback_enabled(self.cfg):
+            pe = read_spike_pullback_cfg(self.cfg)
+            fvg_low, fvg_high, _ = find_latest_fvg(
+                klines, str(row["scenario"]), pe.min_fvg_pct
+            )
         return MarketSetup(
             checked_at_utc=utc_now().isoformat(),
             symbol=symbol,
@@ -4003,8 +4273,8 @@ class TelegramSignalAgent:
             atr_pct=float(row["atr_pct"]),
             volume_ratio=float(row["volume_ratio"]),
             bos_level=float(row["bos_level"]),
-            fvg_low=0.0,
-            fvg_high=0.0,
+            fvg_low=float(fvg_low),
+            fvg_high=float(fvg_high),
             invalidation=float(row["invalidation"]),
             target=float(row["target"]),
             reasons=list(row.get("reasons") or [])[:6],
@@ -4067,6 +4337,7 @@ class TelegramSignalAgent:
     async def _run_spike_scan_once_locked(self) -> list[MarketSetup]:
         await self._ensure_execution()
         assert self.bybit is not None
+        await self._evaluate_spike_pullback_watchlist()
         valid_symbols = await self._get_valid_symbols()
         tickers = await self.bybit.get_tickers()
         cfg = self._spike_scalp_cfg
