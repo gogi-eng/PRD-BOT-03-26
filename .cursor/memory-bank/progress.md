@@ -1,5 +1,14 @@
 # Progress
 
+## Сделано (23.07.2026)
+
+### CBRSUSDT own_multi_agent (volume_guard bypass)
+- [x] Анализ: источник OWN, не SPIKE; zone fallback игнорировал volume_guard vol=0
+- [x] Блок fallback при volume_guard (`entry_engine_bridge`)
+- [x] Soft caution/weak режет size; orch применяет size_mult < 1
+- [x] Тесты `test_zone_fallback_volume_guard.py` — 5 passed
+- [ ] Commit/push/деплой — по просьбе
+
 ## Сделано (21–22.07.2026)
 
 ### Memory Bank

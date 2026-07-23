@@ -14,6 +14,7 @@
 | 21.07 | AW notional 30% + own ON | 80% SPIKE съедал депозит; фаза 1 | `max_notional_balance_pct: 30` |
 | 22.07 | Дневные ветки 22.07.26-* | Календарь UTC+3 | не продолжать 21.07 |
 | 22.07 | GARCH sizing AW only | BeInCrypto/Deutscher: vol→size, не направление | `volatility_regime_sizing` AW true / prod false; оба пути exec |
+| 23.07 | volume_guard ≠ zone fallback | CBRSUSDT: vol=0 reject → всё равно ENTERED | `should_block_zone_entry_fallback`; soft caution size cut |
 
 ## Сессии
 
@@ -21,3 +22,4 @@
 - **21.07 bybit_monitor:** урок — при disable модуля A не удалять B
 - **21–22.07 Companion/Lifecycle:** push обе ветки; AW маркеры в journal подтверждены
 - **22.07 GARCH:** модуль + wiring orch/SPIKE; тесты 9; ждём push/деплой
+- **23.07 CBRSUSDT:** own+zone fallback обходил volume_guard; soft caution не резал размер

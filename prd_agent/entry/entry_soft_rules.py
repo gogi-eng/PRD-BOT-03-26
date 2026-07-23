@@ -210,6 +210,14 @@ def compute_soft_score(
     size_mult = 1.0 + min(max_size_mult - 1.0, boost_factor * (max_size_mult - 1.0))
     confidence_boost = min(max_conf_boost, validated_hits * 0.015)
 
+    # Caution/weak раньше не резали размер (только boost ≥1) → caution 47 шёл full size.
+    if label == "weak":
+        size_mult = min(size_mult, 0.35)
+    elif label == "caution":
+        # Широкий спред + caution — ещё жёстче (как CBRSUSDT: spread_wide + caution 47)
+        cap = 0.35 if "spread_wide" in active else 0.55
+        size_mult = min(size_mult, cap)
+
     return SoftScoreResult(
         score=score,
         label=label,
