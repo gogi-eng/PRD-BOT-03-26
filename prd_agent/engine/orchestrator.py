@@ -1400,7 +1400,8 @@ class UnifiedOrchestrator:
         except Exception as exc:
             logger.warning("entry_snapshot/soft_score failed %s: %s", sig.symbol, exc)
 
-        if soft_size_mult > 1.0:
+        # Учитывать и boost (>1), и caution/weak cut (<1). Раньше cut игнорировался.
+        if abs(soft_size_mult - 1.0) > 1e-9:
             qty = qty * soft_size_mult
 
         try:

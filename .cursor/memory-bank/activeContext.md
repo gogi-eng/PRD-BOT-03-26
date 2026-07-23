@@ -1,36 +1,33 @@
 # Active Context
 
-**Дата фокуса:** 22.07.2026 (UTC+3)  
-**Ветки дня:** `22.07.26-PRD-BOT-ALL` / `22.07.26-AGENT-WORLD`
+**Дата фокуса:** 23.07.2026 (UTC+3)  
+**Ветки дня:** `23.07.26-PRD-BOT-ALL` / `23.07.26-AGENT-WORLD`
 
 ## Текущий фокус
 
-1. **GARCH volatility regime sizing** — calm/normal/storm → множитель размера позиции.
-   - Код: `prd_agent/risk/volatility_regime_sizing.py`
-   - Пути: orchestrator `_maybe_execute` **и** `telegram_signal_agent._execute` (SPIKE/scanner)
-   - Config: AW `enabled: true`, prod `enabled: false`
-   - Маркер лога: `Volatility regime`
-2. Memory Bank / чаты — уже в ветках дня (docs push ранее).
-3. Trade Companion (AW ON) / Lifecycle / Bybit AI — не трогать.
+1. **Hotfix CBRSUSDT (own_multi_agent):** zone fallback обходил `volume_guard` (vol=0) → ENTERED full size при soft caution 47.
+   - Код: `should_block_zone_entry_fallback` в `entry_engine_bridge.py`
+   - Soft caution/weak режет `size_mult`; orchestrator применяет cut `<1`
+   - Тесты: `backend/tests/test_zone_fallback_volume_guard.py` (5 passed)
+   - **Commit/push — ждать просьбы пользователя**
+2. SPIKE pullback / Companion / Bybit AI — не трогать (целостность OK).
 
 ## Открытые вопросы / TODO
 
-- [ ] **Push + деплой GARCH** (общий код → обе ветки) — ждать явной просьбы пользователя на commit/push
-- [ ] После деплоя AW: `grep "Volatility regime"` в journal обоих сервисов + ключ в live `config.yaml`
-- [ ] Soak 3–5 дней на AW → решение включить на прод
-- [ ] Companion на проде — только после soak
+- [ ] Commit + push обе ветки `23.07.26-*` после явной просьбы
+- [ ] Деплой AW: маркер `Zone entry blocked` / отсутствие ENTERED при volume_guard
+- [ ] Soak 3–5 дней Companion + GARCH на AW
 
 ## Недавние решения
 
 | Решение | Где |
 |---------|-----|
-| GARCH sizing AW ON / prod OFF | `volatility_regime_sizing` |
-| Не блокирует вход по умолчанию (`block_on_storm: false`) | только размер |
-| SPIKE тоже под множитель (`skip_fast_sources: false`) | оба пути exec |
-| Hermes OFF; Bybit AI ≠ Hermes | оба |
+| volume_guard → блок zone fallback (прод+AW) | `entry_engine_bridge` |
+| soft caution+spread_wide → size_mult ≤0.35 | `entry_soft_rules` + orch |
+| GARCH AW ON / prod OFF | `volatility_regime_sizing` |
 
 ## Маркеры логов
 
-- `Volatility regime: GARCH calm/normal/storm включён`
-- `Volatility regime BTCUSDT BUY: storm mult=0.50 ...`
-- `TRADE COMPANION` / `TRADE LIFECYCLE` (прежние)
+- `Zone entry blocked ... hard guard fallback denied (volume_guard...)`
+- `Soft score ... (caution) ... size_mult=0.350`
+- `Volatility regime` / `TRADE COMPANION` (прежние)

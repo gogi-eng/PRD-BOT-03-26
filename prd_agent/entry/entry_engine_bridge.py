@@ -49,6 +49,24 @@ def _entry_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     return ec if isinstance(ec, dict) else {}
 
 
+# Guard-отказы EntryEngine: fallback зоны НЕ должен их обходить (иначе vol=0 → ENTERED).
+_HARD_ZONE_FALLBACK_GUARDS = (
+    "volume_guard",
+)
+
+
+def should_block_zone_entry_fallback(reject_reason: str) -> bool:
+    """True = нельзя открывать по zone fallback после отказа движка.
+
+    volume_guard (в т.ч. vol≈0 на текущей свече) — жёсткий блок для own/zone пути.
+    SPIKE pullback / require_entry_engine_pass не затрагиваются отдельно.
+    """
+    text = str(reject_reason or "").strip().lower()
+    if not text:
+        return False
+    return any(g in text for g in _HARD_ZONE_FALLBACK_GUARDS)
+
+
 def _orderbook_entry_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     raw = cfg.get("orderbook_entry", {})
     if not isinstance(raw, dict):
@@ -575,6 +593,23 @@ class EntryEngineBridge:
         reject = str(md.get("reject_reason", "") or "entry_engine_reject")
         if require_engine:
             return ZoneEntryPlan(0, 0, 0, ok=False, block_reason=f"zone_entry: {reject}", metadata=md)
+
+        # Не обходить volume_guard через fallback (CBRSUSDT: vol=0 → всё равно ENTERED).
+        if should_block_zone_entry_fallback(reject):
+            logger.info(
+                "Zone entry blocked %s %s: hard guard fallback denied (%s)",
+                sig.symbol,
+                sig.side,
+                reject[:120],
+            )
+            return ZoneEntryPlan(
+                0,
+                0,
+                0,
+                ok=False,
+                block_reason=f"zone_entry: {reject}",
+                metadata={**md, "zone_entry_fallback_blocked": reject},
+            )
 
         if block_no_zone and not has_zone and not has_bos:
             return ZoneEntryPlan(
