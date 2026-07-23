@@ -680,6 +680,9 @@ market_scanner:
   run_loop_in_signal_agent: true
   spike_scalp:
     enabled: true
+    # Отдельные флаги цикла (не наследовать market_scanner): иначе SPIKE молча не стартует.
+    run_loop_in_unified_bot: false
+    run_loop_in_signal_agent: true
     interval_sec: 90
     kline_interval: "15"
     min_move_pct: 4.0
