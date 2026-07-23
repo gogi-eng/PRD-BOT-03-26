@@ -76,6 +76,7 @@ from prd_agent.signals.confidence_filter import (
     passes_emit_gate,
 )
 from prd_agent.signals.router import SignalRouter
+from prd_agent.signals.side_utils import normalize_trade_side, trade_sides_opposite
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.strategies.router import StrategyRouter
 from prd_agent.telemetry.skip_baseline import format_skip_baseline_text, skip_baseline_report
@@ -175,6 +176,16 @@ class UnifiedOrchestrator:
         self._zone_kline_interval = str(_ze.get("kline_interval", "15"))
         self.rule_weight_tracker = RuleWeightTracker(self.data_dir, cfg)
         self._apply_sr_zones_config()
+        self._apply_open_position_policy()
+
+    def _apply_open_position_policy(self) -> None:
+        p = self.cfg.get("positions", {}) if isinstance(self.cfg.get("positions"), dict) else {}
+        opp = p.get("opposite_signal_exit") if isinstance(p.get("opposite_signal_exit"), dict) else {}
+        # Новый ключ opposite_signal_exit.enabled; старый reverse_signal_close_enabled — совместимость.
+        if "enabled" in opp:
+            self._reverse_signal_close = bool(opp.get("enabled"))
+        else:
+            self._reverse_signal_close = bool(p.get("reverse_signal_close_enabled", True))
 
     def _apply_sr_zones_config(self) -> None:
         sr = self.cfg.get("execution_sr_zones", {})
@@ -305,6 +316,7 @@ class UnifiedOrchestrator:
             load_signal_notify_cooldown_sec(self.cfg)
         )
         self._apply_sr_zones_config()
+        self._apply_open_position_policy()
         t = self.cfg.get("trading", {})
         self._loop_sec = float(t.get("loop_interval_sec", self._loop_sec))
         self.leverage = int(t.get("leverage", self.leverage))
@@ -711,6 +723,107 @@ class UnifiedOrchestrator:
                 out.add(sym)
         return out
 
+    @classmethod
+    def _positions_by_symbol(cls, positions: List[Dict]) -> Dict[str, Dict]:
+        out: Dict[str, Dict] = {}
+        for row in positions:
+            sym = str(row.get("symbol", "")).upper()
+            if sym and cls._position_size(row) > 0:
+                out[sym] = row
+        return out
+
+    async def _handle_signal_with_open_position(
+        self, sig: UnifiedSignal, pos_row: Dict
+    ) -> None:
+        """
+        Позиция по символу уже открыта:
+        - тот же side → тихо игнор (без ledger / Telegram);
+        - обратный side → срочное закрытие на бирже (если включено в config).
+        """
+        sym = sig.symbol.upper()
+        pos_side = str(pos_row.get("side", "") or "")
+        if trade_sides_opposite(sig.side, pos_side):
+            if self._reverse_signal_close:
+                await self._close_on_reverse_signal(sig, pos_row)
+        else:
+            logger.debug(
+                "Open position %s %s — ignore same-side signal %s (no skip log)",
+                sym,
+                pos_side,
+                sig.side,
+            )
+
+    async def _close_on_reverse_signal(self, sig: UnifiedSignal, pos_row: Dict) -> None:
+        sym = sig.symbol.upper()
+        pos_side = str(pos_row.get("side", "") or "")
+        qty = self._position_size(pos_row)
+        pidx = int(pos_row.get("positionIdx", 0) or 0)
+        conf = float(sig.confidence or 0)
+        conf_pct = conf * 100 if conf <= 1 else conf
+        logger.warning(
+            "Opposite signal EXIT %s open=%s signal=%s conf=%.0f%% src=%s",
+            sym,
+            pos_side,
+            sig.side,
+            conf_pct,
+            sig.source,
+        )
+        if not hasattr(self.exchange, "close_position"):
+            logger.error("Opposite signal EXIT %s: exchange.close_position unavailable", sym)
+            return
+        try:
+            res = await self.exchange.close_position(
+                sym, pos_side, qty=qty if qty > 0 else None, position_idx=pidx
+            )
+        except Exception as exc:
+            logger.error(
+                "Opposite signal EXIT %s failed: %s", sym, exc, exc_info=True
+            )
+            await self.notifier.send(
+                f"⚠️ Не удалось закрыть {sym} по обратному сигналу: {exc}"
+            )
+            return
+        if isinstance(res, dict) and (res.get("success") or res.get("orderId")):
+            msg = (
+                f"🔄 <b>Обратный сигнал — закрыто</b>\n"
+                f"{sym}: было {pos_side} → сигнал {normalize_trade_side(sig.side)}\n"
+                f"Источник: {sig.source}"
+            )
+            await self.notifier.send(msg)
+            self.position_steward._tracked.pop(sym, None)
+            self.position_steward._bot_symbols.discard(sym)
+        else:
+            err = str((res or {}).get("error", "unknown"))[:160]
+            logger.error("Opposite signal EXIT failed %s: %s", sym, err)
+            await self.notifier.send(
+                f"⚠️ Не удалось закрыть {sym} по обратному сигналу: {err}"
+            )
+
+    async def _open_position_blocks_entry(self, sig: UnifiedSignal) -> bool:
+        """True = вход запрещён (позиция открыта). Обратный сигнал закрывает, повторный — тихий пропуск."""
+        sym = sig.symbol.upper()
+        try:
+            if not await self.exchange.has_open_position(sym):
+                return False
+            rows = await self.exchange.get_positions(sym)
+            pos_row = None
+            for row in rows:
+                if str(row.get("symbol", "")).upper() == sym and self._position_size(row) > 0:
+                    pos_row = row
+                    break
+            if pos_row:
+                await self._handle_signal_with_open_position(sig, pos_row)
+            return True
+        except Exception as exc:
+            logger.warning("open_position_blocks_entry(%s) failed: %s", sym, exc, exc_info=True)
+        return False
+
+    async def _skip_if_position_open(
+        self, sig: UnifiedSignal, ledger_id: Optional[str] = None, *, notify_telegram: bool = False
+    ) -> bool:
+        """Устаревший путь — используйте _open_position_blocks_entry."""
+        return await self._open_position_blocks_entry(sig)
+
     def _supervisor_can_enter(
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
     ) -> Tuple[bool, str]:
@@ -816,30 +929,6 @@ class UnifiedOrchestrator:
             entry_id=entry_id,
         )
 
-    async def _skip_if_position_open(
-        self, sig: UnifiedSignal, ledger_id: Optional[str] = None, *, notify_telegram: bool = False
-    ) -> bool:
-        """True = пропустить (позиция на бирже уже есть)."""
-        sym = sig.symbol.upper()
-        try:
-            if await self.exchange.has_open_position(sym):
-                reason = f"на бирже уже открыта позиция {sym} — новый ордер не отправляем"
-                logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
-                if ledger_id:
-                    self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
-                elif notify_telegram is False:
-                    await self._record_ledger_signal(
-                        sig,
-                        status=SignalStatus.SKIPPED,
-                        reason=reason,
-                    )
-                if notify_telegram:
-                    await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
-                return True
-        except Exception as exc:
-            logger.warning("has_open_position(%s) failed: %s", sym, exc)
-        return False
-
     def _is_silent_skip(self, reason: str) -> bool:
         r = reason or ""
         return any(r.startswith(p) or p in r for p in self._silent_skip_prefixes)
@@ -928,7 +1017,7 @@ class UnifiedOrchestrator:
         await self.supervisor.run_skipped_backtests_if_due(self.ledger, self.exchange)
         self.rule_weight_tracker.refresh_if_due(self.trade_journal.path, force=False)
 
-        open_symbols = self._symbols_with_open_positions(positions)
+        open_by_sym = self._positions_by_symbol(positions)
         can_trade, block_reason = self.risk.can_trade()
         if can_trade:
             self._block_notify_sent = False
@@ -958,8 +1047,8 @@ class UnifiedOrchestrator:
                 continue
             if self._signal_cooldown.is_on_cooldown(sym, sig.side):
                 continue
-            if sym in open_symbols:
-                await self._skip_if_position_open(sig)
+            if sym in open_by_sym:
+                await self._handle_signal_with_open_position(sig, open_by_sym[sym])
                 continue
             meta_ok, meta_reason = self._supervisor_can_enter(sig)
             if not meta_ok:
@@ -1065,7 +1154,7 @@ class UnifiedOrchestrator:
         *,
         zone_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if await self._skip_if_position_open(sig, ledger_id):
+        if await self._open_position_blocks_entry(sig):
             self.supervisor.note_signal_outcome(ledger_id, "skipped", "position_open")
             return
         ok, reason = self.risk.can_trade(sig.symbol)

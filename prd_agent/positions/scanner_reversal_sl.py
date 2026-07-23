@@ -1,11 +1,12 @@
 """
-Разворот MARKET SCANNER против открытой позиции: Telegram-алерт + подтяжка SL (без закрытия).
+Разворот MARKET SCANNER / SPIKE против открытой позиции:
+срочное закрытие (по умолчанию) или подтяжка SL + Telegram-алерт.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from prd_agent.positions.breakeven_fees import (
@@ -14,6 +15,7 @@ from prd_agent.positions.breakeven_fees import (
     fee_buffer_pct_from_bot_cfg,
     is_stop_in_loss_after_fees,
 )
+from prd_agent.signals.side_utils import normalize_trade_side
 
 logger = logging.getLogger("prd_agent.scanner_reversal")
 
@@ -36,10 +38,11 @@ def load_reversal_cfg(cfg: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         "enabled": bool(block.get("enabled", True)),
         "alert_telegram": bool(block.get("alert_telegram", True)),
-        "tighten_sl": bool(block.get("tighten_sl", True)),
+        "close_on_reversal": bool(block.get("close_on_reversal", True)),
+        "tighten_sl": bool(block.get("tighten_sl", False)),
         "min_score": int(block.get("min_score", 72) or 72),
-        "require_confirmed_bos": bool(block.get("require_confirmed_bos", True)),
-        "min_position_age_min": float(block.get("min_position_age_min", 15) or 15),
+        "require_confirmed_bos": bool(block.get("require_confirmed_bos", False)),
+        "min_position_age_min": float(block.get("min_position_age_min", 0) or 0),
         "tighten_from_mark_pct": float(block.get("tighten_from_mark_pct", 0.35) or 0.35),
         "entry_buffer_pct": float(block.get("entry_buffer_pct", 0.05) or 0.05),
         "min_sl_improve_pct": float(block.get("min_sl_improve_pct", 0.03) or 0.03),
@@ -57,12 +60,7 @@ def scenario_to_side(scenario: str) -> str:
 
 
 def normalize_pos_side(side: str) -> str:
-    s = str(side or "").strip().upper()
-    if s in ("BUY", "LONG"):
-        return "BUY"
-    if s in ("SELL", "SHORT"):
-        return "SELL"
-    return s
+    return normalize_trade_side(side)
 
 
 def setup_opposes_position(scenario: str, position_side: str) -> bool:
@@ -94,6 +92,14 @@ def _position_idx(row: Mapping[str, Any]) -> int:
         return int(row.get("positionIdx") or row.get("position_idx") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _position_qty(row: Mapping[str, Any]) -> float:
+    for key in ("size", "qty", "positionQty"):
+        val = float(row.get(key, 0) or 0)
+        if val > 0:
+            return val
+    return 0.0
 
 
 def position_age_minutes(row: Mapping[str, Any], now: Optional[datetime] = None) -> Optional[float]:
@@ -169,7 +175,11 @@ def passes_reversal_filters(
         return False, "same_direction"
     if score < int(cfg.get("min_score", 72)):
         return False, f"score<{cfg.get('min_score')}"
-    if bool(cfg.get("require_confirmed_bos", True)) and not confirmed:
+    # При срочном закрытии BOS не обязателен (иначе слабый DUMP не закроет LONG).
+    require_bos = bool(cfg.get("require_confirmed_bos", False))
+    if bool(cfg.get("close_on_reversal", True)):
+        require_bos = False
+    if require_bos and not confirmed:
         return False, "no_bos"
     cd = int(cfg.get("symbol_cooldown_sec", 1800) or 0)
     if cooldown_state is not None and on_reversal_cooldown(sym, cooldown_state, cd, now=now):
@@ -253,11 +263,18 @@ class ReversalHandleResult:
     handled: bool
     alerted: bool
     sl_updated: bool
+    closed: bool = False
     new_sl: float = 0.0
     reason: str = ""
 
 
-def build_reversal_alert_text(setup: Any, position: Mapping[str, Any], *, new_sl: float = 0.0) -> str:
+def build_reversal_alert_text(
+    setup: Any,
+    position: Mapping[str, Any],
+    *,
+    new_sl: float = 0.0,
+    closed: bool = False,
+) -> str:
     sym = str(_setup_field(setup, "symbol", "") or "").upper()
     scenario = str(_setup_field(setup, "scenario", "") or "")
     score = int(_setup_field(setup, "score", 0) or 0)
@@ -271,13 +288,16 @@ def build_reversal_alert_text(setup: Any, position: Mapping[str, Any], *, new_sl
         f"Монета: {sym}",
         f"Открыто: {pos_side} | вход≈{entry:.8g} | mark≈{mark:.8g}",
         f"Сканер: {arrow} (score {score}/100)",
-        "Действие: позицию НЕ закрываем — только алерт и подтяжка SL при возможности.",
     ]
+    if closed:
+        lines.append("Действие: позиция закрыта по обратному сигналу сканера.")
+    else:
+        lines.append("Действие: обратный сигнал — закрытие или подтяжка SL.")
     if cur_sl > 0:
         lines.append(f"Текущий SL: {cur_sl:.8g}")
     if new_sl > 0:
         lines.append(f"Новый SL (подтянут): {new_sl:.8g}")
-    elif cur_sl <= 0:
+    elif cur_sl <= 0 and not closed:
         lines.append("SL на бирже не задан — подтянуть автоматически нельзя.")
     return "\n".join(lines)
 
@@ -297,7 +317,9 @@ async def handle_scanner_reversal(
         setup, position, cfg, cooldown_state=cooldown_state, now=now
     )
     if not ok:
-        return ReversalHandleResult(handled=False, alerted=False, sl_updated=False, reason=why)
+        return ReversalHandleResult(
+            handled=False, alerted=False, sl_updated=False, closed=False, reason=why
+        )
 
     sym = str(_setup_field(setup, "symbol", "") or "").upper()
     pos_side = str(position.get("side", "") or "")
@@ -306,10 +328,37 @@ async def handle_scanner_reversal(
     cur_sl = _position_sl(position)
     inv = float(_setup_field(setup, "invalidation", 0) or 0)
 
+    closed = False
+    if bool(cfg.get("close_on_reversal", True)) and hasattr(client, "close_position"):
+        qty = _position_qty(position)
+        pidx = _position_idx(position)
+        try:
+            res = await client.close_position(
+                sym,
+                pos_side,
+                qty=qty if qty > 0 else None,
+                position_idx=pidx,
+            )
+        except Exception as exc:
+            logger.error(
+                "Opposite signal EXIT %s close failed: %s", sym, exc, exc_info=True
+            )
+            res = {"success": False, "error": str(exc)}
+        if isinstance(res, dict) and (res.get("success") or res.get("orderId")):
+            closed = True
+            logger.warning(
+                "Opposite signal EXIT %s open=%s (scanner/SPIKE reverse close)",
+                sym,
+                pos_side,
+            )
+        else:
+            err = str(res.get("error", ""))[:120] if isinstance(res, dict) else "close failed"
+            logger.warning("Opposite signal EXIT failed %s: %s", sym, err)
+
     new_sl = 0.0
     sl_updated = False
-    can_tighten = bool(cfg.get("tighten_sl", True))
-    min_age = float(cfg.get("min_position_age_min", 15) or 0)
+    can_tighten = bool(cfg.get("tighten_sl", False)) and not closed
+    min_age = float(cfg.get("min_position_age_min", 0) or 0)
     age = position_age_minutes(position, now=now)
     hold_h = (age / 60.0) if age is not None and age > 0 else None
     if can_tighten and min_age > 0:
@@ -341,19 +390,20 @@ async def handle_scanner_reversal(
 
     alerted = False
     if bool(cfg.get("alert_telegram", True)) and notify is not None:
-        text = build_reversal_alert_text(setup, position, new_sl=new_sl)
+        text = build_reversal_alert_text(setup, position, new_sl=new_sl, closed=closed)
         try:
             alerted = bool(notify(text))
         except Exception as exc:
             logger.warning("Scanner reversal alert failed %s: %s", sym, exc)
 
-    if alerted or sl_updated:
+    if alerted or sl_updated or closed:
         mark_reversal_handled(cooldown_state, sym, now=now)
 
     return ReversalHandleResult(
-        handled=alerted or sl_updated,
+        handled=alerted or sl_updated or closed,
         alerted=alerted,
         sl_updated=sl_updated,
+        closed=closed,
         new_sl=new_sl,
         reason="ok",
     )

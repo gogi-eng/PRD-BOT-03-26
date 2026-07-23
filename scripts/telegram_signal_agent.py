@@ -2755,8 +2755,8 @@ class TelegramSignalAgent:
         elif not self._effective_market_scanner_auto_execute():
             return
         if await self._symbol_has_open_position(setup.symbol):
-            if not spike:
-                await self._handle_scanner_reversal_for_setup(setup)
+            # SPIKE и scanner: обратный сигнал → срочное закрытие (close_on_reversal).
+            await self._handle_scanner_reversal_for_setup(setup)
             LOG.info("Market scanner exec skipped: position already open %s", setup.symbol)
             return
         min_exec = self.spike_scalp_execute_min_score if spike else self.market_scanner_execute_min_score
