@@ -27,7 +27,12 @@ def test_passes_reversal_filters_dataclass_confirmed_bos_false_no_crash():
         confirmed_bos=False,
     )
     position = {"side": "Sell", "entry": 1700.0, "mark": 1740.0, "sl": 1680.0}
-    cfg = {"enabled": True, "min_score": 72, "require_confirmed_bos": True}
+    cfg = {
+        "enabled": True,
+        "min_score": 72,
+        "require_confirmed_bos": True,
+        "close_on_reversal": False,
+    }
     ok, reason = passes_reversal_filters(setup, position, cfg)
     assert ok is False
     assert reason == "no_bos"

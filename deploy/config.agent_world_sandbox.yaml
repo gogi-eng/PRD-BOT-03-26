@@ -344,6 +344,10 @@ positions:
     buffer_pct: 0.85
     skip_manual: true
     emergency_close: true
+  # Обратный сигнал (own/SPIKE/TG) → market-close на Bybit
+  reverse_signal_close_enabled: true
+  opposite_signal_exit:
+    enabled: true
   lock_initial_sl: false
   trailing_activation_pct: 2.0
   trailing_distance_pct: 2.0
@@ -748,14 +752,15 @@ market_scanner:
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true
-    tighten_sl: true
-    min_score: 77
-    require_confirmed_bos: true
-    min_position_age_min: 15
+    close_on_reversal: true
+    tighten_sl: false
+    min_score: 72
+    require_confirmed_bos: false
+    min_position_age_min: 0
     tighten_from_mark_pct: 0.35
     entry_buffer_pct: 0.05
     min_sl_improve_pct: 0.03
-    symbol_cooldown_sec: 1800
+    symbol_cooldown_sec: 900
 
 telegram_signal_agent:
   enabled: false
