@@ -724,6 +724,11 @@ market_scanner:
     htf_trend_intervals: ["60"]
     htf_allow_neutral: true
     htf_kline_limit: 80
+    htf_sr_context_enabled: false
+    htf_sr_near_pct: 0.35
+    htf_allow_against_at_sr: true
+    htf_allow_against_on_breakout: true
+    htf_sr_breakout_lookback_bars: 3
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true

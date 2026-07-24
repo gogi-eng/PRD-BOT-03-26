@@ -6,12 +6,17 @@ SPIKE HTF-фильтр: не входить против тренда старш
 Нейтральный HTF по умолчанию разрешён (htf_allow_neutral: true).
 
 Тренд = EMA fast/slow на свечах HTF (та же идея, что MarketAnalyzer.trend).
+
+Опционально (htf_sr_context_enabled): против тренда разрешить вход, если есть
+контекст S/R на HTF — разворот у уровня или продолжение после пробоя.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from analysis.structure_zones import StructureZoneAnalyzer, ZoneContext
 
 
 class HtfTrend(IntEnum):
@@ -28,6 +33,12 @@ class SpikeHtfConfig:
     kline_limit: int = 80
     ema_fast: int = 21
     ema_slow: int = 55
+    # S/R-исключения против тренда (разворот у уровня / пробой с продолжением).
+    sr_context_enabled: bool = False
+    sr_near_pct: float = 0.35
+    allow_against_at_sr: bool = True
+    allow_against_on_breakout: bool = True
+    sr_breakout_lookback_bars: int = 3
 
 
 @dataclass(frozen=True)
@@ -58,6 +69,10 @@ def read_spike_htf_cfg(cfg: Mapping[str, Any]) -> SpikeHtfConfig:
         intervals = ("60",)
     if not intervals:
         intervals = ("60",)
+    near_pct = float(raw.get("htf_sr_near_pct", 0.35) or 0.35)
+    near_pct = max(0.05, min(5.0, near_pct))
+    lookback = int(raw.get("htf_sr_breakout_lookback_bars", 3) or 3)
+    lookback = max(1, min(12, lookback))
     return SpikeHtfConfig(
         enabled=bool(raw.get("require_htf_trend_align", False)),
         intervals=intervals,
@@ -65,6 +80,11 @@ def read_spike_htf_cfg(cfg: Mapping[str, Any]) -> SpikeHtfConfig:
         kline_limit=max(30, int(raw.get("htf_kline_limit", 80) or 80)),
         ema_fast=max(2, int(raw.get("htf_ema_fast", 21) or 21)),
         ema_slow=max(3, int(raw.get("htf_ema_slow", 55) or 55)),
+        sr_context_enabled=bool(raw.get("htf_sr_context_enabled", False)),
+        sr_near_pct=near_pct,
+        allow_against_at_sr=bool(raw.get("htf_allow_against_at_sr", True)),
+        allow_against_on_breakout=bool(raw.get("htf_allow_against_on_breakout", True)),
+        sr_breakout_lookback_bars=lookback,
     )
 
 
@@ -137,6 +157,235 @@ def _label(trend: HtfTrend) -> str:
     return "neutral"
 
 
+def _bar_close(bar: Mapping[str, Any]) -> float:
+    try:
+        return float(bar.get("close", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pct_away(price: float, level: float) -> float:
+    if price <= 0 or level <= 0:
+        return 999.0
+    return abs(price - level) / price * 100.0
+
+
+def _nearest_support(levels: Sequence[float], price: float) -> Optional[float]:
+    below = [float(x) for x in levels if float(x) > 0 and float(x) <= price]
+    return max(below) if below else None
+
+
+def _nearest_resistance(levels: Sequence[float], price: float) -> Optional[float]:
+    above = [float(x) for x in levels if float(x) > 0 and float(x) >= price]
+    return min(above) if above else None
+
+
+def _zone_ctx_from_klines(
+    klines: Sequence[Mapping[str, Any]],
+    price: float,
+) -> Optional[ZoneContext]:
+    bars = list(klines or [])
+    if price <= 0 or len(bars) < 6:
+        return None
+    return StructureZoneAnalyzer().analyze(bars, float(price))
+
+
+def _near_support_level(
+    ctx: ZoneContext,
+    price: float,
+    near_pct: float,
+) -> Optional[float]:
+    """Цена у поддержки / в бычьей зоне — кандидат на разворот вверх."""
+    z = ctx.price_near_bullish_zone(price, tolerance_pct=near_pct)
+    if z is not None:
+        return float(z.mid)
+    z_in = ctx.price_in_bullish_zone(price)
+    if z_in is not None:
+        return float(z_in.mid)
+    supports = list(ctx.support_levels)
+    for z in ctx.all_bullish_zones:
+        supports.append(float(z.low))
+        supports.append(float(z.mid))
+    nearest = _nearest_support(supports, price)
+    if nearest is not None and _pct_away(price, nearest) <= near_pct:
+        return nearest
+    return None
+
+
+def _near_resistance_level(
+    ctx: ZoneContext,
+    price: float,
+    near_pct: float,
+) -> Optional[float]:
+    """Цена у сопротивления / в медвежьей зоне — кандидат на разворот вниз."""
+    z = ctx.price_near_bearish_zone(price, tolerance_pct=near_pct)
+    if z is not None:
+        return float(z.mid)
+    z_in = ctx.price_in_bearish_zone(price)
+    if z_in is not None:
+        return float(z_in.mid)
+    resistances = list(ctx.resistance_levels)
+    for z in ctx.all_bearish_zones:
+        resistances.append(float(z.high))
+        resistances.append(float(z.mid))
+    nearest = _nearest_resistance(resistances, price)
+    if nearest is not None and _pct_away(price, nearest) <= near_pct:
+        return nearest
+    return None
+
+
+def detect_htf_sr_breakout(
+    side: str,
+    klines: Sequence[Mapping[str, Any]],
+    *,
+    lookback_bars: int = 3,
+    confirm_bars: int = 1,
+) -> Tuple[bool, float]:
+    """
+    Пробой S/R в сторону сигнала по HTF-свечам.
+    BUY: закрытие выше сопротивления, которое было над ценой N баров назад.
+    SELL: закрытие ниже поддержки, которая была под ценой N баров назад.
+    """
+    side_u = _normalize_side(side)
+    bars = list(klines or [])
+    lb = max(1, int(lookback_bars))
+    conf = max(1, int(confirm_bars))
+    if len(bars) < lb + 6:
+        return False, 0.0
+    price = _bar_close(bars[-1])
+    if price <= 0:
+        return False, 0.0
+    ref_idx = -(lb + 1)
+    ref_price = _bar_close(bars[ref_idx])
+    if ref_price <= 0:
+        return False, 0.0
+    # Зоны «как было» до недавнего движения — уровень для пробоя.
+    ref_ctx = _zone_ctx_from_klines(bars[: len(bars) - lb], ref_price)
+    if ref_ctx is None:
+        return False, 0.0
+    recent = bars[-conf:]
+    recent_closes = [_bar_close(b) for b in recent]
+    if any(c <= 0 for c in recent_closes):
+        return False, 0.0
+
+    if side_u == "BUY":
+        level = _nearest_resistance(ref_ctx.resistance_levels, ref_price)
+        if level is None:
+            for z in ref_ctx.all_bearish_zones:
+                hi = float(z.high)
+                if hi >= ref_price and (level is None or hi < level):
+                    level = hi
+        if level is None or level <= 0:
+            return False, 0.0
+        if all(c > level for c in recent_closes) and price > level:
+            return True, float(level)
+        return False, 0.0
+
+    if side_u == "SELL":
+        level = _nearest_support(ref_ctx.support_levels, ref_price)
+        if level is None:
+            for z in ref_ctx.all_bullish_zones:
+                lo = float(z.low)
+                if lo <= ref_price and (level is None or lo > level):
+                    level = lo
+        if level is None or level <= 0:
+            return False, 0.0
+        if all(c < level for c in recent_closes) and price < level:
+            return True, float(level)
+        return False, 0.0
+
+    return False, 0.0
+
+
+def evaluate_against_trend_sr_context(
+    side: str,
+    *,
+    trend: HtfTrend,
+    klines: Sequence[Mapping[str, Any]],
+    htf_cfg: SpikeHtfConfig,
+    interval: str = "60",
+) -> SpikeHtfDecision:
+    """
+    Исключение: сигнал против HTF, но у S/R (разворот) или после пробоя (продолжение).
+    """
+    side_u = _normalize_side(side)
+    label = _label(trend)
+    iv = str(interval)
+    bars = list(klines or [])
+    price = _bar_close(bars[-1]) if bars else 0.0
+
+    if not htf_cfg.sr_context_enabled:
+        return SpikeHtfDecision(
+            allowed=False,
+            reason=f"htf_align: {side_u} against {label} + no SR context → block ({iv})",
+            trend_label=label,
+            interval=iv,
+        )
+
+    if side_u not in ("BUY", "SELL") or price <= 0 or len(bars) < 6:
+        return SpikeHtfDecision(
+            allowed=False,
+            reason=f"htf_align: {side_u} against {label} + no SR context → block ({iv})",
+            trend_label=label,
+            interval=iv,
+        )
+
+    # 1) Пробой в сторону сигнала → продолжение после breakout.
+    if htf_cfg.allow_against_on_breakout:
+        broke, level = detect_htf_sr_breakout(
+            side_u,
+            bars,
+            lookback_bars=htf_cfg.sr_breakout_lookback_bars,
+        )
+        if broke:
+            what = "resistance" if side_u == "BUY" else "support"
+            return SpikeHtfDecision(
+                allowed=True,
+                reason=(
+                    f"htf_align: {side_u} against {label} but broke {what} "
+                    f"{level:.6g} → allow ({iv})"
+                ),
+                trend_label=label,
+                interval=iv,
+            )
+
+    # 2) Разворот у противоположного S/R.
+    if htf_cfg.allow_against_at_sr:
+        ctx = _zone_ctx_from_klines(bars, price)
+        if ctx is not None:
+            if side_u == "BUY" and trend == HtfTrend.BEARISH:
+                near = _near_support_level(ctx, price, htf_cfg.sr_near_pct)
+                if near is not None:
+                    return SpikeHtfDecision(
+                        allowed=True,
+                        reason=(
+                            f"htf_align: {side_u} against {label} but near support "
+                            f"{near:.6g} → allow ({iv})"
+                        ),
+                        trend_label=label,
+                        interval=iv,
+                    )
+            if side_u == "SELL" and trend == HtfTrend.BULLISH:
+                near = _near_resistance_level(ctx, price, htf_cfg.sr_near_pct)
+                if near is not None:
+                    return SpikeHtfDecision(
+                        allowed=True,
+                        reason=(
+                            f"htf_align: {side_u} against {label} but near resistance "
+                            f"{near:.6g} → allow ({iv})"
+                        ),
+                        trend_label=label,
+                        interval=iv,
+                    )
+
+    return SpikeHtfDecision(
+        allowed=False,
+        reason=f"htf_align: {side_u} against {label} + no SR context → block ({iv})",
+        trend_label=label,
+        interval=iv,
+    )
+
+
 def decide_spike_htf_align(
     side: str,
     *,
@@ -144,7 +393,7 @@ def decide_spike_htf_align(
     allow_neutral: bool = True,
     interval: str = "60",
 ) -> SpikeHtfDecision:
-    """Чистая проверка: сторона сделки vs HTF-тренд."""
+    """Чистая проверка: сторона сделки vs HTF-тренд (без S/R)."""
     side_u = _normalize_side(side)
     label = _label(trend)
     if side_u not in ("BUY", "SELL"):
@@ -193,7 +442,7 @@ def evaluate_spike_htf_klines(
 ) -> SpikeHtfDecision:
     """
     Проверяет все интервалы из конфига.
-    Блок, если хоть один ТФ явно против стороны.
+    Блок, если хоть один ТФ явно против стороны (и нет S/R-исключения).
     """
     if not htf_cfg.enabled:
         return SpikeHtfDecision(allowed=True, reason="htf_align: disabled")
@@ -212,9 +461,34 @@ def evaluate_spike_htf_klines(
             allow_neutral=htf_cfg.allow_neutral,
             interval=str(iv),
         )
-        if not decision.allowed:
-            return decision
-        last_ok = decision
+        if decision.allowed:
+            last_ok = decision
+            continue
+        # Против тренда — проверить S/R (разворот у уровня / пробой).
+        if "against" in decision.reason and htf_cfg.sr_context_enabled:
+            sr = evaluate_against_trend_sr_context(
+                side,
+                trend=trend,
+                klines=bars,
+                htf_cfg=htf_cfg,
+                interval=str(iv),
+            )
+            if sr.allowed:
+                last_ok = sr
+                continue
+            return sr
+        if "against" in decision.reason and not htf_cfg.sr_context_enabled:
+            # Явная формулировка для логов (как при включённом SR без контекста).
+            return SpikeHtfDecision(
+                allowed=False,
+                reason=(
+                    f"htf_align: {_normalize_side(side)} against {_label(trend)} "
+                    f"+ no SR context → block ({iv})"
+                ),
+                trend_label=decision.trend_label,
+                interval=str(iv),
+            )
+        return decision
     return last_ok
 
 

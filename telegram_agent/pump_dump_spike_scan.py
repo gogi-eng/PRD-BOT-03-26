@@ -121,6 +121,11 @@ class SpikeScanConfig:
     htf_trend_intervals: Tuple[str, ...] = ("60",)
     htf_allow_neutral: bool = True
     htf_kline_limit: int = 80
+    htf_sr_context_enabled: bool = False
+    htf_sr_near_pct: float = 0.35
+    htf_allow_against_at_sr: bool = True
+    htf_allow_against_on_breakout: bool = True
+    htf_sr_breakout_lookback_bars: int = 3
 
     @classmethod
 
@@ -232,6 +237,13 @@ class SpikeScanConfig:
             htf_trend_intervals=_parse_htf_intervals(raw),
             htf_allow_neutral=bool(raw.get("htf_allow_neutral", True)),
             htf_kline_limit=max(30, int(raw.get("htf_kline_limit", 80) or 80)),
+            htf_sr_context_enabled=bool(raw.get("htf_sr_context_enabled", False)),
+            htf_sr_near_pct=max(0.05, min(5.0, float(raw.get("htf_sr_near_pct", 0.35) or 0.35))),
+            htf_allow_against_at_sr=bool(raw.get("htf_allow_against_at_sr", True)),
+            htf_allow_against_on_breakout=bool(raw.get("htf_allow_against_on_breakout", True)),
+            htf_sr_breakout_lookback_bars=max(
+                1, min(12, int(raw.get("htf_sr_breakout_lookback_bars", 3) or 3))
+            ),
 
         )
 
