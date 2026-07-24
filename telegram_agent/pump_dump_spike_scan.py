@@ -37,6 +37,16 @@ def _sf(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _parse_htf_intervals(raw: Mapping[str, Any]) -> Tuple[str, ...]:
+    intervals_raw = raw.get("htf_trend_intervals", raw.get("htf_intervals", ["60"]))
+    if isinstance(intervals_raw, (str, int)):
+        return (str(intervals_raw),)
+    if isinstance(intervals_raw, (list, tuple)):
+        out = tuple(str(x).strip() for x in intervals_raw if str(x).strip())
+        return out or ("60",)
+    return ("60",)
+
+
 
 
 
@@ -106,6 +116,11 @@ class SpikeScanConfig:
     # None = для unified унаследовать market_scanner.run_loop_in_unified_bot.
     run_loop_in_unified_bot: Optional[bool] = None
     run_loop_in_signal_agent: bool = False
+    # Не входить против HTF (обычно 1h). По умолчанию OFF — включать в yaml.
+    require_htf_trend_align: bool = False
+    htf_trend_intervals: Tuple[str, ...] = ("60",)
+    htf_allow_neutral: bool = True
+    htf_kline_limit: int = 80
 
     @classmethod
 
@@ -213,6 +228,10 @@ class SpikeScanConfig:
                 else None
             ),
             run_loop_in_signal_agent=bool(raw.get("run_loop_in_signal_agent", False)),
+            require_htf_trend_align=bool(raw.get("require_htf_trend_align", False)),
+            htf_trend_intervals=_parse_htf_intervals(raw),
+            htf_allow_neutral=bool(raw.get("htf_allow_neutral", True)),
+            htf_kline_limit=max(30, int(raw.get("htf_kline_limit", 80) or 80)),
 
         )
 

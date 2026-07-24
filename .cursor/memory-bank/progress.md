@@ -1,5 +1,14 @@
 # Progress
 
+## Сделано (24.07.2026)
+
+### SPIKE vs 1h тренд (BANKUSDT)
+- [x] Разбор: SPIKE = 15m импульс, HTF/1h align в пути входа не было
+- [x] Модуль `prd_agent/entry/spike_htf_trend_gate.py` + проводка в `telegram_signal_agent._try_execute_market_setup`
+- [x] Config: AW `require_htf_trend_align: true`, prod `false`; intervals `["60"]`
+- [x] Тесты `test_spike_htf_trend_gate.py` — green
+- [ ] Commit/push/деплой — по просьбе
+
 ## Сделано (23.07.2026)
 
 ### CBRSUSDT own_multi_agent (volume_guard bypass)

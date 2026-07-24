@@ -221,6 +221,11 @@ from prd_agent.entry.spike_pullback_gate import (  # noqa: E402
     read_spike_pullback_cfg,
     spike_pullback_enabled,
 )
+from prd_agent.entry.spike_htf_trend_gate import (  # noqa: E402
+    evaluate_spike_htf_klines,
+    read_spike_htf_cfg,
+    spike_htf_align_enabled,
+)
 from prd_agent.risk.volatility_regime_sizing import (  # noqa: E402
     evaluate_volatility_regime_sizing,
     log_volatility_regime_startup,
@@ -2650,6 +2655,54 @@ class TelegramSignalAgent:
             self.state["spike_pullback_watchlist"] = keep
             self._save_state()
 
+    async def _spike_htf_trend_allows(self, symbol: str, side: str) -> bool:
+        """
+        SPIKE: не входить против HTF (обычно 1h), если require_htf_trend_align=true.
+        True = можно входить; False = вход заблокирован.
+        """
+        htf_cfg = read_spike_htf_cfg(self.cfg)
+        if not htf_cfg.enabled:
+            return True
+        await self._ensure_execution()
+        if self.bybit is None:
+            LOG.warning("SPIKE HTF: bybit client missing — skip filter (fail-open)")
+            return True
+        interval_klines: dict[str, list] = {}
+        for iv in htf_cfg.intervals:
+            try:
+                bars = await self.bybit.get_klines(
+                    symbol, interval=str(iv), limit=int(htf_cfg.kline_limit)
+                ) or []
+                interval_klines[str(iv)] = list(bars)
+            except Exception as exc:
+                LOG.warning(
+                    "SPIKE HTF: klines fail %s interval=%s: %s",
+                    symbol,
+                    iv,
+                    exc,
+                    exc_info=True,
+                )
+                # Нет данных по ТФ → считаем нейтральным (не блокируем весь вход из‑за API).
+                interval_klines[str(iv)] = []
+        decision = evaluate_spike_htf_klines(side, interval_klines, htf_cfg)
+        LOG.info(
+            "SPIKE HTF %s %s: allowed=%s trend=%s %s",
+            symbol,
+            side,
+            decision.allowed,
+            decision.trend_label,
+            decision.reason,
+        )
+        if not decision.allowed:
+            LOG.info(
+                "Market scanner exec skipped spike_htf: %s %s (%s)",
+                symbol,
+                side,
+                decision.reason,
+            )
+            return False
+        return True
+
     async def _spike_pullback_gate_decision(
         self, setup: MarketSetup, side: str
     ) -> SpikePullbackAction | None:
@@ -2817,6 +2870,11 @@ class TelegramSignalAgent:
                     setup.symbol,
                     corridor.reason,
                 )
+                return
+
+        if spike and spike_htf_align_enabled(self.cfg):
+            htf_ok = await self._spike_htf_trend_allows(str(setup.symbol).upper(), side)
+            if not htf_ok:
                 return
 
         if spike and not spike_pullback_ready:
