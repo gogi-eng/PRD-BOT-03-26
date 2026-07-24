@@ -2,6 +2,12 @@
 
 ## Сделано (24.07.2026)
 
+### SPIKE HTF + S/R (разворот / пробой)
+- [x] `spike_htf_trend_gate.py`: против 1h тренда — allow у S/R или после breakout; иначе block
+- [x] Ключи: `htf_sr_context_enabled`, `htf_sr_near_pct`, `htf_allow_against_at_sr`, `htf_allow_against_on_breakout`
+- [x] AW ON / prod OFF; тесты `test_spike_htf_trend_gate.py` — 17 passed
+- [ ] Commit/push/деплой — по просьбе
+
 ### SPIKE vs 1h тренд (BANKUSDT)
 - [x] Разбор: SPIKE = 15m импульс, HTF/1h align в пути входа не было
 - [x] Модуль `prd_agent/entry/spike_htf_trend_gate.py` + проводка в `telegram_signal_agent._try_execute_market_setup`

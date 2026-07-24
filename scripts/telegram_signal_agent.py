@@ -2658,6 +2658,7 @@ class TelegramSignalAgent:
     async def _spike_htf_trend_allows(self, symbol: str, side: str) -> bool:
         """
         SPIKE: не входить против HTF (обычно 1h), если require_htf_trend_align=true.
+        Исключения (htf_sr_context_enabled): разворот у S/R или пробой с продолжением.
         True = можно входить; False = вход заблокирован.
         """
         htf_cfg = read_spike_htf_cfg(self.cfg)

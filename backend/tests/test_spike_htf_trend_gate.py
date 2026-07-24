@@ -1,15 +1,18 @@
-"""Тесты SPIKE HTF-фильтра: блок против 1h тренда."""
+"""Тесты SPIKE HTF-фильтра: блок против 1h тренда + S/R-исключения."""
 from __future__ import annotations
 
 import os
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from analysis.structure_zones import StructureZone, ZoneContext
 from prd_agent.entry.spike_htf_trend_gate import (
     HtfTrend,
     SpikeHtfConfig,
     decide_spike_htf_align,
+    evaluate_against_trend_sr_context,
     evaluate_spike_htf_align,
     evaluate_spike_htf_klines,
     read_spike_htf_cfg,
@@ -63,12 +66,59 @@ def _bars_trend(direction: str, n: int = 80) -> list:
     return out
 
 
+def _fake_support_ctx(price: float = 100.0) -> ZoneContext:
+    """Зоны: поддержка рядом с ценой (для BUY против bearish)."""
+    return ZoneContext(
+        bullish_fvg=None,
+        bearish_fvg=None,
+        bullish_ob=None,
+        bearish_ob=None,
+        support_levels=[price * 0.998],
+        resistance_levels=[price * 1.05],
+        all_bullish_zones=[
+            StructureZone("ob", "bullish", price * 0.997, price * 1.001, 0.9, 10, False)
+        ],
+        all_bearish_zones=[],
+    )
+
+
+def _fake_resistance_ctx(price: float = 100.0) -> ZoneContext:
+    """Зоны: сопротивление рядом с ценой (для SELL против bullish)."""
+    return ZoneContext(
+        bullish_fvg=None,
+        bearish_fvg=None,
+        bullish_ob=None,
+        bearish_ob=None,
+        support_levels=[price * 0.95],
+        resistance_levels=[price * 1.002],
+        all_bullish_zones=[],
+        all_bearish_zones=[
+            StructureZone("ob", "bearish", price * 0.999, price * 1.003, 0.9, 10, False)
+        ],
+    )
+
+
+def _fake_mid_ctx(price: float = 100.0) -> ZoneContext:
+    """S/R далеко — нет контекста у уровня."""
+    return ZoneContext(
+        bullish_fvg=None,
+        bearish_fvg=None,
+        bullish_ob=None,
+        bearish_ob=None,
+        support_levels=[price * 0.90],
+        resistance_levels=[price * 1.10],
+        all_bullish_zones=[],
+        all_bearish_zones=[],
+    )
+
+
 def test_read_cfg_defaults_off():
     cfg = {"market_scanner": {"spike_scalp": {}}}
     assert spike_htf_align_enabled(cfg) is False
     h = read_spike_htf_cfg(cfg)
     assert h.intervals == ("60",)
     assert h.allow_neutral is True
+    assert h.sr_context_enabled is False
 
 
 def test_read_cfg_enabled_sandbox_keys():
@@ -78,6 +128,10 @@ def test_read_cfg_enabled_sandbox_keys():
                 "require_htf_trend_align": True,
                 "htf_trend_intervals": ["60"],
                 "htf_allow_neutral": True,
+                "htf_sr_context_enabled": True,
+                "htf_sr_near_pct": 0.35,
+                "htf_allow_against_at_sr": True,
+                "htf_allow_against_on_breakout": True,
             }
         }
     }
@@ -85,6 +139,10 @@ def test_read_cfg_enabled_sandbox_keys():
     h = read_spike_htf_cfg(cfg)
     assert h.enabled is True
     assert h.intervals == ("60",)
+    assert h.sr_context_enabled is True
+    assert h.sr_near_pct == 0.35
+    assert h.allow_against_at_sr is True
+    assert h.allow_against_on_breakout is True
 
 
 def test_decide_blocks_buy_against_bearish():
@@ -129,6 +187,7 @@ def test_evaluate_blocks_pump_against_1h_down():
     d = evaluate_spike_htf_align("BUY", _bars_trend("down"), cfg, interval="60")
     assert d.allowed is False
     assert d.trend_label == "bearish"
+    assert "no SR context" in d.reason
 
 
 def test_evaluate_allows_when_disabled():
@@ -147,6 +206,7 @@ def test_evaluate_multi_interval_any_opposite_blocks():
     )
     assert d.allowed is False
     assert d.interval == "240"
+    assert "no SR context" in d.reason
 
 
 def test_spike_scan_config_reads_htf_keys():
@@ -158,6 +218,11 @@ def test_spike_scan_config_reads_htf_keys():
                 "htf_trend_intervals": ["60", "240"],
                 "htf_allow_neutral": False,
                 "htf_kline_limit": 90,
+                "htf_sr_context_enabled": True,
+                "htf_sr_near_pct": 0.4,
+                "htf_allow_against_at_sr": False,
+                "htf_allow_against_on_breakout": True,
+                "htf_sr_breakout_lookback_bars": 4,
             }
         }
     }
@@ -166,3 +231,128 @@ def test_spike_scan_config_reads_htf_keys():
     assert sc.htf_trend_intervals == ("60", "240")
     assert sc.htf_allow_neutral is False
     assert sc.htf_kline_limit == 90
+    assert sc.htf_sr_context_enabled is True
+    assert sc.htf_sr_near_pct == 0.4
+    assert sc.htf_allow_against_at_sr is False
+    assert sc.htf_allow_against_on_breakout is True
+    assert sc.htf_sr_breakout_lookback_bars == 4
+
+
+def test_sr_near_support_allows_buy_against_bearish():
+    htf = SpikeHtfConfig(
+        enabled=True,
+        intervals=("60",),
+        sr_context_enabled=True,
+        sr_near_pct=0.35,
+        allow_against_at_sr=True,
+        allow_against_on_breakout=False,
+    )
+    bars = _bars_trend("down")
+    price = float(bars[-1]["close"])
+    with patch(
+        "prd_agent.entry.spike_htf_trend_gate.detect_htf_sr_breakout",
+        return_value=(False, 0.0),
+    ), patch(
+        "prd_agent.entry.spike_htf_trend_gate._zone_ctx_from_klines",
+        return_value=_fake_support_ctx(price),
+    ):
+        d = evaluate_spike_htf_klines("BUY", {"60": bars}, htf)
+    assert d.allowed is True
+    assert "near support" in d.reason
+    assert "allow" in d.reason
+
+
+def test_sr_near_resistance_allows_sell_against_bullish():
+    htf = SpikeHtfConfig(
+        enabled=True,
+        intervals=("60",),
+        sr_context_enabled=True,
+        sr_near_pct=0.35,
+        allow_against_at_sr=True,
+        allow_against_on_breakout=False,
+    )
+    bars = _bars_trend("up")
+    price = float(bars[-1]["close"])
+    with patch(
+        "prd_agent.entry.spike_htf_trend_gate.detect_htf_sr_breakout",
+        return_value=(False, 0.0),
+    ), patch(
+        "prd_agent.entry.spike_htf_trend_gate._zone_ctx_from_klines",
+        return_value=_fake_resistance_ctx(price),
+    ):
+        d = evaluate_spike_htf_klines("SELL", {"60": bars}, htf)
+    assert d.allowed is True
+    assert "near resistance" in d.reason
+
+
+def test_sr_breakout_allows_buy_against_bearish():
+    htf = SpikeHtfConfig(
+        enabled=True,
+        intervals=("60",),
+        sr_context_enabled=True,
+        allow_against_at_sr=False,
+        allow_against_on_breakout=True,
+    )
+    bars = _bars_trend("down")
+    with patch(
+        "prd_agent.entry.spike_htf_trend_gate.detect_htf_sr_breakout",
+        return_value=(True, 150.0),
+    ):
+        d = evaluate_spike_htf_klines("BUY", {"60": bars}, htf)
+    assert d.allowed is True
+    assert "broke resistance" in d.reason
+    assert "allow" in d.reason
+
+
+def test_sr_no_context_still_blocks_against_trend():
+    htf = SpikeHtfConfig(
+        enabled=True,
+        intervals=("60",),
+        sr_context_enabled=True,
+        sr_near_pct=0.35,
+        allow_against_at_sr=True,
+        allow_against_on_breakout=True,
+    )
+    bars = _bars_trend("down")
+    price = float(bars[-1]["close"])
+    with patch(
+        "prd_agent.entry.spike_htf_trend_gate.detect_htf_sr_breakout",
+        return_value=(False, 0.0),
+    ), patch(
+        "prd_agent.entry.spike_htf_trend_gate._zone_ctx_from_klines",
+        return_value=_fake_mid_ctx(price),
+    ):
+        d = evaluate_spike_htf_klines("BUY", {"60": bars}, htf)
+    assert d.allowed is False
+    assert "no SR context" in d.reason
+    assert "block" in d.reason
+
+
+def test_with_trend_allows_without_sr():
+    """Сигнал по тренду — S/R не нужен."""
+    htf = SpikeHtfConfig(
+        enabled=True,
+        intervals=("60",),
+        sr_context_enabled=True,
+    )
+    d = evaluate_spike_htf_klines("BUY", {"60": _bars_trend("up")}, htf)
+    assert d.allowed is True
+    assert "with bullish" in d.reason
+
+
+def test_evaluate_against_sr_disabled_blocks():
+    htf = SpikeHtfConfig(
+        enabled=True,
+        sr_context_enabled=False,
+        allow_against_at_sr=True,
+        allow_against_on_breakout=True,
+    )
+    d = evaluate_against_trend_sr_context(
+        "BUY",
+        trend=HtfTrend.BEARISH,
+        klines=_bars_trend("down"),
+        htf_cfg=htf,
+        interval="60",
+    )
+    assert d.allowed is False
+    assert "no SR context" in d.reason
