@@ -1,24 +1,26 @@
 # Active Context
 
-**Дата фокуса:** 23.07.2026 (UTC+3)  
-**Ветки дня:** 23.07.26-PRD-BOT-ALL / 23.07.26-AGENT-WORLD
+**Дата фокуса:** 24.07.2026 (UTC+3)  
+**Ветки дня:** веток `24.07.26-*` на remote ещё нет; актуальные tip: `23.07.26-AGENT-WORLD` / `23.07.26-PRD-BOT-ALL`
 
 ## Текущий фокус
 
-1. **Срочно восстановлено: reverse/opposite signal EXIT** — при обратном сигнале market-close на Bybit.
-   - Было в 72f2f4c (30.06.26), **не попало** в дневные ветки июля → для CBRSUSDT own_multi_agent только skip без закрытия.
-   - Сейчас: orchestrator + scanner/SPIKE (close_on_reversal), config ON прод+AW.
-   - Маркер лога: Opposite signal EXIT SYMBOL ...
-2. Zone fallback volume_guard (уже в tip на обеих ветках).
+1. **SPIKE HTF-фильтр (после убытка BANKUSDT)** — код готов, commit/push по просьбе.
+   - Причина: SPIKE смотрит только 15m импульс, **не** сверял с 1h трендом.
+   - Фикс: `require_htf_trend_align` — блок против HTF (EMA21/55 на 1h).
+   - Config: AW `true`, prod `false`.
+   - Маркер лога: `SPIKE HTF SYMBOL BUY/SELL: allowed=...` / `skipped spike_htf`.
+2. Ранее: reverse/opposite signal EXIT восстановлен (23.07).
 
 ## Открытые вопросы / TODO
 
-- [ ] Деплой обеих веток после push
-- [ ] Проверка: grep "Opposite signal EXIT" в bot.log / journalctl
-- [ ] Soak Companion + GARCH на AW
+- [ ] Commit + push в обе дневные ветки (создать `24.07.26-*` при push)
+- [ ] Деплой AW: install config + restart → grep `SPIKE HTF` / `spike_htf`
+- [ ] После soak на AW — решить, включать ли на проде
 
 ## Маркеры логов
 
-- Opposite signal EXIT CBRSUSDT open=Buy signal=SELL ...
-- Zone entry blocked ... volume_guard...
-- Volatility regime / TRADE COMPANION
+- `SPIKE HTF BANKUSDT BUY: allowed=False trend=bearish htf_align: BUY against bearish (60)`
+- `Market scanner exec skipped spike_htf: ...`
+- `Opposite signal EXIT ...`
+- `Volatility regime` / `TRADE COMPANION`

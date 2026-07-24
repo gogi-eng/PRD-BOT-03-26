@@ -719,6 +719,11 @@ market_scanner:
       absorption_ratio: 1.2
       synthetic_retrace_pct: 0.20
       watchlist_max: 12
+    # SPIKE vs 1h тренд: на проде OFF до проверки на песочнице.
+    require_htf_trend_align: false
+    htf_trend_intervals: ["60"]
+    htf_allow_neutral: true
+    htf_kline_limit: 80
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true
