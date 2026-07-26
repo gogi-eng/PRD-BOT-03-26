@@ -64,6 +64,10 @@ from prd_agent.ops.bot_manager import BotManagerAgent
 from prd_agent.ops.runtime_controls import is_signal_only_active, load_runtime_controls
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
+from prd_agent.positions.opposite_signal_policy import (
+    lookup_open_entry_meta,
+    should_skip_opposite_exit_for_spike_own,
+)
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -186,6 +190,8 @@ class UnifiedOrchestrator:
             self._reverse_signal_close = bool(opp.get("enabled"))
         else:
             self._reverse_signal_close = bool(p.get("reverse_signal_close_enabled", True))
+        # SPIKE + own opposite → не закрывать (DEXE-кейс). Default ON.
+        self._skip_spike_on_own_opposite = bool(opp.get("skip_spike_on_own_signal", True))
 
     def _apply_sr_zones_config(self) -> None:
         sr = self.cfg.get("execution_sr_zones", {})
@@ -738,12 +744,35 @@ class UnifiedOrchestrator:
         """
         Позиция по символу уже открыта:
         - тот же side → тихо игнор (без ledger / Telegram);
-        - обратный side → срочное закрытие на бирже (если включено в config).
+        - обратный side → срочное закрытие на бирже (если включено в config);
+        - SPIKE + own-сигнал → не закрывать (skip_spike_on_own_signal).
         """
         sym = sig.symbol.upper()
         pos_side = str(pos_row.get("side", "") or "")
         if trade_sides_opposite(sig.side, pos_side):
             if self._reverse_signal_close:
+                pos_cfg = (
+                    self.cfg.get("positions", {})
+                    if isinstance(self.cfg.get("positions"), dict)
+                    else {}
+                )
+                open_src, open_pd = lookup_open_entry_meta(self.data_dir, sym)
+                if should_skip_opposite_exit_for_spike_own(
+                    position_source=open_src,
+                    position_pump_dump=open_pd,
+                    signal_source=str(sig.source or ""),
+                    positions_cfg=pos_cfg,
+                ):
+                    logger.info(
+                        "Opposite signal EXIT skipped SPIKE %s open=%s signal=%s "
+                        "pos_src=%s sig_src=%s (skip_spike_on_own_signal)",
+                        sym,
+                        pos_side,
+                        sig.side,
+                        open_src or "?",
+                        sig.source,
+                    )
+                    return
                 await self._close_on_reverse_signal(sig, pos_row)
         else:
             logger.debug(

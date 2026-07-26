@@ -330,6 +330,8 @@ positions:
   reverse_signal_close_enabled: true
   opposite_signal_exit:
     enabled: true
+    # SPIKE не закрывать по обратному own-сигналу (кейс DEXE)
+    skip_spike_on_own_signal: true
   trailing_enabled: true
   lock_initial_sl: false
   trailing_activation_pct: 2.0
