@@ -1,30 +1,23 @@
 # Active Context
 
-**Дата фокуса:** 24.07.2026 (UTC+3)  
-**Ветки дня:** `24.07.26-AGENT-WORLD` (локально); tip HTF+SR — не закоммичен до просьбы
+**Дата фокуса:** 26.07.2026 (UTC+3)  
+**Ветки дня (для push):** `26.07.26-PRD-BOT-ALL` / `26.07.26-AGENT-WORLD`  
+**База tip GitHub:** `24.07.26-*` (на GitHub ещё нет 25/26)
 
 ## Текущий фокус
 
-1. **SPIKE HTF + S/R контекст** — код готов, commit/push по просьбе.
-   - База: `require_htf_trend_align` — блок против 1h EMA21/55.
-   - Новое: при `htf_sr_context_enabled` против тренда **разрешить**, если:
-     - разворот у S/R (BUY у support / SELL у resistance), или
-     - пробой уровня в сторону сигнала (продолжение).
-   - Без S/R-контекста против тренда — **блок** (как BANKUSDT).
-   - Config: AW `require_htf_trend_align: true` + `htf_sr_context_enabled: true`; prod оба/align `false`, sr `false`.
-2. Ранее: reverse/opposite signal EXIT восстановлен (23.07).
+1. **SPIKE ≠ opposite own EXIT** (готово локально, push по просьбе):
+   - `opposite_signal_exit.skip_spike_on_own_signal: true` (default ON)
+   - Модуль `prd_agent/positions/opposite_signal_policy.py`
+   - Маркер лога: `Opposite signal EXIT skipped SPIKE`
+   - Тесты: `test_opposite_signal_spike_skip.py` (8 passed)
+   - Причина: DEXE 24.07 — SPIKE SELL закрыт own Buy (−5.74 USDT)
 
-## Открытые вопросы / TODO
+2. OmniRoute на ПК — только Chat Cursor, не Agent; боты не трогаем.
 
-- [ ] Commit + push в обе дневные ветки (`24.07.26-*`)
-- [ ] Деплой AW: install config + restart → grep `SPIKE HTF` / `near support` / `broke` / `no SR context`
-- [ ] После soak на AW — решить, включать ли на проде
+3. Прод/песочница: алгоритмы выровнены ранее (Companion, GARCH, Zone, SPIKE loops).
 
-## Маркеры логов
+## Не смешивать
 
-- `SPIKE HTF SYMBOL BUY: allowed=True ... against bearish but near support ... → allow`
-- `SPIKE HTF SYMBOL BUY: allowed=True ... against bearish but broke resistance ... → allow`
-- `SPIKE HTF SYMBOL BUY: allowed=False ... against bearish + no SR context → block`
-- `Market scanner exec skipped spike_htf: ...`
-- `Opposite signal EXIT ...`
-- `Volatility regime` / `TRADE COMPANION`
+- `/root/PRD-BOT-ALL` ← только `*-PRD-BOT-ALL`
+- `/root/AGENT-WORLD` ← только `*-AGENT-WORLD`

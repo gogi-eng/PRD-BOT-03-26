@@ -1,30 +1,15 @@
 # Progress
 
-## Сделано (24.07.2026)
+## Сделано (26.07.2026)
 
-### SPIKE HTF + S/R (разворот / пробой)
-- [x] `spike_htf_trend_gate.py`: против 1h тренда — allow у S/R или после breakout; иначе block
-- [x] Ключи: `htf_sr_context_enabled`, `htf_sr_near_pct`, `htf_allow_against_at_sr`, `htf_allow_against_on_breakout`
-- [x] AW ON / prod OFF; тесты `test_spike_htf_trend_gate.py` — 17 passed
-- [ ] Commit/push/деплой — по просьбе
-
-### SPIKE vs 1h тренд (BANKUSDT)
-- [x] Разбор: SPIKE = 15m импульс, HTF/1h align в пути входа не было
-- [x] Модуль `prd_agent/entry/spike_htf_trend_gate.py` + проводка в `telegram_signal_agent._try_execute_market_setup`
-- [x] Config: AW `require_htf_trend_align: true`, prod `false`; intervals `["60"]`
-- [x] Тесты `test_spike_htf_trend_gate.py` — green
-- [ ] Commit/push/деплой — по просьбе
-
-## Сделано (23.07.2026)
-
-### CBRSUSDT own_multi_agent (volume_guard bypass)
-- [x] Анализ: источник OWN, не SPIKE; zone fallback игнорировал volume_guard vol=0
-- [x] Блок fallback при volume_guard (`entry_engine_bridge`)
-- [x] Soft caution/weak режет size; orch применяет size_mult < 1
-- [x] Тесты `test_zone_fallback_volume_guard.py` — 5 passed
-- [ ] Commit/push/деплой — по просьбе
+### Opposite EXIT: не сносить SPIKE own-сигналом
+- [x] `opposite_signal_policy.py` + wiring в orchestrator
+- [x] Config `skip_spike_on_own_signal: true` (deploy prod + AW + live yaml)
+- [x] Тесты 8 passed; маркер `Opposite signal EXIT skipped SPIKE`
+- [ ] Push обе ветки `26.07.26-*` + деплой (по просьбе)
 
 ## Сделано (21–22.07.2026)
+
 
 ### Memory Bank
 - [x] Канон `.cursor/memory-bank/` + `memory-bank.mdc` (alwaysApply)
