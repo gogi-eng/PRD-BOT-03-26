@@ -2,11 +2,17 @@
 
 ## Сделано (26.07.2026)
 
+### Длинный трейлинг (26.07)
+- [x] Config: distance 3.5%, atr 2.2, min 1.8%, adaptive tight 0.85, late_tighten 1.0 / SPIKE 0.90
+- [x] deploy prod + AW + live config.yaml (оба workspace)
+- [ ] Push `26.07.26-*` + деплой (по просьбе)
+
 ### Opposite EXIT: не сносить SPIKE own-сигналом
 - [x] `opposite_signal_policy.py` + wiring в orchestrator
 - [x] Config `skip_spike_on_own_signal: true` (deploy prod + AW + live yaml)
 - [x] Тесты 8 passed; маркер `Opposite signal EXIT skipped SPIKE`
-- [ ] Push обе ветки `26.07.26-*` + деплой (по просьбе)
+- [x] Push обе ветки `26.07.26-*` + деплой (по просьбе)
+  - PRD: `8e882ab` · AW: `a6948d3`
 
 ## Сделано (21–22.07.2026)
 

@@ -6,16 +6,9 @@
 
 ## Текущий фокус
 
-1. **SPIKE ≠ opposite own EXIT** (готово локально, push по просьбе):
-   - `opposite_signal_exit.skip_spike_on_own_signal: true` (default ON)
-   - Модуль `prd_agent/positions/opposite_signal_policy.py`
-   - Маркер лога: `Opposite signal EXIT skipped SPIKE`
-   - Тесты: `test_opposite_signal_spike_skip.py` (8 passed)
-   - Причина: DEXE 24.07 — SPIKE SELL закрыт own Buy (−5.74 USDT)
-
-2. OmniRoute на ПК — только Chat Cursor, не Agent; боты не трогаем.
-
-3. Прод/песочница: алгоритмы выровнены ранее (Companion, GARCH, Zone, SPIKE loops).
+1. **SPIKE ≠ opposite own EXIT** — на GitHub: PRD `8e882ab` / AW `a6948d3` (деплой командami).
+2. **Длинный трейлинг (26.07, локально):** distance 3.5%, atr×2.2, min 1.8%, adaptive tight 0.85 — ждать push/деплой.
+3. OmniRoute на ПК — только Chat; боты не трогаем.
 
 ## Не смешивать
 

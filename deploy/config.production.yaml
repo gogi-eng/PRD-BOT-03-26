@@ -333,11 +333,12 @@ positions:
     # SPIKE не закрывать по обратному own-сигналу (кейс DEXE)
     skip_spike_on_own_signal: true
   trailing_enabled: true
+  # 26.07: длинный трейлинг — больше запас на откат (не закрывать у локального min/max)
   lock_initial_sl: false
-  trailing_activation_pct: 2.0
-  trailing_distance_pct: 2.0
-  trailing_distance_atr_mult: 1.45
-  trailing_min_distance_pct: 1.0
+  trailing_activation_pct: 2.5
+  trailing_distance_pct: 3.5
+  trailing_distance_atr_mult: 2.2
+  trailing_min_distance_pct: 1.8
   breakeven_after_pct: 2.0
   notify_trailing_telegram: false
   exit_management:
@@ -352,7 +353,7 @@ positions:
     late_breakeven_enabled: true
     late_breakeven_retrace_pct: 40
     close_on_late_retrace: false
-    late_tighten_distance_factor: 0.85
+    late_tighten_distance_factor: 1.0
   tp_progress_exit:
     enabled: true
     breakeven_at_profit_pct: 1.0
@@ -376,14 +377,14 @@ positions:
     funding_reserve_hours: 24
     funding_rate_cap: 0.001
   pump_dump_trailing:
-    trailing_activation_pct: 2.0
-    trailing_distance_pct: 2.0
-    trailing_distance_atr_mult: 1.45
-    trailing_min_distance_pct: 1.0
+    trailing_activation_pct: 2.5
+    trailing_distance_pct: 3.5
+    trailing_distance_atr_mult: 2.2
+    trailing_min_distance_pct: 1.8
     breakeven_after_pct: 2.0
     exit_management:
       early_breakeven_enabled: false
-      late_tighten_distance_factor: 0.65
+      late_tighten_distance_factor: 0.90
     tp_progress_exit:
       enabled: true
       breakeven_at_profit_pct: 1.0
@@ -394,13 +395,13 @@ positions:
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
       min_valid_tp_distance_pct: 0.08
-  # Быстрое движение в профит (15m) → уже трейлинг; медленное → без изменений
+  # Быстрое движение в профит → слегка уже; не резать почти вдвое (было 0.55)
   adaptive_trailing:
     enabled: true
     lookback_bars: 3
     fast_move_pct: 1.0
     slow_move_pct: 0.3
-    tight_distance_factor: 0.55
+    tight_distance_factor: 0.85
     normal_distance_factor: 1.0
     apply_to_manual: true
     apply_to_pump_dump: true
