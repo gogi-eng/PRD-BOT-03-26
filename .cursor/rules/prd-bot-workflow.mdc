@@ -223,6 +223,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | SPIKE | **Свои run_loop в spike_scalp** | `market_scanner_bridge.py`, `pump_dump_spike_scan.py` | `spike_scalp.run_loop_in_unified_bot` / `run_loop_in_signal_agent`; не путать с `market_scanner.run_loop_*` |
 | SPIKE прод | **цикл в signal agent** | `deploy/config.production.yaml` | `spike_scalp.run_loop_in_signal_agent: true`; иначе enabled=true, но цикл не стартует |
 | Деплой AGENT-WORLD | **reset + install config** | `deploy_agent_world_algo.sh` | После `git reset` обязателен `install_agent_world_config.sh`; иначе SPIKE отключится |
+| SPIKE | **не opposite own EXIT** | `opposite_signal_policy.py`, orchestrator | `skip_spike_on_own_signal: true`; маркер `Opposite signal EXIT skipped SPIKE` |
 | Telegram | **Bybit AI ≠ Hermes** | `orchestrator.py`, `control_bot.py`, `bybit_monitor.py` | Кнопка `bybit_monitor` → `get_bybit_monitor_report()`; отключение Hermes **не** удаляет bybit_monitor |
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
