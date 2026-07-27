@@ -161,6 +161,41 @@ def opposite_exit_cfg(positions_cfg: Optional[Mapping[str, Any]]) -> Dict[str, A
     return dict(opp)
 
 
+def signal_confidence_pct(confidence: Any) -> float:
+    conf = float(confidence or 0)
+    return conf * 100.0 if conf <= 1.0 else conf
+
+
+def opposite_exit_min_confidence_pct(positions_cfg: Optional[Mapping[str, Any]]) -> float:
+    return float(opposite_exit_cfg(positions_cfg).get("min_confidence_pct", 0) or 0)
+
+
+def opposite_exit_min_hold_min(positions_cfg: Optional[Mapping[str, Any]]) -> float:
+    return float(opposite_exit_cfg(positions_cfg).get("min_position_age_min", 0) or 0)
+
+
+def should_block_opposite_exit_for_weak_or_young(
+    *,
+    confidence: Any,
+    position_age_min: Optional[float],
+    positions_cfg: Optional[Mapping[str, Any]] = None,
+) -> tuple[bool, str]:
+    """
+    True = не закрывать по обратному сигналу (слишком молодая позиция / слабый conf).
+  """
+    min_conf = opposite_exit_min_confidence_pct(positions_cfg)
+    conf_pct = signal_confidence_pct(confidence)
+    if min_conf > 0 and conf_pct < min_conf:
+        return True, f"conf {conf_pct:.0f}%<{min_conf:.0f}%"
+    min_age = opposite_exit_min_hold_min(positions_cfg)
+    if min_age > 0:
+        if position_age_min is None:
+            return True, "position_age_unknown"
+        if position_age_min < min_age:
+            return True, f"age {position_age_min:.1f}min<{min_age:.0f}min"
+    return False, ""
+
+
 def should_skip_opposite_exit_for_spike_own(
     *,
     position_source: str,

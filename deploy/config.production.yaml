@@ -332,6 +332,9 @@ positions:
     enabled: true
     # SPIKE не закрывать по обратному own-сигналу (кейс DEXE)
     skip_spike_on_own_signal: true
+    # 0 = без задержки; после проверки на AW поднять до 20
+    min_position_age_min: 0
+    min_confidence_pct: 0
   trailing_enabled: true
   # 26.07: длинный трейлинг — больше запас на откат (не закрывать у локального min/max)
   lock_initial_sl: false
