@@ -66,8 +66,10 @@ from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
 from prd_agent.positions.opposite_signal_policy import (
     lookup_open_entry_meta,
+    should_block_opposite_exit_for_weak_or_young,
     should_skip_opposite_exit_for_spike_own,
 )
+from prd_agent.positions.scanner_reversal_sl import position_age_minutes
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -771,6 +773,21 @@ class UnifiedOrchestrator:
                         sig.side,
                         open_src or "?",
                         sig.source,
+                    )
+                    return
+                pos_age = position_age_minutes(pos_row)
+                blocked, block_why = should_block_opposite_exit_for_weak_or_young(
+                    confidence=sig.confidence,
+                    position_age_min=pos_age,
+                    positions_cfg=pos_cfg,
+                )
+                if blocked:
+                    logger.info(
+                        "Opposite signal EXIT skipped %s open=%s signal=%s: %s",
+                        sym,
+                        pos_side,
+                        sig.side,
+                        block_why,
                     )
                     return
                 await self._close_on_reverse_signal(sig, pos_row)

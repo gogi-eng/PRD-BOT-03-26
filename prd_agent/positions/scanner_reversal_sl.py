@@ -175,6 +175,13 @@ def passes_reversal_filters(
         return False, "same_direction"
     if score < int(cfg.get("min_score", 72)):
         return False, f"score<{cfg.get('min_score')}"
+    min_age = float(cfg.get("min_position_age_min", 0) or 0)
+    if min_age > 0:
+        age = position_age_minutes(position, now=now)
+        if age is None:
+            return False, "position_age_unknown"
+        if age < min_age:
+            return False, f"age<{min_age}min"
     # При срочном закрытии BOS не обязателен (иначе слабый DUMP не закроет LONG).
     require_bos = bool(cfg.get("require_confirmed_bos", False))
     if bool(cfg.get("close_on_reversal", True)):

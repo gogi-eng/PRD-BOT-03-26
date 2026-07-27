@@ -351,6 +351,9 @@ positions:
     enabled: true
     # SPIKE не закрывать по обратному own-сигналу (кейс DEXE)
     skip_spike_on_own_signal: true
+    # Песочница: не закрывать младше 20 мин / слабее 68% (кейс XAUUSDT 15 мин flip)
+    min_position_age_min: 20
+    min_confidence_pct: 68
   lock_initial_sl: false
   trailing_activation_pct: 2.5
   trailing_distance_pct: 3.5
@@ -770,7 +773,7 @@ market_scanner:
     tighten_sl: false
     min_score: 72
     require_confirmed_bos: false
-    min_position_age_min: 0
+    min_position_age_min: 20
     tighten_from_mark_pct: 0.35
     entry_buffer_pct: 0.05
     min_sl_improve_pct: 0.03
