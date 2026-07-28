@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from prd_agent.analysis.wallet_flow_agent import (
     StubSwapProvider,
     SwapEvent,
     WalletFlowAgent,
+    WalletRecommendation,
     map_token_to_bybit_symbol,
     wallet_tracker_enabled,
 )
@@ -173,3 +176,139 @@ def test_ignore_unmapped_trash(tmp_path: Path) -> None:
         cfg, tmp_path, provider=StubSwapProvider(events), time_fn=lambda: clock["t"]
     )
     assert agent.build_recommendations(events) == []
+
+
+class _FakeNotifier:
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    async def wallet_flow_advice(self, symbol, bias, conf, reason="", label="", usd_volume=0.0):
+        self.calls.append(
+            {
+                "symbol": symbol,
+                "bias": bias,
+                "conf": conf,
+                "reason": reason,
+                "label": label,
+                "usd_volume": usd_volume,
+            }
+        )
+        return True
+
+
+@pytest.mark.asyncio
+async def test_telegram_notify_false_does_not_send(tmp_path: Path) -> None:
+    clock = {"t": 2_000_000.0}
+    w1 = "0x3333333333333333333333333333333333333333"
+    events = [SwapEvent(w1, "eth", "LINK", "0xl", "buy", 20_000.0, 1.0, "a", "whale_a")]
+    cfg = {
+        "wallet_tracker": {
+            "enabled": True,
+            "telegram_notify": False,
+            "min_swap_usd": 5000,
+            "symbol_cooldown_sec": 1800,
+            "watches": [{"address": w1, "label": "whale_a"}],
+        }
+    }
+    agent = WalletFlowAgent(
+        cfg, tmp_path, provider=StubSwapProvider(events), time_fn=lambda: clock["t"]
+    )
+    notifier = _FakeNotifier()
+    recs = agent.build_recommendations(events)
+    assert len(recs) == 1
+    sent = await agent.maybe_notify_telegram(notifier, recs)
+    assert sent == 0
+    assert notifier.calls == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_notify_sends_advice(tmp_path: Path) -> None:
+    clock = {"t": 3_000_000.0}
+    w1 = "0x4444444444444444444444444444444444444444"
+    events = [SwapEvent(w1, "eth", "PEPE", "0xp", "buy", 15_000.0, 1.0, "b", "smart_1")]
+    cfg = {
+        "wallet_tracker": {
+            "enabled": True,
+            "telegram_notify": True,
+            "min_swap_usd": 5000,
+            "symbol_cooldown_sec": 1800,
+            "watches": [{"address": w1, "label": "smart_1"}],
+        }
+    }
+    agent = WalletFlowAgent(
+        cfg, tmp_path, provider=StubSwapProvider(events), time_fn=lambda: clock["t"]
+    )
+    notifier = _FakeNotifier()
+    recs = agent.build_recommendations(events)
+    assert len(recs) == 1
+    assert recs[0].labels == "smart_1"
+    sent = await agent.maybe_notify_telegram(notifier, recs)
+    assert sent == 1
+    assert len(notifier.calls) == 1
+    call = notifier.calls[0]
+    assert call["symbol"] == "1000PEPEUSDT"
+    assert call["bias"] == "long"
+    assert call["label"] == "smart_1"
+    assert call["conf"] > 0.3
+    assert "watch wallets" in call["reason"]
+
+
+@pytest.mark.asyncio
+async def test_telegram_dedup_symbol_side(tmp_path: Path) -> None:
+    clock = {"t": 4_000_000.0}
+    w1 = "0x5555555555555555555555555555555555555555"
+    events = [SwapEvent(w1, "eth", "SOL", "0xs", "buy", 25_000.0, 1.0, "c", "lab")]
+    cfg = {
+        "wallet_tracker": {
+            "enabled": True,
+            "telegram_notify": True,
+            "min_swap_usd": 5000,
+            "symbol_cooldown_sec": 1800,
+            "watches": [{"address": w1, "label": "lab"}],
+        }
+    }
+    agent = WalletFlowAgent(
+        cfg, tmp_path, provider=StubSwapProvider(events), time_fn=lambda: clock["t"]
+    )
+    rec = WalletRecommendation(
+        symbol="SOLUSDT",
+        bias="long",
+        confidence=0.7,
+        reason="test",
+        labels="lab",
+        usd_volume=25000.0,
+        created_at=clock["t"],
+        expires_at=clock["t"] + 3600,
+    )
+    notifier = _FakeNotifier()
+    assert await agent.maybe_notify_telegram(notifier, [rec]) == 1
+    assert await agent.maybe_notify_telegram(notifier, [rec]) == 0
+    assert len(notifier.calls) == 1
+    clock["t"] += 1801
+    assert await agent.maybe_notify_telegram(notifier, [rec]) == 1
+    assert len(notifier.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_poll_and_recommend_passes_notifier(tmp_path: Path) -> None:
+    clock = {"t": 5_000_000.0}
+    w1 = "0x6666666666666666666666666666666666666666"
+    events = [SwapEvent(w1, "eth", "ETH", "0xe", "sell", 30_000.0, 1.0, "d", "exit_whale")]
+    cfg = {
+        "wallet_tracker": {
+            "enabled": True,
+            "telegram_notify": True,
+            "min_swap_usd": 5000,
+            "symbol_cooldown_sec": 1800,
+            "watches": [{"address": w1, "label": "exit_whale"}],
+        }
+    }
+    agent = WalletFlowAgent(
+        cfg, tmp_path, provider=StubSwapProvider(events), time_fn=lambda: clock["t"]
+    )
+    notifier = _FakeNotifier()
+    recs = await agent.poll_and_recommend(notifier=notifier)
+    assert len(recs) == 1
+    assert recs[0].bias == "short"
+    assert len(notifier.calls) == 1
+    assert notifier.calls[0]["bias"] == "short"

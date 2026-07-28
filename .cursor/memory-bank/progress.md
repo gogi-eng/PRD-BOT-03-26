@@ -6,6 +6,7 @@
 - [x] Код: `prd_agent/analysis/wallet_flow_agent.py` (Debank/Etherscan/Stub)
 - [x] Orchestrator: init + loop + `get_wallet_tracker_report` + soft match log
 - [x] Config AW ON / prod OFF
+- [x] Telegram советы: `telegram_notify` + `notifier.wallet_flow_advice` (дедуп symbol+side)
 - [x] Docs: video notes + wallet_tracker_readme + план лайта фаза 1.5
 - [x] Тесты: `backend/tests/test_wallet_tracker_agent.py`
 - [x] Push AW `d6be89a` + ветка `28.07.26-PRD-BOT-ALL` (prod enabled:false)
