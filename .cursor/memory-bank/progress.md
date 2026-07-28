@@ -2,11 +2,19 @@
 
 ## Сделано (28.07.2026)
 
+### Wallet Tracker v1 (advisory on-chain watches)
+- [x] Код: `prd_agent/analysis/wallet_flow_agent.py` (Debank/Etherscan/Stub)
+- [x] Orchestrator: init + loop + `get_wallet_tracker_report` + soft match log
+- [x] Config AW ON / prod OFF
+- [x] Docs: video notes + wallet_tracker_readme + план лайта фаза 1.5
+- [x] Тесты: `backend/tests/test_wallet_tracker_agent.py`
+- [ ] Push `28.07.26-AGENT-WORLD` + cherry-pick `28.07.26-PRD-BOT-ALL`
+
 ### ЛАЙТ песочница (только AGENT-WORLD)
 - [x] План: `docs/plans/28.07.26-agent-world-lite-sandbox.md`
 - [x] Config AW: `min_volume_ratio` 1.40, `min_retrace_pct` 0.18, `symbol_cooldown_sec` 2400
-- [x] Прод yaml **не** трогали
-- [ ] Push `28.07.26-AGENT-WORLD` + деплой AW (по просьбе / в этом ходе)
+- [x] Прод yaml **не** трогали (лайт knobs)
+- [ ] Push / деплой по просьбе
 
 ## Сделано (26.07.2026)
 
