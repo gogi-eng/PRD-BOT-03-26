@@ -6,7 +6,7 @@
 - [x] Лайт-сигнал / «почему нет» в конце `liquid_pairs_latest.md` + JSON
 - [x] Отправка Bot API (`--telegram` / `LIQUID_PAIRS_TELEGRAM=1`); PS1 hourly включает `--telegram`
 - [x] Тесты: `backend/tests/test_hourly_liquid_pairs_signal.py` (10 passed)
-- [ ] Push обе ветки `28.07.26-*` (по просьбе)
+- [x] Push: AW `485d9a0` · PRD `a7322c5`
 
 ### Wallet Tracker v1 (advisory on-chain watches)
 - [x] Код: `prd_agent/analysis/wallet_flow_agent.py` (Debank/Etherscan/Stub)
