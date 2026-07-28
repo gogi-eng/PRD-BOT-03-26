@@ -1,137 +1,144 @@
 {
-    "schema":  1,
-    "updated_at":  "2026-07-02T18:34:43",
-    "timezone":  "UTC+3",
-    "source_root":  "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode\\agent-transcripts",
-    "session_count":  12,
-    "files":  [
-                  {
-                      "session_id":  "3413c6eb-58d6-4faf-a092-de2db9a2d693",
-                      "kind":  "main",
-                      "rel_path":  "sessions/3413c6eb-58d6-4faf-a092-de2db9a2d693/3413c6eb-58d6-4faf-a092-de2db9a2d693.jsonl",
-                      "bytes":  574806,
-                      "sha256_src":  "dda0b0d8dbeb95e1d5fbfce17489973211a1e60e85a807e53dc885f8bad8952b",
-                      "mtime_src":  "2026-05-21T18:56:37.0213463Z"
-                  },
-                  {
-                      "session_id":  "ce7bd930-29c0-483b-9a6f-87acf619b0c4",
-                      "kind":  "main",
-                      "rel_path":  "sessions/ce7bd930-29c0-483b-9a6f-87acf619b0c4/ce7bd930-29c0-483b-9a6f-87acf619b0c4.jsonl",
-                      "bytes":  280819,
-                      "sha256_src":  "d7d4f0d3a1b8f2733aab933212a36bc310d1cb474da1dbc860786008070d5248",
-                      "mtime_src":  "2026-05-19T19:12:31.5971219Z"
-                  },
-                  {
-                      "session_id":  "03e322bb-926b-413a-906a-05e9d346ce40",
-                      "kind":  "main",
-                      "rel_path":  "sessions/03e322bb-926b-413a-906a-05e9d346ce40/03e322bb-926b-413a-906a-05e9d346ce40.jsonl",
-                      "bytes":  35557,
-                      "sha256_src":  "43af947b7c83a901b072cf46ae79ce5430e8b9e7b8ab8871bd395bf088da469b",
-                      "mtime_src":  "2026-05-09T13:39:07.8168979Z"
-                  },
-                  {
-                      "session_id":  "0983e13a-4cae-4d78-b65e-9f35a5536895",
-                      "kind":  "main",
-                      "rel_path":  "sessions/0983e13a-4cae-4d78-b65e-9f35a5536895/0983e13a-4cae-4d78-b65e-9f35a5536895.jsonl",
-                      "bytes":  1254054,
-                      "sha256_src":  "07c87655820f4820e654998f5e17c497b3de3f686b8643d7511d6bde236af80c",
-                      "mtime_src":  "2026-06-14T20:59:52.0499330Z"
-                  },
-                  {
-                      "session_id":  "d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc",
-                      "kind":  "main",
-                      "rel_path":  "sessions/d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc/d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc.jsonl",
-                      "bytes":  87369,
-                      "sha256_src":  "7be86c031ecbd83fa9c1ab77c09efa36124215e04ce4dbe8272c5c1453646fbd",
-                      "mtime_src":  "2026-06-30T18:17:21.9069367Z"
-                  },
-                  {
-                      "session_id":  "c371d645-a55a-485a-8b98-6788f6c42a48",
-                      "kind":  "subagent",
-                      "rel_path":  "sessions/c371d645-a55a-485a-8b98-6788f6c42a48/subagents/3ebe8af6-d28b-47ab-a994-d9f7702fb93c.jsonl",
-                      "bytes":  26280,
-                      "sha256_src":  "f8c638154543a07bc7b9d1dc163eb1abfa69ec6bcc414038dd0a36296995fed4",
-                      "mtime_src":  "2026-06-07T05:09:00.1479061Z"
-                  },
-                  {
-                      "session_id":  "ce7bd930-29c0-483b-9a6f-87acf619b0c4",
-                      "kind":  "subagent",
-                      "rel_path":  "sessions/ce7bd930-29c0-483b-9a6f-87acf619b0c4/subagents/d21f787b-6e87-487a-9bb9-ee610da15052.jsonl",
-                      "bytes":  21516,
-                      "sha256_src":  "647914256259e4c6ec64a303e0707670c7169870569b664deb60e6792e9bb696",
-                      "mtime_src":  "2026-05-19T18:18:21.3324704Z"
-                  },
-                  {
-                      "session_id":  "c371d645-a55a-485a-8b98-6788f6c42a48",
-                      "kind":  "main",
-                      "rel_path":  "sessions/c371d645-a55a-485a-8b98-6788f6c42a48/c371d645-a55a-485a-8b98-6788f6c42a48.jsonl",
-                      "bytes":  744047,
-                      "sha256_src":  "8d647d9af62e766deeceb94d1c60483ccb14c5baf38c394ca762c7359c3206a9",
-                      "mtime_src":  "2026-06-13T06:21:34.3263732Z"
-                  },
-                  {
-                      "session_id":  "795419be-a9c2-4541-8e26-aa28f759322f",
-                      "kind":  "subagent",
-                      "rel_path":  "sessions/795419be-a9c2-4541-8e26-aa28f759322f/subagents/eca78214-1e9a-4a47-9aa6-ada270d4ccfc.jsonl",
-                      "bytes":  15750,
-                      "sha256_src":  "14488915d28e37d481e0139008418b93c078fc4a66b7c76dafa56403d365ce86",
-                      "mtime_src":  "2026-06-14T20:33:16.8058453Z"
-                  },
-                  {
-                      "session_id":  "795419be-a9c2-4541-8e26-aa28f759322f",
-                      "kind":  "main",
-                      "rel_path":  "sessions/795419be-a9c2-4541-8e26-aa28f759322f/795419be-a9c2-4541-8e26-aa28f759322f.jsonl",
-                      "bytes":  481097,
-                      "sha256_src":  "2d878f6290eb9c1ec7ec6aabb2baa953cee1c95717c053aea7aad96621249ccd",
-                      "mtime_src":  "2026-06-18T19:09:06.9308585Z"
-                  },
-                  {
-                      "session_id":  "b559d4ff-9478-4cfb-87f8-b86edabe865b",
-                      "kind":  "main",
-                      "rel_path":  "sessions/b559d4ff-9478-4cfb-87f8-b86edabe865b/b559d4ff-9478-4cfb-87f8-b86edabe865b.jsonl",
-                      "bytes":  325548,
-                      "sha256_src":  "8df18633c2254ee8795a9f223fd562fcf535aca60d0bb4fb051e61d996d8523d",
-                      "mtime_src":  "2026-04-12T17:53:12.9928050Z"
-                  },
-                  {
-                      "session_id":  "7bca32b9-5af9-4ff7-8215-dccfb0e63aa1",
-                      "kind":  "main",
-                      "rel_path":  "sessions/7bca32b9-5af9-4ff7-8215-dccfb0e63aa1/7bca32b9-5af9-4ff7-8215-dccfb0e63aa1.jsonl",
-                      "bytes":  831541,
-                      "sha256_src":  "8afd775d9fbcfbc4c61d67e53da84dbbb47004dcd79bb66b11bc62ca7870a519",
-                      "mtime_src":  "2026-06-30T16:44:14.1679658Z"
-                  },
-                  {
-                      "session_id":  "d28aca4a-7730-494c-9b2b-479619bb16f4",
-                      "kind":  "main",
-                      "rel_path":  "sessions/d28aca4a-7730-494c-9b2b-479619bb16f4/d28aca4a-7730-494c-9b2b-479619bb16f4.jsonl",
-                      "bytes":  2208363,
-                      "sha256_src":  "1a242c22abf06a3d19f5a321988396e65fbed4c1632b0281f65cdd5a01fb5c2c",
-                      "mtime_src":  "2026-06-06T06:42:32.3608830Z"
-                  },
-                  {
-                      "session_id":  "710535cf-9c5a-4b39-8c22-43db434e6e80",
-                      "kind":  "main",
-                      "rel_path":  "sessions/710535cf-9c5a-4b39-8c22-43db434e6e80/710535cf-9c5a-4b39-8c22-43db434e6e80.jsonl",
-                      "bytes":  71598,
-                      "sha256_src":  "f4fbb52a6731a4f4ed1c5a08510b4ec454a943ba64bfdf893ce0e338db1035fa",
-                      "mtime_src":  "2026-06-27T07:41:15.1455321Z"
-                  },
-                  {
-                      "session_id":  "6de56bbf-d14d-4d57-b72d-66d941ff9375",
-                      "kind":  "main",
-                      "rel_path":  "sessions/6de56bbf-d14d-4d57-b72d-66d941ff9375/6de56bbf-d14d-4d57-b72d-66d941ff9375.jsonl",
-                      "bytes":  1220163,
-                      "sha256_src":  "00a1abbbc51027dcaa5af7e90bc666c320e1da9702c497a3897a9cad15dd490c",
-                      "mtime_src":  "2026-06-24T19:02:39.9965277Z"
-                  },
-                  {
-                      "session_id":  "0983e13a-4cae-4d78-b65e-9f35a5536895",
-                      "kind":  "subagent",
-                      "rel_path":  "sessions/0983e13a-4cae-4d78-b65e-9f35a5536895/subagents/015adbea-7bcf-4f34-b034-541ab50cddee.jsonl",
-                      "bytes":  14198,
-                      "sha256_src":  "f7d90e8ad44dc0529535fbed7656fa2a56c5768e3439b7e0b9f836f8d56489ec",
-                      "mtime_src":  "2026-06-13T08:29:46.1970526Z"
-                  }
-              ]
+  "schema": 1,
+  "updated_at": "2026-07-28T16:06:04+03:00",
+  "timezone": "UTC+3",
+  "source_root": "C:\\Users\\Labuh\\.cursor\\projects\\c-Users-Labuh-vscode\\agent-transcripts",
+  "session_count": 12,
+  "files": [
+    {
+      "session_id": "6aae46dd-a66c-41b2-816d-e8b0d328b395",
+      "kind": "summary",
+      "rel_path": "sessions/6aae46dd-a66c-41b2-816d-e8b0d328b395/28.07.26-chat-wallet-tracker-liquid-pairs.md",
+      "title": "28.07.26 Wallet Tracker / liquid pairs / opposite hold",
+      "note": "Human summary only; raw JSONL not committed"
+    },
+    {
+      "session_id": "3413c6eb-58d6-4faf-a092-de2db9a2d693",
+      "kind": "main",
+      "rel_path": "sessions/3413c6eb-58d6-4faf-a092-de2db9a2d693/3413c6eb-58d6-4faf-a092-de2db9a2d693.jsonl",
+      "bytes": 574806,
+      "sha256_src": "dda0b0d8dbeb95e1d5fbfce17489973211a1e60e85a807e53dc885f8bad8952b",
+      "mtime_src": "2026-05-21T18:56:37.0213463Z"
+    },
+    {
+      "session_id": "ce7bd930-29c0-483b-9a6f-87acf619b0c4",
+      "kind": "main",
+      "rel_path": "sessions/ce7bd930-29c0-483b-9a6f-87acf619b0c4/ce7bd930-29c0-483b-9a6f-87acf619b0c4.jsonl",
+      "bytes": 280819,
+      "sha256_src": "d7d4f0d3a1b8f2733aab933212a36bc310d1cb474da1dbc860786008070d5248",
+      "mtime_src": "2026-05-19T19:12:31.5971219Z"
+    },
+    {
+      "session_id": "03e322bb-926b-413a-906a-05e9d346ce40",
+      "kind": "main",
+      "rel_path": "sessions/03e322bb-926b-413a-906a-05e9d346ce40/03e322bb-926b-413a-906a-05e9d346ce40.jsonl",
+      "bytes": 35557,
+      "sha256_src": "43af947b7c83a901b072cf46ae79ce5430e8b9e7b8ab8871bd395bf088da469b",
+      "mtime_src": "2026-05-09T13:39:07.8168979Z"
+    },
+    {
+      "session_id": "0983e13a-4cae-4d78-b65e-9f35a5536895",
+      "kind": "main",
+      "rel_path": "sessions/0983e13a-4cae-4d78-b65e-9f35a5536895/0983e13a-4cae-4d78-b65e-9f35a5536895.jsonl",
+      "bytes": 1254054,
+      "sha256_src": "07c87655820f4820e654998f5e17c497b3de3f686b8643d7511d6bde236af80c",
+      "mtime_src": "2026-06-14T20:59:52.0499330Z"
+    },
+    {
+      "session_id": "d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc",
+      "kind": "main",
+      "rel_path": "sessions/d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc/d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc.jsonl",
+      "bytes": 87369,
+      "sha256_src": "7be86c031ecbd83fa9c1ab77c09efa36124215e04ce4dbe8272c5c1453646fbd",
+      "mtime_src": "2026-06-30T18:17:21.9069367Z"
+    },
+    {
+      "session_id": "c371d645-a55a-485a-8b98-6788f6c42a48",
+      "kind": "subagent",
+      "rel_path": "sessions/c371d645-a55a-485a-8b98-6788f6c42a48/subagents/3ebe8af6-d28b-47ab-a994-d9f7702fb93c.jsonl",
+      "bytes": 26280,
+      "sha256_src": "f8c638154543a07bc7b9d1dc163eb1abfa69ec6bcc414038dd0a36296995fed4",
+      "mtime_src": "2026-06-07T05:09:00.1479061Z"
+    },
+    {
+      "session_id": "ce7bd930-29c0-483b-9a6f-87acf619b0c4",
+      "kind": "subagent",
+      "rel_path": "sessions/ce7bd930-29c0-483b-9a6f-87acf619b0c4/subagents/d21f787b-6e87-487a-9bb9-ee610da15052.jsonl",
+      "bytes": 21516,
+      "sha256_src": "647914256259e4c6ec64a303e0707670c7169870569b664deb60e6792e9bb696",
+      "mtime_src": "2026-05-19T18:18:21.3324704Z"
+    },
+    {
+      "session_id": "c371d645-a55a-485a-8b98-6788f6c42a48",
+      "kind": "main",
+      "rel_path": "sessions/c371d645-a55a-485a-8b98-6788f6c42a48/c371d645-a55a-485a-8b98-6788f6c42a48.jsonl",
+      "bytes": 744047,
+      "sha256_src": "8d647d9af62e766deeceb94d1c60483ccb14c5baf38c394ca762c7359c3206a9",
+      "mtime_src": "2026-06-13T06:21:34.3263732Z"
+    },
+    {
+      "session_id": "795419be-a9c2-4541-8e26-aa28f759322f",
+      "kind": "subagent",
+      "rel_path": "sessions/795419be-a9c2-4541-8e26-aa28f759322f/subagents/eca78214-1e9a-4a47-9aa6-ada270d4ccfc.jsonl",
+      "bytes": 15750,
+      "sha256_src": "14488915d28e37d481e0139008418b93c078fc4a66b7c76dafa56403d365ce86",
+      "mtime_src": "2026-06-14T20:33:16.8058453Z"
+    },
+    {
+      "session_id": "795419be-a9c2-4541-8e26-aa28f759322f",
+      "kind": "main",
+      "rel_path": "sessions/795419be-a9c2-4541-8e26-aa28f759322f/795419be-a9c2-4541-8e26-aa28f759322f.jsonl",
+      "bytes": 481097,
+      "sha256_src": "2d878f6290eb9c1ec7ec6aabb2baa953cee1c95717c053aea7aad96621249ccd",
+      "mtime_src": "2026-06-18T19:09:06.9308585Z"
+    },
+    {
+      "session_id": "b559d4ff-9478-4cfb-87f8-b86edabe865b",
+      "kind": "main",
+      "rel_path": "sessions/b559d4ff-9478-4cfb-87f8-b86edabe865b/b559d4ff-9478-4cfb-87f8-b86edabe865b.jsonl",
+      "bytes": 325548,
+      "sha256_src": "8df18633c2254ee8795a9f223fd562fcf535aca60d0bb4fb051e61d996d8523d",
+      "mtime_src": "2026-04-12T17:53:12.9928050Z"
+    },
+    {
+      "session_id": "7bca32b9-5af9-4ff7-8215-dccfb0e63aa1",
+      "kind": "main",
+      "rel_path": "sessions/7bca32b9-5af9-4ff7-8215-dccfb0e63aa1/7bca32b9-5af9-4ff7-8215-dccfb0e63aa1.jsonl",
+      "bytes": 831541,
+      "sha256_src": "8afd775d9fbcfbc4c61d67e53da84dbbb47004dcd79bb66b11bc62ca7870a519",
+      "mtime_src": "2026-06-30T16:44:14.1679658Z"
+    },
+    {
+      "session_id": "d28aca4a-7730-494c-9b2b-479619bb16f4",
+      "kind": "main",
+      "rel_path": "sessions/d28aca4a-7730-494c-9b2b-479619bb16f4/d28aca4a-7730-494c-9b2b-479619bb16f4.jsonl",
+      "bytes": 2208363,
+      "sha256_src": "1a242c22abf06a3d19f5a321988396e65fbed4c1632b0281f65cdd5a01fb5c2c",
+      "mtime_src": "2026-06-06T06:42:32.3608830Z"
+    },
+    {
+      "session_id": "710535cf-9c5a-4b39-8c22-43db434e6e80",
+      "kind": "main",
+      "rel_path": "sessions/710535cf-9c5a-4b39-8c22-43db434e6e80/710535cf-9c5a-4b39-8c22-43db434e6e80.jsonl",
+      "bytes": 71598,
+      "sha256_src": "f4fbb52a6731a4f4ed1c5a08510b4ec454a943ba64bfdf893ce0e338db1035fa",
+      "mtime_src": "2026-06-27T07:41:15.1455321Z"
+    },
+    {
+      "session_id": "6de56bbf-d14d-4d57-b72d-66d941ff9375",
+      "kind": "main",
+      "rel_path": "sessions/6de56bbf-d14d-4d57-b72d-66d941ff9375/6de56bbf-d14d-4d57-b72d-66d941ff9375.jsonl",
+      "bytes": 1220163,
+      "sha256_src": "00a1abbbc51027dcaa5af7e90bc666c320e1da9702c497a3897a9cad15dd490c",
+      "mtime_src": "2026-06-24T19:02:39.9965277Z"
+    },
+    {
+      "session_id": "0983e13a-4cae-4d78-b65e-9f35a5536895",
+      "kind": "subagent",
+      "rel_path": "sessions/0983e13a-4cae-4d78-b65e-9f35a5536895/subagents/015adbea-7bcf-4f34-b034-541ab50cddee.jsonl",
+      "bytes": 14198,
+      "sha256_src": "f7d90e8ad44dc0529535fbed7656fa2a56c5768e3439b7e0b9f836f8d56489ec",
+      "mtime_src": "2026-06-13T08:29:46.1970526Z"
+    }
+  ]
 }
