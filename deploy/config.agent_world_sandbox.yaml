@@ -240,6 +240,7 @@ volatility_regime_sizing:
 # API-ключи только в .env: DEBANK_ACCESS_KEY и/или ETHERSCAN_API_KEY
 wallet_tracker:
   enabled: true
+  telegram_notify: true
   poll_interval_sec: 300
   min_swap_usd: 5000
   recommendation_ttl_sec: 3600

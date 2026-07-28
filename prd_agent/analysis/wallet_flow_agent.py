@@ -105,6 +105,7 @@ class WalletRecommendation:
     usd_volume: float = 0.0
     created_at: float = 0.0
     expires_at: float = 0.0
+    labels: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -435,6 +436,7 @@ class WalletFlowAgent:
         self.cfg = cfg
         block = read_wallet_tracker_cfg(cfg)
         self.enabled = bool(block.get("enabled", False))
+        self.telegram_notify = bool(block.get("telegram_notify", False))
         self.poll_interval_sec = float(block.get("poll_interval_sec", 300))
         self.min_swap_usd = float(block.get("min_swap_usd", 5000))
         self.recommendation_ttl_sec = float(block.get("recommendation_ttl_sec", 3600))
@@ -448,6 +450,8 @@ class WalletFlowAgent:
         self._rec_path = self._out_dir / "recommendations.jsonl"
         self._recommendations: List[WalletRecommendation] = []
         self._last_emit_by_symbol: Dict[str, float] = {}
+        # Telegram dedup: symbol+side → last sent ts (cooldown = symbol_cooldown_sec)
+        self._last_tg_by_key: Dict[str, float] = {}
         self._provider: Optional[SwapProvider] = None
         self.active = False
         self.disable_reason = ""
@@ -511,6 +515,14 @@ class WalletFlowAgent:
         last = self._last_emit_by_symbol.get(symbol.upper(), 0.0)
         return (now - last) >= self.symbol_cooldown_sec
 
+    @staticmethod
+    def _tg_dedup_key(symbol: str, bias: str) -> str:
+        return f"{str(symbol or '').upper()}:{str(bias or '').lower()}"
+
+    def _tg_cooldown_ok(self, symbol: str, bias: str, now: float) -> bool:
+        last = self._last_tg_by_key.get(self._tg_dedup_key(symbol, bias), 0.0)
+        return (now - last) >= self.symbol_cooldown_sec
+
     def build_recommendations(self, events: Sequence[SwapEvent]) -> List[WalletRecommendation]:
         """Агрегирует свапы → рекомендации с фильтрами min_usd / mapping / cooldown."""
         now = float(self._time())
@@ -523,7 +535,7 @@ class WalletFlowAgent:
                 continue
             bucket = agg.setdefault(
                 bybit,
-                {"buy": 0.0, "sell": 0.0, "n": 0, "wallets": set(), "tokens": set()},
+                {"buy": 0.0, "sell": 0.0, "n": 0, "wallets": set(), "tokens": set(), "labels": set()},
             )
             if ev.side == "buy":
                 bucket["buy"] += float(ev.usd_value)
@@ -532,6 +544,8 @@ class WalletFlowAgent:
             bucket["n"] += 1
             bucket["wallets"].add(ev.wallet.lower())
             bucket["tokens"].add(ev.token_symbol.upper())
+            if ev.label:
+                bucket["labels"].add(str(ev.label))
 
         recs: List[WalletRecommendation] = []
         for symbol, bucket in agg.items():
@@ -551,11 +565,14 @@ class WalletFlowAgent:
                 bias = "neutral"
             # confidence: доля нетто + число кошельков
             conf = min(0.95, 0.35 + abs(net) / max(total, 1.0) * 0.4 + min(0.2, 0.05 * len(bucket["wallets"])))
+            labels = ",".join(sorted(bucket["labels"]))
             reason = (
                 f"watch wallets {bias}: buy=${buy:,.0f} sell=${sell:,.0f} "
                 f"n={bucket['n']} wallets={len(bucket['wallets'])} "
                 f"tokens={','.join(sorted(bucket['tokens']))}"
             )
+            if labels:
+                reason += f" labels={labels}"
             rec = WalletRecommendation(
                 symbol=symbol,
                 bias=bias,
@@ -566,11 +583,62 @@ class WalletFlowAgent:
                 usd_volume=round(total, 2),
                 created_at=now,
                 expires_at=now + self.recommendation_ttl_sec,
+                labels=labels,
             )
             recs.append(rec)
             self._last_emit_by_symbol[symbol] = now
         recs.sort(key=lambda r: r.usd_volume, reverse=True)
         return recs
+
+    async def maybe_notify_telegram(self, notifier: Any, recs: Sequence[WalletRecommendation]) -> int:
+        """Шлёт новые LONG/SHORT советы в Telegram при telegram_notify=true (с дедупом)."""
+        if not self.telegram_notify or notifier is None or not recs:
+            return 0
+        now = float(self._time())
+        sent = 0
+        for rec in recs:
+            if (rec.bias or "").lower() == "neutral":
+                continue
+            if not self._tg_cooldown_ok(rec.symbol, rec.bias, now):
+                logger.info(
+                    "%s telegram skip dedup %s %s",
+                    _LOG_MARKER,
+                    rec.symbol,
+                    rec.bias,
+                )
+                continue
+            try:
+                send_fn = getattr(notifier, "wallet_flow_advice", None)
+                if callable(send_fn):
+                    ok = await send_fn(
+                        rec.symbol,
+                        rec.bias,
+                        rec.confidence,
+                        reason=rec.reason,
+                        label=rec.labels,
+                        usd_volume=rec.usd_volume,
+                    )
+                else:
+                    ok = await notifier.send(
+                        f"💼 Совет Wallet Tracker {rec.symbol} {rec.bias.upper()} "
+                        f"conf={rec.confidence:.0%} — это СОВЕТ, не ордер"
+                    )
+                if ok is False:
+                    logger.warning("%s telegram send returned false for %s", _LOG_MARKER, rec.symbol)
+                    continue
+            except Exception as exc:
+                logger.error("%s telegram send failed: %s", _LOG_MARKER, exc, exc_info=True)
+                continue
+            self._last_tg_by_key[self._tg_dedup_key(rec.symbol, rec.bias)] = now
+            sent += 1
+            logger.info(
+                "%s telegram sent %s bias=%s conf=%.2f",
+                _LOG_MARKER,
+                rec.symbol,
+                rec.bias,
+                rec.confidence,
+            )
+        return sent
 
     def _persist(self, recs: Sequence[WalletRecommendation]) -> None:
         if not recs:
@@ -630,7 +698,7 @@ class WalletFlowAgent:
                     events.append(ev)
         return events
 
-    async def poll_and_recommend(self) -> List[WalletRecommendation]:
+    async def poll_and_recommend(self, notifier: Any = None) -> List[WalletRecommendation]:
         """Один цикл опроса (async-обёртка; HTTP синхронный в v1)."""
         if not self.should_run_loop():
             return []
@@ -650,6 +718,7 @@ class WalletFlowAgent:
                 r.reason[:160],
             )
         self._persist(recs)
+        await self.maybe_notify_telegram(notifier, recs)
         if not recs and events:
             logger.info("%s: свапы есть (%d), но после фильтров рекомендаций 0", _LOG_MARKER, len(events))
         elif not events and self.watches:

@@ -10,6 +10,7 @@
 ```yaml
 wallet_tracker:
   enabled: true
+  telegram_notify: true
   poll_interval_sec: 300
   min_swap_usd: 5000
   recommendation_ttl_sec: 3600
@@ -21,7 +22,8 @@ wallet_tracker:
       chain: eth
 ```
 
-Прод: `enabled: false` (код есть, цикл не крутится).
+Прод: `enabled: false`, `telegram_notify: false` (код есть, цикл не крутится).  
+При `telegram_notify: true` новая рекомендация LONG/SHORT уходит в Telegram через notifier (без новой кнопки панели).
 
 ## Ключи в `.env` (не в yaml и не в git)
 
@@ -48,6 +50,8 @@ wallet_tracker:
 Wallet tracker enabled
 Wallet tracker advisory
 Wallet flow recommendation 1000PEPEUSDT bias=long ...
+Wallet tracker telegram sent 1000PEPEUSDT bias=long ...
+Wallet tracker telegram skip dedup ...
 Wallet tracker soft match ...
 Wallet tracker disabled: no API key
 ```

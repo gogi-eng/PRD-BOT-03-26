@@ -126,3 +126,31 @@ class TelegramNotifier:
 
     async def global_report(self, text: str) -> None:
         await self.send(f"🌍 <b>Глобальный анализ</b>\n{text[:3800]}")
+
+    async def wallet_flow_advice(
+        self,
+        symbol: str,
+        bias: str,
+        conf: float,
+        reason: str = "",
+        label: str = "",
+        usd_volume: float = 0.0,
+    ) -> bool:
+        """Advisory-совет Wallet Tracker (ордер НЕ ставится)."""
+        bias_l = (bias or "").lower()
+        bias_show = {
+            "long": "LONG",
+            "short": "SHORT",
+            "neutral": "НЕЙТРАЛЬНО",
+        }.get(bias_l, (bias or "?").upper())
+        label_line = f"Кошелёк / метка: {label}\n" if label else ""
+        vol_line = f"Объём (оценка): ${usd_volume:,.0f}\n" if usd_volume > 0 else ""
+        return await self.send(
+            f"💼 <b>Совет Wallet Tracker</b>\n"
+            f"<i>Это СОВЕТ, не ордер — бот сам сделку не открывает</i>\n\n"
+            f"Символ: <code>{symbol}</code>\n"
+            f"Направление: <b>{bias_show}</b>\n"
+            f"Уверенность: {conf:.0%}\n"
+            f"{label_line}{vol_line}"
+            f"Причина: {(reason or '')[:280]}"
+        )

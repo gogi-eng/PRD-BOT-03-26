@@ -232,6 +232,7 @@ volatility_regime_sizing:
 # API-ключи только в .env (не в yaml).
 wallet_tracker:
   enabled: false
+  telegram_notify: false
   poll_interval_sec: 300
   min_swap_usd: 5000
   recommendation_ttl_sec: 3600
