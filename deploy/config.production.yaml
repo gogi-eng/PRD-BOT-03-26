@@ -228,6 +228,18 @@ volatility_regime_sizing:
   skip_fast_sources: false
   apply_to_sources: []
 
+# Wallet Flow Agent (v1): код есть, на проде выкл. до soak на AGENT-WORLD.
+# API-ключи только в .env (не в yaml).
+wallet_tracker:
+  enabled: false
+  poll_interval_sec: 300
+  min_swap_usd: 5000
+  recommendation_ttl_sec: 3600
+  symbol_cooldown_sec: 1800
+  lookback_sec: 86400
+  chains: ["eth"]
+  watches: []
+
 
 risk_presets:
   conservative:
