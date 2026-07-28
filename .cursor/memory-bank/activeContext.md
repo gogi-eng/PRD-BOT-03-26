@@ -2,7 +2,7 @@
 
 **Дата фокуса:** 28.07.2026 (UTC+3)  
 **Ветки дня (для push):** `28.07.26-AGENT-WORLD` · `28.07.26-PRD-BOT-ALL` (общий код wallet_tracker, prod `enabled: false`)  
-**База tip:** от `27.07.26-AGENT-WORLD` / лайт SPIKE уже в AW
+**База tip:** AW от лайта 28.07; PRD от `27.07.26-PRD-BOT-ALL` + cherry-pick wallet_tracker
 
 ## Текущий фокус
 
@@ -11,7 +11,7 @@
    - Prod: `enabled: false`
    - Без новых кнопок Telegram; ордера не ставит
    - Docs: `docs/plans/28.07.26-video-onchain-wallet-notes.md`, `docs/wallet_tracker_readme.md`
-2. ЛАЙТ SPIKE knobs AW (уже): volume 1.40 / pullback 0.18 / cooldown 2400
+2. ЛАЙТ SPIKE knobs AW: volume 1.40 / pullback 0.18 / cooldown 2400
 3. Opposite hold / HTF / derivatives / SPIKE loops / polling — **не отключать**
 
 ## Не смешивать
