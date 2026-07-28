@@ -11,6 +11,7 @@
 - [x] Тесты: `backend/tests/test_wallet_tracker_agent.py`
 - [x] Push AW `bcf5dba` + PRD `5780be2` (telegram_notify; prod enabled:false)
 - [x] watches: 9 публичных адресов в AW + prod yaml (prod цикл выкл.); readme про watches
+- [x] Push watches: AW `f710976` · PRD `b8e7461`
 
 ### ЛАЙТ песочница (только AGENT-WORLD)
 - [x] План: `docs/plans/28.07.26-agent-world-lite-sandbox.md`
