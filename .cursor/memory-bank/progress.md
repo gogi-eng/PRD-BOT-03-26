@@ -1,5 +1,13 @@
 # Progress
 
+## Сделано (28.07.2026)
+
+### ЛАЙТ песочница (только AGENT-WORLD)
+- [x] План: `docs/plans/28.07.26-agent-world-lite-sandbox.md`
+- [x] Config AW: `min_volume_ratio` 1.40, `min_retrace_pct` 0.18, `symbol_cooldown_sec` 2400
+- [x] Прод yaml **не** трогали
+- [ ] Push `28.07.26-AGENT-WORLD` + деплой AW (по просьбе / в этом ходе)
+
 ## Сделано (26.07.2026)
 
 ### Длинный трейлинг (26.07)

@@ -1,14 +1,17 @@
 # Active Context
 
-**Дата фокуса:** 26.07.2026 (UTC+3)  
-**Ветки дня (для push):** `26.07.26-PRD-BOT-ALL` / `26.07.26-AGENT-WORLD`  
-**База tip GitHub:** `24.07.26-*` (на GitHub ещё нет 25/26)
+**Дата фокуса:** 28.07.2026 (UTC+3)  
+**Ветки дня (для push):** `28.07.26-AGENT-WORLD` (лайт песочница) · прод `*-PRD-BOT-ALL` сегодня **не трогаем**  
+**База tip:** от `27.07.26-AGENT-WORLD`
 
 ## Текущий фокус
 
-1. **SPIKE ≠ opposite own EXIT** — на GitHub: PRD `8e882ab` / AW `a6948d3` (деплой командami).
-2. **Длинный трейлинг (26.07, локально):** distance 3.5%, atr×2.2, min 1.8%, adaptive tight 0.85 — ждать push/деплой.
-3. OmniRoute на ПК — только Chat; боты не трогаем.
+1. **ЛАЙТ песочница 28.07** — план `docs/plans/28.07.26-agent-world-lite-sandbox.md` + knobs SPIKE в `deploy/config.agent_world_sandbox.yaml` только:
+   - `min_volume_ratio` 1.25 → **1.40**
+   - `pullback_entry.min_retrace_pct` 0.15 → **0.18**
+   - `symbol_cooldown_sec` 1800 → **2400**
+2. Видео TikTok @cryptojournal777 (~9 мин): ончейн «до ×10» (Dune/DeBank/Zapper/PEPE) — в лайт **не** переносим on-chain; только смысл объём+не гнаться.
+3. Opposite hold / HTF / derivatives / SPIKE loops / polling — **не отключать**.
 
 ## Не смешивать
 
