@@ -4,6 +4,13 @@
 **Ветки дня (для push):** `28.07.26-AGENT-WORLD` · `28.07.26-PRD-BOT-ALL`  
 **База tip:** AW от лайта 28.07; PRD от `27.07.26-PRD-BOT-ALL` + cherry-pick wallet_tracker
 
+## LIQUID-PAIRS server (28.07.2026)
+
+- Folder: `/root/LIQUID-PAIRS-REPORT`, branch `28.07.26-LIQUID-PAIRS`
+- Scripts: `deploy_liquid_pairs_report.sh`, `install_liquid_pairs_cron.sh`, `run_hourly_liquid_pairs.sh`
+- Docs: `docs/liquid_pairs_server_deploy.md`
+- Does NOT restart trading bots
+
 ## Чат заархивирован
 
 - **28.07.2026:** transcript `6aae46dd-a66c-41b2-816d-e8b0d328b395` → саммари (без сырого JSONL):

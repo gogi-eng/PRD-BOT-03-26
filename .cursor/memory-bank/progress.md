@@ -81,3 +81,11 @@
 - Удалять bybit_monitor при правках Hermes
 - ESPORTS blacklist без просьбы
 - Ослаблять daily loss / max_positions по виртуальным TP Hermes
+
+## 28.07.2026 ? LIQUID-PAIRS server deploy scripts
+
+- Added Linux: `run_hourly_liquid_pairs.sh`, `install_liquid_pairs_cron.sh`, `deploy_liquid_pairs_report.sh`
+- Doc: `docs/liquid_pairs_server_deploy.md`
+- Branch: `28.07.26-LIQUID-PAIRS` (folder `/root/LIQUID-PAIRS-REPORT`)
+- Trading systemd untouched
+
