@@ -38,7 +38,9 @@ else {
 }
 
 Set-Location -LiteralPath $RepoRoot
-$output = & $py $PyScript 2>&1
+# По умолчанию шлём итог в Telegram (сигнал или «почему нет»), если есть credentials в .env
+$env:LIQUID_PAIRS_TELEGRAM = "1"
+$output = & $py $PyScript --telegram 2>&1
 foreach ($line in $output) {
     Write-LogLine $line.ToString()
 }
