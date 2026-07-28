@@ -215,7 +215,44 @@ wallet_tracker:
   symbol_cooldown_sec: 1800
   lookback_sec: 86400
   chains: ["eth"]
-  watches: []
+  # Те же публичные watches, что на AGENT-WORLD; цикл НЕ крутится пока enabled: false
+  watches:
+    - address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+      label: "vitalik_buterin"
+      chain: eth
+      # source: etherscan vitalik.eth
+    - address: "0x7a16fF8270133F063aAb6C9977183D9e72835428"
+      label: "michael_egorov_curve"
+      chain: eth
+      # source: etherscan Michael Egorov / Curve
+    - address: "0xDBF5E9c5206d0dB70a90108bf936DA60221dC080"
+      label: "wintermute"
+      chain: eth
+      # source: etherscan Wintermute
+    - address: "0x4f3a120E72C76c22ae802D129F599BFDbc31cb81"
+      label: "wintermute_multisig"
+      chain: eth
+      # source: etherscan Wintermute Multisig
+    - address: "0xf584F8728B874a6a5c7A8d4d387C9aae9172D621"
+      label: "jump_trading"
+      chain: eth
+      # source: etherscan Jump Trading
+    - address: "0xddAcAd3B1edee8E2F5b2e84f658202534fcb0374"
+      label: "dwf_labs"
+      chain: eth
+      # source: etherscan DWF Labs
+    - address: "0xD4B69e8D62C880E9DD55d419d5E07435C3538342"
+      label: "dwf_labs_2"
+      chain: eth
+      # source: etherscan DWF Labs
+    - address: "0x05E793cE0C6027323Ac150F6d45C2344d28B6019"
+      label: "a16z"
+      chain: eth
+      # source: etherscan a16z
+    - address: "0x5b990C664aE7E759763ACfEC76E11c289c53Be77"
+      label: "amber_group"
+      chain: eth
+      # source: etherscan Amber Group
 
 
 risk_presets:

@@ -9,6 +9,7 @@
 1. **Wallet Tracker v1 (advisory)** — `prd_agent/analysis/wallet_flow_agent.py`
    - AW: `enabled: true`, `telegram_notify: true` — советы LONG/SHORT в Telegram через notifier
    - Prod: `enabled: false`, `telegram_notify: false`
+   - **watches:** 9 публичных ETH-адресов (Vitalik, Egorov/Curve, Wintermute×2, Jump, DWF×2, a16z, Amber) — Etherscan labels; PEPE early whale не вставлен (в статьях только сокращённый `0x25C…`)
    - Без новых кнопок Telegram; ордера не ставит; дедуп symbol+side + cooldown
    - Docs: `docs/plans/28.07.26-video-onchain-wallet-notes.md`, `docs/wallet_tracker_readme.md`
 2. ЛАЙТ SPIKE knobs AW: volume 1.40 / pullback 0.18 / cooldown 2400
