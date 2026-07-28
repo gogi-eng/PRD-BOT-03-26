@@ -10,6 +10,7 @@
 - [x] Docs: video notes + wallet_tracker_readme + план лайта фаза 1.5
 - [x] Тесты: `backend/tests/test_wallet_tracker_agent.py`
 - [x] Push AW `bcf5dba` + PRD `5780be2` (telegram_notify; prod enabled:false)
+- [x] watches: 9 публичных адресов в AW + prod yaml (prod цикл выкл.); readme про watches
 
 ### ЛАЙТ песочница (только AGENT-WORLD)
 - [x] План: `docs/plans/28.07.26-agent-world-lite-sandbox.md`
