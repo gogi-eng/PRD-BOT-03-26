@@ -4,6 +4,13 @@
 **Ветки дня (для push):** `28.07.26-AGENT-WORLD` · `28.07.26-PRD-BOT-ALL` (общий код wallet_tracker, prod `enabled: false`)  
 **База tip:** AW от лайта 28.07; PRD от `27.07.26-PRD-BOT-ALL` + cherry-pick wallet_tracker
 
+## Чат заархивирован
+
+- **28.07.2026:** transcript `6aae46dd-a66c-41b2-816d-e8b0d328b395` → саммари (без сырого JSONL):
+  - `docs/chat_archive/28.07.26-chat-wallet-tracker-liquid-pairs.md`
+  - `docs/chat_archive/sessions/6aae46dd-a66c-41b2-816d-e8b0d328b395/28.07.26-chat-wallet-tracker-liquid-pairs.md`
+- Темы: Wallet Tracker, liquid pairs, opposite hold, watches, API в `.env`.
+
 ## Текущий фокус
 
 1. **Wallet Tracker v1 (advisory)** — `prd_agent/analysis/wallet_flow_agent.py`
