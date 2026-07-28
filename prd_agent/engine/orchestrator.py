@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from prd_agent.analysis.bybit_monitor import BybitMonitorAgent
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
+from prd_agent.analysis.wallet_flow_agent import WalletFlowAgent
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import LedgerEntry, SignalLedger, SignalStatus
@@ -124,6 +125,7 @@ class UnifiedOrchestrator:
         log_volatility_regime_startup(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bybit_monitor = BybitMonitorAgent(cfg)
+        self.wallet_tracker = WalletFlowAgent(cfg, self.data_dir)
         self.bot_manager = BotManagerAgent(cfg)
         an = cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", 24))
@@ -160,6 +162,7 @@ class UnifiedOrchestrator:
         self._spike_scan_task: Optional[asyncio.Task] = None
         self._bot_manager_task: Optional[asyncio.Task] = None
         self._bybit_monitor_task: Optional[asyncio.Task] = None
+        self._wallet_tracker_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -533,6 +536,12 @@ class UnifiedOrchestrator:
                 "BYBIT MONITOR: фоновые алерты, интервал %.0f сек",
                 self.bybit_monitor.interval_sec,
             )
+        if self.wallet_tracker.should_run_loop():
+            self._wallet_tracker_task = asyncio.create_task(self._wallet_tracker_loop())
+            logger.info(
+                "Wallet tracker advisory: цикл опроса, интервал %.0f сек",
+                self.wallet_tracker.poll_interval_sec,
+            )
         if self.trade_companion.enabled:
             logger.info("TRADE COMPANION: сопровождение открытых сделок включено")
         if self.trade_lifecycle.enabled:
@@ -560,6 +569,9 @@ class UnifiedOrchestrator:
         if self._bybit_monitor_task is not None:
             self._bybit_monitor_task.cancel()
             self._bybit_monitor_task = None
+        if self._wallet_tracker_task is not None:
+            self._wallet_tracker_task.cancel()
+            self._wallet_tracker_task = None
 
     async def close(self) -> None:
         self.stop()
@@ -587,6 +599,12 @@ class UnifiedOrchestrator:
             except asyncio.CancelledError:
                 pass
             self._bybit_monitor_task = None
+        if self._wallet_tracker_task is not None:
+            try:
+                await self._wallet_tracker_task
+            except asyncio.CancelledError:
+                pass
+            self._wallet_tracker_task = None
         if self.bybit_monitor._read_exchange is not None:
             await self.bybit_monitor._read_exchange.close()
         await self.exchange.close()
@@ -654,6 +672,22 @@ class UnifiedOrchestrator:
 
     async def get_bybit_monitor_report(self) -> str:
         return await self.bybit_monitor.build_report(self)
+
+    def get_wallet_tracker_report(self) -> str:
+        """Текстовый отчёт wallet tracker (без новой кнопки Telegram в v1)."""
+        return self.wallet_tracker.build_report()
+
+    async def _wallet_tracker_loop(self) -> None:
+        """Фоновый опрос watch-кошельков → advisory рекомендации (без ордеров)."""
+        await asyncio.sleep(75)
+        while self._running:
+            try:
+                await self.wallet_tracker.poll_and_recommend()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Wallet tracker: %s", exc)
+            await asyncio.sleep(max(60.0, self.wallet_tracker.poll_interval_sec))
 
     async def _sync_closed_pnl_to_risk(self) -> None:
         """Только новые закрытия с биржи; дедуп на диске — иначе после рестарта убыток «удваивается»."""
@@ -1232,6 +1266,18 @@ class UnifiedOrchestrator:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
             return
+
+        # Soft advisory: совпадение с wallet_flow (не блокирует вход)
+        if self.wallet_tracker.enabled:
+            wf_rec = self.wallet_tracker.recommendation_for_symbol(sig.symbol)
+            if wf_rec is not None:
+                logger.info(
+                    "Wallet tracker soft match %s signal=%s bias=%s conf=%.2f (advisory only)",
+                    sig.symbol,
+                    sig.side,
+                    wf_rec.bias,
+                    wf_rec.confidence,
+                )
 
         entry, sl, tp = plan_entry, plan_sl, plan_tp
         zone_meta = zone_meta or {}

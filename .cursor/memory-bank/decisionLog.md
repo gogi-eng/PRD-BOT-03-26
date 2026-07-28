@@ -14,7 +14,9 @@
 | 21.07 | AW notional 30% + own ON | 80% SPIKE съедал депозит; фаза 1 | `max_notional_balance_pct: 30` |
 | 22.07 | Дневные ветки 22.07.26-* | Календарь UTC+3 | не продолжать 21.07 |
 | 22.07 | GARCH sizing AW only | BeInCrypto/Deutscher: vol→size, не направление | `volatility_regime_sizing` AW true / prod false; оба пути exec |
-| 26.07 | Длинный трейлинг 3.5% | откат закрывал у min/max | distance 3.5 / atr 2.2 / tight 0.85 |\n| 26.07 | SPIKE ≠ opposite own EXIT | DEXE: SPIKE SELL + own Buy → −5.74 | `skip_spike_on_own_signal: true`; маркер skipped SPIKE |
+| 26.07 | Длинный трейлинг 3.5% | откат закрывал у min/max | distance 3.5 / atr 2.2 / tight 0.85 |
+| 26.07 | SPIKE ≠ opposite own EXIT | DEXE: SPIKE SELL + own Buy → −5.74 | `skip_spike_on_own_signal: true`; маркер skipped SPIKE |
+| 28.07 | Wallet tracker advisory v1 | видео ончейн → советы, не ордера | AW ON / prod OFF; без новых TG кнопок |
 
 ## Сессии
 
