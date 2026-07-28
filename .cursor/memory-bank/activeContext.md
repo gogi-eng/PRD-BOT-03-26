@@ -7,9 +7,9 @@
 ## Текущий фокус
 
 1. **Wallet Tracker v1 (advisory)** — `prd_agent/analysis/wallet_flow_agent.py`
-   - AW: `wallet_tracker.enabled: true`
-   - Prod: `enabled: false`
-   - Без новых кнопок Telegram; ордера не ставит
+   - AW: `enabled: true`, `telegram_notify: true` — советы LONG/SHORT в Telegram через notifier
+   - Prod: `enabled: false`, `telegram_notify: false`
+   - Без новых кнопок Telegram; ордера не ставит; дедуп symbol+side + cooldown
    - Docs: `docs/plans/28.07.26-video-onchain-wallet-notes.md`, `docs/wallet_tracker_readme.md`
 2. ЛАЙТ SPIKE knobs AW: volume 1.40 / pullback 0.18 / cooldown 2400
 3. Opposite hold / HTF / derivatives / SPIKE loops / polling — **не отключать**

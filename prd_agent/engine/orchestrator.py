@@ -682,7 +682,7 @@ class UnifiedOrchestrator:
         await asyncio.sleep(75)
         while self._running:
             try:
-                await self.wallet_tracker.poll_and_recommend()
+                await self.wallet_tracker.poll_and_recommend(notifier=self.notifier)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
