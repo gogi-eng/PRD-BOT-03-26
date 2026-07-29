@@ -459,6 +459,10 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
+  # Сначала песочница; на проде OFF
+  trailing_after_be:
+    enabled: false
+    widen_mult: 1.2
 
 # Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
 manual_management:

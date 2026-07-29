@@ -462,6 +462,10 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
+  # После BE/BE+: чуть шире trailing (больше «воздуха» на откат)
+  trailing_after_be:
+    enabled: true
+    widen_mult: 1.2
   fee_breakeven:
     taker_rate: 0.00055
     maker_rate: 0.0002

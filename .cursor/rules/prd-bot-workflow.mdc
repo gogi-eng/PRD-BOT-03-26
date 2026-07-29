@@ -216,6 +216,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Cron / стоп | **Проверка на сервере** | после деплоя cron | `crontab -l`, ручной `trading_hours_ctl.sh stop`, `systemctl is-active` — **до** «готово» |
 | Entry | **Коридор S↔R bounce/breakout** | `zone_corridor_play.py`, orchestrator, `telegram_signal_agent` | Песочница ON + SPIKE/scanner; прод `enabled: false` до проверки |
 | TP / SL | **BE+ с замком прибыли** | `tp_progress_exit.py` | `be_lock_extra_pct` — SL выше чистого безубытка (комиссии+lock) |
+| TP / SL | **После BE шире trailing** | `trailing_after_be.py`, steward | `trailing_after_be.widen_mult`; AW ON / prod OFF; маркер `Trailing after BE widen` |
 | Soft | **weight_overrides песочница** | `entry_soft_rules.py`, sandbox yaml | Hermes negative lift: regime_trend/adx/imb ×0.55; прод без overrides |
 | Качество | **UTF-8: не ломать файлы** | Windows push / PowerShell | Не `Out-File`/`>` для `.py`; после правки `py_compile` + кириллица цела |
 | Качество | **Вход = все пути** | orchestrator + signal agent | Фильтр только в orchestrator при SPIKE-exec = баг |

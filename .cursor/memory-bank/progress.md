@@ -1,5 +1,14 @@
 # Progress
 
+## Сделано (29.07.2026)
+
+### Trailing after BE (чуть шире после безубытка)
+- [x] Модуль `prd_agent/positions/trailing_after_be.py` (`widen_mult`)
+- [x] Wiring в `position_steward.py` (единственный путь trailing; SPIKE-exec не ведёт SL)
+- [x] AW ON `widen_mult: 1.2` / prod OFF
+- [x] Тесты `backend/tests/test_trailing_after_be.py`
+- [x] Лог: `Trailing after BE widen`
+
 ## Сделано (28.07.2026)
 
 ### Hourly liquid pairs → Telegram

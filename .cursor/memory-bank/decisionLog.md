@@ -17,6 +17,7 @@
 | 26.07 | Длинный трейлинг 3.5% | откат закрывал у min/max | distance 3.5 / atr 2.2 / tight 0.85 |
 | 26.07 | SPIKE ≠ opposite own EXIT | DEXE: SPIKE SELL + own Buy → −5.74 | `skip_spike_on_own_signal: true`; маркер skipped SPIKE |
 | 28.07 | Wallet tracker advisory v1 | видео ончейн → советы, не ордера | AW ON / prod OFF; без новых TG кнопок |
+| 29.07 | Trailing after BE widen | после BE чуть больше воздуха | `trailing_after_be` AW ON×1.2 / prod OFF |
 
 ## Сессии
 
