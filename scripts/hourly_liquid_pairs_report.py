@@ -37,11 +37,18 @@ KLINE_LIMIT = 100
 KLINE_PAUSE_SEC = 0.08
 
 # Лайт-правила сигнала (условный совет, не ордер бота).
-RSI_LONG_MAX = 75.0  # не лонговать в крайней перекупленности
+RSI_LONG_MAX = 70.0  # не лонговать в перекупленности (ужесточено с 75)
 RSI_SHORT_MIN = 25.0  # не шортить в крайней перепроданности (chase)
-EXTREME_CHANGE_ABS_PCT = 15.0  # |изм24ч| выше — памп/дамп-экстремум
+EXTREME_CHANGE_ABS_PCT = 12.0  # |изм24ч| выше — памп/дамп-экстремум (было 15)
+ALT_EXTREME_CHANGE_ABS_PCT = 8.0  # для альтов (не majors) порог жёстче
+LONG_MIN_CHANGE_24H_PCT = -5.0  # LONG запрещён при сильном суточном дампе (отскок)
+MAJORS = frozenset({"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT"})
 SL_PCT = 0.015  # −1.5% от входа
 TP_PCT = 0.030  # +3.0% от входа (RR ≈ 2)
+TG_DISCLAIMER = (
+    "⚠️ УСЛОВНЫЙ СОВЕТ — НЕ автоторговля. Бот ордер НЕ ставит. "
+    "Альты = высокий риск. Ручной вход только со своим SL."
+)
 
 
 @dataclass
@@ -288,7 +295,7 @@ def _levels_for_side(price: float, side: str) -> Tuple[float, float, float]:
 
 
 def _candidate_score(pair: PairAnalysis, side: str) -> float:
-    """Выше = лучше. Предпочитаем умеренный RSI, не экстремальный ход, больший оборот."""
+    """Выше = лучше. Предпочитаем majors, умеренный RSI, не экстремальный ход, оборот."""
     rsi = float(pair.rsi_1h)
     chg = abs(float(pair.change_24h_pct))
     turnover = max(float(pair.turnover_24h), 1.0)
@@ -296,7 +303,39 @@ def _candidate_score(pair: PairAnalysis, side: str) -> float:
         rsi_room = RSI_LONG_MAX - rsi
     else:
         rsi_room = rsi - RSI_SHORT_MIN
-    return rsi_room * 2.0 - chg * 0.5 + math.log10(turnover)
+    major_bonus = 8.0 if pair.symbol in MAJORS else 0.0
+    return rsi_room * 2.0 - chg * 0.5 + math.log10(turnover) + major_bonus
+
+
+def _find_pair(pairs: List[PairAnalysis], symbol: str) -> Optional[PairAnalysis]:
+    for p in pairs:
+        if p.symbol == symbol:
+            return p
+    return None
+
+
+def _market_blocks_long(pairs: List[PairAnalysis]) -> Optional[str]:
+    """
+    Контекст BTC/ETH: не рекомендовать LONG по альтам, если рынок сверху давит.
+    BTC «совпадает ↓» или 4h медвежий → блок LONG (кроме самого BTC при его HTF↑ — редко).
+    """
+    btc = _find_pair(pairs, "BTCUSDT")
+    eth = _find_pair(pairs, "ETHUSDT")
+    if btc is not None:
+        if btc.htf_align == "совпадает ↓":
+            return "BTC: тренды 1h/4h вниз — LONG по альтам против рынка"
+        if btc.trend_4h == "медвежий":
+            return "BTC 4h медвежий — LONG по альтам против старшего тренда"
+    if eth is not None and eth.htf_align == "совпадает ↓":
+        if btc is None or btc.trend_4h != "бычий":
+            return "ETH: тренды вниз при слабом BTC — LONG по альтам рискован"
+    return None
+
+
+def _extreme_threshold(symbol: str) -> float:
+    if symbol in MAJORS:
+        return EXTREME_CHANGE_ABS_PCT
+    return ALT_EXTREME_CHANGE_ABS_PCT
 
 
 def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
@@ -305,8 +344,10 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
 
     Правила:
     - HTF совпадение ↑ → LONG, ↓ → SHORT
-    - RSI не в крайней зоне (LONG: RSI <= 75; SHORT: RSI >= 25)
-    - не памп/дамп-экстремум (|изм24ч| < 15%)
+    - RSI не в крайней зоне (LONG: RSI <= 70; SHORT: RSI >= 25)
+    - не памп/дамп-экстремум (|изм24ч|: majors <12%, альты <8%)
+    - LONG запрещён при суточном дампе (изм24ч < −5%) — отскок в падении
+    - LONG по альтам блокируется, если BTC/ETH HTF↓ или BTC 4h медвежий
     - цена > 0, тренды не «ошибка»
     """
     normalized: List[PairAnalysis] = []
@@ -329,7 +370,11 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
     n_no_htf = 0
     n_rsi_extreme = 0
     n_pump_dump = 0
+    n_dump_bounce = 0
+    n_market_ctx = 0
     n_htf_ok_but_blocked = 0
+
+    market_long_block = _market_blocks_long(normalized)
 
     for p in normalized:
         if p.trend_1h == "ошибка" or p.trend_4h == "ошибка" or p.last_price <= 0:
@@ -345,7 +390,7 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
             n_no_htf += 1
             continue
 
-        # HTF есть — проверяем RSI и экстремум хода.
+        # HTF есть — проверяем RSI, экстремум, дамп-отскок, контекст рынка.
         blocked = False
         if side == "LONG" and p.rsi_1h > RSI_LONG_MAX:
             n_rsi_extreme += 1
@@ -364,7 +409,8 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
             )
             blocked = True
 
-        if abs(p.change_24h_pct) >= EXTREME_CHANGE_ABS_PCT:
+        thr = _extreme_threshold(p.symbol)
+        if abs(p.change_24h_pct) >= thr:
             n_pump_dump += 1
             n_htf_ok_but_blocked += 1
             direction = "памп" if p.change_24h_pct > 0 else "дамп"
@@ -372,6 +418,25 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
                 f"{p.symbol}: сильный {direction} за сутки "
                 f"({p.change_24h_pct:+.1f}%), экстремум — пропускаем"
             )
+            blocked = True
+
+        if side == "LONG" and p.change_24h_pct < LONG_MIN_CHANGE_24H_PCT:
+            n_dump_bounce += 1
+            n_htf_ok_but_blocked += 1
+            reject_notes.append(
+                f"{p.symbol}: суточный ход {p.change_24h_pct:+.1f}% — "
+                f"LONG на отскоке после дампа запрещён"
+            )
+            blocked = True
+
+        if (
+            side == "LONG"
+            and market_long_block
+            and p.symbol not in ("BTCUSDT", "ETHUSDT")
+        ):
+            n_market_ctx += 1
+            n_htf_ok_but_blocked += 1
+            reject_notes.append(f"{p.symbol}: {market_long_block}")
             blocked = True
 
         if blocked:
@@ -384,11 +449,15 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
         candidates.sort(key=lambda item: item[0], reverse=True)
         _score, best, side = candidates[0]
         entry, sl, tp = _levels_for_side(best.last_price, side)
+        risk_note = ""
+        if best.symbol not in MAJORS:
+            risk_note = " Высокий риск альта — не автоторговля."
         if side == "LONG":
             why = (
                 f"Тренды 1h и 4h вверх совпадают, RSI={best.rsi_1h:.0f} "
                 f"не в зоне перекупленности, суточный ход {best.change_24h_pct:+.1f}% "
                 f"без пампа. Условные уровни: SL −{SL_PCT*100:.1f}%, TP +{TP_PCT*100:.1f}%."
+                f"{risk_note}"
             )
         else:
             why = (
@@ -396,6 +465,7 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
                 f"не в зоне перепроданности, суточный ход {best.change_24h_pct:+.1f}% "
                 f"без дампа-экстремума. Условные уровни: SL +{SL_PCT*100:.1f}%, "
                 f"TP −{TP_PCT*100:.1f}%."
+                f"{risk_note}"
             )
         return SignalDecision(
             has_signal=True,
@@ -428,6 +498,12 @@ def decide_liquid_pairs_signal(pairs: List[Any]) -> SignalDecision:
         parts.append(
             "есть сильные пампы/дампы за сутки — вход у экстремума рискован"
         )
+    if n_dump_bounce > 0:
+        parts.append("LONG на отскоке после суточного дампа отклонён")
+    if n_market_ctx > 0:
+        parts.append(
+            "контекст BTC/ETH не поддерживает LONG по альтам"
+        )
     if n_htf_ok_but_blocked == 0 and n_no_htf == total:
         parts.append("лучше подождать более спокойной и согласованной картины")
 
@@ -457,7 +533,8 @@ def format_signal_markdown(decision: SignalDecision) -> str:
     lines = [decision.md_heading, ""]
     if decision.has_signal:
         lines.append(
-            f"**{decision.symbol} {decision.side}** (условный совет, бот ордер не ставит)"
+            f"**{decision.symbol} {decision.side}** — условный совет, "
+            f"**НЕ** ордер бота, **НЕ** автоторговля"
         )
         lines.append("")
         lines.append(f"- Вход: `{_format_price(decision.entry)}`")
@@ -465,6 +542,9 @@ def format_signal_markdown(decision: SignalDecision) -> str:
         lines.append(f"- TP: `{_format_price(decision.tp)}`")
         lines.append("")
         lines.append(decision.reason)
+        if decision.symbol and decision.symbol not in MAJORS:
+            lines.append("")
+            lines.append("⚠️ Высокий риск альта — вход только вручную и со своим SL.")
     else:
         lines.append(decision.reason)
         if decision.reject_notes:
@@ -484,7 +564,8 @@ def format_telegram_message(report: dict, decision: SignalDecision) -> str:
     lines = [head, ""]
 
     if decision.has_signal:
-        lines.append("✅ Рекомендуемый сигнал (условный, не ордер бота)")
+        lines.append("📋 Условный совет (НЕ ордер бота)")
+        lines.append(TG_DISCLAIMER)
         lines.append("")
         lines.append(f"{decision.symbol} {decision.side}")
         lines.append(f"Вход: {_format_price(decision.entry)}")
@@ -492,6 +573,9 @@ def format_telegram_message(report: dict, decision: SignalDecision) -> str:
         lines.append(f"TP: {_format_price(decision.tp)}")
         lines.append("")
         lines.append(decision.reason)
+        if decision.symbol and decision.symbol not in MAJORS:
+            lines.append("")
+            lines.append("⚠️ Альт — высокий риск, не копируйте без своего SL.")
     else:
         lines.append("⏸ Без сигнала сейчас")
         lines.append("")
@@ -611,7 +695,7 @@ def _format_markdown(report: dict) -> str:
     lines.append("")
     lines.append(
         "_Публичный API Bybit. Блок «Сигнал» — условный лайт-совет, "
-        "не автоматический ордер бота._"
+        "НЕ автоматический ордер бота. Альты = высокий риск._"
     )
     return "\n".join(lines)
 

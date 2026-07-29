@@ -214,7 +214,8 @@ def test_telegram_format_with_and_without_signal(mod):
         reason="Тренды вниз совпадают.",
     )
     text_ok = mod.format_telegram_message(report, with_sig)
-    assert "Рекомендуемый сигнал" in text_ok
+    assert "Условный совет" in text_ok
+    assert "НЕ ордер" in text_ok or "НЕ автоторговля" in text_ok
     assert "BTCUSDT SHORT" in text_ok
     assert "Вход:" in text_ok
 
@@ -245,3 +246,133 @@ def test_accepts_dict_pairs(mod):
     assert d.has_signal is True
     assert d.symbol == "SOLUSDT"
     assert d.side == "SHORT"
+
+
+def test_eul_like_mixed_htf_no_long(mod):
+    """EUL-like: волатильный альт, конфликт HTF → LONG не выдаём."""
+    pairs = [
+        _pair(
+            mod,
+            symbol="BTCUSDT",
+            last_price=64000.0,
+            trend_1h="бычий",
+            trend_4h="медвежий",
+            htf_align="конфликт",
+            rsi_1h=52.0,
+            change_24h_pct=1.0,
+            turnover_24h=3_000_000_000.0,
+        ),
+        _pair(
+            mod,
+            symbol="EULUSDT",
+            last_price=1.8,
+            trend_1h="бычий",
+            trend_4h="медвежий",
+            htf_align="конфликт",
+            rsi_1h=48.0,
+            change_24h_pct=5.0,
+            turnover_24h=90_000_000.0,
+        ),
+    ]
+    d = mod.decide_liquid_pairs_signal(pairs)
+    assert d.has_signal is False
+    assert d.side != "LONG"
+
+
+def test_eul_like_htf_up_but_btc_bearish_blocks_alt_long(mod):
+    """Альт с HTF↑, но BTC 4h↓ → LONG по альту блокируется."""
+    pairs = [
+        _pair(
+            mod,
+            symbol="BTCUSDT",
+            last_price=64000.0,
+            trend_1h="медвежий",
+            trend_4h="медвежий",
+            htf_align="совпадает ↓",
+            rsi_1h=42.0,
+            change_24h_pct=-2.0,
+            turnover_24h=3_000_000_000.0,
+        ),
+        _pair(
+            mod,
+            symbol="EULUSDT",
+            last_price=1.8,
+            trend_1h="бычий",
+            trend_4h="бычий",
+            htf_align="совпадает ↑",
+            rsi_1h=55.0,
+            change_24h_pct=4.0,
+            turnover_24h=90_000_000.0,
+        ),
+    ]
+    d = mod.decide_liquid_pairs_signal(pairs)
+    # SHORT по BTC допустим; LONG по EUL — нет
+    assert d.has_signal is True
+    assert d.symbol == "BTCUSDT"
+    assert d.side == "SHORT"
+    assert any("EULUSDT" in n for n in d.reject_notes)
+
+
+def test_no_long_on_dump_bounce(mod):
+    """LONG после суточного дампа (отскок) запрещён."""
+    pairs = [
+        _pair(
+            mod,
+            symbol="EULUSDT",
+            last_price=1.7,
+            trend_1h="бычий",
+            trend_4h="бычий",
+            htf_align="совпадает ↑",
+            rsi_1h=50.0,
+            change_24h_pct=-9.0,
+            turnover_24h=100_000_000.0,
+        ),
+        _pair(
+            mod,
+            symbol="BTCUSDT",
+            last_price=65000.0,
+            trend_1h="бычий",
+            trend_4h="бычий",
+            htf_align="совпадает ↑",
+            rsi_1h=55.0,
+            change_24h_pct=1.5,
+            turnover_24h=3_000_000_000.0,
+        ),
+    ]
+    d = mod.decide_liquid_pairs_signal(pairs)
+    assert d.has_signal is True
+    assert d.symbol == "BTCUSDT"
+    assert d.side == "LONG"
+    assert any("отскок" in n.lower() or "дамп" in n.lower() for n in d.reject_notes)
+
+
+def test_alt_extreme_tighter_than_major(mod):
+    """Альт +9% режется (порог 8%), major +9% ещё кандидат."""
+    pairs = [
+        _pair(
+            mod,
+            symbol="EULUSDT",
+            last_price=1.8,
+            trend_1h="бычий",
+            trend_4h="бычий",
+            htf_align="совпадает ↑",
+            rsi_1h=55.0,
+            change_24h_pct=9.0,
+            turnover_24h=100_000_000.0,
+        ),
+        _pair(
+            mod,
+            symbol="ETHUSDT",
+            last_price=1900.0,
+            trend_1h="бычий",
+            trend_4h="бычий",
+            htf_align="совпадает ↑",
+            rsi_1h=55.0,
+            change_24h_pct=9.0,
+            turnover_24h=2_000_000_000.0,
+        ),
+    ]
+    d = mod.decide_liquid_pairs_signal(pairs)
+    assert d.has_signal is True
+    assert d.symbol == "ETHUSDT"
+    assert d.side == "LONG"
