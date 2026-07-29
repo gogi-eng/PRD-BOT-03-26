@@ -8,6 +8,7 @@
 - [x] AW ON `widen_mult: 1.2` / prod OFF
 - [x] Тесты `backend/tests/test_trailing_after_be.py`
 - [x] Лог: `Trailing after BE widen`
+- [x] Push: AW `af80fa4` · PRD `6977db7`
 
 ## Сделано (28.07.2026)
 
