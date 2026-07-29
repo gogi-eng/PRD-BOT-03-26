@@ -1,33 +1,15 @@
 # Active Context
 
-**Дата фокуса:** 28.07.2026 (UTC+3)  
-**Ветки дня (для push):** `28.07.26-AGENT-WORLD` · `28.07.26-PRD-BOT-ALL`  
-**База tip:** AW от лайта 28.07; PRD от `27.07.26-PRD-BOT-ALL` + cherry-pick wallet_tracker
-
-## LIQUID-PAIRS server (28.07.2026)
-
-- Folder: `/root/LIQUID-PAIRS-REPORT`, branch `28.07.26-LIQUID-PAIRS`
-- Scripts: `deploy_liquid_pairs_report.sh`, `install_liquid_pairs_cron.sh`, `run_hourly_liquid_pairs.sh`
-- Docs: `docs/liquid_pairs_server_deploy.md`
-- Does NOT restart trading bots
-
-## Чат заархивирован
-
-- **28.07.2026:** transcript `6aae46dd-a66c-41b2-816d-e8b0d328b395` → саммари (без сырого JSONL):
-  - `docs/chat_archive/28.07.26-chat-wallet-tracker-liquid-pairs.md`
-  - `docs/chat_archive/sessions/6aae46dd-a66c-41b2-816d-e8b0d328b395/28.07.26-chat-wallet-tracker-liquid-pairs.md`
-- Темы: Wallet Tracker, liquid pairs, opposite hold, watches, API в `.env`.
+**Дата фокуса:** 29.07.2026 (UTC+3)  
+**Ветки дня (для push):** `29.07.26-AGENT-WORLD` · `29.07.26-PRD-BOT-ALL`
 
 ## Текущий фокус
 
-1. **Hourly liquid pairs → Telegram** — каждый час на ПК (Task Scheduler):
-   - `scripts/hourly_liquid_pairs_report.py --telegram`
-   - В MD/JSON блок `## Сигнал` или `## Почему без сигнала`
-   - В TG: условный LONG/SHORT (вход/SL/TP) **или** простое обоснование «почему нет»
-   - Credentials: `TELEGRAM_TOKEN` + `TELEGRAM_CHAT_ID` в `.env` (не в git); без них — `telegram skip: no credentials`
-2. **Wallet Tracker v1 (advisory)** — AW ON / prod OFF; watches 9 ETH; без ордеров
-3. ЛАЙТ SPIKE knobs AW: volume 1.40 / pullback 0.18 / cooldown 2400
-4. Opposite hold / HTF / derivatives / SPIKE loops / polling — **не отключать**
+1. **Trailing after BE** — после переноса SL в BE/BE+ чуть шире trailing distance (`widen_mult: 1.2`)
+   - Код: `prd_agent/positions/trailing_after_be.py` + wiring в `position_steward.py`
+   - Config: AW `enabled: true` / prod `enabled: false`
+   - Лог-маркер: `Trailing after BE widen`
+2. Wallet Tracker / liquid pairs / SPIKE / polling — **не отключать**
 
 ## Не смешивать
 

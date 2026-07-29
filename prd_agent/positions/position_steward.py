@@ -34,6 +34,10 @@ from prd_agent.positions.adaptive_trailing import (
     compute_adaptive_distance_factor,
     should_apply_adaptive_trailing,
 )
+from prd_agent.positions.trailing_after_be import (
+    TrailingAfterBeConfig,
+    apply_trailing_after_be_widen,
+)
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
@@ -138,6 +142,7 @@ class PositionSteward:
         self.exit_cfg = ExitManagementConfig.from_cfg(p)
         self._default_profile = TrailingProfile.from_positions_cfg(p, root_cfg=cfg)
         self._adaptive_trailing = AdaptiveTrailingConfig.from_cfg(p)
+        self._trailing_after_be = TrailingAfterBeConfig.from_cfg(p)
         self._be_fee_buffer_pct = fee_buffer_pct_from_bot_cfg(cfg)
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing", root_cfg=cfg
@@ -578,6 +583,23 @@ class PositionSteward:
                             pos.side,
                             tp_res.note,
                         )
+
+            # После факта BE/BE+: чуть шире trailing (больше воздуха на откат)
+            be_total_for_widen = float(self._be_fee_buffer_for(pos, profile)) + float(
+                getattr(profile.tp_progress, "be_lock_extra_pct", 0.0) or 0.0
+            )
+            sl_for_be_check = float(new_sl) if new_sl is not None else float(pos.stop_loss)
+            dist_factor, after_be_note = apply_trailing_after_be_widen(
+                dist_factor,
+                cfg=self._trailing_after_be,
+                tp_progress_phase=pos.tp_progress_phase,
+                side=pos.side,
+                entry=pos.entry,
+                stop_loss=sl_for_be_check,
+                be_buffer_pct=be_total_for_widen,
+            )
+            if after_be_note:
+                logger.info("%s %s %s", after_be_note, sym, pos.side)
 
             if self.enabled:
                 trail_sl = self._calc_trailing_sl(
