@@ -7,3 +7,7 @@ PRD-BOT-ALL/.cursor/memory-bank/activeContext.md и productContext.md
 эти файлы и синхронизируй копии в .vscode/.cursor/memory-bank/ и
 AGENT-WORLD/.cursor/memory-bank/. Команда «UMB» / «обнови память» =
 полная запись чата в memory-bank. Секреты (.env, ключи) туда не писать.
+SSH / FileZilla / пароль сервера DigitalOcean: сначала укажи гайд
+PRD-BOT-ALL/docs/server-access-ssh-filezilla.md (архив:
+.cursor/chats/archive/30.07.26-ssh-filezilla-access.md). Private key и
+пароли в git/чат не дублировать.

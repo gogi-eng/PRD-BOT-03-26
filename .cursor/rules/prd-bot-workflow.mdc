@@ -55,6 +55,7 @@ alwaysApply: true
 - systemd прод: `trading_bot` (`run_unified.py`), `telegram_signal_agent`
 - systemd песочница: `trading_bot_agent_world`, `telegram_signal_agent_world`
 - Секреты **только в `.env`**, никогда в `config.yaml` / коммиты
+- **SSH / FileZilla / пароль сервера:** сначала гайд `docs/server-access-ssh-filezilla.md` (+ архив `.cursor/chats/archive/30.07.26-ssh-filezilla-access.md`). IP сверять в DO. Private key / пароли в git не класть.
 
 ### Деплой после push (прод)
 
@@ -216,7 +217,6 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Cron / стоп | **Проверка на сервере** | после деплоя cron | `crontab -l`, ручной `trading_hours_ctl.sh stop`, `systemctl is-active` — **до** «готово» |
 | Entry | **Коридор S↔R bounce/breakout** | `zone_corridor_play.py`, orchestrator, `telegram_signal_agent` | Песочница ON + SPIKE/scanner; прод `enabled: false` до проверки |
 | TP / SL | **BE+ с замком прибыли** | `tp_progress_exit.py` | `be_lock_extra_pct` — SL выше чистого безубытка (комиссии+lock) |
-| TP / SL | **После BE шире trailing** | `trailing_after_be.py`, steward | `trailing_after_be.widen_mult`; AW ON / prod OFF; маркер `Trailing after BE widen` |
 | Soft | **weight_overrides песочница** | `entry_soft_rules.py`, sandbox yaml | Hermes negative lift: regime_trend/adx/imb ×0.55; прод без overrides |
 | Качество | **UTF-8: не ломать файлы** | Windows push / PowerShell | Не `Out-File`/`>` для `.py`; после правки `py_compile` + кириллица цела |
 | Качество | **Вход = все пути** | orchestrator + signal agent | Фильтр только в orchestrator при SPIKE-exec = баг |
@@ -229,6 +229,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
 | Риск | **GARCH calm/normal/storm** | `volatility_regime_sizing.py`, orch + signal agent | AW ON / prod OFF; маркер `Volatility regime`; не угадывает сторону |
+| Сервер | **SSH/FileZilla → гайд** | `docs/server-access-ssh-filezilla.md` | Не дублировать private key/пароли; IP сверять в DO |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
 

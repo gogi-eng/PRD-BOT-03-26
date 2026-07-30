@@ -14,14 +14,12 @@
 | 21.07 | AW notional 30% + own ON | 80% SPIKE съедал депозит; фаза 1 | `max_notional_balance_pct: 30` |
 | 22.07 | Дневные ветки 22.07.26-* | Календарь UTC+3 | не продолжать 21.07 |
 | 22.07 | GARCH sizing AW only | BeInCrypto/Deutscher: vol→size, не направление | `volatility_regime_sizing` AW true / prod false; оба пути exec |
-| 26.07 | Длинный трейлинг 3.5% | откат закрывал у min/max | distance 3.5 / atr 2.2 / tight 0.85 |
 | 26.07 | SPIKE ≠ opposite own EXIT | DEXE: SPIKE SELL + own Buy → −5.74 | `skip_spike_on_own_signal: true`; маркер skipped SPIKE |
-| 28.07 | Wallet tracker advisory v1 | видео ончейн → советы, не ордера | AW ON / prod OFF; без новых TG кнопок |
-| 29.07 | Trailing after BE widen | после BE чуть больше воздуха | `trailing_after_be` AW ON×1.2 / prod OFF |
-| 29.07 | Liquid pairs harden | EUL убыток: не LONG альтам vs BTC↓ / dump-bounce | RSI≤70, ALT ekstrem 8%, TG «НЕ автоторговля» |
+| 30.07 | Гайд SSH/FileZilla в git | Доступ восстановлен; не дублировать секреты | `docs/server-access-ssh-filezilla.md`; IP сверять в DO |
 
 ## Сессии
 
+- **30.07 SSH/FileZilla:** IP `207.154.238.178`; при вопросах доступа → гайд в репо; без private key/паролей в git
 - **21.07 Memory Bank:** всегда читать под аккаунтом Cursor; авто-UMB; push с дневной веткой
 - **21.07 bybit_monitor:** урок — при disable модуля A не удалять B
 - **21–22.07 Companion/Lifecycle:** push обе ветки; AW маркеры в journal подтверждены

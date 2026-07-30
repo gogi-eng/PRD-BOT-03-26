@@ -3,10 +3,11 @@
 Эти файлы создаёт `scripts/sync_cursor_chats.py`.
 На другом ПК: `git pull`, затем читайте `.cursor/chats/archive/`.
 
-Обновлено: 2026-07-22 16:59 UTC
+Обновлено: 2026-07-30 (UTC+3)
 
 | Дата | ID | Заголовок | Файл |
 |------|----|-----------|------|
+| 2026-07-30 | `d66d4e5e` | SSH/FileZilla доступ DigitalOcean (выжимка) | [30.07.26-ssh-filezilla-access.md](archive/30.07.26-ssh-filezilla-access.md) |
 | 2026-05-17 | `705ec011` | Изучи проанализируй новую стратегию: "C:\Users\Labuh\.vscode\Новая стратегия.txt | [705ec011-c882-4248-bb2a-3e952c2b17de.md](archive/705ec011-c882-4248-bb2a-3e952c2b17de.md) |
 | 2026-05-10 | `929f3700` | (venv) root@snapshots-s-2vcpu-4gb-120gb-intel-fra1:~/PRD-BOT-NEW# tail -f bot.lo | [929f3700-8366-4bd0-98ee-fe5e1f6cde8d.md](archive/929f3700-8366-4bd0-98ee-fe5e1f6cde8d.md) |
 | 2026-05-09 | `649056e9` | Открытый интерес (Open Interest, OI) — один из самых недооценённых сигналов для  | [649056e9-e656-4df1-a74f-6f433897f150.md](archive/649056e9-e656-4df1-a74f-6f433897f150.md) |
