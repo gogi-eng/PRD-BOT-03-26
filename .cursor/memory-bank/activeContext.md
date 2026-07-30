@@ -1,18 +1,25 @@
 # Active Context
 
-**Дата фокуса:** 29.07.2026 (UTC+3)  
-**Ветки дня (для push):** `29.07.26-AGENT-WORLD` · `29.07.26-PRD-BOT-ALL`  
-**Hashes:** AW `af80fa4` · PRD `6977db7` (trailing after BE; liquid-pairs harden — локально, ещё не push)
+**Дата фокуса:** 30.07.2026 (UTC+3)  
+**Ветки дня (для push):** `30.07.26-PRD-BOT-ALL` / `30.07.26-AGENT-WORLD`  
+**База tip GitHub:** `29.07.26-*`
 
 ## Текущий фокус
 
-1. **Разбор убытка LONG EULUSDT (−44 USDT)** утро 29.07
-   - В локальных `liquid_pairs_20260729_08/09` сигнал был **SOLUSDT SHORT**, EUL **не** в топ-15
-   - Утром EUL был дикий памп 1.55→1.93 затем откаты — риск альта, не баг ордера бота из hourly
-   - Ужесточён picker: BTC/ETH контекст, запрет LONG на dump-bounce, жёстче порог альтам, дисклеймер TG
-   - Код готов локально на `29.07.26-AGENT-WORLD` — **commit/push по просьбе**
-2. **Trailing after BE** — AW ON / prod OFF (уже в hashes выше)
-3. Wallet Tracker / liquid pairs / SPIKE / polling — **не отключать**
+1. **Доступ к серверу восстановлен (30.07):** IP `207.154.238.178` (сверять в DO). Гайд: `docs/server-access-ssh-filezilla.md`. Архив: `.cursor/chats/archive/30.07.26-ssh-filezilla-access.md`.
+2. При вопросах SSH / FileZilla / пароль сервера — **сначала** указать путь к гайду в репо.
+3. Ранее: длинный трейлинг / SPIKE≠opposite EXIT на ветках `26.07+` — не откатывать.
+
+## Сервер (актуально 30.07)
+
+| Параметр | Значение |
+|----------|----------|
+| IP | `207.154.238.178` (проверять в DigitalOcean) |
+| User | `root` |
+| Прод | `/root/PRD-BOT-ALL` |
+| Песочница | `/root/AGENT-WORLD` |
+
+Вход предпочтительно по SSH-ключу с ПК (`id_rsa`), не по паролю в чат.
 
 ## Не смешивать
 
