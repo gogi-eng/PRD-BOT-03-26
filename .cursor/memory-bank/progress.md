@@ -7,7 +7,7 @@
 - [x] Гайд: `docs/server-access-ssh-filezilla.md`
 - [x] Архив выжимки: `.cursor/chats/archive/30.07.26-ssh-filezilla-access.md`
 - [x] Правило: при SSH/FileZilla → сначала гайд в репо
-- [ ] Push обе ветки `30.07.26-*` (в этой сессии)
+- [x] Push обе ветки `30.07.26-*`: PRD `2983891` · AW `235ac13`
 
 ## Сделано (26.07.2026)
 
