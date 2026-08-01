@@ -1,5 +1,13 @@
 # Progress
 
+## Сделано (01.08.2026)
+
+### Размер позиций ×1.5 (прод + AW)
+- [x] `trading.risk_pct_per_trade` 0.15→0.225; пресеты 0.25/0.35/0.45→0.375/0.525/0.675
+- [x] `supervisor_v4.min_risk_pct` 0.1→0.15; SPIKE `max_notional_balance_pct` 80→120
+- [x] `signal_notional.py`: clamp pct до 200% (раньше 100% резал ×1.5)
+- [x] Ветки `01.08.26-PRD-BOT-ALL` / `01.08.26-AGENT-WORLD`
+
 ## Сделано (30.07.2026)
 
 ### Доступ к DigitalOcean

@@ -91,7 +91,7 @@ trading:
   min_signal_confidence: 0.85
   min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
-  risk_pct_per_trade: 0.15
+  risk_pct_per_trade: 0.225
   active_strategy: swing
   strategies:
     # местное UTC+3: 9–10, 14–15, 20–23 (без 6–8, 11–13, 16–18)
@@ -297,7 +297,7 @@ risk_presets:
   conservative:
     trading:
       min_signal_confidence: 0.88
-      risk_pct_per_trade: 0.25
+      risk_pct_per_trade: 0.375
     quality_gate:
       min_rr_ratio: 2.2
       min_confidence: 0.88
@@ -308,7 +308,7 @@ risk_presets:
   normal:
     trading:
       min_signal_confidence: 0.85
-      risk_pct_per_trade: 0.35
+      risk_pct_per_trade: 0.525
     quality_gate:
       min_rr_ratio: 2.0
       min_confidence: 0.85
@@ -319,7 +319,7 @@ risk_presets:
   aggressive:
     trading:
       min_signal_confidence: 0.80
-      risk_pct_per_trade: 0.45
+      risk_pct_per_trade: 0.675
     quality_gate:
       min_rr_ratio: 1.8
       min_confidence: 0.80
@@ -663,7 +663,7 @@ supervisor_v4:
   interval_hours: 2
   tick_every_cycles: 15
   mode_cooldown_minutes: 120
-  min_risk_pct: 0.1
+  min_risk_pct: 0.15
   lookback_hours: 168
   virtual_trades_enabled: true
   virtual_max_open: 40
@@ -836,8 +836,8 @@ telegram_signal_agent:
   enabled: false
   auto_execute: false
   auto_execute_max_open_positions: 6
-  # SPIKE/scanner: номинал = 80% баланса Bybit (не фиксированные 30 USDT)
-  max_notional_balance_pct: 80
+  # SPIKE/scanner: номинал = 120% баланса Bybit (×1.5 от прежних 80%; не фиксированные 30 USDT)
+  max_notional_balance_pct: 120
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true
