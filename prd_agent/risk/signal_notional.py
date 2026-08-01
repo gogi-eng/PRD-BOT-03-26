@@ -31,7 +31,8 @@ def plan_signal_notional(
 
     pct = float(max_notional_balance_pct or 0.0)
     if pct > 0:
-        pct = max(1.0, min(100.0, pct))
+        # До 200%: номинал может превышать баланс при плече (маржа = notional/lev).
+        pct = max(1.0, min(200.0, pct))
         base = wallet * (pct / 100.0)
         reason = f"balance_pct={pct:g}% wallet={wallet:.4f}"
     else:
