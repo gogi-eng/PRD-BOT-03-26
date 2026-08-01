@@ -6,7 +6,11 @@
 
 ## Текущий фокус
 
+<<<<<<< HEAD
+1. **Размер позиций ×1.5** (прод + песочница): risk_pct / пресеты / min_risk_pct; SPIKE notional: прод 80→120, AW 30→45 (на AW было 30% из‑за SPIKE+own). Clamp `signal_notional` до 200%.
+=======
 1. **Размер позиций ×1.5** запушен: risk_pct / пресеты / min_risk_pct; SPIKE notional прод 80→120, AW 30→45; clamp `signal_notional` до 200%. Ждёт деплоя на сервер.
+>>>>>>> ec1e686 (docs(memory-bank): record 1.5x sizing push hashes and AW SPIKE 30->45)
 2. SSH OK: IP `207.154.238.178`, гайд `docs/server-access-ssh-filezilla.md`.
 3. Прод баланс ~$24. AW: дневной лимит $10 уже пробивался 01.08 — после ×1.5 следить за просадкой.
 
