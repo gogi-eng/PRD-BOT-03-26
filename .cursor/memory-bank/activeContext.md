@@ -1,14 +1,21 @@
 # Active Context
 
 **Дата фокуса:** 02.08.2026 (UTC+3)  
-**Ветки дня:** 02.08.26-PRD-BOT-ALL @ 83775e4 / 02.08.26-AGENT-WORLD @ 6aa397d  
-**Фича:** disk cleanup + keep last config.bak
+**Ветки дня:** 02.08.26-PRD-BOT-ALL / 02.08.26-AGENT-WORLD (после push — см. progress)
 
 ## Текущий фокус
 
-1. Disk cleanup задеплоен (скрипты на сервере, cleanup выполнен).
-2. Размер/плечо 0.225 / min 10 — предыдущий коммит дня.
-3. SSH OK: IP 207.154.238.178.
+1. **Внедрение оценки 02.08.26 (без ослабления фильтров):**
+   - Прод: `self_improvement.auto_apply_low_risk: false` + rate-limit 1 правка/час в коде
+   - PnL «📅 По дням»: бот / ручные / итог (`daily_pnl_split_origin: true`)
+   - **Не трогали:** trailing, BE+, orderbook на прод, фильтры входа
+2. **Наблюдение 2–3 дня (AGENT-WORLD) — руками пользователя:**
+   - [ ] Кнопка **🧪 Лаборатория** — смотреть WR пропусков и топ SKIP-причин
+   - [ ] Не ослаблять фильтры «на глаз» — только после данных Лаборатории
+   - [ ] Не менять trailing / BE+ / orderbook на проде
+   - [ ] Один рычаг потом (если Лаборатория покажет явный перекос) — не пачка правок сразу
+3. Live config до деплоя (02.08): risk 0.225, leverage min 10, Zone ON, GARCH ON (оба), adopt_manual true, trailing_activation 2.5, **auto_apply было true на обоих** → после деплоя прод false.
+4. SSH OK: IP 207.154.238.178.
 
 ## Сервер
 

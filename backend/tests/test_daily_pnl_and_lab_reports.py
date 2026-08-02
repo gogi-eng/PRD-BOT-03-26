@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from prd_agent.analysis.trade_analytics import build_daily_pnl_report
@@ -16,31 +16,103 @@ def _write_journal(path: Path, rows: list) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def _iso_hours_ago(hours: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+
 def test_daily_pnl_groups_by_local_day(tmp_path: Path) -> None:
     journal = tmp_path / "data" / "trades" / "trade_history.jsonl"
-    # UTC 21:00 19.06 = 00:00 20.06 UTC+3
+    # Два разных местных дня UTC+3: ~3ч назад и ~30ч назад
     _write_journal(
         journal,
         [
             {
                 "event": "closed",
-                "ts": "2026-06-19T21:30:00+00:00",
+                "ts": _iso_hours_ago(3),
                 "pnl": 2.5,
                 "symbol": "BTCUSDT",
+                "origin": "bot",
             },
             {
                 "event": "closed",
-                "ts": "2026-06-19T10:00:00+00:00",
+                "ts": _iso_hours_ago(30),
                 "pnl": -1.0,
                 "symbol": "ETHUSDT",
+                "origin": "bot",
             },
         ],
     )
     text = build_daily_pnl_report(journal, days=7, timezone_offset=3)
     assert "📅 PnL по дням" in text
-    assert "+2.50 USDT" in text
-    assert "-1.00 USDT" in text
-    assert "Итого:" in text
+    assert "+2.50" in text
+    assert "-1.00" in text
+    assert "Итого всё:" in text
+    assert "Итого бот:" in text
+    assert "Итого ручные:" in text
+
+
+def test_daily_pnl_splits_bot_and_manual(tmp_path: Path) -> None:
+    journal = tmp_path / "data" / "trades" / "trade_history.jsonl"
+    _write_journal(
+        journal,
+        [
+            {
+                "event": "closed",
+                "ts": _iso_hours_ago(2),
+                "pnl": 5.0,
+                "symbol": "BTCUSDT",
+                "origin": "bot",
+            },
+            {
+                "event": "closed",
+                "ts": _iso_hours_ago(1),
+                "pnl": -2.0,
+                "symbol": "ETHUSDT",
+                "origin": "manual",
+            },
+        ],
+    )
+    text = build_daily_pnl_report(
+        journal, days=7, timezone_offset=3, split_origin=True, exclude_manual=False
+    )
+    assert "бот +5.00" in text
+    assert "ручн. -2.00" in text
+    assert "Итого бот:" in text
+    assert "+5.00 USDT" in text
+    assert "Итого ручные:" in text
+    assert "-2.00 USDT" in text
+    assert "Итого всё:" in text
+    assert "+3.00 USDT" in text
+
+
+def test_daily_pnl_exclude_manual(tmp_path: Path) -> None:
+    journal = tmp_path / "data" / "trades" / "trade_history.jsonl"
+    _write_journal(
+        journal,
+        [
+            {
+                "event": "closed",
+                "ts": _iso_hours_ago(2),
+                "pnl": 5.0,
+                "symbol": "BTCUSDT",
+                "origin": "bot",
+            },
+            {
+                "event": "closed",
+                "ts": _iso_hours_ago(1),
+                "pnl": -2.0,
+                "symbol": "ETHUSDT",
+                "origin": "manual",
+            },
+        ],
+    )
+    text = build_daily_pnl_report(
+        journal, days=7, timezone_offset=3, exclude_manual=True, split_origin=False
+    )
+    assert "без ручных" in text
+    assert "+5.00 USDT" in text
+    assert "Итого (бот):" in text
+    assert "-2.00" not in text
 
 
 def test_skipped_lab_report_empty(tmp_path: Path) -> None:

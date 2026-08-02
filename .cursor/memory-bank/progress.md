@@ -2,6 +2,14 @@
 
 ## Сделано (02.08.2026)
 
+### Внедрение оценки (без ослабления фильтров)
+- [x] Live config снят с сервера (до): risk 0.225, lev min/max 10–15, Zone ON, GARCH ON, adopt_manual true, trailing_act 2.5, auto_apply true на **обоих**
+- [x] Прод: `auto_apply_low_risk: false`; AW auto_apply оставлен true; rate-limit `max_auto_applies_per_hour: 1` в SelfImprover (+ оба deploy yaml)
+- [x] «📅 По дням»: раздельно бот / ручные / итог; ключи `analytics.daily_pnl_split_origin`, `analytics.exclude_manual`
+- [x] Тесты: `test_daily_pnl_and_lab_reports.py`, `test_self_improver_batch_reload.py`
+- [ ] Push обе ветки + деплой + grep live `auto_apply_low_risk: false` на проде
+- [ ] Наблюдение 2–3 дня AW (Лаборатория) — см. activeContext
+
 ### Disk cleanup + keep last config bak
 - [x] scripts/server_disk_cleanup.sh (dry-run / CONFIRM=1)
 - [x] scripts/prune_config_backups.sh — keep newest bak

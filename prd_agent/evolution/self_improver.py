@@ -46,6 +46,10 @@ class SelfImprover:
         self.auto_low = bool(si.get("auto_apply_low_risk", True))
         self.require_approval = bool(si.get("require_approval_critical", True))
         self.reload_after_apply = bool(si.get("reload_config_after_apply", True))
+        # Защита даже при auto_apply=true: не чаще N правок в час (по умолчанию 1).
+        self.max_auto_applies_per_hour = max(
+            0, int(si.get("max_auto_applies_per_hour", 1))
+        )
         self.sandbox_dir = Path(si.get("sandbox_dir", root / "data" / "sandbox"))
         self.git_auto_commit = bool(si.get("git_auto_commit", False))
         self.root = root
@@ -76,6 +80,21 @@ class SelfImprover:
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass
         return out
+
+    def _auto_apply_budget_left(self) -> int:
+        """Сколько low-risk авто-правок ещё можно применить в текущем окне 1 часа."""
+        if self.max_auto_applies_per_hour <= 0:
+            return 10**9
+        used = 0
+        for row in self.recent_changes(hours=1.0):
+            if not row.get("applied"):
+                continue
+            if row.get("rollback"):
+                continue
+            if str(row.get("risk") or "low") != "low":
+                continue
+            used += 1
+        return max(0, self.max_auto_applies_per_hour - used)
 
     def propose_from_performance(
         self, report_2h: Dict[str, Any], report_24h: Dict[str, Any]
@@ -328,10 +347,27 @@ class SelfImprover:
             return []
         proposals = self._resolve_conflicting_proposals(proposals)
         applied: List[Dict[str, Any]] = []
+        budget = self._auto_apply_budget_left()
         for p in proposals:
             if p.get("risk") == "low" and self.auto_low:
+                if budget <= 0:
+                    self._log_change(
+                        {
+                            "risk": "low",
+                            "applied": False,
+                            "skipped_rate_limit": True,
+                            "summary": p.get("summary", ""),
+                            "justification": (
+                                f"Rate-limit: max {self.max_auto_applies_per_hour} "
+                                "auto-apply/hour"
+                            ),
+                            "path": list(p.get("path") or []),
+                        }
+                    )
+                    continue
                 if self.apply_low_risk_proposal(p, reload=False):
                     applied.append(p)
+                    budget -= 1
             elif p.get("risk") == "critical" and self.require_approval:
                 self.queue_critical_patch(
                     p.get("summary", ""),
