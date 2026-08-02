@@ -24,9 +24,11 @@ done
 if [[ -n "$PYTHON" ]]; then
   "$PYTHON" -m pip install -q 'pydantic>=2.6.4'
   "$PYTHON" "${ROOT}/scripts/validate_config_yaml.py"
+  "$PYTHON" "${ROOT}/scripts/verify_live_sizing_config.py" --profile agent_world --config "$DST"
 else
   python3 -m pip install -q 'pydantic>=2.6.4' 2>/dev/null || true
   python3 "${ROOT}/scripts/validate_config_yaml.py"
+  python3 "${ROOT}/scripts/verify_live_sizing_config.py" --profile agent_world --config "$DST"
 fi
 echo "OK: AGENT-WORLD sandbox config → $DST"
 echo "Проверьте .env: BYBIT_API_KEY/SECRET = ключи СУБАККАУНТА (не основного счёта)."

@@ -24,7 +24,8 @@ LOW_RISK_TUNING = {
     ("pullback_entry", "min_momentum_pct"): (0.2, 0.6, 0.05),
     ("risk", "cooldown_after_loss_sec"): (60, 900, 30),
     ("risk", "max_consecutive_losses"): (2, 6, 1),
-    ("trading", "risk_pct_per_trade"): (0.1, 1.5, 0.05),
+    # Пол = ×1.5 baseline (0.225). Раньше 0.1: DEFENSIVE auto_apply съедал risk после install.
+    ("trading", "risk_pct_per_trade"): (0.225, 1.5, 0.05),
     ("positions", "breakeven_after_pct"): (0.12, 0.65, 0.04),
     ("positions", "trailing_activation_pct"): (0.25, 1.2, 0.05),
     ("positions", "trailing_distance_pct"): (0.35, 1.5, 0.05),
@@ -221,6 +222,9 @@ class SelfImprover:
         else:
             new_val = round(new_val, 3)
         new_val = max(lo, min(hi, new_val))
+        # Не переписывать весь config.yaml (safe_dump), если значение уже на полу/потолке.
+        if new_val == current:
+            return False
         self._set_nested(data, path_tuple, new_val)
         with self.config_path.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)

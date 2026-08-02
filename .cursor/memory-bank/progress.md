@@ -1,5 +1,15 @@
 # Progress
 
+## Сделано (02.08.2026)
+
+### Risk 0.225 + leverage min 10
+- [x] `dynamic_leverage.min` 5→10 (prod + AW deploy yaml)
+- [x] `risk_pct_per_trade: 0.225` зафиксирован; пресеты/min_risk/notional ×1.5 не откатывали
+- [x] AW sandbox notional на ветке PRD: ошибочные 120→**45** (как live AW)
+- [x] SelfImprover пол risk 0.1→**0.225** (причина live 0.1 после install)
+- [x] `verify_live_sizing_config.py` в install_production / install_agent_world
+- [x] Push: `02.08.26-PRD-BOT-ALL` / `02.08.26-AGENT-WORLD` (hash после push)
+
 ## Сделано (01.08.2026)
 
 ### Размер позиций ×1.5 (прод + AW)

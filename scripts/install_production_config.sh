@@ -15,11 +15,17 @@ if [[ -f "$DST" ]]; then
 fi
 cp -a "$SRC" "$DST"
 chmod 600 "$DST" 2>/dev/null || true
+PY=""
 if [[ -x "${ROOT}/venv/bin/python3" ]]; then
-  "${ROOT}/venv/bin/python3" "${ROOT}/scripts/validate_config_yaml.py"
+  PY="${ROOT}/venv/bin/python3"
+elif [[ -x "${ROOT}/venv/bin/python" ]]; then
+  PY="${ROOT}/venv/bin/python"
 else
-  python3 "${ROOT}/scripts/validate_config_yaml.py"
+  PY="python3"
 fi
+"$PY" "${ROOT}/scripts/validate_config_yaml.py"
+# Жёстко: после install live должен держать ×1.5 baseline (не 0.1 от старого auto-tune).
+"$PY" "${ROOT}/scripts/verify_live_sizing_config.py" --profile production --config "$DST"
 echo "OK: $DST установлен. Ключи Bybit/Telegram возьмутся из .env если пусто в yaml."
 
 # Cron stop/start по неторговым окнам (UTC сервера, не CRON_TZ).

@@ -15,6 +15,8 @@
 | 22.07 | Дневные ветки 22.07.26-* | Календарь UTC+3 | не продолжать 21.07 |
 | 22.07 | GARCH sizing AW only | BeInCrypto/Deutscher: vol→size, не направление | `volatility_regime_sizing` AW true / prod false; оба пути exec |
 | 26.07 | SPIKE ≠ opposite own EXIT | DEXE: SPIKE SELL + own Buy → −5.74 | `skip_spike_on_own_signal: true`; маркер skipped SPIKE |
+| 01.08 | Размер ×1.5 | Крупнее позиции при том же WR | risk 0.225; notional 120/45; min_risk 0.15 |
+| 02.08 | lev min 10 + пол risk | 5× залипало; auto-tune съедал risk до 0.1 | `dynamic_leverage.min: 10`; SelfImprover lo=0.225; verify после install |
 | 30.07 | Гайд SSH/FileZilla в git | Доступ восстановлен; не дублировать секреты | `docs/server-access-ssh-filezilla.md`; IP сверять в DO |
 
 ## Сессии
