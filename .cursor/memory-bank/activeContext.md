@@ -1,15 +1,14 @@
 # Active Context
 
 **Дата фокуса:** 02.08.2026 (UTC+3)  
-**Ветки дня:** 02.08.26-PRD-BOT-ALL / 02.08.26-AGENT-WORLD (disk cleanup)  
-**Предыдущий tip:** PRD 71bd4ba · AW f6c4d8c
+**Ветки дня:** 02.08.26-PRD-BOT-ALL @ 83775e4 / 02.08.26-AGENT-WORLD @ 6aa397d  
+**Фича:** disk cleanup + keep last config.bak
 
 ## Текущий фокус
 
-1. Disk cleanup: scripts/server_disk_cleanup.sh + prune_config_backups.sh (keep 1 bak).
-2. Install/deploy после bak — prune старых копий.
-3. ПК: scripts/pc_bot_folders_cleanup.ps1 (__pycache__, старые bak, Temp clones).
-4. SSH OK: IP 207.154.238.178.
+1. Disk cleanup задеплоен (скрипты на сервере, cleanup выполнен).
+2. Размер/плечо 0.225 / min 10 — предыдущий коммит дня.
+3. SSH OK: IP 207.154.238.178.
 
 ## Сервер
 
