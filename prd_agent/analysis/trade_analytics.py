@@ -252,11 +252,34 @@ def _bucket_trades_by_local_day(
     return ordered
 
 
+def _trade_origin_label(row: Dict[str, Any]) -> str:
+    """Простая метка origin из журнала: manual vs bot (всё остальное = бот)."""
+    origin = str(row.get("origin") or "").strip().lower()
+    if origin == "manual":
+        return "manual"
+    return "bot"
+
+
+def _split_rows_by_origin(
+    rows: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    bot_rows: List[Dict[str, Any]] = []
+    manual_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if _trade_origin_label(row) == "manual":
+            manual_rows.append(row)
+        else:
+            bot_rows.append(row)
+    return bot_rows, manual_rows
+
+
 def format_daily_pnl_telegram(
     day_rows: List[Tuple[str, List[Dict[str, Any]]]],
     *,
     days: int,
     timezone_offset: int,
+    split_origin: bool = True,
+    exclude_manual: bool = False,
 ) -> str:
     if not day_rows:
         tz_label = f"UTC+{timezone_offset}" if timezone_offset >= 0 else f"UTC{timezone_offset}"
@@ -266,24 +289,59 @@ def format_daily_pnl_telegram(
             "<i>Журнал: data/trades/trade_history.jsonl</i>"
         )
     tz_label = f"UTC+{timezone_offset}" if timezone_offset >= 0 else f"UTC{timezone_offset}"
-    lines = [f"<b>📅 PnL по дням ({days} дн., {tz_label})</b>", ""]
-    total_pnl = 0.0
-    total_n = 0
+    mode_note = ""
+    if exclude_manual:
+        mode_note = ", без ручных"
+    elif split_origin:
+        mode_note = ", бот/ручные отдельно"
+    lines = [f"<b>📅 PnL по дням ({days} дн., {tz_label}{mode_note})</b>", ""]
+    total_all = 0.0
+    total_bot = 0.0
+    total_manual = 0.0
+    n_all = 0
+    n_bot = 0
+    n_manual = 0
     for day_label, rows in day_rows:
-        summary = summarize_trades(rows)
-        total_pnl += float(summary["total_pnl"])
-        total_n += int(summary["n"])
+        bot_rows, manual_rows = _split_rows_by_origin(rows)
+        if exclude_manual:
+            view_rows = bot_rows
+        else:
+            view_rows = rows
+        summary = summarize_trades(view_rows)
+        bot_sum = summarize_trades(bot_rows)
+        man_sum = summarize_trades(manual_rows)
+        total_all += float(summary["total_pnl"])
+        n_all += int(summary["n"])
+        total_bot += float(bot_sum["total_pnl"])
+        n_bot += int(bot_sum["n"])
+        total_manual += float(man_sum["total_pnl"])
+        n_manual += int(man_sum["n"])
         short_day = day_label[:5]
-        lines.append(
-            f"<b>{short_day}</b>: {summary['total_pnl']:+.2f} USDT "
-            f"({summary['n']} сд., W{summary['wins']}/L{summary['losses']})"
+        if split_origin and not exclude_manual:
+            lines.append(
+                f"<b>{short_day}</b>: всё {summary['total_pnl']:+.2f} "
+                f"({summary['n']} сд.) | бот {bot_sum['total_pnl']:+.2f} "
+                f"({bot_sum['n']}) | ручн. {man_sum['total_pnl']:+.2f} ({man_sum['n']})"
+            )
+        else:
+            lines.append(
+                f"<b>{short_day}</b>: {summary['total_pnl']:+.2f} USDT "
+                f"({summary['n']} сд., W{summary['wins']}/L{summary['losses']})"
+            )
+    lines.append("")
+    if split_origin and not exclude_manual:
+        lines.extend(
+            [
+                f"<b>Итого бот:</b> {total_bot:+.2f} USDT за {n_bot} сделок",
+                f"<b>Итого ручные:</b> {total_manual:+.2f} USDT за {n_manual} сделок",
+                f"<b>Итого всё:</b> {total_all:+.2f} USDT за {n_all} сделок",
+            ]
         )
-    lines.extend(
-        [
-            "",
-            f"<b>Итого:</b> {total_pnl:+.2f} USDT за {total_n} сделок",
-            "<i>Аналог Freqtrade /daily — по календарным дням местного времени.</i>",
-        ]
+    else:
+        label = "Итого (бот)" if exclude_manual else "Итого"
+        lines.append(f"<b>{label}:</b> {total_all:+.2f} USDT за {n_all} сделок")
+    lines.append(
+        "<i>Аналог Freqtrade /daily — по календарным дням местного времени.</i>"
     )
     return "\n".join(lines)
 
@@ -293,9 +351,19 @@ def build_daily_pnl_report(
     days: int = 7,
     *,
     timezone_offset: int = 3,
+    split_origin: bool = True,
+    exclude_manual: bool = False,
 ) -> str:
-    """Дневной PnL для кнопки Telegram «📅 По дням»."""
+    """Дневной PnL для кнопки Telegram «📅 По дням» (бот / ручные / всё)."""
     d = max(1, int(days))
     rows = load_closed_trades(journal_path, hours=float(d * 24))
+    if exclude_manual:
+        rows = [r for r in rows if _trade_origin_label(r) != "manual"]
     day_rows = _bucket_trades_by_local_day(rows, timezone_offset)
-    return format_daily_pnl_telegram(day_rows, days=d, timezone_offset=timezone_offset)
+    return format_daily_pnl_telegram(
+        day_rows,
+        days=d,
+        timezone_offset=timezone_offset,
+        split_origin=split_origin,
+        exclude_manual=exclude_manual,
+    )
