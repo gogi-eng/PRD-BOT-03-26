@@ -19,6 +19,10 @@ cd "$REPO_DIR"
 
 if [[ -f config.yaml ]]; then
   cp config.yaml "/root/config.agent_world.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+  # Оставляем только самый новый bak в /root.
+  if [[ -f scripts/prune_config_backups.sh ]]; then
+    bash scripts/prune_config_backups.sh /root/config.agent_world.bak. || true
+  fi
 fi
 
 git remote get-url origin >/dev/null 2>&1 || git remote add origin "$REMOTE"
