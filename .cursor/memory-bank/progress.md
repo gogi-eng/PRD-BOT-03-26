@@ -2,6 +2,12 @@
 
 ## Сделано (02.08.2026)
 
+### Disk cleanup + keep last config bak
+- [x] scripts/server_disk_cleanup.sh (dry-run / CONFIRM=1)
+- [x] scripts/prune_config_backups.sh — keep newest bak
+- [x] Встроено в install_production / install_agent_world / deploy_agent_world_algo
+- [x] ПК: scripts/pc_bot_folders_cleanup.ps1
+
 ### Risk 0.225 + leverage min 10
 - [x] `dynamic_leverage.min` 5→10 (prod + AW deploy yaml)
 - [x] `risk_pct_per_trade: 0.225` зафиксирован; пресеты/min_risk/notional ×1.5 не откатывали
