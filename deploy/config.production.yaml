@@ -898,7 +898,8 @@ reporter:
 
 self_improvement:
   enabled: true
-  auto_apply_low_risk: true
+  auto_apply_low_risk: false
+  max_auto_applies_per_hour: 1
   require_approval_critical: true
   sandbox_dir: data/sandbox
   git_auto_commit: false
@@ -912,6 +913,8 @@ analytics:
   portfolio_quality_hours: 168
   report_hours: 24
   daily_pnl_days: 7
+  daily_pnl_split_origin: true
+  exclude_manual: false
   skipped_lab_hours: 168
 
 ai:

@@ -131,6 +131,8 @@ class UnifiedOrchestrator:
         self._stats_hours = float(an.get("report_hours", 24))
         self._portfolio_quality_hours = float(an.get("portfolio_quality_hours", 168))
         self._daily_pnl_days = int(an.get("daily_pnl_days", 7))
+        self._daily_pnl_split_origin = bool(an.get("daily_pnl_split_origin", True))
+        self._daily_pnl_exclude_manual = bool(an.get("exclude_manual", False))
         self._skipped_lab_hours = float(an.get("skipped_lab_hours", 168))
 
         t = cfg.get("trading", {})
@@ -308,6 +310,12 @@ class UnifiedOrchestrator:
             an.get("portfolio_quality_hours", self._portfolio_quality_hours)
         )
         self._daily_pnl_days = int(an.get("daily_pnl_days", self._daily_pnl_days))
+        self._daily_pnl_split_origin = bool(
+            an.get("daily_pnl_split_origin", self._daily_pnl_split_origin)
+        )
+        self._daily_pnl_exclude_manual = bool(
+            an.get("exclude_manual", self._daily_pnl_exclude_manual)
+        )
         self._skipped_lab_hours = float(
             an.get("skipped_lab_hours", self._skipped_lab_hours)
         )
@@ -1839,6 +1847,8 @@ class UnifiedOrchestrator:
             self.trade_journal.path,
             days=d,
             timezone_offset=tz,
+            split_origin=self._daily_pnl_split_origin,
+            exclude_manual=self._daily_pnl_exclude_manual,
         )
 
     def get_skipped_lab_report(self, hours: Optional[float] = None) -> str:
