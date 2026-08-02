@@ -1,3 +1,10 @@
+## 02.08.2026 — disk cleanup + keep last bak
+
+- Добавлены server_disk_cleanup.sh / prune_config_backups.sh.
+- После каждого нового config.bak install/deploy удаляет все предыдущие bak, кроме последнего.
+- Не трогаем .env, live config.yaml, venv, торговые data без явного флага.
+- ПК: безопасная чистка __pycache__, старых bak, Temp clones.
+
 # Журнал решений
 
 | Дата | Решение | Почему | Не откатывать |

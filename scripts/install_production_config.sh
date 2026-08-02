@@ -12,6 +12,8 @@ fi
 if [[ -f "$DST" ]]; then
   cp -a "$DST" "${DST}.bak.$(date +%Y%m%d_%H%M%S)"
   echo "Резервная копия: ${DST}.bak.*"
+  # Оставляем только самый новый bak — диск не забивается старыми копиями.
+  bash "${ROOT}/scripts/prune_config_backups.sh" "${DST}.bak." || true
 fi
 cp -a "$SRC" "$DST"
 chmod 600 "$DST" 2>/dev/null || true
