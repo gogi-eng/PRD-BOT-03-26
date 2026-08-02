@@ -84,7 +84,7 @@ trading:
   max_positions: 8
   dynamic_leverage:
     enabled: true
-    min: 5
+    min: 10
     max: 15
     min_confidence: 0.68
     max_confidence: 0.95

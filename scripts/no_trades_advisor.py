@@ -31,7 +31,7 @@ RELAX_BOUNDS: Dict[Tuple[str, str], Tuple[float, float, float]] = {
     ("trading", "min_signal_confidence"): (0.55, 0.85, 0.05),
     ("risk", "cooldown_after_loss_sec"): (60, 900, 60),
     ("risk", "cooldown_after_stop_hours"): (0, 6, 1),
-    ("trading", "risk_pct_per_trade"): (0.1, 1.5, 0.05),
+    ("trading", "risk_pct_per_trade"): (0.225, 1.5, 0.05),
 }
 
 TRADE_TS_KEYS = (

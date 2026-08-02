@@ -73,14 +73,14 @@ trading:
   max_positions: 8
   dynamic_leverage:
     enabled: true
-    min: 20
-    max: 50
+    min: 10
+    max: 15
     min_confidence: 0.68
     max_confidence: 0.95
   min_signal_confidence: 0.85
   min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
-  risk_pct_per_trade: 0.525
+  risk_pct_per_trade: 0.225
   min_24h_volume_usdt: 10000000
   max_scan_symbols: 12
   symbol_rescan_interval_sec: 900
