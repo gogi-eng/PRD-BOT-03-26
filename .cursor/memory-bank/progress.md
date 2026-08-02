@@ -7,7 +7,9 @@
 - [x] Прод: `auto_apply_low_risk: false`; AW auto_apply оставлен true; rate-limit `max_auto_applies_per_hour: 1` в SelfImprover (+ оба deploy yaml)
 - [x] «📅 По дням»: раздельно бот / ручные / итог; ключи `analytics.daily_pnl_split_origin`, `analytics.exclude_manual`
 - [x] Тесты: `test_daily_pnl_and_lab_reports.py`, `test_self_improver_batch_reload.py`
-- [ ] Push обе ветки + деплой + grep live `auto_apply_low_risk: false` на проде
+- [x] Push обе ветки + деплой + grep live `auto_apply_low_risk: false` на проде
+  - PRD `02.08.26-PRD-BOT-ALL` @ `2aa04e7` · AW `02.08.26-AGENT-WORLD` @ `f2d6d37`
+  - Live: PRD `auto_apply_low_risk: false`, AW `true`; оба `max_auto_applies_per_hour: 1`, `daily_pnl_split_origin: true`
 - [ ] Наблюдение 2–3 дня AW (Лаборатория) — см. activeContext
 
 ### Disk cleanup + keep last config bak
