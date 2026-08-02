@@ -229,6 +229,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
 | Риск | **GARCH calm/normal/storm** | `volatility_regime_sizing.py`, orch + signal agent | AW ON / prod OFF; маркер `Volatility regime`; не угадывает сторону |
+| Диск | **keep 1 config.bak** | server_disk_cleanup.sh, prune_config_backups.sh | После bak — только newest; не трогать .env |
 | Сервер | **SSH/FileZilla → гайд** | `docs/server-access-ssh-filezilla.md` | Не дублировать private key/пароли; IP сверять в DO |
 
 ## Freqtrade → PRD-BOT: план (не переезжать на Freqtrade)
