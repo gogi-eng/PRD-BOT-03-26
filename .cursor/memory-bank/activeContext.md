@@ -1,7 +1,7 @@
 # Active Context
 
 **Дата фокуса:** 02.08.2026 (UTC+3)  
-**Ветки дня:** 02.08.26-PRD-BOT-ALL / 02.08.26-AGENT-WORLD (после push — см. progress)
+**Ветки дня:** 02.08.26-PRD-BOT-ALL @ 2aa04e7 / 02.08.26-AGENT-WORLD @ f2d6d37
 
 ## Текущий фокус
 
