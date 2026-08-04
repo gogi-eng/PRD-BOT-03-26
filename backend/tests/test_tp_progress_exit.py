@@ -66,7 +66,7 @@ def test_be_lock_extra_keeps_profit_cushion():
         breakeven_at_profit_pct=1.0,
         sr_trail_enabled=False,
         be_fee_buffer_pct=0.25,
-        be_lock_extra_pct=0.40,
+        be_lock_extra_pct=0.70,
     )
     res = evaluate_tp_progress_exit(
         cfg=cfg,
@@ -79,7 +79,8 @@ def test_be_lock_extra_keeps_profit_cushion():
         atr=1.0,
     )
     assert res.suggested_sl is not None
-    assert res.suggested_sl >= 100.65
+    # fee 0.25% + lock 0.70% = 0.95% above entry
+    assert res.suggested_sl >= 100.95
     assert "lock" in (res.note or "").lower() or "BE+" in (res.note or "")
 
 

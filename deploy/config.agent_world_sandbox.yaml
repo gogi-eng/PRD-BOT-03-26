@@ -429,7 +429,8 @@ positions:
     breakeven_at_profit_pct: 1.0
     sr_trail_at_profit_pct: 1.5
     be_fee_buffer_pct: 0.30
-    be_lock_extra_pct: 0.40
+    # Было 0.40: SL в BE дальше от входа — больше «замок» прибыли после комиссий
+    be_lock_extra_pct: 0.70
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -448,7 +449,7 @@ positions:
       breakeven_at_profit_pct: 1.0
       sr_trail_at_profit_pct: 1.5
       be_fee_buffer_pct: 0.30
-      be_lock_extra_pct: 0.40
+      be_lock_extra_pct: 0.70
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
