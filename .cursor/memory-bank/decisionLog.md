@@ -1,3 +1,10 @@
+## 04.08.2026 — manual daily-loss reset в git
+
+- После Telegram «Сбросить убыток» пишется `data/risk_daily_loss_manual_reset.json` на торговый день (UTC+3 / timezone_offset).
+- Пока флаг активен: reconcile с Bybit не перетирает обнулённый PnL и не ставит trade_ok=False.
+- На новый день флаг истекает сам. Маркер лога: `MANUAL_DAILY_LOSS_RESET`.
+- Order OK: в format-строку добавлен `qty` (был TypeError).
+
 ## 02.08.2026 — disk cleanup + keep last bak
 
 - Добавлены server_disk_cleanup.sh / prune_config_backups.sh.
@@ -25,6 +32,8 @@
 | 01.08 | Размер ×1.5 | Крупнее позиции при том же WR | risk 0.225; notional 120/45; min_risk 0.15 |
 | 02.08 | lev min 10 + пол risk | 5× залипало; auto-tune съедал risk до 0.1 | `dynamic_leverage.min: 10`; SelfImprover lo=0.225; verify после install |
 | 30.07 | Гайд SSH/FileZilla в git | Доступ восстановлен; не дублировать секреты | `docs/server-access-ssh-filezilla.md`; IP сверять в DO |
+| 04.08 | Manual daily-loss reset | reconcile снова блокировал после кнопки | флаг JSON + skip reconcile; `MANUAL_DAILY_LOSS_RESET` |
+| 04.08 | Order OK + qty | TypeError в journal при ордере | передать `qty` в logger.info |
 
 ## Сессии
 

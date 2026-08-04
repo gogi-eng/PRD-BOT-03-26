@@ -3,12 +3,18 @@
 """
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from prd_agent.risk.kill_switch import kill_switch_active
+from prd_agent.time_hours import read_timezone_offset
+
+logger = logging.getLogger(__name__)
 
 
 class GuardStatus(Enum):
@@ -73,6 +79,11 @@ class RiskGuard:
         self._consecutive_losses = 0
         self._notify: Optional[Callable[[str], None]] = None
         self.open_positions_count = 0
+        # MANUAL_DAILY_LOSS_RESET_V1: после кнопки «Сбросить убыток»
+        # не тянуть PnL с Bybit до конца торгового дня (timezone_offset).
+        self._manual_daily_loss_reset_day: Optional[date] = None
+        self._manual_reset_skip_logged_day: Optional[date] = None
+        self._load_manual_daily_loss_reset()
 
     @staticmethod
     def _today_utc() -> date:
@@ -86,6 +97,47 @@ class RiskGuard:
 
     def set_notify_callback(self, cb: Callable[[str], None]) -> None:
         self._notify = cb
+
+    def _manual_reset_path(self) -> Path:
+        return Path("data") / "risk_daily_loss_manual_reset.json"
+
+    def _trading_day(self) -> date:
+        """Торговый день по timezone_offset (по умолчанию UTC+3), иначе UTC+3."""
+        tz = read_timezone_offset(self._cfg)
+        if not tz:
+            tz = 3
+        local = datetime.now(timezone.utc) + timedelta(hours=int(tz))
+        return local.date()
+
+    def _load_manual_daily_loss_reset(self) -> None:
+        path = self._manual_reset_path()
+        try:
+            if not path.is_file():
+                self._manual_daily_loss_reset_day = None
+                return
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            ds = str((raw or {}).get("date") or "")[:10]
+            self._manual_daily_loss_reset_day = date.fromisoformat(ds) if ds else None
+        except Exception:
+            self._manual_daily_loss_reset_day = None
+
+    def _save_manual_daily_loss_reset(self, day: date) -> None:
+        path = self._manual_reset_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "date": day.isoformat(),
+            "reset_at": datetime.now(timezone.utc).isoformat(),
+            "note": "skip reconcile until next trading day (timezone_offset)",
+        }
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self._manual_daily_loss_reset_day = day
+        self._manual_reset_skip_logged_day = None
+        logger.info("MANUAL_DAILY_LOSS_RESET set day=%s", day.isoformat())
+
+    def _manual_daily_loss_reset_active(self) -> bool:
+        return self._manual_daily_loss_reset_day == self._trading_day()
 
     def reset_daily_loss_counter(self) -> str:
         """
@@ -103,6 +155,7 @@ class RiskGuard:
             self.stop_reason = ""
             self.stop_kind = StopKind.NONE
             self.auto_stop_time = None
+        self._save_manual_daily_loss_reset(self._trading_day())
         return (
             f"Дневной убыток сброшен: было ${prev_usdt:.2f} ({prev_pct:.2f}%). "
             f"Сейчас $0.00. Лимит ${self.max_daily_loss_usdt:.0f} снова доступен."
@@ -167,6 +220,8 @@ class RiskGuard:
                 self.auto_stop_time = None
 
     def _daily_loss_exceeded(self) -> bool:
+        if self._manual_daily_loss_reset_active():
+            return False
         s = self.day_stats
         # День в плюсе по закрытым сделкам на бирже — дневной лимит убытка не применяем
         if s.net_pnl_usdt >= 0:
@@ -200,6 +255,15 @@ class RiskGuard:
         Иначе внутренний счётчик мог остаться на −6% при +91 USDT на бирже.
         """
         self._ensure_today()
+        if self._manual_daily_loss_reset_active():
+            day = self._trading_day()
+            if self._manual_reset_skip_logged_day != day:
+                logger.info(
+                    "MANUAL_DAILY_LOSS_RESET skip reconcile day=%s (PnL left at reset value)",
+                    day.isoformat(),
+                )
+                self._manual_reset_skip_logged_day = day
+            return
         today = self._today_utc()
         start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
         start_ms = int(start.timestamp() * 1000)
