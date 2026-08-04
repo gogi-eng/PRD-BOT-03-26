@@ -1,6 +1,22 @@
 # Progress
 
+## Сделано (04.08.2026)
+
+### Daily-loss reset + Order OK
+- [x] `RiskGuard`: флаг ручного сброса до конца торгового дня (`timezone_offset`), skip `reconcile_from_closed_rows`, маркер `MANUAL_DAILY_LOSS_RESET`
+- [x] `orchestrator`: Order OK — передан `qty` (нет TypeError в journal)
+- [x] Тест `backend/tests/test_reset_daily_loss.py`
+- [ ] Hash/деплой — см. activeContext после push
+
 ## Сделано (02.08.2026)
+
+### Ежедневный ритуал агента (после 18:00 UTC+3)
+- [x] Раздел в плане `dumps/PRD_BOT_stack_program_2026-08-02.txt` (ритуал + изучение логов)
+- [x] Rule `daily-stack-program.mdc` (`.vscode` + `PRD-BOT-ALL`) — alwaysApply
+- [x] Hook `sessionStart`: `.cursor/hooks.json` + `hooks/daily_stack_ritual.py`
+- [x] Маркер `dumps/.daily_ritual_last.txt`; approval gate на код/push/deploy
+- [x] В ритуал встроено: SSH journalctl прод+AW → «По логам» + «Предлагаю изменить»
+- [ ] Пользователь: каждый вечер смотреть Лабораторию / По дням (фаза 0–1)
 
 ### Внедрение оценки (без ослабления фильтров)
 - [x] Live config снят с сервера (до): risk 0.225, lev min/max 10–15, Zone ON, GARCH ON, adopt_manual true, trailing_act 2.5, auto_apply true на **обоих**

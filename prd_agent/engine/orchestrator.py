@@ -1718,6 +1718,7 @@ class UnifiedOrchestrator:
                 "Order OK %s %s qty=%.6f lev=%dx (req %dx) conf=%.0f%% id=%s",
                 sig.symbol,
                 sig.side,
+                float(qty or 0),
                 leverage,
                 leverage_requested,
                 sig.confidence * 100,
