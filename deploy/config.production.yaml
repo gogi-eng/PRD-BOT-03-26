@@ -413,7 +413,8 @@ positions:
     sr_trail_at_profit_pct: 1.5
     be_fee_buffer_pct: 0.30
     # Как на песочнице: SL в BE дальше от входа — замок прибыли после комиссий
-    be_lock_extra_pct: 0.70
+    # 1.0%: при откате/проскальзывании реже закрытие в минус после BE+
+    be_lock_extra_pct: 1.0
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -444,7 +445,7 @@ positions:
       breakeven_at_profit_pct: 1.0
       sr_trail_at_profit_pct: 1.5
       be_fee_buffer_pct: 0.30
-      be_lock_extra_pct: 0.70
+      be_lock_extra_pct: 1.0
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
@@ -460,10 +461,10 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
-  # Сначала песочница; на проде OFF
+  # После BE/BE+: шире trailing (больше «воздуха» на откат) — на проде ON
   trailing_after_be:
-    enabled: false
-    widen_mult: 1.2
+    enabled: true
+    widen_mult: 1.25
 
 # Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
 manual_management:
