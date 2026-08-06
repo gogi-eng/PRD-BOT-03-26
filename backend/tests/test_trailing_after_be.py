@@ -128,9 +128,10 @@ def test_sandbox_config_has_trailing_after_be_on():
     assert "widen_mult: 1.2" in section
 
 
-def test_production_config_has_trailing_after_be_off():
+def test_production_config_has_trailing_after_be_on():
     root = Path(__file__).resolve().parents[2]
     text = (root / "deploy" / "config.production.yaml").read_text(encoding="utf-8")
     assert "trailing_after_be:" in text
     section = text.split("trailing_after_be:", 1)[1][:120]
-    assert "enabled: false" in section
+    assert "enabled: true" in section
+    assert "widen_mult: 1.25" in section

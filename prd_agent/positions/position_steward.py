@@ -307,11 +307,14 @@ class PositionSteward:
             return None
 
         be_fee_pct = self._be_fee_buffer_for(pos, profile)
-        be_sl_floor = breakeven_stop_price(pos.side, entry, be_fee_pct)
+        # Пол SL = комиссии + замок прибыли (BE+), иначе трейлинг может
+        # опираться только на fee-пол и при откате/проскальзывании закрыть в минус.
+        lock_extra = float(getattr(profile.tp_progress, "be_lock_extra_pct", 0.0) or 0.0)
+        be_sl_floor = breakeven_stop_price(pos.side, entry, be_fee_pct + max(0.0, lock_extra))
 
         if is_long:
             new_sl = pos.best_price - dist
-            # Безубыток с учётом комиссии open+close (не «голый» entry)
+            # Безубыток с учётом комиссии open+close + lock (не «голый» entry)
             if p_pct >= profile.activation_pct:
                 new_sl = max(new_sl, be_sl_floor)
             if pos.stop_loss > 0:
