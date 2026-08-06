@@ -1,5 +1,14 @@
 # Progress
 
+## Сделано (06.08.2026 вечер)
+
+### Перенос AW → прод (торговые knobs)
+- [x] Сверка tip: AW 360aebc vs prod 37913d3 — общий .py почти совпал; у прода лучше SPIKE lock
+- [x] deploy/config.production.yaml: orderbook_entry, multi_agent_review, SPIKE HTF/pullback, opposite 20/68, own_agents ON
+- [x] SPIKE path сохранён: run_loop_in_signal_agent: true
+- [x] pytest: 48 passed (spread/spike/vol/zone/opposite)
+- [ ] Hash/деплой прод — см. activeContext после push
+
 ## Сделано (06.08.2026)
 
 ### Trailing tighten after BE −0.5%
