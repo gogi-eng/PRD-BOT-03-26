@@ -461,10 +461,10 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
-  # После BE/BE+: шире trailing (больше «воздуха» на откат) — на проде ON
+  # После BE/BE+: дистанция трейлинга на 0.5 п.п. короче (оба инстанса)
   trailing_after_be:
     enabled: true
-    widen_mult: 1.25
+    distance_reduce_pct: 0.5
 
 # Ручные: подхватываем, но НЕ ставим SL/TP на бирже при подхвате
 manual_management:
