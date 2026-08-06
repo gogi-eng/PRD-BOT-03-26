@@ -1,4 +1,4 @@
-"""После переноса SL в BE/BE+ — чуть шире trailing distance (больше «воздуха»)."""
+"""После переноса SL в BE/BE+ — уже ужесточённая дистанция трейлинга (п.п. от цены)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,8 +10,9 @@ from prd_agent.positions.breakeven_fees import breakeven_stop_price
 @dataclass(frozen=True)
 class TrailingAfterBeConfig:
     enabled: bool = False
-    # Множитель дистанции трейлинга: 1.2 = на 20% шире после BE
-    widen_mult: float = 1.2
+    # Сколько процентных пунктов вычесть из trailing_distance_pct после BE.
+    # Пример: base 3.5, reduce 0.5 → 3.0 (не ниже min_distance_pct).
+    distance_reduce_pct: float = 0.5
 
     @classmethod
     def from_cfg(cls, positions_cfg: Mapping[str, Any]) -> TrailingAfterBeConfig:
@@ -19,14 +20,14 @@ class TrailingAfterBeConfig:
         if not isinstance(raw, dict):
             return cls(enabled=False)
         try:
-            mult = float(raw.get("widen_mult", 1.2) or 1.2)
+            reduce_pct = float(raw.get("distance_reduce_pct", 0.5) or 0.0)
         except (TypeError, ValueError):
-            mult = 1.2
-        # 1.0 = без эффекта; верх — защита от случайного «в 3 раза»
-        mult = max(1.0, min(2.0, mult))
+            reduce_pct = 0.5
+        # 0 = без эффекта; верх — защита от случайного «обнулить всю дистанцию»
+        reduce_pct = max(0.0, min(5.0, reduce_pct))
         return cls(
             enabled=bool(raw.get("enabled", False)),
-            widen_mult=mult,
+            distance_reduce_pct=reduce_pct,
         )
 
 
@@ -61,7 +62,7 @@ def is_be_phase(phase: str) -> bool:
     return str(phase or "").strip().lower() in {"breakeven", "sr_trail"}
 
 
-def should_widen_trailing_after_be(
+def should_tighten_trailing_after_be(
     *,
     cfg: TrailingAfterBeConfig,
     tp_progress_phase: str = "",
@@ -70,17 +71,18 @@ def should_widen_trailing_after_be(
     stop_loss: float = 0.0,
     be_buffer_pct: float = 0.0,
 ) -> bool:
-    if not cfg.enabled or cfg.widen_mult <= 1.0 + 1e-12:
+    if not cfg.enabled or cfg.distance_reduce_pct <= 1e-12:
         return False
     if is_be_phase(tp_progress_phase):
         return True
     return sl_is_at_or_beyond_be(side, entry, stop_loss, be_buffer_pct)
 
 
-def apply_trailing_after_be_widen(
-    distance_factor: float,
+def apply_trailing_after_be_distance(
+    base_distance_pct: float,
     *,
     cfg: TrailingAfterBeConfig,
+    min_distance_pct: float = 0.0,
     tp_progress_phase: str = "",
     side: str = "",
     entry: float = 0.0,
@@ -88,10 +90,11 @@ def apply_trailing_after_be_widen(
     be_buffer_pct: float = 0.0,
 ) -> Tuple[float, Optional[str]]:
     """
-    Увеличивает distance_factor после BE (шире = SL дальше от цены).
-    Возвращает (новый_фактор, note_или_None).
+    После BE: effective = max(min_floor, base_distance - reduce_pct).
+    До BE — без изменений. Возвращает (дистанция_%, note_или_None).
     """
-    if not should_widen_trailing_after_be(
+    base = max(0.0, float(base_distance_pct))
+    if not should_tighten_trailing_after_be(
         cfg=cfg,
         tp_progress_phase=tp_progress_phase,
         side=side,
@@ -99,11 +102,15 @@ def apply_trailing_after_be_widen(
         stop_loss=stop_loss,
         be_buffer_pct=be_buffer_pct,
     ):
-        return float(distance_factor), None
-    base = max(0.05, float(distance_factor))
-    widened = min(3.0, base * float(cfg.widen_mult))
+        return base, None
+    reduced = base - float(cfg.distance_reduce_pct)
+    floor = max(0.0, float(min_distance_pct or 0.0))
+    if floor > 0:
+        reduced = max(reduced, floor)
+    else:
+        reduced = max(0.0, reduced)
     note = (
-        f"Trailing after BE widen ×{cfg.widen_mult:g} "
-        f"(dist_factor {base:.2f}→{widened:.2f})"
+        f"Trailing tighten after BE −{cfg.distance_reduce_pct:g}% "
+        f"(dist {base:.2f}%→{reduced:.2f}%)"
     )
-    return widened, note
+    return reduced, note
