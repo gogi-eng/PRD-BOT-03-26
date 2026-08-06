@@ -1,7 +1,7 @@
 # Active Context
 
 **Дата фокуса:** 06.08.2026 (UTC+3)  
-**Ветки дня:** `06.08.26-AGENT-WORLD` @ `360aebc` · `06.08.26-PRD-BOT-ALL` @ (после push — sync hash)
+**Ветки дня:** `06.08.26-AGENT-WORLD` @ `360aebc` · `06.08.26-PRD-BOT-ALL` @ @ 358c6ce
 
 ## Текущий фокус
 

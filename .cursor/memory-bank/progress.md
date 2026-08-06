@@ -7,7 +7,7 @@
 - [x] deploy/config.production.yaml: orderbook_entry, multi_agent_review, SPIKE HTF/pullback, opposite 20/68, own_agents ON
 - [x] SPIKE path сохранён: run_loop_in_signal_agent: true
 - [x] pytest: 48 passed (spread/spike/vol/zone/opposite)
-- [ ] Hash/деплой прод — см. activeContext после push
+- [x] Push+деплой прод: 06.08.26-PRD-BOT-ALL @ 358c6ce; orderbook live; Spike scan done
 
 ## Сделано (06.08.2026)
 
