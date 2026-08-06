@@ -125,7 +125,7 @@ def test_sandbox_config_has_trailing_after_be_on():
     # enabled/widen прямо под ключом
     section = text.split("trailing_after_be:", 1)[1][:120]
     assert "enabled: true" in section
-    assert "widen_mult: 1.2" in section
+    assert "widen_mult: 1.25" in section
 
 
 def test_production_config_has_trailing_after_be_on():
