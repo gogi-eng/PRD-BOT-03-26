@@ -36,7 +36,7 @@ from prd_agent.positions.adaptive_trailing import (
 )
 from prd_agent.positions.trailing_after_be import (
     TrailingAfterBeConfig,
-    apply_trailing_after_be_widen,
+    apply_trailing_after_be_distance,
 )
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
@@ -73,6 +73,7 @@ class TrackedPosition:
     best_price: float = 0.0
     tp_progress_phase: str = ""
     trailing_active: bool = False
+    trailing_after_be_logged: bool = False
     position_idx: int = 0
     origin: str = "manual"
     pump_dump_mode: bool = False
@@ -282,6 +283,7 @@ class PositionSteward:
         *,
         be_pct_override: Optional[float] = None,
         distance_factor: float = 1.0,
+        distance_pct_override: Optional[float] = None,
     ) -> Optional[float]:
         entry = pos.entry
         is_long = pos.side == "Buy"
@@ -297,8 +299,13 @@ class PositionSteward:
         if p_pct < profile.activation_pct:
             return None
 
+        use_dist_pct = (
+            float(distance_pct_override)
+            if distance_pct_override is not None
+            else float(profile.distance_pct)
+        )
         ref = pos.best_price if pos.best_price > 0 else price
-        dist_pct = ref * profile.distance_pct / 100 * distance_factor
+        dist_pct = ref * use_dist_pct / 100 * distance_factor
         dist_atr = atr * profile.distance_atr_mult * distance_factor if atr > 0 else 0.0
         dist = max(dist_pct, dist_atr)
         if profile.min_distance_pct > 0:
@@ -587,22 +594,24 @@ class PositionSteward:
                             tp_res.note,
                         )
 
-            # После факта BE/BE+: чуть шире trailing (больше воздуха на откат)
-            be_total_for_widen = float(self._be_fee_buffer_for(pos, profile)) + float(
+            # После факта BE/BE+: дистанция трейлинга на N п.п. короче
+            be_total_for_check = float(self._be_fee_buffer_for(pos, profile)) + float(
                 getattr(profile.tp_progress, "be_lock_extra_pct", 0.0) or 0.0
             )
             sl_for_be_check = float(new_sl) if new_sl is not None else float(pos.stop_loss)
-            dist_factor, after_be_note = apply_trailing_after_be_widen(
-                dist_factor,
+            eff_distance_pct, after_be_note = apply_trailing_after_be_distance(
+                profile.distance_pct,
                 cfg=self._trailing_after_be,
+                min_distance_pct=profile.min_distance_pct,
                 tp_progress_phase=pos.tp_progress_phase,
                 side=pos.side,
                 entry=pos.entry,
                 stop_loss=sl_for_be_check,
-                be_buffer_pct=be_total_for_widen,
+                be_buffer_pct=be_total_for_check,
             )
-            if after_be_note:
+            if after_be_note and not pos.trailing_after_be_logged:
                 logger.info("%s %s %s", after_be_note, sym, pos.side)
+                pos.trailing_after_be_logged = True
 
             if self.enabled:
                 trail_sl = self._calc_trailing_sl(
@@ -612,6 +621,7 @@ class PositionSteward:
                     profile,
                     be_pct_override=be_override,
                     distance_factor=dist_factor,
+                    distance_pct_override=eff_distance_pct,
                 )
                 if trail_sl is not None:
                     if new_sl is None:

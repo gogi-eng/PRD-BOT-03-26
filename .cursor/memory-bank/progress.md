@@ -1,5 +1,14 @@
 # Progress
 
+## Сделано (06.08.2026)
+
+### Trailing tighten after BE −0.5%
+- [x] `trailing_after_be`: вместо widen → `distance_reduce_pct: 0.5` (оба deploy yaml)
+- [x] `apply_trailing_after_be_distance`: max(min_floor, base − 0.5)
+- [x] Маркер: `Trailing tighten after BE −0.5%`
+- [x] Тесты `test_trailing_after_be.py` + py_compile
+- [ ] Hash/деплой — см. activeContext после push
+
 ## Сделано (04.08.2026)
 
 ### Daily-loss reset + Order OK

@@ -464,10 +464,10 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
-  # После BE/BE+: шире trailing (как на проде)
+  # После BE/BE+: дистанция трейлинга на 0.5 п.п. короче (как на проде)
   trailing_after_be:
     enabled: true
-    widen_mult: 1.25
+    distance_reduce_pct: 0.5
   fee_breakeven:
     taker_rate: 0.00055
     maker_rate: 0.0002

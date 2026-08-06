@@ -1,3 +1,10 @@
+## 06.08.2026 — trailing after BE: tighten −0.5%
+
+- Пользователь: после BE дистанция трейлинга на **0.5 п.п. короче**, оба бота.
+- Было: `widen_mult: 1.25` (шире после BE). Стало: `distance_reduce_pct: 0.5`.
+- Формула: `max(min_distance_pct, base_distance_pct − 0.5)`.
+- Маркер: `Trailing tighten after BE −0.5%`.
+
 ## 04.08.2026 — manual daily-loss reset в git
 
 - После Telegram «Сбросить убыток» пишется `data/risk_daily_loss_manual_reset.json` на торговый день (UTC+3 / timezone_offset).
@@ -34,6 +41,7 @@
 | 30.07 | Гайд SSH/FileZilla в git | Доступ восстановлен; не дублировать секреты | `docs/server-access-ssh-filezilla.md`; IP сверять в DO |
 | 04.08 | Manual daily-loss reset | reconcile снова блокировал после кнопки | флаг JSON + skip reconcile; `MANUAL_DAILY_LOSS_RESET` |
 | 04.08 | Order OK + qty | TypeError в journal при ордере | передать `qty` в logger.info |
+| 06.08 | Trailing after BE −0.5% | ужесточить дистанцию после BE, не widen | `distance_reduce_pct: 0.5`; маркер tighten |
 
 ## Сессии
 
