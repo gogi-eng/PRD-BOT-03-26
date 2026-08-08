@@ -1,3 +1,10 @@
+## 08.08.2026 — HOTFIX manual time-stop (SNDKUSDT)
+
+- Причина: adopt manual наследовал opened_at из `_bot_levels` прошлой bot-позиции → мгновенный `close_time_stop`
+- Фикс: `positions.manual_auto_close: false`, `trade_companion.auto_close_manual: false`, fresh opened_at for manual, clear `_bot_levels` on drop
+- Тесты: `test_manual_position_no_instant_close.py` + companion
+- Ветки: `08.08.26-AGENT-WORLD` + `08.08.26-PRD-BOT-ALL`
+
 ## 08.08.2026 — P0 SPIKE bypass no_corridor + P1 pullback (AW)
 
 - P0 config: `trading.zone_corridor_play.spike_bypass_no_corridor` (+ min_score/min_move)
