@@ -85,3 +85,61 @@ def test_giveback_still_works_for_bot_rules():
     )
     assert decision is not None
     assert decision.action == "close"
+
+
+import asyncio
+from types import SimpleNamespace
+
+from prd_agent.positions.trade_companion import TradeCompanionAgent
+from prd_agent.positions.position_steward import TrackedPosition
+
+
+class _FakeExchange:
+    async def get_klines(self, *args, **kwargs):
+        raise AssertionError("Companion must not fetch klines for manual")
+
+    async def close_position(self, *args, **kwargs):
+        raise AssertionError("Companion must not close manual")
+
+
+def test_companion_manage_cycle_skips_manual(tmp_path):
+    """Даже при bot_positions_only=false Companion не закрывает origin=manual."""
+    cfg = {
+        "_root": str(tmp_path),
+        "trade_companion": {
+            "enabled": True,
+            "bot_positions_only": False,
+            "auto_close_manual": False,
+            "close_giveback_enabled": True,
+            "close_reversal_enabled": True,
+            "extend_tp_enabled": False,
+            "tighten_sl_on_weakness": False,
+        },
+        "positions": {"adopt_manual": True, "manual_auto_close": False},
+    }
+    agent = TradeCompanionAgent(cfg)
+    steward = PositionSteward(cfg)
+    steward._tracked["TUTUSDT"] = TrackedPosition(
+        symbol="TUTUSDT",
+        side="Buy",
+        entry=0.06,
+        qty=10.0,
+        stop_loss=0.05,
+        take_profit=0.08,
+        best_price=0.065,
+        origin="manual",
+        opened_at_utc=datetime.now(timezone.utc).isoformat(),
+        peak_profit_pct=5.0,
+    )
+    positions = [
+        {
+            "symbol": "TUTUSDT",
+            "side": "Buy",
+            "size": 10.0,
+            "markPrice": 0.061,
+            "avgPrice": 0.06,
+        }
+    ]
+    notes = asyncio.run(agent.manage_cycle(_FakeExchange(), positions, steward))
+    assert notes == []
+    assert "TUTUSDT" in steward._tracked

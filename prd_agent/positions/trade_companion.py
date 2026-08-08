@@ -370,9 +370,16 @@ class TradeCompanionAgent:
         client = getattr(exchange, "_client", None)
 
         for sym, pos in list(steward._tracked.items()):
+            is_manual = str(getattr(pos, "origin", "") or "").lower() == "manual"
+            # Ручные: Companion не auto-close / не TP-SL (ведёт пользователь + steward trailing)
+            if is_manual and not cfg.auto_close_manual:
+                logger.info(
+                    "Companion skip manage %s origin=manual (auto_close_manual=false)",
+                    sym,
+                )
+                continue
             if cfg.bot_positions_only and sym not in steward._bot_symbols:
                 continue
-            is_manual = str(getattr(pos, "origin", "") or "").lower() == "manual"
             row = next(
                 (p for p in positions if str(p.get("symbol", "")).upper() == sym),
                 None,
@@ -392,10 +399,6 @@ class TradeCompanionAgent:
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
 
-            if is_manual and not cfg.auto_close_manual:
-                # Ручные: Companion не трогает (ни close, ни TP/SL) — ведёт пользователь + steward trailing
-                logger.debug("Companion skip manage %s origin=manual", sym)
-                continue
             age_sec = age_minutes(getattr(pos, "opened_at_utc", "") or "") * 60.0
             decision = evaluate_companion_actions(
                 cfg=cfg,
