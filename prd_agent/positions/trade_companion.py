@@ -134,6 +134,8 @@ def sl_tightens(side: str, old_sl: float, new_sl: float, entry: float) -> bool:
 class TradeCompanionConfig:
     enabled: bool = False
     bot_positions_only: bool = True
+    # false = не закрывать origin=manual по развороту/откату (только bot)
+    auto_close_manual: bool = False
     kline_interval: str = "15"
     kline_limit: int = 80
     notify_telegram: bool = True
@@ -169,6 +171,7 @@ class TradeCompanionConfig:
         return cls(
             enabled=bool(raw.get("enabled", False)),
             bot_positions_only=bool(raw.get("bot_positions_only", True)),
+            auto_close_manual=bool(raw.get("auto_close_manual", False)),
             kline_interval=str(raw.get("kline_interval", "15")),
             kline_limit=int(raw.get("kline_limit", 80) or 80),
             notify_telegram=bool(raw.get("notify_telegram", True)),
@@ -369,6 +372,7 @@ class TradeCompanionAgent:
         for sym, pos in list(steward._tracked.items()):
             if cfg.bot_positions_only and sym not in steward._bot_symbols:
                 continue
+            is_manual = str(getattr(pos, "origin", "") or "").lower() == "manual"
             row = next(
                 (p for p in positions if str(p.get("symbol", "")).upper() == sym),
                 None,
@@ -388,6 +392,10 @@ class TradeCompanionAgent:
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
 
+            if is_manual and not cfg.auto_close_manual:
+                # Ручные: Companion не трогает (ни close, ни TP/SL) — ведёт пользователь + steward trailing
+                logger.debug("Companion skip manage %s origin=manual", sym)
+                continue
             age_sec = age_minutes(getattr(pos, "opened_at_utc", "") or "") * 60.0
             decision = evaluate_companion_actions(
                 cfg=cfg,
@@ -409,6 +417,13 @@ class TradeCompanionAgent:
                 continue
 
             if decision.action == "close":
+                if is_manual and not cfg.auto_close_manual:
+                    logger.info(
+                        "Companion skip close %s origin=manual (auto_close_manual=false) reason=%s",
+                        sym,
+                        decision.reason,
+                    )
+                    continue
                 msg = await self._close_position(exchange, pos, decision.reason)
                 if msg:
                     notes.append(msg)
