@@ -5,13 +5,11 @@
 
 ## Текущий фокус
 
-1. **08.08 P0+P1 на песочнице (одобрено):**
-   - P0: `spike_bypass_no_corridor` — сильный SPIKE при `no_corridor` проходит (AW ON; prod OFF)
-   - P1: SPIKE `pullback_entry` gate уже в коде; AW `enabled: true`, prod `enabled: false`
-   - Маркер лога P0: `SPIKE bypass no_corridor`
-   - Маркер лога P1: spike pullback WAIT/ENTER из `spike_pullback_gate`
-2. Ранее: trailing after BE -0.5%; AW→prod knobs 06.08
-3. Wallet / SPIKE / polling / фильтры — **не отключать**
+1. **HOTFIX BLESS:** Companion ложный «разворот» SMA закрыл Long на откате (прод −$0.43).
+   - Фикс: `require_prior_trend` (flip), `min_hold_sec=300`, max_loss −1.5→−3.5, min_profit 0.3→0.8
+2. **08.08 P0+P1 на песочнице:** spike_bypass_no_corridor (AW ON); pullback_entry (AW ON / prod OFF)
+3. Ранее: trailing after BE −0.5%; AW→prod knobs 06.08
+4. Wallet / SPIKE / polling / фильтры — **не отключать**
 
 ## Сервер
 
