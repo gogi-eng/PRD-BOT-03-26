@@ -49,9 +49,22 @@ bybit_monitor:
 
 # Агент сопровождения сделок — сначала песочница; на проде выключен до проверки
 trade_companion:
-  enabled: false
+  enabled: true
   bot_positions_only: true
   notify_telegram: true
+  extend_tp_enabled: true
+  extend_tp_min_profit_pct: 2.5
+  extend_tp_min_progress_pct: 55
+  close_giveback_enabled: true
+  close_giveback_peak_min_pct: 2.0
+  close_giveback_from_peak_pct: 45
+  close_reversal_enabled: true
+  close_reversal_min_profit_pct: 0.8
+  close_reversal_max_loss_pct: -3.5
+  close_reversal_require_prior_trend: true
+  close_reversal_min_hold_sec: 300
+  close_reversal_prior_shift_bars: 5
+  tighten_sl_on_weakness: true
 
 # Статистика сделок (наблюдение, не меняет торговлю)
 trade_lifecycle:

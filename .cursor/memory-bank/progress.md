@@ -131,3 +131,8 @@
 - ESPORTS blacklist без просьбы
 - Ослаблять daily loss / max_positions по виртуальным TP Hermes
 - Класть в git пароли / private keys / `.env`
+
+## 08.08.2026 — Companion BLESS hotfix
+- Причина: trade_companion «разворот» SMA8/21 без flip (не trailing/BE/opposite).
+- Правка: prior trend + hold 300s + пороги −3.5%/0.8%; тесты test_trade_companion.py.
+
