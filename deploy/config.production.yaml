@@ -112,6 +112,10 @@ trading:
     bounce_lookback_bars: 3
     bounce_wick_atr_mult: 0.35
     breakout_confirm_bars: 2
+    # P0 OFF on prod until sandbox soak
+    spike_bypass_no_corridor: false
+    spike_bypass_min_score: 88
+    spike_bypass_min_move_pct: 6.0
     skip_fast_sources: true
     apply_to_sources:
       - own_multi_agent
