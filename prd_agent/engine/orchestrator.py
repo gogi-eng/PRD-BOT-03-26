@@ -1409,6 +1409,26 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
 
+        raw_for_corridor = sig.raw if isinstance(sig.raw, dict) else {}
+        try:
+            corridor_score = float(
+                raw_for_corridor.get("score", getattr(sig, "confidence", 0) or 0) or 0
+            )
+        except (TypeError, ValueError):
+            corridor_score = 0.0
+        # confidence often 0..1 for non-SPIKE; SPIKE scanner uses 0..100-ish
+        if 0 < corridor_score <= 1.0 and str(sig.source or "").upper().find("SPIKE") >= 0:
+            corridor_score *= 100.0
+        try:
+            corridor_move = float(
+                raw_for_corridor.get(
+                    "range_pct",
+                    raw_for_corridor.get("move_pct", raw_for_corridor.get("move", 0)),
+                )
+                or 0
+            )
+        except (TypeError, ValueError):
+            corridor_move = 0.0
         corridor = evaluate_zone_corridor_play(
             side=sig.side,
             price=float(eff_entry or 0),
@@ -1417,6 +1437,8 @@ class UnifiedOrchestrator:
             source=str(sig.source or ""),
             has_bos=bool(zone_meta.get("has_bos")),
             atr=float(atr_v or 0),
+            score=corridor_score,
+            move_pct=corridor_move,
         )
         if zone_corridor_enabled(self.cfg) and corridor.reason:
             logger.info(

@@ -2856,6 +2856,8 @@ class TelegramSignalAgent:
                 source=src_name,
                 has_bos=bool(getattr(setup, "confirmed_bos", False)) or (not spike),
                 atr=0.0,
+                score=float(getattr(setup, "score", 0) or 0),
+                move_pct=float(getattr(setup, "range_pct", 0) or 0),
             )
             LOG.info(
                 "Zone corridor %s %s: play=%s allowed=%s %s",

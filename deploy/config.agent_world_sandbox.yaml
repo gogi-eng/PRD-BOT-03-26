@@ -126,6 +126,10 @@ trading:
     bounce_lookback_bars: 3
     bounce_wick_atr_mult: 0.35
     breakout_confirm_bars: 2
+    # P0: SPIKE bypass no_corridor when score/move high (sandbox ON)
+    spike_bypass_no_corridor: true
+    spike_bypass_min_score: 88
+    spike_bypass_min_move_pct: 6.0
     # false = коридор проверяется и для SPIKE/scanner (иначе стратегия «зона↔зона» молчит)
     skip_fast_sources: false
     apply_to_sources:
@@ -796,7 +800,7 @@ market_scanner:
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
     extra_position_slots: 2
-    # SPIKE: ждать откат в FVG/зону или входить сразу, если отката не ждут.
+    # P1: SPIKE entry via pullback gate (sandbox ON)
     pullback_entry:
       enabled: true
       wait_timeout_sec: 300

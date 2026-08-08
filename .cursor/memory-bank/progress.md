@@ -1,3 +1,9 @@
+## 08.08.2026 — P0 SPIKE bypass no_corridor + P1 pullback (AW)
+
+- P0 config: `trading.zone_corridor_play.spike_bypass_no_corridor` (+ min_score/min_move)
+- P1: `market_scanner.spike_scalp.pullback_entry` ON sandbox / OFF prod
+- Branches: `08.08.26-AGENT-WORLD`, `08.08.26-PRD-BOT-ALL`
+
 # Progress
 
 ## Сделано (06.08.2026)
