@@ -800,6 +800,18 @@ class UnifiedOrchestrator:
                     if isinstance(self.cfg.get("positions"), dict)
                     else {}
                 )
+                tracked = self.position_steward._tracked.get(sym)
+                if (
+                    tracked is not None
+                    and str(getattr(tracked, "origin", "") or "").lower() == "manual"
+                    and not bool(pos_cfg.get("manual_auto_close", False))
+                ):
+                    logger.info(
+                        "Opposite signal EXIT skipped %s origin=manual "
+                        "(manual_auto_close=false)",
+                        sym,
+                    )
+                    return
                 open_src, open_pd = lookup_open_entry_meta(self.data_dir, sym)
                 if should_skip_opposite_exit_for_spike_own(
                     position_source=open_src,

@@ -132,6 +132,8 @@ class PositionSteward:
         p = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
         self.enabled = bool(p.get("trailing_enabled", True))
         self.adopt_manual = bool(p.get("adopt_manual", True))
+        # Ручные сделки: adopt для учёта/трейлинга, но без auto-close (time-stop/откат)
+        self.manual_auto_close = bool(p.get("manual_auto_close", False))
         self.activation_pct = float(p.get("trailing_activation_pct", 0.4))
         self.distance_pct = float(p.get("trailing_distance_pct", 0.35))
         self.distance_atr_mult = float(p.get("trailing_distance_atr_mult", 1.4))
@@ -250,14 +252,21 @@ class PositionSteward:
         sl = float(row.get("stopLoss") or 0)
         tp = float(row.get("takeProfit") or 0)
         levels = self._bot_levels.get(sym, {})
-        if tp <= 0:
-            tp = float(levels.get("take_profit", 0) or 0)
-        if sl <= 0:
-            sl = float(levels.get("stop_loss", 0) or 0)
-        opened_iso = str(levels.get("opened_at_utc") or "") or datetime.now(timezone.utc).isoformat()
         origin = "bot" if sym in self._bot_symbols else "manual"
         if origin == "manual" and not self.adopt_manual:
             return None
+        # Для bot — TP/SL/время из реестра. Для manual — НИКОГДА не брать opened_at
+        # от прошлой bot-сделки того же символа (иначе мгновенный time-stop).
+        if origin == "bot":
+            if tp <= 0:
+                tp = float(levels.get("take_profit", 0) or 0)
+            if sl <= 0:
+                sl = float(levels.get("stop_loss", 0) or 0)
+            opened_iso = str(levels.get("opened_at_utc") or "") or datetime.now(timezone.utc).isoformat()
+        else:
+            opened_iso = datetime.now(timezone.utc).isoformat()
+            # stale bot_levels после закрытия bot-позиции — убрать
+            self._bot_levels.pop(sym, None)
         mark = float(row.get("markPrice") or entry)
         return TrackedPosition(
             symbol=sym,
@@ -460,6 +469,7 @@ class PositionSteward:
         for sym in list(self._tracked.keys()):
             if sym not in live_syms:
                 del self._tracked[sym]
+                self._bot_levels.pop(sym, None)
                 if sym in self._bot_symbols:
                     self._bot_symbols.discard(sym)
                     unregister_bot_symbol(self._data_dir, sym)
@@ -510,21 +520,35 @@ class PositionSteward:
                     del self._tracked[sym]
                 continue
 
-            action, action_reason = evaluate_exit_actions(
-                cfg=profile.exit_management,
-                side=pos.side,
-                entry=pos.entry,
-                price=price,
-                atr=atr,
-                opened_at_iso=pos.opened_at_utc,
-                peak_profit_pct=pos.peak_profit_pct,
-            )
+            # Ручные: не auto-close по time-stop / late_retrace (пользователь ведёт сам).
+            # SL биржи + трейлинг после прибыли остаются.
+            if str(pos.origin or "").lower() == "manual" and not self.manual_auto_close:
+                action, action_reason = None, ""
+                if profile.exit_management.enabled and profile.exit_management.time_stop_enabled:
+                    age = age_minutes(pos.opened_at_utc)
+                    if age >= profile.exit_management.time_stop_minutes:
+                        logger.info(
+                            "MANUAL SAFE skip time-stop %s age=%.0fm (manual_auto_close=false)",
+                            sym,
+                            age,
+                        )
+            else:
+                action, action_reason = evaluate_exit_actions(
+                    cfg=profile.exit_management,
+                    side=pos.side,
+                    entry=pos.entry,
+                    price=price,
+                    atr=atr,
+                    opened_at_iso=pos.opened_at_utc,
+                    peak_profit_pct=pos.peak_profit_pct,
+                )
             if action and action.startswith("close_"):
                 closed_msg = await self._try_close_position(exchange, pos, action_reason)
                 if closed_msg:
                     if self.notify_trailing or action == "close_time_stop":
                         notes.append(closed_msg)
                     self._log_note_close(pos, action, action_reason)
+                    self._bot_levels.pop(sym, None)
                     del self._tracked[sym]
                 continue
 

@@ -51,6 +51,8 @@ bybit_monitor:
 trade_companion:
   enabled: true
   bot_positions_only: true
+  # false = Companion НЕ закрывает ручные (разворот/откат)
+  auto_close_manual: false
   notify_telegram: true
   extend_tp_enabled: true
   extend_tp_min_profit_pct: 2.5
@@ -362,6 +364,8 @@ profit_lock:
   skip_manual_positions: true
 positions:
   adopt_manual: true
+  # false = не закрывать origin=manual time-stop/late_retrace (только trailing/SL биржи)
+  manual_auto_close: false
   session_boundary_close:
     enabled: false
   liquidation_guard:
