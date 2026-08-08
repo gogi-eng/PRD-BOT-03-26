@@ -36,6 +36,58 @@ def zone_corridor_enabled(cfg: Mapping[str, Any]) -> bool:
     return bool(read_zone_corridor_cfg(cfg).get("enabled", False))
 
 
+def _is_spike_source(source: str) -> bool:
+    src = str(source or "").strip().lower()
+    if not src:
+        return False
+    needles = ("spike", "spike_scalp", "spike_scanner", "pump_dump")
+    return any(n in src for n in needles)
+
+
+def apply_spike_bypass_no_corridor(
+    result: ZoneCorridorResult,
+    *,
+    cfg: Mapping[str, Any],
+    source: str = "",
+    score: float = 0.0,
+    move_pct: float = 0.0,
+) -> ZoneCorridorResult:
+    """P0: strong SPIKE with no_corridor may pass when enabled in config."""
+    if result.allowed or result.play != "no_corridor":
+        return result
+    zc = read_zone_corridor_cfg(cfg)
+    if not bool(zc.get("spike_bypass_no_corridor", False)):
+        return result
+    if not _is_spike_source(source):
+        return result
+    try:
+        score_v = float(score or 0)
+    except (TypeError, ValueError):
+        score_v = 0.0
+    try:
+        move_v = abs(float(move_pct or 0))
+    except (TypeError, ValueError):
+        move_v = 0.0
+    min_score = float(zc.get("spike_bypass_min_score", 88) or 88)
+    min_move = float(zc.get("spike_bypass_min_move_pct", 6.0) or 6.0)
+    score_ok = score_v >= min_score
+    move_ok = move_v >= min_move
+    if not (score_ok or move_ok):
+        return result
+    reason = (
+        f"SPIKE bypass no_corridor (score={score_v:.0f} move={move_v:.2f}% "
+        f"min_score={min_score:.0f} min_move={min_move:.2f}%; {result.reason})"
+    )
+    return ZoneCorridorResult(
+        play=result.play,
+        allowed=True,
+        reason=reason,
+        nearest_support=result.nearest_support,
+        nearest_resistance=result.nearest_resistance,
+        score_bonus=result.score_bonus,
+    )
+
+
 def _source_applies(source: str, zc: Mapping[str, Any]) -> bool:
     src = str(source or "").strip().lower()
     skip = {
@@ -200,6 +252,8 @@ def evaluate_zone_corridor_play(
     has_bos: bool = False,
     atr: float = 0.0,
     zone_ctx: Optional[ZoneContext] = None,
+    score: float = 0.0,
+    move_pct: float = 0.0,
 ) -> ZoneCorridorResult:
     zc = read_zone_corridor_cfg(cfg)
     if not bool(zc.get("enabled", False)):
@@ -219,30 +273,48 @@ def evaluate_zone_corridor_play(
 
     price = float(price or 0)
     if price <= 0:
-        return ZoneCorridorResult(
-            play="no_corridor",
-            allowed=not bool(zc.get("require_play", True)),
-            reason="zone_corridor: нет цены",
+        return apply_spike_bypass_no_corridor(
+            ZoneCorridorResult(
+                play="no_corridor",
+                allowed=not bool(zc.get("require_play", True)),
+                reason="zone_corridor: нет цены",
+            ),
+            cfg=cfg,
+            source=source,
+            score=score,
+            move_pct=move_pct,
         )
 
     if zone_ctx is None:
         if not klines or len(klines) < 6:
-            return ZoneCorridorResult(
-                play="no_corridor",
-                allowed=not bool(zc.get("require_play", True)),
-                reason="zone_corridor: мало свечей для зон",
+            return apply_spike_bypass_no_corridor(
+                ZoneCorridorResult(
+                    play="no_corridor",
+                    allowed=not bool(zc.get("require_play", True)),
+                    reason="zone_corridor: мало свечей для зон",
+                ),
+                cfg=cfg,
+                source=source,
+                score=score,
+                move_pct=move_pct,
             )
         zone_ctx = StructureZoneAnalyzer().analyze(list(klines), price)
 
     support, resistance = _nearest_corridor(zone_ctx, price)
     if support is None or resistance is None or resistance <= support:
         allow = not bool(zc.get("require_play", True))
-        return ZoneCorridorResult(
-            play="no_corridor",
-            allowed=allow,
-            reason="zone_corridor: нет пары S/R (коридор)",
-            nearest_support=float(support or 0),
-            nearest_resistance=float(resistance or 0),
+        return apply_spike_bypass_no_corridor(
+            ZoneCorridorResult(
+                play="no_corridor",
+                allowed=allow,
+                reason="zone_corridor: нет пары S/R (коридор)",
+                nearest_support=float(support or 0),
+                nearest_resistance=float(resistance or 0),
+            ),
+            cfg=cfg,
+            source=source,
+            score=score,
+            move_pct=move_pct,
         )
 
     edge_frac = float(zc.get("edge_fraction", 0.28) or 0.28)

@@ -155,3 +155,94 @@ def test_pipeline_zone_play_bonus():
     )
     assert with_play.score > base.score
     assert with_play.breakdown.get("zone_play", 0) >= 0.75
+
+
+
+def test_spike_bypass_no_corridor_allows_strong_impulse():
+    """P0: нет S/R, но SPIKE score/move высокие → allow."""
+    empty = ZoneContext(
+        bullish_fvg=None,
+        bearish_fvg=None,
+        bullish_ob=None,
+        bearish_ob=None,
+        support_levels=[],
+        resistance_levels=[],
+        all_bullish_zones=[],
+        all_bearish_zones=[],
+    )
+    cfg = {
+        "trading": {
+            "zone_corridor_play": {
+                "enabled": True,
+                "require_play": True,
+                "skip_fast_sources": False,
+                "apply_to_sources": ["SPIKE_SCANNER", "spike_scalp"],
+                "spike_bypass_no_corridor": True,
+                "spike_bypass_min_score": 88,
+                "spike_bypass_min_move_pct": 6.0,
+            }
+        }
+    }
+    bars = [_bar(100, 101, 99, 100) for _ in range(8)]
+    blocked = evaluate_zone_corridor_play(
+        side="SELL",
+        price=100.0,
+        klines=bars,
+        cfg=cfg,
+        source="SPIKE_SCANNER",
+        zone_ctx=empty,
+        score=70,
+        move_pct=3.0,
+    )
+    assert blocked.play == "no_corridor"
+    assert blocked.allowed is False
+
+    allowed = evaluate_zone_corridor_play(
+        side="SELL",
+        price=100.0,
+        klines=bars,
+        cfg=cfg,
+        source="SPIKE_SCANNER",
+        zone_ctx=empty,
+        score=100,
+        move_pct=10.7,
+    )
+    assert allowed.play == "no_corridor"
+    assert allowed.allowed is True
+    assert "SPIKE bypass no_corridor" in allowed.reason
+
+
+def test_spike_bypass_off_by_default():
+    empty = ZoneContext(
+        bullish_fvg=None,
+        bearish_fvg=None,
+        bullish_ob=None,
+        bearish_ob=None,
+        support_levels=[],
+        resistance_levels=[],
+        all_bullish_zones=[],
+        all_bearish_zones=[],
+    )
+    cfg = {
+        "trading": {
+            "zone_corridor_play": {
+                "enabled": True,
+                "require_play": True,
+                "skip_fast_sources": False,
+                "apply_to_sources": ["SPIKE_SCANNER"],
+                "spike_bypass_no_corridor": False,
+            }
+        }
+    }
+    bars = [_bar(100, 101, 99, 100) for _ in range(8)]
+    r = evaluate_zone_corridor_play(
+        side="SELL",
+        price=100.0,
+        klines=bars,
+        cfg=cfg,
+        source="SPIKE_SCANNER",
+        zone_ctx=empty,
+        score=100,
+        move_pct=12.0,
+    )
+    assert r.allowed is False
