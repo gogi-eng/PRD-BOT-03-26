@@ -57,3 +57,8 @@
 - **21.07 bybit_monitor:** урок — при disable модуля A не удалять B
 - **21–22.07 Companion/Lifecycle:** push обе ветки; AW маркеры в journal подтверждены
 - **22.07 GARCH:** модуль + wiring orch/SPIKE; тесты 9; ждём push/деплой
+
+## 08.08.2026 — Companion reversal только как flip
+- Не отключать Companion. Закрытие по развороту только после prior confirm и ≥5 мин;
+  убыток до −3.5% не режем Companion (биржевой SL).
+

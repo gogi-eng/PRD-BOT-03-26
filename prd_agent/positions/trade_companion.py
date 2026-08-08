@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from prd_agent.positions.exit_management import profit_pct
+from prd_agent.positions.exit_management import age_minutes, profit_pct
 from prd_agent.positions.position_steward import PositionSteward, TrackedPosition
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 
@@ -64,7 +64,7 @@ def trend_confirms(side: str, klines: List[Dict[str, Any]]) -> bool:
 
 
 def trend_reversal_against(side: str, klines: List[Dict[str, Any]]) -> bool:
-    """Разворот против позиции."""
+    """Текущее состояние SMA: импульс против позиции (не обязательно flip)."""
     closes = [float(k.get("close", 0) or 0) for k in klines if float(k.get("close", 0) or 0) > 0]
     if len(closes) < 22:
         return False
@@ -75,6 +75,24 @@ def trend_reversal_against(side: str, klines: List[Dict[str, Any]]) -> bool:
     if _side_norm(side) == "Buy":
         return fast < slow * 0.999
     return fast > slow * 1.001
+
+
+def trend_prior_confirmed(
+    side: str,
+    klines: List[Dict[str, Any]],
+    *,
+    shift_bars: int = 5,
+) -> bool:
+    """Раньше тренд уже подтверждал сторону позиции (до недавних баров)."""
+    shift = max(1, int(shift_bars or 5))
+    if len(klines) < 22 + shift:
+        return False
+    return trend_confirms(side, klines[:-shift])
+
+
+def trend_reversal_flip(side: str, klines: List[Dict[str, Any]], *, shift_bars: int = 5) -> bool:
+    """Настоящий разворот: было по тренду, стало против."""
+    return trend_prior_confirmed(side, klines, shift_bars=shift_bars) and trend_reversal_against(side, klines)
 
 
 def progress_to_tp_pct(side: str, entry: float, price: float, take_profit: float) -> float:
@@ -132,8 +150,11 @@ class TradeCompanionConfig:
     close_giveback_from_peak_pct: float = 45.0
 
     close_reversal_enabled: bool = True
-    close_reversal_min_profit_pct: float = 0.3
-    close_reversal_max_loss_pct: float = -1.5
+    close_reversal_min_profit_pct: float = 0.8
+    close_reversal_max_loss_pct: float = -3.5
+    close_reversal_require_prior_trend: bool = True
+    close_reversal_min_hold_sec: float = 300.0
+    close_reversal_prior_shift_bars: int = 5
 
     tighten_sl_on_weakness: bool = True
     tighten_sl_min_profit_pct: float = 1.2
@@ -161,8 +182,11 @@ class TradeCompanionConfig:
             close_giveback_peak_min_pct=float(raw.get("close_giveback_peak_min_pct", 2.0) or 2.0),
             close_giveback_from_peak_pct=float(raw.get("close_giveback_from_peak_pct", 45) or 45),
             close_reversal_enabled=bool(raw.get("close_reversal_enabled", True)),
-            close_reversal_min_profit_pct=float(raw.get("close_reversal_min_profit_pct", 0.3) or 0.3),
-            close_reversal_max_loss_pct=float(raw.get("close_reversal_max_loss_pct", -1.5) or -1.5),
+            close_reversal_min_profit_pct=float(raw.get("close_reversal_min_profit_pct", 0.8) or 0.8),
+            close_reversal_max_loss_pct=float(raw.get("close_reversal_max_loss_pct", -3.5) or -3.5),
+            close_reversal_require_prior_trend=bool(raw.get("close_reversal_require_prior_trend", True)),
+            close_reversal_min_hold_sec=float(raw.get("close_reversal_min_hold_sec", 300) or 300),
+            close_reversal_prior_shift_bars=int(raw.get("close_reversal_prior_shift_bars", 5) or 5),
             tighten_sl_on_weakness=bool(raw.get("tighten_sl_on_weakness", True)),
             tighten_sl_min_profit_pct=float(raw.get("tighten_sl_min_profit_pct", 1.2) or 1.2),
             tighten_sl_to_breakeven_pct=float(raw.get("tighten_sl_to_breakeven_pct", 0.35) or 0.35),
@@ -188,6 +212,7 @@ def evaluate_companion_actions(
     peak_profit_pct: float,
     klines: List[Dict[str, Any]],
     sr_params: Dict[str, Any],
+    position_age_sec: float = 1e9,
 ) -> Optional[CompanionDecision]:
     """Правила без I/O — для тестов и live-цикла."""
     p_pct = profit_pct(_side_norm(side), entry, price)
@@ -203,17 +228,24 @@ def evaluate_companion_actions(
                 ),
             )
 
-    if cfg.close_reversal_enabled and trend_reversal_against(side, klines):
-        if p_pct <= cfg.close_reversal_max_loss_pct:
-            return CompanionDecision(
-                action="close",
-                reason=f"разворот тренда при убытке {p_pct:.2f}%",
+    if cfg.close_reversal_enabled and float(position_age_sec or 0) >= float(cfg.close_reversal_min_hold_sec or 0):
+        if cfg.close_reversal_require_prior_trend:
+            reversal_hit = trend_reversal_flip(
+                side, klines, shift_bars=int(cfg.close_reversal_prior_shift_bars or 5)
             )
-        if 0 < p_pct < cfg.close_reversal_min_profit_pct:
-            return CompanionDecision(
-                action="close",
-                reason=f"разворот тренда при слабой прибыли {p_pct:.2f}%",
-            )
+        else:
+            reversal_hit = trend_reversal_against(side, klines)
+        if reversal_hit:
+            if p_pct <= cfg.close_reversal_max_loss_pct:
+                return CompanionDecision(
+                    action="close",
+                    reason=f"разворот тренда при убытке {p_pct:.2f}%",
+                )
+            if 0 < p_pct < cfg.close_reversal_min_profit_pct:
+                return CompanionDecision(
+                    action="close",
+                    reason=f"разворот тренда при слабой прибыли {p_pct:.2f}%",
+                )
 
     if (
         cfg.extend_tp_enabled
@@ -245,11 +277,16 @@ def evaluate_companion_actions(
                     new_tp=new_tp,
                 )
 
-    if (
-        cfg.tighten_sl_on_weakness
-        and p_pct >= cfg.tighten_sl_min_profit_pct
-        and trend_reversal_against(side, klines)
-    ):
+    if cfg.tighten_sl_on_weakness and p_pct >= cfg.tighten_sl_min_profit_pct:
+        if cfg.close_reversal_require_prior_trend:
+            weak_hit = trend_reversal_flip(
+                side, klines, shift_bars=int(cfg.close_reversal_prior_shift_bars or 5)
+            )
+        else:
+            weak_hit = trend_reversal_against(side, klines)
+    else:
+        weak_hit = False
+    if weak_hit:
         be_buf = cfg.tighten_sl_to_breakeven_pct / 100.0
         if _side_norm(side) == "Buy":
             candidate = entry * (1.0 + be_buf)
@@ -351,6 +388,7 @@ class TradeCompanionAgent:
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
 
+            age_sec = age_minutes(getattr(pos, "opened_at_utc", "") or "") * 60.0
             decision = evaluate_companion_actions(
                 cfg=cfg,
                 side=pos.side,
@@ -361,6 +399,7 @@ class TradeCompanionAgent:
                 peak_profit_pct=pos.peak_profit_pct,
                 klines=klines or [],
                 sr_params=self._sr_params,
+                position_age_sec=age_sec,
             )
             if not decision:
                 continue
