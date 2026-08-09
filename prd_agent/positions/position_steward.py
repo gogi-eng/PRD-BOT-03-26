@@ -57,6 +57,7 @@ from prd_agent.positions.session_boundary_close import (
     should_run_session_flush,
 )
 from prd_agent.positions.sync_guard import PositionSyncGuard
+from prd_agent.positions.sl_tp_guard import SlTpExchangeGuard, SlTpGuardConfig
 from prd_agent.signals.pump_dump_mode import TrailingProfile
 
 logger = logging.getLogger("prd_agent.positions")
@@ -92,6 +93,7 @@ class PositionSteward:
         self._data_dir = root / "data"
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._sync_guard = PositionSyncGuard()
+        self._sl_tp_guard = SlTpExchangeGuard()
         self._session_flush_done: set[str] = set()
         self.apply_config(cfg)
         self._load_bot_registry()
@@ -165,6 +167,8 @@ class PositionSteward:
         self._auto_close_journal_ghosts = bool(ps.get("auto_close_journal_ghosts", True))
         self._liq_guard = LiquidationGuardConfig.from_cfg(cfg)
         self._session_boundary = SessionBoundaryCloseConfig.from_cfg(cfg)
+        self._sl_tp_guard_cfg = SlTpGuardConfig.from_cfg(cfg)
+        self._sl_tp_guard.apply_config(self._sl_tp_guard_cfg)
 
     def _be_fee_buffer_for(
         self,
@@ -431,14 +435,8 @@ class PositionSteward:
                 if notes:
                     return notes
 
-        if (
-            not self.enabled
-            and not self.exit_cfg.enabled
-            and not self._default_profile.tp_progress.enabled
-        ):
-            return notes
         live_syms = set()
-        for row in positions:
+        for row in positions or []:
             sym = str(row.get("symbol", "")).upper()
             if sym:
                 live_syms.add(sym)
@@ -457,6 +455,32 @@ class PositionSteward:
         self._bot_symbols = set(bot_symbols_from_registry(self._data_dir)) | symbols_open_in_journal(
             journal
         )
+
+        # Защита капитала: SL/TP на бирже обязательны (в т.ч. manual, если include_manual).
+        # Работает даже когда trailing выключен — до early-return ниже.
+        if positions:
+            notes.extend(
+                await self._sl_tp_guard.ensure(
+                    exchange,
+                    positions,
+                    bot_levels=self._bot_levels,
+                    bot_symbols=set(self._bot_symbols),
+                    origin_of=lambda s: (
+                        "bot"
+                        if s in self._bot_symbols
+                        else (
+                            getattr(self._tracked.get(s), "origin", None) or "manual"
+                        )
+                    ),
+                )
+            )
+
+        if (
+            not self.enabled
+            and not self.exit_cfg.enabled
+            and not self._default_profile.tp_progress.enabled
+        ):
+            return notes
 
         notes.extend(
             self._sync_guard.check(
