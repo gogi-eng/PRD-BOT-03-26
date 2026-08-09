@@ -55,8 +55,8 @@
 | 04.08 | Manual daily-loss reset | reconcile снова блокировал после кнопки | флаг JSON + skip reconcile; `MANUAL_DAILY_LOSS_RESET` |
 | 04.08 | Order OK + qty | TypeError в journal при ордере | передать `qty` в logger.info |
 | 06.08 | Trailing after BE −0.5% | ужесточить дистанцию после BE, не widen | `distance_reduce_pct: 0.5`; маркер tighten |
-| 09.08 | SPIKE P0/P1 оба бота | soak на AW → включить прод | `spike_bypass_no_corridor: true`; `pullback_entry.enabled: true` | |
 | 08.08 | Manual ≠ time-stop/Companion | SNDKUSDT мгновенный close | `manual_auto_close: false`; `auto_close_manual: false` |
+| 09.08 | SPIKE P0/P1 оба бота | soak на AW → включить прод | `spike_bypass_no_corridor: true`; `pullback_entry.enabled: true` |
 
 ## Сессии
 
@@ -69,4 +69,3 @@
 ## 08.08.2026 — Companion reversal только как flip
 - Не отключать Companion. Закрытие по развороту только после prior confirm и ≥5 мин;
   убыток до −3.5% не режем Companion (биржевой SL).
-
