@@ -5,12 +5,24 @@
 
 ## Текущий фокус
 
-1. **SL/TP guard (09.08):** периодическая проверка открытых позиций — на бирже должны быть stopLoss и takeProfit; иначе лог + восстановление через `update_stop_loss` / `update_take_profit`.
-   - Модуль: `prd_agent/positions/sl_tp_guard.py`, вызов в `PositionSteward.manage()`
-   - Config: `positions.sl_tp_guard` (оба deploy yaml), `include_manual: true` (защита капитала ≠ Companion auto-close)
-   - Маркеры лога: `Missing SL/TP on position`, `SL/TP guard`
-2. **HOTFIX SNDKUSDT (08.08):** `manual_auto_close: false` + Companion `auto_close_manual: false` — не откатывать
+1. **Hotfix 08.08 → оба инстанса (09.08):**
+   - Manual/Companion: `manual_auto_close: false`, `auto_close_manual: false` (код уже был в ветках дня)
+   - SPIKE P0: `zone_corridor_play.spike_bypass_no_corridor: true` — **прод + песочница**
+   - SPIKE P1: `spike_scalp.pullback_entry.enabled: true` — **прод + песочница** (`min_retrace_pct: 0.15`)
+   - Прод SPIKE loop: `run_loop_in_signal_agent: true` (не трогать)
+2. **SL/TP guard (09.08):** `positions.sl_tp_guard` — восстановление пустых SL/TP на бирже; `include_manual: true`
 3. Wallet / SPIKE / polling / фильтры / bybit_monitor — **не отключать**
+
+## Маркеры логов
+
+| Что | Маркер |
+|-----|--------|
+| Manual time-stop skip | `MANUAL SAFE skip time-stop` |
+| Companion skip manual | `Companion skip manage` / `Companion skip close` |
+| Zone corridor | `Zone corridor` |
+| SPIKE bypass | `SPIKE bypass no_corridor` |
+| SPIKE pullback | `SPIKE pullback:` |
+| SL/TP guard | `Missing SL/TP on position`, `SL/TP guard` |
 
 ## Сервер
 

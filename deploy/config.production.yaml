@@ -132,8 +132,8 @@ trading:
     bounce_lookback_bars: 3
     bounce_wick_atr_mult: 0.35
     breakout_confirm_bars: 2
-    # P0 OFF on prod until sandbox soak
-    spike_bypass_no_corridor: false
+    # P0: сильный SPIKE может пройти без пары S/R (прод + песочница ON)
+    spike_bypass_no_corridor: true
     spike_bypass_min_score: 88
     spike_bypass_min_move_pct: 6.0
     skip_fast_sources: false
@@ -810,11 +810,11 @@ market_scanner:
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
     extra_position_slots: 2
-    # SPIKE pullback: сначала песочница; на проде выкл до проверки логов.
+    # P1: SPIKE вход через откат/FVG (прод + песочница ON; soak на AW 08.08)
     pullback_entry:
-      enabled: false
+      enabled: true
       wait_timeout_sec: 300
-      min_retrace_pct: 0.18
+      min_retrace_pct: 0.15
       require_fvg: false
       enter_immediate_if_no_fvg: true
       enter_immediate_if_book_confirms: true
