@@ -1,3 +1,11 @@
+## 09.08.2026 — hotfix 08.08 на оба инстанса (SPIKE P0/P1 prod ON)
+
+- Код manual/Companion/SPIKE bypass уже был в tip `09.08.26-*` (после 08.08)
+- Config: на **проде** включены `spike_bypass_no_corridor: true` и `spike_scalp.pullback_entry.enabled: true` (как на AW)
+- Manual/Companion защита уже была в обоих deploy yaml (`manual_auto_close` / `auto_close_manual` = false)
+- Тесты: manual + zone_corridor + spike_pullback + pullback_entry + sl_tp_guard — 35 passed
+- SPIKE loop прод: `run_loop_in_signal_agent: true` сохранён
+
 ## 09.08.2026 — SL/TP guard на открытых позициях
 
 - Модуль `prd_agent/positions/sl_tp_guard.py` + вызов в `PositionSteward.manage()` (до early-return trailing)
@@ -17,7 +25,7 @@
 ## 08.08.2026 — P0 SPIKE bypass no_corridor + P1 pullback (AW)
 
 - P0 config: `trading.zone_corridor_play.spike_bypass_no_corridor` (+ min_score/min_move)
-- P1: `market_scanner.spike_scalp.pullback_entry` ON sandbox / OFF prod
+- P1: `market_scanner.spike_scalp.pullback_entry` — с 09.08 ON на **обоих** инстансах
 - Branches: `08.08.26-AGENT-WORLD`, `08.08.26-PRD-BOT-ALL`
 
 # Progress
