@@ -1095,7 +1095,7 @@ class UnifiedOrchestrator:
             bot_symbols=self.position_steward._bot_symbols,
         )
         for note in trail_notes + companion_notes:
-            if note.startswith("📌") or note.startswith("⚠️") or note.startswith("🤖") or note.startswith("🎯") or note.startswith("🔒"):
+            if note.startswith("📌") or note.startswith("⚠️") or note.startswith("🤖") or note.startswith("🎯") or note.startswith("🔒") or note.startswith("🛡"):
                 await self.notifier.send(note)
         balance_now = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance_now)

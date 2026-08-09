@@ -1,16 +1,16 @@
 # Active Context
 
-**Дата фокуса:** 08.08.2026 (UTC+3)
-**Ветки дня:** `08.08.26-AGENT-WORLD` · `08.08.26-PRD-BOT-ALL`
+**Дата фокуса:** 09.08.2026 (UTC+3)
+**Ветки дня:** `09.08.26-AGENT-WORLD` · `09.08.26-PRD-BOT-ALL`
 
 ## Текущий фокус
 
-1. **HOTFIX SNDKUSDT (08.08):** ручная Long на AW закрыта time-stop age=169m сразу после Adopted (stale opened_at от прошлой bot-сделки).
-   - Фикс: `manual_auto_close: false` + Companion `auto_close_manual: false`; adopt manual → opened_at=now; не inherit `_bot_levels`.
-   - 14:07 orderflow/trade_ok=False — отдельное событие (отказ входа + дневной лимит), не закрытие.
-2. **HOTFIX BLESS:** Companion require_prior_trend / min_hold 300s
-3. **08.08 P0+P1:** spike_bypass_no_corridor + pullback_entry (AW)
-4. Wallet / SPIKE / polling / фильтры — **не отключать**
+1. **SL/TP guard (09.08):** периодическая проверка открытых позиций — на бирже должны быть stopLoss и takeProfit; иначе лог + восстановление через `update_stop_loss` / `update_take_profit`.
+   - Модуль: `prd_agent/positions/sl_tp_guard.py`, вызов в `PositionSteward.manage()`
+   - Config: `positions.sl_tp_guard` (оба deploy yaml), `include_manual: true` (защита капитала ≠ Companion auto-close)
+   - Маркеры лога: `Missing SL/TP on position`, `SL/TP guard`
+2. **HOTFIX SNDKUSDT (08.08):** `manual_auto_close: false` + Companion `auto_close_manual: false` — не откатывать
+3. Wallet / SPIKE / polling / фильтры / bybit_monitor — **не отключать**
 
 ## Сервер
 

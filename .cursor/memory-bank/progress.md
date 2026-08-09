@@ -1,3 +1,12 @@
+## 09.08.2026 — SL/TP guard на открытых позициях
+
+- Модуль `prd_agent/positions/sl_tp_guard.py` + вызов в `PositionSteward.manage()` (до early-return trailing)
+- Config `positions.sl_tp_guard` в production и agent_world_sandbox
+- При пустых SL/TP на Bybit: WARNING `Missing SL/TP on position` → trading-stop restore → INFO `SL/TP guard`
+- Manual тоже (include_manual), без time-stop/Companion close
+- Тесты: `backend/tests/test_sl_tp_guard.py`
+- Ветки: `09.08.26-PRD-BOT-ALL` + `09.08.26-AGENT-WORLD`
+
 ## 08.08.2026 — HOTFIX manual time-stop (SNDKUSDT)
 
 - Причина: adopt manual наследовал opened_at из `_bot_levels` прошлой bot-позиции → мгновенный `close_time_stop`
