@@ -925,9 +925,9 @@ def openrouter_review(
     from prd_agent.ai.llm_gateway import chat_sync, load_llm_settings
 
     settings = load_llm_settings(cfg)
-    if not settings.uses_fcc and not settings.openrouter_api_key:
+    if not settings.has_credentials():
         return {"approve": True, "confidence": signal.confidence, "reason": "AI key not set"}
-    if budget_agent is not None and not settings.uses_fcc:
+    if budget_agent is not None and settings.uses_openrouter:
         ok, bmsg = budget_agent._openrouter_budget_allow(budget_kind)
         if not ok:
             return {"approve": False, "confidence": 0, "reason": bmsg}
@@ -957,9 +957,8 @@ market_regime={signal.market_regime}
         timeout_sec=timeout_sec,
     )
     if err:
-        label = "FCC" if settings.uses_fcc else "OpenRouter"
-        return {"approve": False, "confidence": 0, "reason": f"{label}: {err}"}
-    if budget_agent is not None and body and not settings.uses_fcc:
+        return {"approve": False, "confidence": 0, "reason": f"{settings.provider_label}: {err}"}
+    if budget_agent is not None and body and settings.uses_openrouter:
         budget_agent._openrouter_budget_record(budget_kind, body)
     _msg = ((body or {}).get("choices") or [{}])[0].get("message") or {}
     text = str(_msg.get("content") or "")
@@ -969,7 +968,7 @@ market_regime={signal.market_regime}
     try:
         out = json.loads(text)
     except Exception:
-        return {"approve": False, "confidence": 0, "reason": "OpenRouter JSON parse error"}
+        return {"approve": False, "confidence": 0, "reason": f"{settings.provider_label} JSON parse error"}
     return {
         "approve": bool(out.get("approve", False)),
         "confidence": max(0, min(100, int(safe_float(out.get("confidence"), 0)))),
@@ -992,9 +991,9 @@ def openrouter_world_extract(
     from prd_agent.ai.llm_gateway import chat_sync, load_llm_settings
 
     settings = load_llm_settings(cfg)
-    if not settings.uses_fcc and not settings.openrouter_api_key:
+    if not settings.has_credentials():
         return {"has_trade": False, "confidence": 0, "reason": "AI key not set"}
-    if budget_agent is not None and not settings.uses_fcc:
+    if budget_agent is not None and settings.uses_openrouter:
         ok, bmsg = budget_agent._openrouter_budget_allow(budget_kind)
         if not ok:
             return {"has_trade": False, "confidence": 0, "reason": bmsg}
@@ -1021,9 +1020,8 @@ def openrouter_world_extract(
         timeout_sec=timeout_sec,
     )
     if err:
-        label = "FCC" if settings.uses_fcc else "OpenRouter"
-        return {"has_trade": False, "confidence": 0, "reason": f"{label}: {err}"}
-    if budget_agent is not None and data and not settings.uses_fcc:
+        return {"has_trade": False, "confidence": 0, "reason": f"{settings.provider_label}: {err}"}
+    if budget_agent is not None and data and settings.uses_openrouter:
         budget_agent._openrouter_budget_record(budget_kind, data)
     _msg = ((data or {}).get("choices") or [{}])[0].get("message") or {}
     text = str(_msg.get("content") or "")
@@ -1033,7 +1031,7 @@ def openrouter_world_extract(
     try:
         out = json.loads(text)
     except Exception:
-        return {"has_trade": False, "confidence": 0, "reason": "OpenRouter JSON parse error (world)"}
+        return {"has_trade": False, "confidence": 0, "reason": f"{settings.provider_label} JSON parse error (world)"}
     if not bool(out.get("has_trade")):
         return {
             "has_trade": False,

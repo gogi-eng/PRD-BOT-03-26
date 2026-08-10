@@ -286,11 +286,11 @@ class BybitMonitorAgent:
             safe = html.escape(data_block[:3500])
             key_note = "read-key" if snap.get("read_key_mode") else "main key (read)"
             return f"<b>📡 Bybit монитор ({key_note})</b>\n\n<pre>{safe}</pre>"
-        if not self._llm.uses_fcc and not self._llm.openrouter_api_key:
+        if not self._llm.has_credentials():
             safe = html.escape(data_block[:3500])
             return (
                 "<b>📡 Bybit монитор</b>\n\n"
-                "AI не настроен (нужен OPENROUTER_API_KEY или FCC).\n\n"
+                "AI не настроен (нужен OPENROUTER_API_KEY, DEEPSEEK_API_KEY или FCC).\n\n"
                 f"<pre>{safe}</pre>"
             )
         try:
@@ -311,7 +311,9 @@ class BybitMonitorAgent:
             if not text:
                 return "<b>📡 Bybit AI</b>\n\nПустой ответ модели."
             safe = html.escape(text[:3500])
-            backend = "Free Claude Code" if self._llm.uses_fcc else "OpenRouter"
+            backend = self._llm.provider_label
+            if self._llm.uses_fcc:
+                backend = "Free Claude Code"
             key_note = "🔑 read-only" if snap.get("read_key_mode") else "👁 основной ключ"
             header = (
                 f"<b>📡 Bybit AI ({backend}, {key_note})</b>\n"

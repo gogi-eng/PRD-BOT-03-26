@@ -42,8 +42,8 @@ class MacroAI:
     ) -> str:
         if not self.enabled:
             return "Модуль macro_ai отключён в config.yaml"
-        if not self._llm.uses_fcc and not self._llm.openrouter_api_key:
-            return "AI не настроен: включите free_claude_code или OPENROUTER_API_KEY."
+        if not self._llm.has_credentials():
+            return "AI не настроен: OPENROUTER_API_KEY, DEEPSEEK_API_KEY или free_claude_code."
         headlines = self._collect_headlines()
         pos_lines: List[str] = []
         if self.include_positions and positions:
@@ -83,11 +83,11 @@ class MacroAI:
                 title="PRD-BOT-ALL Macro AI",
             )
             if err:
-                return f"Ошибка AI ({'FCC' if self._llm.uses_fcc else 'OpenRouter'}): {err}"
+                return f"Ошибка AI ({self._llm.provider_label}): {err}"
             if not text:
                 return "AI вернул пустой ответ."
             safe = html.escape(text[:3500])
-            backend = "Free Claude Code" if self._llm.uses_fcc else "OpenRouter"
+            backend = self._llm.provider_label
             return f"<b>🧠 Макро-анализ ({backend})</b>\n\n{safe}"
         except Exception as exc:
             logger.exception("macro_ai: %s", exc)
