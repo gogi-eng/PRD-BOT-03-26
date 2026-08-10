@@ -1,3 +1,12 @@
+## 10.08.2026 — DeepSeek + архив Chat_10_08_26
+
+- Прямой DeepSeek в prd_agent/ai/llm_gateway.py (provider deepseek), ключ DEEPSEEK_API_KEY из .env
+- Секции deepseek: в deploy yaml + example; default i.provider: openrouter
+- Тесты: ackend/tests/test_llm_gateway_deepseek.py (5 passed)
+- Чат: .cursor/chats/archive/Chat_10_08_26.md
+- Ветки: 10.08.26-AGENT-WORLD @ 336dff4, 10.08.26-PRD-BOT-ALL @ 8133bd2 (cherry-pick)
+- Деплой: по запросу; push уже сделан
+
 ## 09.08.2026 — hotfix 08.08 на оба инстанса (SPIKE P0/P1 prod ON)
 
 - Код manual/Companion/SPIKE bypass уже был в tip `09.08.26-*` (после 08.08)

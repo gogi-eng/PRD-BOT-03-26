@@ -1,3 +1,10 @@
+## 10.08.2026 — прямой DeepSeek рядом с OpenRouter
+
+- Пользователь: ключ DeepSeek API, подключить в бота без обязательного OpenRouter.
+- Решение: provider deepseek в llm_gateway (OpenAI-compatible /v1/chat/completions); default остаётся openrouter до явного переключения.
+- Секреты только в .env, не в yaml/commit.
+- Архив чата строго: .cursor/chats/archive/Chat_10_08_26.md.
+
 ## 09.08.2026 — SPIKE P0/P1 и manual hotfix на оба бота
 
 - Пользователь: вчерашний фокус (manual/Companion + SPIKE corridor bypass/pullback) — на **прод и песочницу**.
