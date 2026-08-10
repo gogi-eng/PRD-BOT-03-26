@@ -960,6 +960,8 @@ analytics:
   # Бывший Hermes weekly — не используется; правки часов вручную по Лаборатории
 
 ai:
+  # openrouter | deepseek | fcc
+  # DeepSeek напрямую (без OpenRouter): provider: deepseek + DEEPSEEK_API_KEY в .env
   provider: openrouter
 
 free_claude_code:
@@ -972,6 +974,13 @@ free_claude_code:
 openrouter:
   api_key: ""
   model: google/gemini-2.5-flash
+  timeout_sec: 30
+
+# Прямой DeepSeek API (OpenAI-compatible). Ключ лучше в .env: DEEPSEEK_API_KEY
+deepseek:
+  api_key: ""
+  model: deepseek-chat
+  base_url: https://api.deepseek.com/v1
   timeout_sec: 30
 
 macro_ai:

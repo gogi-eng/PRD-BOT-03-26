@@ -125,12 +125,12 @@ class BotManagerAgent:
 Запрещено: обещать прибыль, советовать all-in, открывать сделки вручную на бирже."""
 
     async def run_review(self, orch: "UnifiedOrchestrator") -> str:
-        if not self._llm.uses_fcc and not self._llm.openrouter_api_key:
+        if not self._llm.has_credentials():
             snap = await self.collect_snapshot(orch)
             return (
                 "<b>🤖 Bot Manager</b>\n\n"
                 f"{snap.get('runtime_text', '')}\n\n"
-                "<i>AI не настроен (OPENROUTER_API_KEY). "
+                "<i>AI не настроен (OPENROUTER_API_KEY / DEEPSEEK_API_KEY / FCC). "
                 "Используйте кнопки панели /panel.</i>"
             )
         snap = await self.collect_snapshot(orch)

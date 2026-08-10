@@ -18,6 +18,7 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
     bybit = data.setdefault("bybit", {})
     tg = data.setdefault("telegram", {})
     oai = data.setdefault("openrouter", {})
+    ds = data.setdefault("deepseek", {})
     fcc = data.setdefault("free_claude_code", {})
     ai = data.setdefault("ai", {})
 
@@ -41,6 +42,7 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
     _set(tg, "chat_id", "TELEGRAM_CHAT_ID")
     _set(tg, "channel_id", "TELEGRAM_CHANNEL_ID")
     _set(oai, "api_key", "OPENROUTER_API_KEY")
+    _set(ds, "api_key", "DEEPSEEK_API_KEY")
     _set(fcc, "auth_token", "FCC_AUTH_TOKEN")
     if os.environ.get("PRD_AI_PROVIDER", "").strip():
         ai["provider"] = os.environ.get("PRD_AI_PROVIDER", "").strip().lower()

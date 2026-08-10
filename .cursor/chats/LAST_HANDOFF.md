@@ -1,23 +1,26 @@
-# Последний чат (handoff)
+# LAST HANDOFF
 
-Краткая шпаргалка для продолжения на другом компьютере.
+- **дата:** 10.08.2026 (UTC+3)
+- **чат:** [Chat_10_08_26](archive/Chat_10_08_26.md)
+- **ветка:** `10.08.26-AGENT-WORLD`
+- **тема:** дамп песочницы AGENT-WORLD; прямой DeepSeek API в `llm_gateway`
 
-Обновлено: 2026-07-30 (UTC+3)
+## Код
 
-- **Чат:** `d66d4e5e-8d8d-4f56-97ba-d0f8271e5efc` (выжимка SSH/FileZilla)
-- **Заголовок:** Восстановление доступа к DigitalOcean + гайд в репо
-- **Файл:** `.cursor/chats/archive/30.07.26-ssh-filezilla-access.md`
-- **Гайд:** `docs/server-access-ssh-filezilla.md`
+- Провайдер `deepseek` в `prd_agent/ai/llm_gateway.py` (OpenAI-compatible)
+- `.env`: `DEEPSEEK_API_KEY=...`
+- Конфиг: `ai.provider: deepseek` + секция `deepseek:`
+- По умолчанию в yaml всё ещё `openrouter` (безопасный дефолт)
 
-На домашнем/рабочем ПК:
+## Включение на сервере
 
 ```bash
-git pull
-# откройте docs/server-access-ssh-filezilla.md или archive/
+# в /root/AGENT-WORLD/.env
+DEEPSEEK_API_KEY=sk-...
+
+# в config.yaml
+ai:
+  provider: deepseek
 ```
 
-## Фрагмент
-
-Доступ к серверу восстановлен 30.07.2026. IP `207.154.238.178` (сверять в DigitalOcean).
-Вход: SFTP/SSH по ключу `id_rsa` с ПК. При потере доступа — Reset Root Password в DO + `authorized_keys`.
-Секреты в git не класть.
+Затем: `sudo systemctl restart trading_bot_agent_world`
