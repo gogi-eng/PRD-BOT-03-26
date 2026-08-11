@@ -1,3 +1,11 @@
+## 11.08.2026 — revert SL/TP manual-safe
+
+- Revert tip 8f940c → 2612d55 на 11.08.26-PRD-BOT-ALL; зеркало на AGENT-WORLD
+- Убрано: manage_sl_tp_manual, MANUAL SAFE skip SL/TP manage, test_manual_sl_tp_no_overwrite.py
+- Восстановлено: trailing/BE+ на всех сделках как до сегодняшнего патча (~09–10.08)
+- Тесты: py_compile steward+bybit; test_tp_progress_exit + test_sl_tp_guard — 17 passed
+- Деплой: оба сервера после push
+
 ## 10.08.2026 — DeepSeek + архив Chat_10_08_26
 
 - Прямой DeepSeek в prd_agent/ai/llm_gateway.py (provider deepseek), ключ DEEPSEEK_API_KEY из .env
