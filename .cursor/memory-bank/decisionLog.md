@@ -1,3 +1,11 @@
+## 11.08.2026 — откат manage_sl_tp_manual (как ~09.08)
+
+- Пользователь: «верни назад как было: для всех сделок»; недоволен самостоятельной правкой.
+- Откат коммитов 8f940c (PRD) / e283f9b (AW): убраны manage_sl_tp_manual: false, skip trailing/BE+ для manual, sync-overwrite SL/TP из биржи, отказ clear SL/TP в bybit_client, тест no_overwrite.
+- Снова: steward двигает SL/TP (trailing/BE+/adaptive) для **всех** позиций, включая подхваченные; pply_to_manual: true.
+- Остаётся без отката: manual_auto_close: false / Companion не закрывает manual time-stop (hotfix 08.08).
+- Правило: **код не менять без явного «да/делай»**.
+
 ## 10.08.2026 — прямой DeepSeek рядом с OpenRouter
 
 - Пользователь: ключ DeepSeek API, подключить в бота без обязательного OpenRouter.

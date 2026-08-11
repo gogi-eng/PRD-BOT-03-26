@@ -1,15 +1,19 @@
 # Active Context
 
-**Дата фокуса:** 10.08.2026 (UTC+3)
-**Ветки дня:** 10.08.26-PRD-BOT-ALL @ 8133bd2 · 10.08.26-AGENT-WORLD @ 336dff4
+**Дата фокуса:** 11.08.2026 (UTC+3)
+**Ветки дня:** 11.08.26-PRD-BOT-ALL @ 2612d55 (после revert) · 11.08.26-AGENT-WORLD — cherry-pick revert
+
+## Важно (правило пользователя)
+
+**Не менять код/config бота без явного «да / делай / одобряю».**
+Исключение 11.08 «СРОЧНО ИСПРАВЛЯЙ» отменено откатом по просьбе пользователя («верни как было»).
 
 ## Текущий фокус
 
-1. **DeepSeek provider в llm_gateway** (код запушен, default i.provider: openrouter):
-   - Включение: .env → DEEPSEEK_API_KEY=... + в config i.provider: deepseek (или PRD_AI_PROVIDER=deepseek)
-   - Архив чата: .cursor/chats/archive/Chat_10_08_26.md (id 9cf94508-...)
-2. Hotfix 08–09 (manual/Companion, SPIKE P0/P1, SL/TP guard) — без отката
-3. Wallet / SPIKE / polling / bybit_monitor — **не отключать**
+1. **Откат SL/TP manual-safe (11.08):** revert 8f940c / e283f9b — снова управляем SL/TP trailing/BE+ для всех позиций (в т.ч. подхваченных), как ~09–10.08.
+2. DeepSeek provider: код есть, default i.provider: openrouter — включать только по явному «да».
+3. Manual: time-stop/Companion по-прежнему НЕ закрывают origin=manual (manual_auto_close: false).
+4. Wallet / SPIKE / polling / bybit_monitor — **не отключать**.
 
 ## Маркеры логов
 
@@ -21,6 +25,8 @@
 | SPIKE bypass | SPIKE bypass no_corridor |
 | SPIKE pullback | SPIKE pullback: |
 | SL/TP guard | Missing SL/TP on position, SL/TP guard |
+
+**Убрано откатом:** MANUAL SAFE skip SL/TP manage (флаг manage_sl_tp_manual).
 
 ## Сервер
 
