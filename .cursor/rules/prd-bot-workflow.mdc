@@ -232,6 +232,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
 | Риск | **GARCH calm/normal/storm** | `volatility_regime_sizing.py`, orch + signal agent | AW ON / prod OFF; маркер `Volatility regime`; не угадывает сторону |
+| Риск | **Алерт закрытий >2 убытков** | `close_watchdog.py`, orchestrator | все сделки manual+bot; Telegram `АВАРИЯ ЗАКРЫТИЙ`; `positions.close_watchdog` |
 | Manual | **не time-stop/Companion close** | `position_steward.py`, `trade_companion.py` | `manual_auto_close: false`, `auto_close_manual: false`; adopt manual → opened_at=now; не inherit `_bot_levels` |
 | SPIKE | **P0 bypass + P1 pullback оба** | `zone_corridor_play`, `spike_pullback_gate`, deploy yaml | `spike_bypass_no_corridor: true`; `pullback_entry.enabled: true` прод+AW; маркеры `SPIKE bypass no_corridor` / `SPIKE pullback:` |
 | Диск | **keep 1 config.bak** | server_disk_cleanup.sh, prune_config_backups.sh | После bak — только newest; не трогать .env |
@@ -329,6 +330,7 @@ python scripts/run_manual_trailing_be_backtest.py --demo
 | `entry_engine_bridge`, orderbook | `test_entry_guard.py`, `test_smc_zones_and_entry.py` (если есть) |
 | orchestrator / RR | `test_sr_sl_tp_far_tp.py`, `test_signal_feedback_loop_and_sl_validation.py` |
 | `trade_analytics`, skipped lab, Telegram кнопки | `test_daily_pnl_and_lab_reports.py`, `test_skipped_signal_backtest.py` |
+| close_watchdog / алерты закрытий | `test_close_watchdog.py` |
 | `volatility_regime_sizing`, GARCH sizing | `test_volatility_regime_sizing.py` |
 | Крупный diff / несколько модулей | `python -m pytest backend/tests/ -q --tb=line -x` (или затронутые файлы) |
 

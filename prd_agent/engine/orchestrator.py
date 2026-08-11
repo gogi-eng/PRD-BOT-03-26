@@ -72,6 +72,7 @@ from prd_agent.positions.opposite_signal_policy import (
 )
 from prd_agent.positions.scanner_reversal_sl import position_age_minutes
 from prd_agent.positions.position_steward import PositionSteward
+from prd_agent.positions.close_watchdog import CloseWatchdog, CloseWatchdogConfig
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 from prd_agent.supervisor.supervisor_v4 import SupervisorV4
@@ -119,6 +120,17 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
+        self.close_watchdog = CloseWatchdog(
+            CloseWatchdogConfig.from_cfg(cfg),
+            self.data_dir,
+        )
+        if self.close_watchdog.cfg.enabled:
+            logger.info(
+                "CloseWatchdog: слежение за ВСЕМИ сделками (ручные+бот); "
+                "алерт при убытках > %s или некорректных > %s",
+                self.close_watchdog.cfg.alert_when_losses_gt,
+                self.close_watchdog.cfg.alert_when_bad_closes_gt,
+            )
         self.trade_companion = TradeCompanionAgent(cfg)
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
@@ -736,6 +748,16 @@ class UnifiedOrchestrator:
                 origin=origin,
                 exit_context=exit_ctx,
             )
+            alert = self.close_watchdog.on_closed_trade(
+                r,
+                origin=str(origin or "manual"),
+                order_id=oid,
+            )
+            if alert:
+                try:
+                    await self.notifier.send(alert)
+                except Exception as exc:
+                    logger.warning("CloseWatchdog telegram failed: %s", exc)
         self.rule_weight_tracker.refresh_if_due(journal_path, force=False)
 
     @staticmethod
@@ -1076,6 +1098,11 @@ class UnifiedOrchestrator:
         positions = await self.exchange.get_positions()
         await self._sync_orderbook_ws(positions)
         self.risk.open_positions_count = len(positions)
+        self.close_watchdog.snapshot_opens(
+            positions,
+            bot_symbols=self.position_steward._bot_symbols,
+            tracked=self.position_steward._tracked,
+        )
         await self._monitor_positions(positions)
         self.trade_lifecycle.update_mark_prices(
             positions,

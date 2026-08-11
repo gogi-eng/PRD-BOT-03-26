@@ -10,6 +10,9 @@
 
 ## Текущий фокус
 
+0. **CloseWatchdog (11.08):** все сделки (manual+bot); Telegram при убытках >2 или некорректных >2. Маркер: CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ.
+
+
 1. **Откат SL/TP manual-safe (11.08):** revert 8f940c / e283f9b — снова управляем SL/TP trailing/BE+ для всех позиций (в т.ч. подхваченных), как ~09–10.08.
 2. DeepSeek provider: код есть, default i.provider: openrouter — включать только по явному «да».
 3. Manual: time-stop/Companion по-прежнему НЕ закрывают origin=manual (manual_auto_close: false).

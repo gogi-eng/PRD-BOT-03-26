@@ -366,6 +366,17 @@ positions:
   adopt_manual: true
   # false = не закрывать origin=manual time-stop/late_retrace (только trailing/SL биржи)
   manual_auto_close: false
+  # Сторож закрытий: все сделки (ручные + бот). Алерт в Telegram если
+  # убытков подряд > 2 или некорректных закрытий > 2.
+  # Маркер лога: CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ
+  close_watchdog:
+    enabled: true
+    alert_when_losses_gt: 2
+    alert_when_bad_closes_gt: 2
+    fast_loss_minutes: 5.0
+    large_loss_pct: 3.0
+    notify_telegram: true
+    alert_cooldown_sec: 120
   # Периодическая проверка: на бирже у каждой открытой позиции должны быть SL и TP.
   # Маркеры лога: "Missing SL/TP on position", "SL/TP guard".
   sl_tp_guard:
