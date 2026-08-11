@@ -1,0 +1,31 @@
+---
+description: Перед деплоем всегда тесты + бэктест; код только после явного «да»
+alwaysApply: true
+---
+
+# Тест и бэктест перед деплоем (обязательно)
+
+Правило пользователя (11.08.2026): **всегда тестируй и бэктесть все изменения в коде перед деплоем.**
+
+## Запрещено
+
+- Push / деплой «на глаз» без `py_compile` + релевантных pytest.
+- Менять торговый код/config **без явного** «да» / «делай» / «одобряю» (кроме случая, когда пользователь сам приказал срочный фикс — всё равно после правки прогнать тесты/бэктест).
+- Считать «готово», если нет отчёта: какие тесты прошли и какой бэктест (или почему N/A).
+
+## Чеклист перед push/деплоем
+
+1. `python -m py_compile` на изменённые `.py`
+2. Релевантные `pytest` (см. таблицу в `prd-bot-workflow.mdc`)
+3. Бэктест по смыслу правки:
+   - пропуски/фильтры → skipped lab / `test_skipped_signal_backtest`
+   - SL/TP, trailing, BE+, ручные позиции → `test_manual_trailing_be_backtest` +  
+     `python scripts/run_manual_trailing_be_backtest.py --demo`  
+     (на сервере: `--root /root/AGENT-WORLD` или `/root/PRD-BOT-ALL`)
+4. В ответе пользователю: результаты тестов + краткий итог бэктеста
+
+## Модуль ручного trailing/BE+
+
+- Код: `prd_agent/positions/manual_trailing_be_backtest.py`
+- Тесты: `backend/tests/test_manual_trailing_be_backtest.py`
+- Скрипт: `scripts/run_manual_trailing_be_backtest.py`
