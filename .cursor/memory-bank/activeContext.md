@@ -1,7 +1,7 @@
 # Active Context
 
 **Дата фокуса:** 11.08.2026 (UTC+3)
-**Ветки дня:** 11.08.26-PRD-BOT-ALL @ 2612d55 (после revert) · 11.08.26-AGENT-WORLD — cherry-pick revert
+**Ветки дня:** 11.08.26-PRD-BOT-ALL @ e2599fd · 11.08.26-AGENT-WORLD @ 6e99c9f
 
 ## Важно (правило пользователя)
 
