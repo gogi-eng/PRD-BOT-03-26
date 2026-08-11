@@ -672,12 +672,36 @@ class BybitClient:
         result = await self._request("POST", "/v5/order/cancel", {"category": self.category, "symbol": symbol, "orderId": order_id}, private=True)
         return bool(result and not result.get("_error"))
 
-    async def update_stop_loss(self, symbol: str, stop_loss: float, position_idx: int = 0) -> Dict:
+    async def update_stop_loss(
+        self,
+        symbol: str,
+        stop_loss: float,
+        position_idx: int = 0,
+        take_profit: float = None,
+    ) -> Dict:
+        """Ставит/двигает SL. Не очищает уровни: stop_loss<=0 отклоняется.
+        Опциональный take_profit >0 передаётся вместе, чтобы не сбросить TP на бирже.
+        """
+        try:
+            sl_f = float(stop_loss or 0)
+        except (TypeError, ValueError):
+            sl_f = 0.0
+        if sl_f <= 0:
+            return {"success": False, "error": "refuse clear/empty stopLoss"}
         params = {
-            "category": self.category, "symbol": symbol,
-            "stopLoss": str(stop_loss), "positionIdx": position_idx,
+            "category": self.category,
+            "symbol": symbol,
+            "stopLoss": str(sl_f),
+            "positionIdx": position_idx,
             "slTriggerBy": "MarkPrice",
         }
+        try:
+            tp_f = float(take_profit) if take_profit is not None else 0.0
+        except (TypeError, ValueError):
+            tp_f = 0.0
+        if tp_f > 0:
+            params["takeProfit"] = str(tp_f)
+            params["tpTriggerBy"] = "MarkPrice"
         result = await self._request("POST", "/v5/position/trading-stop", params, private=True, return_full=True)
         if result and isinstance(result, dict) and result.get("retCode") == 0:
             return {"success": True, "error": ""}
@@ -685,9 +709,18 @@ class BybitClient:
         return {"success": False, "error": error}
 
     async def update_take_profit(self, symbol: str, take_profit: float, position_idx: int = 0) -> Dict:
+        """Ставит/двигает TP. Не очищает: take_profit<=0 отклоняется."""
+        try:
+            tp_f = float(take_profit or 0)
+        except (TypeError, ValueError):
+            tp_f = 0.0
+        if tp_f <= 0:
+            return {"success": False, "error": "refuse clear/empty takeProfit"}
         params = {
-            "category": self.category, "symbol": symbol,
-            "takeProfit": str(take_profit), "positionIdx": position_idx,
+            "category": self.category,
+            "symbol": symbol,
+            "takeProfit": str(tp_f),
+            "positionIdx": position_idx,
             "tpTriggerBy": "MarkPrice",
         }
         result = await self._request("POST", "/v5/position/trading-stop", params, private=True, return_full=True)
