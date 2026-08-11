@@ -397,8 +397,10 @@ profit_lock:
   skip_manual_positions: true
 positions:
   adopt_manual: true
-  # false = не закрывать origin=manual time-stop/late_retrace (только trailing/SL биржи)
+  # false = не закрывать origin=manual time-stop/late_retrace
   manual_auto_close: false
+  # false = не двигать/не перезаписывать ручные SL/TP (trailing/BE+). Маркер: MANUAL SAFE skip SL/TP manage
+  manage_sl_tp_manual: false
   # Периодическая проверка: на бирже у каждой открытой позиции должны быть SL и TP.
   # Маркеры лога: "Missing SL/TP on position", "SL/TP guard".
   sl_tp_guard:
@@ -483,7 +485,7 @@ positions:
     slow_move_pct: 0.3
     tight_distance_factor: 0.85
     normal_distance_factor: 1.0
-    apply_to_manual: true
+    apply_to_manual: false
     apply_to_pump_dump: true
     apply_to_bot: true
   # После BE/BE+: дистанция трейлинга на 0.5 п.п. короче (как на проде)
@@ -505,6 +507,7 @@ positions:
 
 manual_management:
   set_exchange_levels_on_adopt: false
+  manage_sl_tp: false
   manual_trailing_activation_atr: 2.2
   manual_trailing_distance_atr: 3.5
   manual_trailing_min_distance_pct: 0.55
