@@ -134,8 +134,12 @@ class PositionSteward:
         p = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
         self.enabled = bool(p.get("trailing_enabled", True))
         self.adopt_manual = bool(p.get("adopt_manual", True))
-        # Ручные сделки: adopt для учёта/трейлинга, но без auto-close (time-stop/откат)
+        # Ручные сделки: adopt для учёта, но без auto-close (time-stop/откат)
         self.manual_auto_close = bool(p.get("manual_auto_close", False))
+        # false = не двигать/не перезаписывать SL/TP ручных позиций (trailing/BE+/tp_progress)
+        mm = cfg.get("manual_management", {}) if isinstance(cfg.get("manual_management"), dict) else {}
+        manage_flag = p.get("manage_sl_tp_manual", mm.get("manage_sl_tp", False))
+        self.manage_sl_tp_manual = bool(manage_flag)
         self.activation_pct = float(p.get("trailing_activation_pct", 0.4))
         self.distance_pct = float(p.get("trailing_distance_pct", 0.35))
         self.distance_atr_mult = float(p.get("trailing_distance_atr_mult", 1.4))
@@ -513,13 +517,34 @@ class PositionSteward:
                 t.entry = adopted.entry
                 if adopted.opened_at_utc and not t.opened_at_utc:
                     t.opened_at_utc = adopted.opened_at_utc
-                if adopted.take_profit > 0:
-                    t.take_profit = adopted.take_profit
+                # Синхрон с биржей: не затирать валидные SL/TP из памяти бота
+                ex_sl = float(row.get("stopLoss") or 0)
+                ex_tp = float(row.get("takeProfit") or 0)
+                if ex_tp > 0:
+                    t.take_profit = ex_tp
+                if ex_sl > 0:
+                    t.stop_loss = ex_sl
+                    # Если на Bybit уровень изменили вручную — принять как baseline
+                    if t.last_sl_sent <= 0 or abs(ex_sl - t.last_sl_sent) / max(
+                        abs(t.last_sl_sent), 1e-9
+                    ) >= 0.0003:
+                        t.last_sl_sent = ex_sl
 
         for sym, pos in list(self._tracked.items()):
             row = next((p for p in positions if str(p.get("symbol", "")).upper() == sym), None)
             if not row:
                 continue
+            # Ещё раз подтянуть live SL/TP перед расчётом (все позиции)
+            ex_sl = float(row.get("stopLoss") or 0)
+            ex_tp = float(row.get("takeProfit") or 0)
+            if ex_tp > 0:
+                pos.take_profit = ex_tp
+            if ex_sl > 0:
+                pos.stop_loss = ex_sl
+                if pos.last_sl_sent <= 0 or abs(ex_sl - pos.last_sl_sent) / max(
+                    abs(pos.last_sl_sent), 1e-9
+                ) >= 0.0003:
+                    pos.last_sl_sent = ex_sl
             price = float(row.get("markPrice") or pos.entry)
             klines = await exchange.get_klines(sym, interval="15", limit=80)
             atr = self._atr_from_klines(klines, self.atr_period)
@@ -545,8 +570,8 @@ class PositionSteward:
                 continue
 
             # Ручные: не auto-close по time-stop / late_retrace (пользователь ведёт сам).
-            # SL биржи + трейлинг после прибыли остаются.
-            if str(pos.origin or "").lower() == "manual" and not self.manual_auto_close:
+            is_manual = str(pos.origin or "").lower() == "manual"
+            if is_manual and not self.manual_auto_close:
                 action, action_reason = None, ""
                 if profile.exit_management.enabled and profile.exit_management.time_stop_enabled:
                     age = age_minutes(pos.opened_at_utc)
@@ -574,6 +599,15 @@ class PositionSteward:
                     self._log_note_close(pos, action, action_reason)
                     self._bot_levels.pop(sym, None)
                     del self._tracked[sym]
+                continue
+
+            # Ручные: не трогать SL/TP на бирже (trailing/BE+/adaptive), если manage_sl_tp_manual=false.
+            # sl_tp_guard выше по циклу по-прежнему ставит уровни ТОЛЬКО если их нет.
+            if is_manual and not self.manage_sl_tp_manual:
+                logger.info(
+                    "MANUAL SAFE skip SL/TP manage %s (manage_sl_tp_manual=false)",
+                    sym,
+                )
                 continue
 
             be_override = effective_breakeven_pct(
@@ -705,10 +739,22 @@ class PositionSteward:
 
             if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) / max(pos.last_sl_sent, 1e-9) < 0.0003:
                 continue
+            if float(new_sl) <= 0:
+                continue
             client = exchange._client
             if not hasattr(client, "update_stop_loss"):
                 continue
-            res = await client.update_stop_loss(sym, new_sl, position_idx=pos.position_idx)
+            # Передать текущий TP, чтобы trading-stop не «обнулил» takeProfit на бирже
+            tp_keep = float(pos.take_profit or 0)
+            try:
+                res = await client.update_stop_loss(
+                    sym,
+                    new_sl,
+                    position_idx=pos.position_idx,
+                    take_profit=tp_keep if tp_keep > 0 else None,
+                )
+            except TypeError:
+                res = await client.update_stop_loss(sym, new_sl, position_idx=pos.position_idx)
             if res.get("success"):
                 pos.stop_loss = new_sl
                 pos.last_sl_sent = new_sl
