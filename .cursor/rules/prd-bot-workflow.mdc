@@ -137,9 +137,11 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 
 ### ОБЯЗАТЕЛЬНО: перед push / деплоем на сервер
 
+- **Всегда тестируй и бэктесть все изменения в коде перед деплоем** (правило пользователя 11.08.2026): без успешного прогона тестов + релевантного бэктеста (или явного «бэктест N/A: …» в отчёте) — **не push и не деплой**.
 - **Проверить работоспособность ВСЕХ алгоритмов**, затронутых правкой: `py_compile` + релевантные pytest (+ ручной сценарий, если cron/systemd/Telegram).
+- **Бэктест по типу правки:** вход/фильтры → skipped lab / `test_skipped_signal_backtest`; SL/TP / trailing / BE+ / ручные позиции → `test_manual_trailing_be_backtest` + `scripts/run_manual_trailing_be_backtest.py --demo` (и при данных — `--root` на сервере); PnL/кнопки аналитики → daily/lab tests.
 - **Запрещены заглушки:** `if False`, «временно отключено», пустые обработчики «на потом», параметры в config без чтения в коде.
-- **Запрещены скрытые правки:** любая смена поведения — явно сообщить пользователю (что изменилось и зачем), без молчаливых побочных фиксов.
+- **Запрещены скрытые правки:** любая смена поведения — явно сообщить пользователю (что изменилось и зачем), без молчаливых побочных фиксов. **Код не менять без явного «да / делай».**
 - **Config + код одной серией:** если алгоритм включён в yaml — он реально вызывается на всех нужных путях (orchestrator **и** SPIKE/scanner, если это торговая логика).
 - Слово «готово» / push — **только после** успешной проверки выше.
 - **См. также** всегдашние правила файла `no-encoding-spike-config-regressions.mdc`: не портить UTF-8 на Windows; не оставлять фильтр только в orchestrator; не считать алгоритм живым без ключа в live `config.yaml` и строки в логе.
@@ -230,6 +232,8 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
 | Риск | **GARCH calm/normal/storm** | `volatility_regime_sizing.py`, orch + signal agent | AW ON / prod OFF; маркер `Volatility regime`; не угадывает сторону |
+| Manual | **не time-stop/Companion close** | `position_steward.py`, `trade_companion.py` | `manual_auto_close: false`, `auto_close_manual: false`; adopt manual → opened_at=now; не inherit `_bot_levels` |
+| SPIKE | **P0 bypass + P1 pullback оба** | `zone_corridor_play`, `spike_pullback_gate`, deploy yaml | `spike_bypass_no_corridor: true`; `pullback_entry.enabled: true` прод+AW; маркеры `SPIKE bypass no_corridor` / `SPIKE pullback:` |
 | Диск | **keep 1 config.bak** | server_disk_cleanup.sh, prune_config_backups.sh | После bak — только newest; не трогать .env |
 | Сервер | **SSH/FileZilla → гайд** | `docs/server-access-ssh-filezilla.md` | Не дублировать private key/пароли; IP сверять в DO |
 
@@ -304,23 +308,27 @@ git rev-parse --short HEAD
 
 ## Тесты — обязательно перед push/выдачей
 
-**Любая новая правка:** `py_compile` изменённых `.py` + **релевантные pytest**. Без теста — дописать минимальный в `backend/tests/`. **Не отдавать код «на глаз».**
+**Любая новая правка:** `py_compile` изменённых `.py` + **релевантные pytest** + **релевантный бэктест** (см. блок «перед push / деплоем»). Без теста — дописать минимальный в `backend/tests/`. **Не отдавать код «на глаз».** **Не деплоить без прогона.**
 
 ```bash
 cd PRD-BOT-ALL
 python -m py_compile path/to/changed.py
 python -m pytest backend/tests/<файл>.py -q --tb=short
+# SL/TP / trailing / BE+ / manual:
+python -m pytest backend/tests/test_manual_trailing_be_backtest.py -q --tb=short
+python scripts/run_manual_trailing_be_backtest.py --demo
 ```
 
 | Меняли | Запускать тесты |
 |--------|-----------------|
 | `sr_sl_tp_adjust`, TP/SL, `execution_sr_zones` | `test_sr_sl_tp_far_tp.py` |
+| trailing / BE+ / `position_steward` / ручные SL/TP | `test_manual_trailing_be_backtest.py`, `test_tp_progress_exit.py`, demo-скрипт |
 | `correction_agent`, `supervisor_v4` | `test_supervisor_v4.py`, `test_supervisor_recovery_reset.py` |
 | `telegram_signal_agent` dedup / RSS | `py_compile` + при наличии тест dedup |
 | `bybit_client` подпись | `py_compile` + ручной тест ключей на сервере |
 | `entry_engine_bridge`, orderbook | `test_entry_guard.py`, `test_smc_zones_and_entry.py` (если есть) |
 | orchestrator / RR | `test_sr_sl_tp_far_tp.py`, `test_signal_feedback_loop_and_sl_validation.py` |
-| `trade_analytics`, skipped lab, Telegram кнопки | `test_daily_pnl_and_lab_reports.py` |
+| `trade_analytics`, skipped lab, Telegram кнопки | `test_daily_pnl_and_lab_reports.py`, `test_skipped_signal_backtest.py` |
 | `volatility_regime_sizing`, GARCH sizing | `test_volatility_regime_sizing.py` |
 | Крупный diff / несколько модулей | `python -m pytest backend/tests/ -q --tb=line -x` (или затронутые файлы) |
 
