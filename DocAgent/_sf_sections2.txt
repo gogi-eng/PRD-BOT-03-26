@@ -1,0 +1,601 @@
+
+===== 1604-1750 =====
+1604|def _guess_instruction_subject(doc: Document, doc_type: str) -> str:
+1605|    """Краткое наименование должности/профессии из начала тела или имени файла."""
+1606|    blob = " ".join(p.text for p in doc.paragraphs[:30])
+1607|    low = blob.lower()
+1608|    # типичные фразы
+1609|    m = re.search(
+1610|        r"(должностн\w*\s+инструкци\w*\s+)(.+?)(?:\n|$)",
+1611|        blob,
+1612|        re.I,
+1613|    )
+1614|    if m and len(m.group(2).strip()) < 120:
+1615|        return m.group(2).strip().rstrip(".")
+1616|    m = re.search(
+1617|        r"(рабоч\w*\s+инструкци\w*\s+)(.+?)(?:\n|$)",
+1618|        blob,
+1619|        re.I,
+1620|    )
+1621|    if m and len(m.group(2).strip()) < 120:
+1622|        return m.group(2).strip().rstrip(".")
+1623|    # из пункта 1.1.
+1624|    for p in doc.paragraphs[:40]:
+1625|        t = p.text.strip()
+1626|        if re.match(r"^1\.1\.", t) and len(t) < 200:
+1627|            # «1.1. Старший диспетчер … является …»
+1628|            rest = re.sub(r"^1\.1\.\s*", "", t)
+1629|            rest = re.split(r"\s+является\b", rest, maxsplit=1, flags=re.I)[0]
+1630|            if 5 < len(rest) < 100:
+1631|                return rest.strip()
+1632|    if "рабоч" in low:
+1633|        return "работнику"
+1634|    return "работнику"
+1635|
+1636|
+1637|def create_title_page_from_scratch(doc: Document, doc_type: str = "unsupported") -> int:
+1638|    """
+1639|    Если титула нет совсем — создать шапку + таблицу 3×2 + линию номера + Минск,
+1640|    как в эталоне СЛЕСАРЬ 30.07.2026.
+1641|    """
+1642|    # уже есть таблица УТВЕРЖДАЮ / шапка организации — не дублировать
+1643|    if _find_title_table(doc) is not None:
+1644|        return 0
+1645|    head = " ".join(p.text for p in doc.paragraphs[:8]).lower()
+1646|    if "минсккоммунтеплосеть" in head and "утверждаю" in head:
+1647|        return 0
+1648|
+1649|    # найти первый абзац тела (раздел «1 …» / «1.1.»)
+1650|    body_anchor = None
+1651|    for p in doc.paragraphs:
+1652|        t = p.text.strip()
+1653|        if re.match(r"^\d+(\s|\.)", t):
+1654|            body_anchor = p
+1655|            break
+1656|    if body_anchor is None and doc.paragraphs:
+1657|        body_anchor = doc.paragraphs[0]
+1658|
+1659|    subject = _guess_instruction_subject(doc, doc_type)
+1660|    label = _doc_kind_label(doc_type, subject)
+1661|    left_mid = subject
+1662|    rows = [
+1663|        [label, "УТВЕРЖДАЮ"],
+1664|        [left_mid, "Первый заместитель директора –\nглавный инженер"],
+1665|        ["", "____________  ____________\n«___»________ 2026г."],
+1666|    ]
+1667|
+1668|    if body_anchor is None:
+1669|        return 0
+1670|
+1671|    created = 0
+1672|    insert_point = body_anchor
+1673|    for line in ORG_HEADER_LINES:
+1674|        hp = insert_point.insert_paragraph_before(line)
+1675|        _set_para_format_no_indent(hp)
+1676|        hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+1677|        hp.paragraph_format.first_line_indent = Cm(0)
+1678|        if hp.runs:
+1679|            set_run_font(hp.runs[0], bold=True)
+1680|        else:
+1681|            run = hp.add_run(line)
+1682|            set_run_font(run, bold=True)
+1683|        created += 1
+1684|    # 2 пустых
+1685|    e1 = insert_point.insert_paragraph_before("")
+1686|    e2 = insert_point.insert_paragraph_before("")
+1687|    _set_para_format_no_indent(e1)
+1688|    _set_para_format_no_indent(e2)
+1689|    created += 2
+1690|    # таблица после последнего пустого перед телом
+1691|    _insert_title_table_after(e2, rows)
+1692|    created += 1
+1693|    ensure_title_sample_spacers(doc)
+1694|    created += 1
+1695|    return created
+1696|
+1697|
+1698|_CHAPTER_KEYWORD_RE = re.compile(
+1699|    r"(общие положения|общие требования|обязанност|функци|права|"
+1700|    r"ответственност|заключительн|взаимоотношен|термины|сокращен|"
+1701|    r"определен|осмотр|фазировк|объем|нормы измерен|нормы и|"
+1702|    r"измерений|испытан|авари|правила и порядок|ликвидац|"
+1703|    r"основные меры|безопасн.*обслуживан|порядок работ|"
+1704|    r"профессиональн|квалификац|описание работ)",
+1705|    re.I,
+1706|)
+1707|
+1708|_NOT_CHAPTER_RE = re.compile(
+1709|    r"^(утверждаю|согласовано|утверждено|приказ|ознакомлен|"
+1710|    r"с инструкцией|сведения о|журнал|минск|коммунальн|"
+1711|    r"предприят|исполнительн|производственн|теплосет)",
+1712|    re.I,
+1713|)
+1714|
+1715|
+1716|def _is_chapter_heading_para(text: str) -> bool:
+1717|    """Заголовок главы: «1 ОБЩИЕ ПОЛОЖЕНИЯ» / «1. ОБЩИЕ…» (не пункт «1.1.»)."""
+1718|    t = (text or "").strip()
+1719|    if not t or len(t) > 110:
+1720|        return False
+1721|    # строки оглавления — не главы тела
+1722|    if _is_toc_entry_line(t):
+1723|        return False
+1724|    # пункты/подпункты — не главы
+1725|    if re.match(r"^\d+\.\d+", t):
+1726|        return False
+1727|    low = t.lower()
+1728|    if _NOT_CHAPTER_RE.search(low) or low in ("согласовано", "утверждаю"):
+1729|        return False
+1730|    # «1. ОБЩИЕ…» / «1.ОБЩИЕ…» — строгий детект
+1731|    m = re.match(r"^(\d+)\.\s*(.+)$", t)
+1732|    if m:
+1733|        rest = m.group(2).strip()
+1734|        # «3. специфические требования…» — текст пункта, не глава
+1735|        if rest[:1].islower():
+1736|            return False
+1737|        if _looks_like_chapter_title(rest, allow_soft=False):
+1738|            # для формы с точкой — только явные ключевые слова или ЗАГЛАВНЫЕ
+1739|            letters = [c for c in rest if c.isalpha()]
+1740|            caps = (
+1741|                letters
+1742|                and sum(1 for c in letters if c.isupper()) / len(letters) > 0.55
+1743|            )
+1744|            if caps or _CHAPTER_KEYWORD_RE.search(rest):
+1745|                return True
+1746|    # «1 ОБЩИЕ…» — можно мягче
+1747|    m = re.match(r"^(\d+)\s+(.+)$", t)
+1748|    if m and _looks_like_chapter_title(m.group(2), allow_soft=True):
+1749|        rest = m.group(2).strip()
+1750|        if rest[:1].islower():
+
+===== 600-850 =====
+600|        and not r.endswith((".", ";", ",", ":"))
+601|        and r[0].isupper()
+602|        and r.count(" ") <= 10
+603|    ):
+604|        if not re.search(
+605|            r"\b(обязан|должен|обеспеч|выполня|руководств|назнача)\w*\b", low
+606|        ):
+607|            return True
+608|    return False
+609|
+610|
+611|def _is_toc_entry_line(text: str) -> bool:
+612|    """Строка оглавления: «1 ОБЩИЕ… …… 3» / с табом и номером страницы."""
+613|    t = (text or "").strip()
+614|    if not t:
+615|        return False
+616|    if is_contents_heading(t):
+617|        return True
+618|    if re.search(r"[\.·…‧]{2,}\s*\d+\s*$", t):
+619|        return True
+620|    if re.search(r"\t+\d+\s*$", t):
+621|        return True
+622|    return False
+623|
+624|
+625|def normalize_numbering_style(text: str) -> str:
+626|    """
+627|    Глава: «1 ОБЩИЕ ПОЛОЖЕНИЯ» (без точки после номера).
+628|    Пункт: «1.1. Текст» / «2.3.4. Текст» (точка после каждой цифры уровня).
+629|    """
+630|    t = text.strip()
+631|    if not t:
+632|        return text
+633|
+634|    # «1. ОБЩИЕ…» / «1.ОБЩИЕ…» → «1 ОБЩИЕ…»
+635|    m = re.match(r"^(\d+)\.\s*(.+)$", t)
+636|    if m and _looks_like_chapter_title(m.group(2)):
+637|        return f"{m.group(1)} {m.group(2).lstrip()}"
+638|
+639|    # «1 ОБЩИЕ…» уже ок
+640|    m = re.match(r"^(\d+)\s+(.+)$", t)
+641|    if m and "." not in m.group(1) and _looks_like_chapter_title(m.group(2)):
+642|        return f"{m.group(1)} {m.group(2).lstrip()}"
+643|
+644|    # пункт/подпункт: «1.1 Текст» / «1.1.Текст» / «1.1. Текст»
+645|    m = re.match(r"^(\d+(?:\.\d+)+)\.?\s*(.*)$", t)
+646|    if m and m.group(2) is not None:
+647|        nums = m.group(1)
+648|        rest = m.group(2).lstrip()
+649|        if rest:
+650|            return f"{nums}. {rest}"
+651|        return f"{nums}."
+652|
+653|    return text
+654|
+655|
+656|def collapse_duplicate_number_prefix(text: str) -> str:
+657|    """
+658|    Убрать повтор номера в начале строки.
+659|    «1.2. 1.2. Текст» → «1.2. Текст»
+660|    «2.1.2. 2.1.2. Текст» → «2.1.2. Текст»
+661|    """
+662|    t = text
+663|    for _ in range(5):
+664|        # только полный повтор с пробелом: «1.2. 1.2. »
+665|        n = re.sub(
+666|            r"^((\d+(?:\.\d+)*)\.)\s+\1(\s+)",
+667|            r"\1\3",
+668|            t,
+669|        )
+670|        if n == t:
+671|            break
+672|        t = n
+673|    return t
+674|
+675|
+676|def safe_phrase_replace(text: str, old: str, new: str) -> str:
+677|    """
+678|    Замена фразы без появления двойной нумерации.
+679|    Если new = «N.N. » + old, а в тексте номер уже есть — не добавлять второй раз.
+680|    """
+681|    if old not in text:
+682|        return text
+683|    m = re.match(r"^((\d+(?:\.\d+)*)\.)\s+(.*)$", new.strip())
+684|    if m and m.group(2) == old.strip():
+685|        # new добавляет номер к old
+686|        stripped = text.lstrip()
+687|        if re.match(r"^(\d+(?:\.\d+)*)\.\s+", stripped):
+688|            # номер уже есть — не подставлять new внутрь строки
+689|            return text
+690|    result = text.replace(old, new)
+691|    return collapse_duplicate_number_prefix(result)
+692|
+693|
+694|NUM_ITEM_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.?)\s+(.*)$", re.DOTALL)
+695|# «1 ОБЩИЕ ПОЛОЖЕНИЯ» / «2 ФУНКЦИИ…» — раздел
+696|SECTION_RE = re.compile(r"^(\d+)\s+([А-ЯЁA-Z][А-ЯЁA-Zа-яёA-Za-z\s\-«»\"]{2,})$")
+697|
+698|
+699|def _parse_num_tuple(num_str: str) -> tuple[int, ...]:
+700|    return tuple(int(x) for x in num_str.split("."))
+701|
+702|
+703|def _format_num(tup: tuple[int, ...], *, section: bool = False) -> str:
+704|    if section:
+705|        return str(tup[0])
+706|    if len(tup) == 1:
+707|        return f"{tup[0]}"
+708|    return ".".join(str(x) for x in tup) + "."
+709|
+710|
+711|def _is_section_heading(num: str, rest: str) -> bool:
+712|    """Раздел: короткий заголовок ЗАГЛАВНЫМИ / без точки в конце длинного текста."""
+713|    r = rest.strip()
+714|    if not r:
+715|        return False
+716|    if SECTION_RE.match(f"{num} {r}"):
+717|        return True
+718|    # «1. ОБЩИЕ ПОЛОЖЕНИЯ» тоже раздел
+719|    if len(r) < 90 and r.isupper():
+720|        return True
+721|    if len(r) < 90 and re.match(r"^[А-ЯЁA-Z]", r) and not r.endswith(".") and " " in r:
+722|        # «Общие положения» как заголовок раздела при num из одной цифры
+723|        if "." not in num and any(
+724|            w in r.lower()
+725|            for w in (
+726|                "общие",
+727|                "обязанност",
+728|                "функци",
+729|                "права",
+730|                "ответственност",
+731|                "заключительн",
+732|                "взаимоотношен",
+733|            )
+734|        ):
+735|            return True
+736|    return False
+737|
+738|
+739|def _next_expected(prev: tuple[int, ...] | None, depth: int) -> tuple[int, ...]:
+740|    """Ожидаемый следующий номер заданной глубины после prev."""
+741|    if prev is None:
+742|        return tuple([1] * depth) if depth > 1 else (1,)
+743|    if depth == len(prev):
+744|        return prev[:-1] + (prev[-1] + 1,)
+745|    if depth > len(prev):
+746|        # углубление: 1.2 → 1.2.1
+747|        base = prev + (1,) * (depth - len(prev))
+748|        return base
+749|    # выход наверх: 1.2.3 при depth=2 → 1.3
+750|    return prev[: depth - 1] + (prev[depth - 1] + 1,)
+751|
+752|
+753|def verify_and_fix_numbering(doc: Document) -> dict:
+754|    """
+755|    После оформления — проверить КАЖДЫЙ пункт с номером по порядку.
+756|    Внутри одного родителя (1.10 → 1.10.1, 1.10.2…) номера должны идти без пропусков и дублей.
+757|    Разделы: 1, 2, 3… подряд.
+758|    """
+759|    report = {
+760|        "checked": 0,
+761|        "fixed": 0,
+762|        "ok": 0,
+763|        "issues": [],
+764|        "fixes": [],
+765|    }
+766|    paras = list(doc.paragraphs)
+767|    start = 0
+768|    for i, p in enumerate(paras[:45]):
+769|        t = p.text.strip()
+770|        if re.match(r"^\d+(\s|\.)", t):
+771|            start = i
+772|            break
+773|        if re.fullmatch(r"минск\s+20\d{2}", t.lower()):
+774|            start = i + 1
+775|    end = len(paras)
+776|    for i in range(len(paras) - 1, max(start, len(paras) // 3), -1):
+777|        low = paras[i].text.strip().lower()
+778|        if low.startswith(("разработал", "согласовано", "с должностной", "с рабочей", "примечание")):
+779|            end = i
+780|            break
+781|
+782|    last_section = 0
+783|    last_child: dict[tuple[int, ...], int] = {}
+784|
+785|    def clear_deeper_than(prefix: tuple[int, ...]) -> None:
+786|        for key in list(last_child.keys()):
+787|            if len(key) >= len(prefix) and key[: len(prefix)] == prefix:
+788|                # сбросить потомков этого узла при новом соседе
+789|                if key != prefix:
+790|                    del last_child[key]
+791|
+792|    for i in range(start, end):
+793|        p = paras[i]
+794|        text = p.text.strip()
+795|        if not text or not re.match(r"^\d", text):
+796|            continue
+797|        # оглавление не перенумеровывать (иначе «1 ОБЩИЕ… … 3» ломает главы тела)
+798|        if is_contents_heading(text) or _is_toc_entry_line(text):
+799|            continue
+800|        m = NUM_ITEM_RE.match(text)
+801|        if not m:
+802|            continue
+803|        num_str, rest = m.group(1), m.group(3)
+804|        # хвост оглавления с номером страницы
+805|        if re.search(r"[\.·…‧]{2,}\s*\d+\s*$", rest) or re.search(r"\t+\d+\s*$", rest):
+806|            continue
+807|        report["checked"] += 1
+808|        cur = _parse_num_tuple(num_str)
+809|        section = _is_section_heading(num_str, rest) or (
+810|            len(cur) == 1 and _is_section_heading(num_str, rest)
+811|        )
+812|        # одиночный номер + короткий заголовок = раздел
+813|        if len(cur) == 1 and len(rest.strip()) < 90 and (
+814|            rest.isupper()
+815|            or any(
+816|                w in rest.lower()
+817|                for w in (
+818|                    "общие положения",
+819|                    "обязанност",
+820|                    "функци",
+821|                    "права",
+822|                    "ответственност",
+823|                    "заключительн",
+824|                    "взаимоотношен",
+825|                    "профессиональн",
+826|                )
+827|            )
+828|        ):
+829|            section = True
+830|
+831|        if section:
+832|            expected_n = last_section + 1
+833|            expected = (expected_n,)
+834|            if cur != expected:
+835|                new_text = f"{expected_n} {rest.lstrip()}"
+836|                bold = p.runs[0].bold if p.runs else None
+837|                _set_runs(p, new_text, bold=bold)
+838|                msg = f"абз.{i + 1}: раздел «{num_str}» → «{expected_n}»"
+839|                report["fixed"] += 1
+840|                report["fixes"].append(msg)
+841|                report["issues"].append(msg)
+842|            else:
+843|                report["ok"] += 1
+844|            last_section = expected_n
+845|            # новый раздел — сбросить счётчики детей других разделов
+846|            for key in list(last_child.keys()):
+847|                if not key or key[0] != expected_n:
+848|                    del last_child[key]
+849|            last_child[()] = expected_n
+850|            continue
+
+===== 2100-2250 =====
+2100|    for p in iter_all_paragraphs(doc):
+2101|        raw = p.text or ""
+2102|        if not raw:
+2103|            continue
+2104|        if "\t" in raw or _paragraph_keeps_signatory_tab(raw):
+2105|            parts = raw.split("\t")
+2106|            new_parts = [
+2107|                re.sub(r"[ \xa0\u202f\u2009\u200a]{2,}", " ", part) for part in parts
+2108|            ]
+2109|            new = "\t".join(new_parts)
+2110|        else:
+2111|            new = raw.replace("\xa0", " ").replace("\u202f", " ")
+2112|            new = new.replace("\u2009", " ").replace("\u200a", " ")
+2113|            new = re.sub(r" {2,}", " ", new)
+2114|        if new == raw:
+2115|            continue
+2116|        bold = p.runs[0].bold if p.runs else None
+2117|        _set_runs(p, new, bold=bold)
+2118|        if "\x0b" in new:
+2119|            _expand_vertical_tabs_to_br(p._element)
+2120|        changed += 1
+2121|    return changed
+2122|
+2123|
+2124|def format_chapter_headings(doc: Document) -> dict:
+2125|    """
+2126|    Для ВСЕХ документов — как Heading 1 эталона КЛ 31.07.2026:
+2127|    центр, жирный, капслок, keepNext, отступ 0;
+2128|    перед заголовком — пустая строка (кроме главы после содержания).
+2129|    """
+2130|    report = {"centered": 0, "spacers": 0, "styled": 0}
+2131|    report["spacers"] = ensure_empty_line_before_chapters(doc)
+2132|    for p in doc.paragraphs:
+2133|        if is_paragraph_in_table(p):
+2134|            continue
+2135|        if not _is_chapter_heading_para(p.text):
+2136|            continue
+2137|        prev_al = p.alignment
+2138|        apply_chapter_heading_format(p, doc=doc)
+2139|        report["styled"] += 1
+2140|        if prev_al != WD_ALIGN_PARAGRAPH.CENTER:
+2141|            report["centered"] += 1
+2142|    return report
+2143|
+2144|
+2145|def apply_spacing_and_clear_body_empties(doc: Document) -> dict:
+2146|    """
+2147|    Финальная зачистка интервалов и пустых строк:
+2148|    — одинарный межстрочный в тексте/титуле/таблицах;
+2149|    — space_before = space_after = 0 везде (в т.ч. таблицы);
+2150|    — пустые строки в теле убрать (кроме 1 перед главой / перед Разработал);
+2151|    — перед каждым заголовком главы — одна пустая строка.
+2152|    """
+2153|    report = {"spacing": 0, "empties": 0, "chapter_spacers": 0}
+2154|    # сначала интервалы
+2155|    for p in iter_all_paragraphs(doc):
+2156|        if set_single_line_spacing(p):
+2157|            report["spacing"] += 1
+2158|        if zero_para_spacing(p):
+2159|            report["spacing"] += 1
+2160|        if is_paragraph_in_table(p):
+2161|            p.paragraph_format.first_line_indent = Cm(0)
+2162|    # пустые в теле
+2163|    try:
+2164|        report["empties"] = remove_empty_paragraphs_in_body(doc)
+2165|    except Exception:
+2166|        pass
+2167|    try:
+2168|        report["chapter_spacers"] = ensure_empty_line_before_chapters(doc)
+2169|    except Exception:
+2170|        pass
+2171|    # после вставок пустых перед главами — снова 0 before/after
+2172|    for p in doc.paragraphs:
+2173|        zero_para_spacing(p)
+2174|        set_single_line_spacing(p)
+2175|    for table in doc.tables:
+2176|        for row in table.rows:
+2177|            for cell in row.cells:
+2178|                for p in cell.paragraphs:
+2179|                    zero_para_spacing(p)
+2180|                    set_single_line_spacing(p)
+2181|                    p.paragraph_format.first_line_indent = Cm(0)
+2182|    return report
+2183|
+2184|
+2185|def ensure_empty_line_before_chapters(doc: Document) -> int:
+2186|    """
+2187|    Перед КАЖДЫМ заголовком главы — всегда одна пустая строка.
+2188|    Исключение: глава с разрывом страницы после содержания — с верха листа,
+2189|    пустую перед ней не ставим (и лишние пустые перед ней убираем).
+2190|    """
+2191|    paras = list(doc.paragraphs)
+2192|    if not paras:
+2193|        return 0
+2194|    start, end = _body_bounds(paras)
+2195|    added = 0
+2196|    for i in range(min(end, len(paras)) - 1, max(start - 1, 0), -1):
+2197|        if i < 0 or i >= len(paras):
+2198|            continue
+2199|        if not _is_chapter_heading_para(paras[i].text):
+2200|            continue
+2201|        # после содержания / с разрывом страницы — глава с верха, без пустой
+2202|        if _paragraph_has_page_break_before(paras[i]):
+2203|            continue
+2204|        # уже есть пустая сразу перед заголовком
+2205|        if i > 0 and not (paras[i - 1].text or "").replace("\xa0", " ").strip():
+2206|            continue
+2207|        j = i - 1
+2208|        while j >= 0 and not (paras[j].text or "").replace("\xa0", " ").strip():
+2209|            j -= 1
+2210|        if j < 0:
+2211|            continue
+2212|        new_p = paras[i].insert_paragraph_before("")
+2213|        pf = new_p.paragraph_format
+2214|        pf.first_line_indent = Cm(0)
+2215|        pf.left_indent = Cm(0)
+2216|        pf.space_before = Pt(0)
+2217|        pf.space_after = Pt(0)
+2218|        added += 1
+2219|        paras = list(doc.paragraphs)
+2220|    return added
+2221|
+2222|
+2223|def collapse_title_spacer_empties(doc: Document) -> int:
+2224|    """
+2225|    Убрать неоправданные пустые строки на титуле.
+2226|    Эталон: после шапки — до 2 пустых, затем таблица, затем сразу линия номера.
+2227|    Пустые МЕЖДУ таблицей и «____» / «номер» / «Минск» — удалить.
+2228|    """
+2229|    body = doc.element.body
+2230|    children = list(body.iterchildren())
+2231|    removed = 0
+2232|
+2233|    # найти индекс title-table
+2234|    tbl_idx = None
+2235|    for i, child in enumerate(children):
+2236|        if child.tag == qn("w:tbl"):
+2237|            # проверить содержимое
+2238|            texts = [t.text or "" for t in child.iter(qn("w:t"))]
+2239|            blob = " ".join(texts).lower()
+2240|            if "утверждаю" in blob or "инструкция" in blob:
+2241|                tbl_idx = i
+2242|                break
+2243|    if tbl_idx is None:
+2244|        return 0
+2245|
+2246|    def _p_text(el) -> str:
+2247|        return "".join(t.text or "" for t in el.iter(qn("w:t"))).strip()
+2248|
+2249|    def _is_empty_p(el) -> bool:
+2250|        if el.tag != qn("w:p"):
+
+===== 980-1020 =====
+980|        if re.match(r"^\d+\s+[А-ЯЁA-Z]{3,}", t) and len(t) < 80:
+981|            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+982|            p.paragraph_format.first_line_indent = Cm(0)
+983|            p.paragraph_format.left_indent = Cm(0)
+984|
+985|    # 3) титул — ТОЛЬКО если уже есть таблица как в эталоне: подправить поля.
+986|    #    Склеенный титул без таблицы — собрать таблицу и УДАЛИТЬ старые абзацы (не оставлять пустыми).
+987|    try:
+988|        report["title_fixed"] = ensure_title_table_like_sample(doc, doc_type)
+989|    except Exception:
+990|        report["title_fixed"] = 0
+991|
+992|    for p in doc.paragraphs[:12]:
+993|        if is_title_page_like(p.text, p.alignment) or (
+994|            p.alignment == WD_ALIGN_PARAGRAPH.CENTER and len(p.text.strip()) < 80
+995|        ):
+996|            p.paragraph_format.first_line_indent = Cm(0)
+997|            p.paragraph_format.left_indent = Cm(0)
+998|
+999|    # 3b) убрать лишние пустые / затем восстановить обязательные как в эталоне
+1000|    report["empties_removed"] = collapse_title_spacer_empties(doc)
+1001|    try:
+1002|        report["title_spacers"] = ensure_title_sample_spacers(doc)
+1003|    except Exception:
+1004|        report["title_spacers"] = 0
+1005|
+1006|    # 4) ВСЕ примечания — в конец документа, сразу перед «Разработал:»
+1007|    try:
+1008|        report["notes_moved"] = move_notes_before_razrabotal(doc)
+1009|    except Exception as e:
+1010|        report["notes_moved"] = 0
+1011|        report["notes_move_error"] = str(e)
+1012|
+1013|    # 5) двойные пробелы — по всему тексту (все документы)
+1014|    try:
+1015|        report["double_spaces_fixed"] = collapse_double_spaces_in_document(doc)
+1016|    except Exception:
+1017|        report["double_spaces_fixed"] = 0
+1018|
+1019|    # 5b) пустые внутри глав убрать; содержание → разрыв; главы по центру
+1020|    try:
+FUNC 1793|def repair_missing_chapter_numbers(doc: Document) -> dict:
+FUNC 2694|def _format_signatory_fio(name: str, *, ri_style: bool = False, di_style: bool = False) -> str:
+FUNC 3481|def normalize_signatory_line(text: str, *, ri_style: bool = False) -> str | None:

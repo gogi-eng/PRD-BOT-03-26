@@ -1,0 +1,63 @@
+{
+  "agent_name": "АГЕНТ Дубовика (№ 007)",
+  "agent_short_name": "007",
+  "continuous_learning": true,
+  "learning_promote_after": 2,
+  "remote_access_guard": true,
+  "allow_web_templates": false,
+  "sample_policy": "Только Инструкция по делопроизводству и локальные правки СНиОТ/Дубовик. Интернет-шаблоны не использовать. РИ — ЕДИНСТВЕННЫЙ эталон: Рабочая инструкция СЛЕСАРЮ 5-го разряда СМАТ 30.07.2026.docx. Названия инструкций — только из Перечня инструкций по ОТ.pdf и Приказа по инструкциям.docx.",
+  "instruction_list_sources": {
+    "perechen_pdf": "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\Положения, инструкции, графики, перечни\\Перечень инструкций по ОТ.pdf",
+    "prikaz_docx": "C:\\Users\\v.dubovik\\Desktop\\DocAgent_test_operator\\Приказ по инструкциям.docx"
+  },
+  "master_sample_path": "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\!!!ОБМЕН\\РАССМОТРЕНИЕ  ДИ, РИ, ПОЛОЖЕНИЙ\\ТУ (СМАТ)\\ДИ СМАТ ст. диспетчер 17.04.2026_оформлен+.docx",
+  "master_samples": {
+    "prikaz": "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\Дубовик В.В\\Приказ_комиссия по расслед._ПРОЕКТ.docx",
+    "dolzhnostnaya_instrukciya": "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\!!!ОБМЕН\\РАССМОТРЕНИЕ  ДИ, РИ, ПОЛОЖЕНИЙ\\ТУ (СМАТ)\\ДИ СМАТ ст. диспетчер 17.04.2026_оформлен+.docx",
+    "rabochaya_instrukciya": "C:\\Users\\v.dubovik\\DocAgent\\etalons\\Рабочая инструкция СЛЕСАРЮ 5-го разряда СМАТ 30.07.2026.docx",
+    "polozhenie": "C:\\Users\\v.dubovik\\Desktop\\Нормативка\\П.ЦЭМ 10-02-2023 об орг-ции и осущ-нии произв. кон-ля в обл. ПрБ.pdf",
+    "instrukciya_ot": "C:\\Users\\v.dubovik\\DocAgent\\etalons\\Инструкция_по_эксплуатации_силовых_КЛ_0.4-10кВ_31.07.2026.docx",
+    "word_format_etalon": "C:\\Users\\v.dubovik\\DocAgent\\etalons\\Инструкция_по_эксплуатации_силовых_КЛ_0.4-10кВ_31.07.2026.docx"
+  },
+  "word_format_etalon": "C:\\Users\\v.dubovik\\DocAgent\\etalons\\Инструкция_по_эксплуатации_силовых_КЛ_0.4-10кВ_31.07.2026.docx",
+  "word_format_etalon_network": "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\Дубовик В.В\\ИНСТРУКЦИЯ по эксплуатации силовых КЛ  0,4-10кВ  31.07.2026--- ПОЛОЖЕНИЕ.docx",
+  "instruction_path": "C:\\Users\\v.dubovik\\Desktop\\Нормативка\\Инструкция по делопроизводству 2025.docx",
+  "instruction_sources": [
+    "C:\\Users\\v.dubovik\\Desktop\\Нормативка\\Инструкция по делопроизводству 2025.docx",
+    "C:\\Users\\v.dubovik\\Desktop\\Нормативка\\Инструкция по делопроизводству.docx",
+    "C:\\Users\\v.dubovik\\Desktop\\Нормативка\\Инструкция по делопроизводству.pdf"
+  ],
+  "example_roots": [
+    "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\!!!ОБМЕН\\РАССМОТРЕНИЕ  ДИ, РИ, ПОЛОЖЕНИЙ",
+    "N:\\9 - Служба надёжности и охраны труда (СНиОТ)\\Дубовик В.В"
+  ],
+  "supported_types": [
+    "prikaz",
+    "rabochaya_instrukciya",
+    "dolzhnostnaya_instrukciya",
+    "polozhenie",
+    "instrukciya_ot"
+  ],
+  "director_name": "А.А.Вирочкин",
+  "director_title": "Директор",
+  "margins_mm": {"left": 30, "right": 15, "top": 20, "bottom": 20},
+  "font_name": "Times New Roman",
+  "font_size_pt": 14,
+  "first_indent_mm": 12.5,
+  "first_indent_cm": 1.25,
+  "no_markers": true,
+  "normalize_spaces": true,
+  "must_know_remove_laws": true,
+  "normative_docs_policy": {
+    "enabled": true,
+    "rule_ru": "Законы, Кодексы, Директивы, Указы, Правила — только для специалистов и руководителей. Для рабочих профессий — только локальные документы предприятия (инструкции, технологические карты, стандарты, положения, приказы предприятия); как исключение — Правила в части, касающейся их деятельности. Анализ с человеческой логикой.",
+    "workers_local_only": true,
+    "workers_rules_exception": true,
+    "specialists_npa_allowed": true
+  },
+  "russian_language_check": true,
+  "russian_check_yandex": true,
+  "russian_check_languagetool": true,
+  "russian_check_lt_max_paragraphs": 20,
+  "python_exe": "C:\\Users\\v.dubovik\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"
+}

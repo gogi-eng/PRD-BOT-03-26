@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+logs/
+*.log
+handoff/request_latest.json
+_work_*
+_docagent_*
+*.docx
+learned_*.json
+state/
