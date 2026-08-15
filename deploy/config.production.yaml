@@ -947,8 +947,8 @@ analytics:
   skipped_lab_hours: 168
 
 ai:
-  # openrouter | deepseek | fcc
-  # DeepSeek напрямую (без OpenRouter): provider: deepseek + DEEPSEEK_API_KEY в .env
+  # openrouter | deepseek | aiai | fcc
+  # DeepSeek: provider: deepseek + DEEPSEEK_API_KEY; AIAI.BY: provider: aiai + AIAI_API_KEY
   provider: openrouter
 
 free_claude_code:
@@ -968,6 +968,14 @@ deepseek:
   api_key: ""
   model: deepseek-chat
   base_url: https://api.deepseek.com/v1
+  timeout_sec: 30
+
+# AIAI.BY — OpenAI-compatible (https://api.aiai.by/v1). Ключ в .env: AIAI_API_KEY
+# На проде пока не включено (provider остаётся openrouter).
+aiai:
+  api_key: ""
+  model: gemini-2.0-flash
+  base_url: https://api.aiai.by/v1
   timeout_sec: 30
 
 macro_ai:

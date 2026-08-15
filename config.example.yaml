@@ -348,6 +348,13 @@ deepseek:
   base_url: https://api.deepseek.com/v1
   timeout_sec: 30
 
+# AIAI.BY (Беларусь). Ключ: AIAI_API_KEY в .env (не в git). ai.provider: aiai
+aiai:
+  api_key: ""
+  model: gemini-2.0-flash
+  base_url: https://api.aiai.by/v1
+  timeout_sec: 30
+
 bybit_monitor:
   enabled: true
   interval_sec: 300
