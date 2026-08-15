@@ -232,6 +232,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | Память | **Memory Bank в git** | .cursor/memory-bank/, memory-bank.mdc | Читать каждую сессию; автообновлять; push в обе ветки дня |
 | Качество | **Целостность при отключении** | любой refactor / disable | Чеклист: кнопка↔метод↔config; diff без случайных `-`; без заглушек |
 | Риск | **GARCH calm/normal/storm** | `volatility_regime_sizing.py`, orch + signal agent | AW ON / prod OFF; маркер `Volatility regime`; не угадывает сторону |
+| TP / SL | **Trailing GARCH distance** | `trailing_volatility_regime.py`, steward | AW ON / prod OFF; calm×0.75 storm×1.35; маркер `Trailing GARCH` |
 | Риск | **Алерт закрытий >2 убытков** | `close_watchdog.py`, orchestrator | все сделки manual+bot; Telegram `АВАРИЯ ЗАКРЫТИЙ`; `positions.close_watchdog` |
 | Manual | **не time-stop/Companion close** | `position_steward.py`, `trade_companion.py` | `manual_auto_close: false`, `auto_close_manual: false`; adopt manual → opened_at=now; не inherit `_bot_levels` |
 | SPIKE | **P0 bypass + P1 pullback оба** | `zone_corridor_play`, `spike_pullback_gate`, deploy yaml | `spike_bypass_no_corridor: true`; `pullback_entry.enabled: true` прод+AW; маркеры `SPIKE bypass no_corridor` / `SPIKE pullback:` |
