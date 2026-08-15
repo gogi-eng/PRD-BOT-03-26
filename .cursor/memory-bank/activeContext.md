@@ -1,22 +1,19 @@
 # Active Context
 
-**Дата фокуса:** 11.08.2026 (UTC+3)
-**Ветки дня:** 11.08.26-PRD-BOT-ALL @ e2599fd · 11.08.26-AGENT-WORLD @ 6e99c9f
+**Дата фокуса:** 15.08.2026 (UTC+3)
+**Ветки дня:** 15.08.26-PRD-BOT-ALL · 15.08.26-AGENT-WORLD (после push)
+**Проверка:** песочница active; прод masked/inactive — **не unmask**.
 
 ## Важно (правило пользователя)
 
 **Не менять код/config бота без явного «да / делай / одобряю».**
-Исключение 11.08 «СРОЧНО ИСПРАВЛЯЙ» отменено откатом по просьбе пользователя («верни как было»).
+Прод **не** unmask/start без явного «да».
 
-## Текущий фокус
+## Текущий фокус (15.08 — сделано по «Делаем 8, 9, 10»)
 
-0. **CloseWatchdog (11.08):** все сделки (manual+bot); Telegram при убытках >2 или некорректных >2. Маркер: CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ.
-
-
-1. **Откат SL/TP manual-safe (11.08):** revert 8f940c / e283f9b — снова управляем SL/TP trailing/BE+ для всех позиций (в т.ч. подхваченных), как ~09–10.08.
-2. DeepSeek provider: код есть, default i.provider: openrouter — включать только по явному «да».
-3. Manual: time-stop/Companion по-прежнему НЕ закрывают origin=manual (manual_auto_close: false).
-4. Wallet / SPIKE / polling / bybit_monitor — **не отключать**.
+1. **CloseWatchdog age≈0:** ненадёжный возраст (adopt/снимок) ≠ fast-loss; копейки не копят streak; метка «мгновенный учёт».
+2. **manual_sl_guard:** AW ON / prod OFF — ставит защитный SL на manual без стопа; trailing/BE+ **не** отключает (≠ откат manage_sl_tp_manual).
+3. **Отчёт 20:00:** generate_daily_report.py --fetch-ssh; ярлык → report_2026-08-15.md с PnL; задача Windows с --fetch-ssh.
 
 ## Маркеры логов
 
@@ -28,8 +25,10 @@
 | SPIKE bypass | SPIKE bypass no_corridor |
 | SPIKE pullback | SPIKE pullback: |
 | SL/TP guard | Missing SL/TP on position, SL/TP guard |
+| Manual SL guard | Manual SL missing, Manual SL guard |
+| CloseWatchdog | CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ |
 
-**Убрано откатом:** MANUAL SAFE skip SL/TP manage (флаг manage_sl_tp_manual).
+**Убрано откатом (не возвращать):** MANUAL SAFE skip SL/TP manage (флаг manage_sl_tp_manual).
 
 ## Сервер
 

@@ -408,8 +408,20 @@ positions:
     alert_when_bad_closes_gt: 2
     fast_loss_minutes: 5.0
     large_loss_pct: 3.0
+    # копейки / age≈0 от adopt не спамят Telegram
+    min_loss_usdt_for_streak: 0.15
+    min_loss_usdt_for_bad: 0.15
+    treat_unreliable_age_as_fast: false
     notify_telegram: true
     alert_cooldown_sec: 120
+  # Защитный SL для manual БЕЗ стопа на бирже (trailing/BE+ остаются ON).
+  # НЕ то же самое, что откатанный manage_sl_tp_manual:false.
+  # Маркеры: "Manual SL missing", "Manual SL guard".
+  manual_sl_guard:
+    enabled: true
+    default_sl_pct: 1.0
+    interval_sec: 30
+    once_per_position: true
   # Периодическая проверка: на бирже у каждой открытой позиции должны быть SL и TP.
   # Маркеры лога: "Missing SL/TP on position", "SL/TP guard".
   sl_tp_guard:

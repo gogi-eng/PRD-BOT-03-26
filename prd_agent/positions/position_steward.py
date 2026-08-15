@@ -58,6 +58,7 @@ from prd_agent.positions.session_boundary_close import (
 )
 from prd_agent.positions.sync_guard import PositionSyncGuard
 from prd_agent.positions.sl_tp_guard import SlTpExchangeGuard, SlTpGuardConfig
+from prd_agent.positions.manual_sl_guard import ManualSlGuard, ManualSlGuardConfig
 from prd_agent.signals.pump_dump_mode import TrailingProfile
 
 logger = logging.getLogger("prd_agent.positions")
@@ -94,6 +95,7 @@ class PositionSteward:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._sync_guard = PositionSyncGuard()
         self._sl_tp_guard = SlTpExchangeGuard()
+        self._manual_sl_guard = ManualSlGuard()
         self._session_flush_done: set[str] = set()
         self.apply_config(cfg)
         self._load_bot_registry()
@@ -169,6 +171,8 @@ class PositionSteward:
         self._session_boundary = SessionBoundaryCloseConfig.from_cfg(cfg)
         self._sl_tp_guard_cfg = SlTpGuardConfig.from_cfg(cfg)
         self._sl_tp_guard.apply_config(self._sl_tp_guard_cfg)
+        self._manual_sl_guard_cfg = ManualSlGuardConfig.from_cfg(cfg)
+        self._manual_sl_guard.apply_config(self._manual_sl_guard_cfg)
 
     def _be_fee_buffer_for(
         self,
@@ -464,6 +468,21 @@ class PositionSteward:
                     exchange,
                     positions,
                     bot_levels=self._bot_levels,
+                    bot_symbols=set(self._bot_symbols),
+                    origin_of=lambda s: (
+                        "bot"
+                        if s in self._bot_symbols
+                        else (
+                            getattr(self._tracked.get(s), "origin", None) or "manual"
+                        )
+                    ),
+                )
+            )
+            # Отдельно: только защитный SL для manual без стопа (не отключает trailing/BE+).
+            notes.extend(
+                await self._manual_sl_guard.ensure(
+                    exchange,
+                    positions,
                     bot_symbols=set(self._bot_symbols),
                     origin_of=lambda s: (
                         "bot"
