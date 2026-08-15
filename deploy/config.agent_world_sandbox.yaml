@@ -985,7 +985,7 @@ analytics:
 ai:
   # openrouter | deepseek | fcc
   # DeepSeek напрямую (без OpenRouter): provider: deepseek + DEEPSEEK_API_KEY в .env
-  provider: openrouter
+  provider: deepseek
 
 free_claude_code:
   enabled: false
