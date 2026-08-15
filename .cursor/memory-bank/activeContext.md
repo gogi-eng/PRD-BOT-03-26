@@ -1,7 +1,7 @@
 # Active Context
 
 **Дата фокуса:** 15.08.2026 (UTC+3)
-**Ветки дня:** 15.08.26-PRD-BOT-ALL · 15.08.26-AGENT-WORLD (после push)
+**Ветки дня:** 15.08.26-PRD-BOT-ALL · 15.08.26-AGENT-WORLD
 **Проверка:** песочница active; прод masked/inactive — **не unmask**.
 
 ## Важно (правило пользователя)
@@ -9,11 +9,13 @@
 **Не менять код/config бота без явного «да / делай / одобряю».**
 Прод **не** unmask/start без явного «да».
 
-## Текущий фокус (15.08 — сделано по «Делаем 8, 9, 10»)
+## Текущий фокус (15.08 — AIAI.BY на AW)
 
-1. **CloseWatchdog age≈0:** ненадёжный возраст (adopt/снимок) ≠ fast-loss; копейки не копят streak; метка «мгновенный учёт».
-2. **manual_sl_guard:** AW ON / prod OFF — ставит защитный SL на manual без стопа; trailing/BE+ **не** отключает (≠ откат manage_sl_tp_manual).
-3. **Отчёт 20:00:** generate_daily_report.py --fetch-ssh; ярлык → report_2026-08-15.md с PnL; задача Windows с --fetch-ssh.
+1. Провайдер `aiai` в `llm_gateway` (OpenAI-compatible, base `https://api.aiai.by/v1`).
+2. Ключ только из `.env`: `AIAI_API_KEY` (или `AIAI_BY_API_KEY`) — **не** в чат/git.
+3. AGENT-WORLD: `ai.provider: aiai`, модель по умолчанию `gemini-2.0-flash`.
+4. Прод: `ai.provider: openrouter` (masked, не деплоили).
+5. После деплоя AW пользователь сам вписывает ключ в `/root/AGENT-WORLD/.env` и рестартит сервисы.
 
 ## Маркеры логов
 

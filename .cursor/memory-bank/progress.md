@@ -1,3 +1,11 @@
+## 15.08.2026 — AIAI.BY provider на AGENT-WORLD
+
+- llm_gateway: provider `aiai` (OpenAI-compatible `https://api.aiai.by/v1/chat/completions`)
+- Ключ: `AIAI_API_KEY` / `AIAI_BY_API_KEY` из .env; секция `aiai:` в deploy yaml
+- AW: `ai.provider: aiai`, model `gemini-2.0-flash`; prod остаётся `openrouter`
+- Тесты: `test_llm_gateway_aiai.py` + deepseek — 11 passed; бэктест N/A (только LLM gateway)
+- Деплой: только AGENT-WORLD; ключ пользователь вставляет сам
+
 ## 15.08.2026 — пункты 8/9/10 (2026-08-15 15:06 МСК)
 
 - CloseWatchdog: age reliable (биржа/prev); unreliable age≈0 не fast-loss; min_loss_usdt_for_streak/bad=0.15
