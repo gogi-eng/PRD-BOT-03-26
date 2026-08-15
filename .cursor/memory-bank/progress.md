@@ -1,3 +1,13 @@
+## 15.08.2026 — Trailing GARCH (дистанция SL)
+
+- Модуль `prd_agent/positions/trailing_volatility_regime.py`: calm→уже, storm→шире trail distance
+- Config `positions.trailing_volatility_regime`: AW ON / prod OFF
+- Hook: `distance_factor` в `position_steward.manage` (рядом с adaptive_trailing)
+- Маркер: `Trailing GARCH`; startup `log_trailing_garch_startup`
+- Тесты: test_trailing_volatility_regime + sizing + adaptive + tp_progress + manual BE — green
+- Бэктест demo: manage_better=true, delta≈+6.3%
+- Деплой: только AGENT-WORLD
+
 ## 15.08.2026 — AIAI.BY provider на AGENT-WORLD
 
 - llm_gateway: provider `aiai` (OpenAI-compatible `https://api.aiai.by/v1/chat/completions`)

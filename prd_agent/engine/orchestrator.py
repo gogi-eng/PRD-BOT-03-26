@@ -47,6 +47,7 @@ from prd_agent.risk.volatility_regime_sizing import (
     evaluate_volatility_regime_sizing,
     log_volatility_regime_startup,
 )
+from prd_agent.positions.trailing_volatility_regime import log_trailing_garch_startup
 from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
@@ -135,6 +136,7 @@ class UnifiedOrchestrator:
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
         log_volatility_regime_startup(cfg)
+        log_trailing_garch_startup(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bybit_monitor = BybitMonitorAgent(cfg)
         self.wallet_tracker = WalletFlowAgent(cfg, self.data_dir)

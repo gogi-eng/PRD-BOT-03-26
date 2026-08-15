@@ -1,7 +1,7 @@
 # Active Context
 
 **Дата фокуса:** 15.08.2026 (UTC+3)
-**Ветки дня:** 15.08.26-PRD-BOT-ALL · 15.08.26-AGENT-WORLD
+**Ветки дня:** 15.08.26-PRD-BOT-ALL · 15.08.26-AGENT-WORLD (см. hash после push)
 **Проверка:** песочница active; прод masked/inactive — **не unmask**.
 
 ## Важно (правило пользователя)
@@ -9,18 +9,19 @@
 **Не менять код/config бота без явного «да / делай / одобряю».**
 Прод **не** unmask/start без явного «да».
 
-## Текущий фокус (15.08 — AIAI.BY на AW)
+## Текущий фокус (15.08 — Trailing GARCH)
 
-1. Провайдер `aiai` в `llm_gateway` (OpenAI-compatible, base `https://api.aiai.by/v1`).
-2. Ключ только из `.env`: `AIAI_API_KEY` (или `AIAI_BY_API_KEY`) — **не** в чат/git.
-3. AGENT-WORLD: `ai.provider: aiai`, модель по умолчанию `gemini-2.0-flash`.
-4. Прод: `ai.provider: openrouter` (masked, не деплоили).
-5. После деплоя AW пользователь сам вписывает ключ в `/root/AGENT-WORLD/.env` и рестартит сервисы.
+1. `positions.trailing_volatility_regime` — GARCH calm/normal/storm → множитель дистанции трейлинг-SL.
+2. AW: `enabled: true` (calm×0.75, normal×1.0, storm×1.35); прод: `enabled: false`.
+3. Маркер лога: `Trailing GARCH` (при смене режима).
+4. Проводка: `position_steward` (manage loop); startup в orchestrator. Signal agent не ведёт trailing SL.
+5. Деплой: только AGENT-WORLD.
 
 ## Маркеры логов
 
 | Что | Маркер |
 |-----|--------|
+| Trailing GARCH | Trailing GARCH |
 | Manual time-stop skip | MANUAL SAFE skip time-stop |
 | Companion skip manual | Companion skip manage / Companion skip close |
 | Zone corridor | Zone corridor |
@@ -29,6 +30,7 @@
 | SL/TP guard | Missing SL/TP on position, SL/TP guard |
 | Manual SL guard | Manual SL missing, Manual SL guard |
 | CloseWatchdog | CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ |
+| Volatility sizing | Volatility regime |
 
 **Убрано откатом (не возвращать):** MANUAL SAFE skip SL/TP manage (флаг manage_sl_tp_manual).
 

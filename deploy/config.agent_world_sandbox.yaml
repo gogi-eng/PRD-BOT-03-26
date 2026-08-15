@@ -509,6 +509,20 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
+  # GARCH → дистанция трейлинга: calm ближе, storm шире (песочница ON)
+  trailing_volatility_regime:
+    enabled: true
+    advisory_only: false
+    reuse_sizing_cfg: true
+    distance_mult:
+      calm: 0.75
+      normal: 1.0
+      storm: 1.35
+    clamp_min: 0.50
+    clamp_max: 2.0
+    apply_to_manual: true
+    apply_to_bot: true
+    apply_to_pump_dump: true
   # После BE/BE+: дистанция трейлинга на 0.5 п.п. короче (как на проде)
   trailing_after_be:
     enabled: true

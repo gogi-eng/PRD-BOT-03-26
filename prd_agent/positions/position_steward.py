@@ -38,6 +38,11 @@ from prd_agent.positions.trailing_after_be import (
     TrailingAfterBeConfig,
     apply_trailing_after_be_distance,
 )
+from prd_agent.positions.trailing_volatility_regime import (
+    TrailingVolatilityRegimeConfig,
+    apply_trailing_garch_to_distance_factor,
+    should_apply_trailing_volatility_regime,
+)
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
 from prd_agent.positions.bot_position_registry import (
     bot_levels_from_registry,
@@ -76,6 +81,7 @@ class TrackedPosition:
     tp_progress_phase: str = ""
     trailing_active: bool = False
     trailing_after_be_logged: bool = False
+    trailing_garch_regime: str = ""
     position_idx: int = 0
     origin: str = "manual"
     pump_dump_mode: bool = False
@@ -150,6 +156,7 @@ class PositionSteward:
         self._default_profile = TrailingProfile.from_positions_cfg(p, root_cfg=cfg)
         self._adaptive_trailing = AdaptiveTrailingConfig.from_cfg(p)
         self._trailing_after_be = TrailingAfterBeConfig.from_cfg(p)
+        self._trailing_garch = TrailingVolatilityRegimeConfig.from_cfg(p)
         self._be_fee_buffer_pct = fee_buffer_pct_from_bot_cfg(cfg)
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing", root_cfg=cfg
@@ -540,7 +547,10 @@ class PositionSteward:
             if not row:
                 continue
             price = float(row.get("markPrice") or pos.entry)
-            klines = await exchange.get_klines(sym, interval="15", limit=80)
+            kline_limit = 80
+            if self._trailing_garch.enabled:
+                kline_limit = max(kline_limit, int(self._trailing_garch.lookback_bars))
+            klines = await exchange.get_klines(sym, interval="15", limit=kline_limit)
             atr = self._atr_from_klines(klines, self.atr_period)
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
@@ -627,6 +637,23 @@ class PositionSteward:
                         ad_note,
                         dist_factor,
                     )
+
+            if should_apply_trailing_volatility_regime(
+                cfg=self._trailing_garch,
+                origin=pos.origin,
+                pump_dump_mode=pos.pump_dump_mode or sym in self._pump_dump_symbols,
+            ):
+                dist_factor, g_regime, _g_note = apply_trailing_garch_to_distance_factor(
+                    dist_factor,
+                    klines=klines or [],
+                    trail_cfg=self._trailing_garch,
+                    root_cfg=self.cfg,
+                    symbol=sym,
+                    side=pos.side,
+                    prev_regime=pos.trailing_garch_regime,
+                    log=logger,
+                )
+                pos.trailing_garch_regime = g_regime
 
             if self.lock_initial_sl:
                 continue
