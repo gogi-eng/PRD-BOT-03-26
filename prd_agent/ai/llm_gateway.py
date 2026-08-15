@@ -1,8 +1,9 @@
 """
-Единый шлюз LLM для бота: OpenRouter, DeepSeek (OpenAI-compatible) или Free Claude Code (FCC).
+Единый шлюз LLM для бота: OpenRouter, DeepSeek, AIAI.BY или Free Claude Code (FCC).
 
 FCC: Anthropic Messages API http://127.0.0.1:8082/v1/messages
 DeepSeek: https://api.deepseek.com/v1/chat/completions (ключ в .env: DEEPSEEK_API_KEY)
+AIAI.BY: https://api.aiai.by/v1/chat/completions (ключ в .env: AIAI_API_KEY)
 """
 from __future__ import annotations
 
@@ -20,11 +21,13 @@ logger = logging.getLogger("prd_agent.llm")
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _DEFAULT_DEEPSEEK_BASE = "https://api.deepseek.com/v1"
+_DEFAULT_AIAI_BASE = "https://api.aiai.by/v1"
+_OPENAI_COMPAT_PROVIDERS = frozenset({"openrouter", "deepseek", "aiai"})
 
 
 @dataclass
 class LLMSettings:
-    provider: str  # openrouter | fcc | deepseek
+    provider: str  # openrouter | fcc | deepseek | aiai
     timeout_sec: float
     # OpenRouter
     openrouter_api_key: str
@@ -33,6 +36,10 @@ class LLMSettings:
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = _DEFAULT_DEEPSEEK_BASE
+    # AIAI.BY (OpenAI-compatible proxy, BYN)
+    aiai_api_key: str = ""
+    aiai_model: str = "gemini-2.0-flash"
+    aiai_base_url: str = _DEFAULT_AIAI_BASE
     # Free Claude Code
     fcc_base_url: str = "http://127.0.0.1:8082"
     fcc_auth_token: str = "freecc"
@@ -47,6 +54,10 @@ class LLMSettings:
         return self.provider == "deepseek"
 
     @property
+    def uses_aiai(self) -> bool:
+        return self.provider == "aiai"
+
+    @property
     def uses_openrouter(self) -> bool:
         return self.provider == "openrouter"
 
@@ -56,6 +67,8 @@ class LLMSettings:
             return "FCC"
         if self.uses_deepseek:
             return "DeepSeek"
+        if self.uses_aiai:
+            return "AIAI.BY"
         return "OpenRouter"
 
     def has_credentials(self) -> bool:
@@ -64,27 +77,40 @@ class LLMSettings:
             return True
         if self.uses_deepseek:
             return bool(self.deepseek_api_key)
+        if self.uses_aiai:
+            return bool(self.aiai_api_key)
         return bool(self.openrouter_api_key)
+
+
+def _aiai_api_key_from_env() -> str:
+    return (
+        os.environ.get("AIAI_API_KEY", "")
+        or os.environ.get("AIAI_BY_API_KEY", "")
+        or ""
+    ).strip()
 
 
 def load_llm_settings(cfg: Dict[str, Any]) -> LLMSettings:
     ai = cfg.get("ai", {}) if isinstance(cfg.get("ai"), dict) else {}
     o = cfg.get("openrouter", {}) if isinstance(cfg.get("openrouter"), dict) else {}
     d = cfg.get("deepseek", {}) if isinstance(cfg.get("deepseek"), dict) else {}
+    a = cfg.get("aiai", {}) if isinstance(cfg.get("aiai"), dict) else {}
     f = cfg.get("free_claude_code", {}) if isinstance(cfg.get("free_claude_code"), dict) else {}
     provider = str(ai.get("provider", o.get("provider", "openrouter"))).strip().lower()
-    # FCC включается явно; не перетираем deepseek/openrouter
-    if f.get("enabled") is True and provider not in ("openrouter", "deepseek"):
+    # FCC включается явно; не перетираем openrouter/deepseek/aiai
+    if f.get("enabled") is True and provider not in _OPENAI_COMPAT_PROVIDERS:
         provider = "fcc"
     if f.get("enabled") is False and provider == "fcc":
         provider = "openrouter"
 
-    timeout = float(
-        d.get("timeout_sec")
-        if provider == "deepseek" and d.get("timeout_sec") is not None
-        else f.get("timeout_sec", o.get("timeout_sec", ai.get("timeout_sec", 30)))
-        or 30
-    )
+    if provider == "deepseek" and d.get("timeout_sec") is not None:
+        timeout = float(d.get("timeout_sec") or 30)
+    elif provider == "aiai" and a.get("timeout_sec") is not None:
+        timeout = float(a.get("timeout_sec") or 30)
+    else:
+        timeout = float(
+            f.get("timeout_sec", o.get("timeout_sec", ai.get("timeout_sec", 30))) or 30
+        )
 
     return LLMSettings(
         provider=provider,
@@ -99,6 +125,11 @@ def load_llm_settings(cfg: Dict[str, Any]) -> LLMSettings:
         deepseek_model=str(d.get("model", "deepseek-chat") or "deepseek-chat"),
         deepseek_base_url=str(
             d.get("base_url", _DEFAULT_DEEPSEEK_BASE) or _DEFAULT_DEEPSEEK_BASE
+        ).rstrip("/"),
+        aiai_api_key=str(a.get("api_key", "") or _aiai_api_key_from_env()).strip(),
+        aiai_model=str(a.get("model", "gemini-2.0-flash") or "gemini-2.0-flash"),
+        aiai_base_url=str(
+            a.get("base_url", _DEFAULT_AIAI_BASE) or _DEFAULT_AIAI_BASE
         ).rstrip("/"),
         fcc_base_url=str(f.get("base_url", "http://127.0.0.1:8082")).rstrip("/"),
         fcc_auth_token=str(
@@ -140,6 +171,10 @@ async def chat_async(
         return await _chat_deepseek_async(
             settings, system=system, user=user, max_tokens=max_tokens, temperature=temperature
         )
+    if settings.uses_aiai:
+        return await _chat_aiai_async(
+            settings, system=system, user=user, max_tokens=max_tokens, temperature=temperature
+        )
     return await _chat_openrouter_async(
         settings,
         system=system,
@@ -162,7 +197,7 @@ def chat_sync(
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Синхронный вызов для telegram_signal_agent.
-    OpenRouter/DeepSeek: (полный JSON body, None) для учёта бюджета.
+    OpenRouter/DeepSeek/AIAI: (полный JSON body, None) для учёта бюджета.
     FCC: body в формате pseudo-openrouter {choices: [{message: {content}}]}.
     """
     t = float(timeout_sec if timeout_sec is not None else settings.timeout_sec)
@@ -180,6 +215,15 @@ def chat_sync(
         return {"choices": [{"message": {"content": text}}], "usage": {}}, None
     if settings.uses_deepseek:
         return _chat_deepseek_sync(
+            settings,
+            system=system,
+            user=user,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout_sec=t,
+        )
+    if settings.uses_aiai:
+        return _chat_aiai_sync(
             settings,
             system=system,
             user=user,
@@ -337,6 +381,28 @@ async def _chat_deepseek_async(
     )
 
 
+async def _chat_aiai_async(
+    settings: LLMSettings,
+    *,
+    system: str,
+    user: str,
+    max_tokens: int,
+    temperature: float,
+) -> Tuple[str, Optional[str]]:
+    url = f"{settings.aiai_base_url}/chat/completions"
+    return await _chat_openai_compatible_async(
+        url=url,
+        api_key=settings.aiai_api_key,
+        model=settings.aiai_model,
+        system=system,
+        user=user,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_sec=settings.timeout_sec,
+        label="AIAI.BY",
+    )
+
+
 async def _chat_fcc_async(
     settings: LLMSettings,
     *,
@@ -442,6 +508,29 @@ def _chat_deepseek_sync(
     )
 
 
+def _chat_aiai_sync(
+    settings: LLMSettings,
+    *,
+    system: str,
+    user: str,
+    max_tokens: int,
+    temperature: float,
+    timeout_sec: float,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    url = f"{settings.aiai_base_url}/chat/completions"
+    return _chat_openai_compatible_sync(
+        url=url,
+        api_key=settings.aiai_api_key,
+        model=settings.aiai_model,
+        system=system,
+        user=user,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout_sec=timeout_sec,
+        label="AIAI.BY",
+    )
+
+
 def _chat_fcc_sync(
     settings: LLMSettings,
     *,
@@ -500,6 +589,10 @@ async def health_check(settings: LLMSettings) -> Tuple[bool, str]:
         if settings.deepseek_api_key:
             return True, f"DeepSeek key задан ({settings.deepseek_model})"
         return False, "Нет DeepSeek ключа (DEEPSEEK_API_KEY или deepseek.api_key)"
+    if settings.uses_aiai:
+        if settings.aiai_api_key:
+            return True, f"AIAI.BY key задан ({settings.aiai_model})"
+        return False, "Нет AIAI.BY ключа (AIAI_API_KEY или aiai.api_key)"
     if settings.openrouter_api_key:
         return True, "OpenRouter key задан"
     return False, "Нет OpenRouter ключа"

@@ -983,9 +983,9 @@ analytics:
   # Бывший Hermes weekly — не используется; правки часов вручную по Лаборатории
 
 ai:
-  # openrouter | deepseek | fcc
-  # DeepSeek напрямую (без OpenRouter): provider: deepseek + DEEPSEEK_API_KEY в .env
-  provider: openrouter
+  # openrouter | deepseek | aiai | fcc
+  # AIAI.BY (Беларусь, OpenAI-compatible): provider: aiai + AIAI_API_KEY в .env
+  provider: aiai
 
 free_claude_code:
   enabled: false
@@ -1004,6 +1004,14 @@ deepseek:
   api_key: ""
   model: deepseek-chat
   base_url: https://api.deepseek.com/v1
+  timeout_sec: 30
+
+# AIAI.BY — OpenAI-compatible API (https://api.aiai.by/v1). Ключ в .env: AIAI_API_KEY
+# Модели (примеры): gemini-2.0-flash | gpt-4o-mini | deepseek-chat | gpt-4o
+aiai:
+  api_key: ""
+  model: gemini-2.0-flash
+  base_url: https://api.aiai.by/v1
   timeout_sec: 30
 
 macro_ai:

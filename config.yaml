@@ -740,7 +740,7 @@ analytics:
   # Hermes: раз в неделю отчёт прибыльных часов/дней → правки block_entry в config вручную
 
 ai:
-  # openrouter | deepseek | fcc
+  # openrouter | deepseek | aiai | fcc
   provider: openrouter
 
 free_claude_code:
@@ -760,6 +760,13 @@ deepseek:
   api_key: ""
   model: deepseek-chat
   base_url: https://api.deepseek.com/v1
+  timeout_sec: 30
+
+# AIAI.BY. Ключ: AIAI_API_KEY в .env; ai.provider: aiai
+aiai:
+  api_key: ""
+  model: gemini-2.0-flash
+  base_url: https://api.aiai.by/v1
   timeout_sec: 30
 
 macro_ai:
