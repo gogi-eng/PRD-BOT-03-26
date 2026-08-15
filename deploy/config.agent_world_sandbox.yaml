@@ -1007,10 +1007,10 @@ deepseek:
   timeout_sec: 30
 
 # AIAI.BY — OpenAI-compatible API (https://api.aiai.by/v1). Ключ в .env: AIAI_API_KEY
-# Модели (примеры): gemini-2.0-flash | gpt-4o-mini | deepseek-chat | gpt-4o
+# Модели (примеры): gemini-2.5-flash | gemini-2.0-flash | gpt-4o-mini | deepseek-chat | gpt-4o
 aiai:
   api_key: ""
-  model: gemini-2.0-flash
+  model: gemini-2.5-flash
   base_url: https://api.aiai.by/v1
   timeout_sec: 30
 
