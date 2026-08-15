@@ -1,3 +1,11 @@
+## 15.08.2026 — пункты 8/9/10 (2026-08-15 15:06 МСК)
+
+- CloseWatchdog: age reliable (биржа/prev); unreliable age≈0 не fast-loss; min_loss_usdt_for_streak/bad=0.15
+- manual_sl_guard: AW enabled:true / prod enabled:false; маркер Manual SL guard; trailing/BE+ остаются
+- Daily report: --fetch-ssh + цифры PnL; отчёты report_2026-08-14.md (−93.76 AW) и report_2026-08-15.md
+- Тесты: test_close_watchdog + test_manual_sl_guard + test_sl_tp_guard + test_manual_trailing_be_backtest — green
+- Прод masked — деплой только AGENT-WORLD
+
 ## 11.08.2026 — revert SL/TP manual-safe
 
 - Revert tip 8f940c → 2612d55 на 11.08.26-PRD-BOT-ALL; зеркало на AGENT-WORLD
