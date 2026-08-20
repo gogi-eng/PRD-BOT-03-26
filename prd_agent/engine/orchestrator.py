@@ -38,6 +38,13 @@ from prd_agent.entry.zone_corridor_play import (
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
 )
+from prd_agent.entry.long_quality_gate import (
+    evaluate_long_quality_gate,
+    long_quality_enabled,
+    long_swing_exit_enabled,
+    read_long_swing_exit_cfg,
+    widen_buy_sl_to_min_pct,
+)
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -1537,6 +1544,62 @@ class UnifiedOrchestrator:
             if not self._is_silent_skip(soft_reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, soft_reason)
             return
+
+        soft_ctx = self._build_soft_score_context(sig, atr_pct_frac=atr_pct_frac)
+        soft_res = compute_soft_score(
+            soft_ctx,
+            side=sig.side,
+            cfg=self.cfg,
+            rule_weights=self.rule_weight_tracker.get_weights(),
+        )
+        atr_pct_for_gate = float(soft_ctx.get("atr_pct") or 0.0)
+        if atr_pct_for_gate <= 0 and atr_pct_frac > 0:
+            atr_pct_for_gate = atr_pct_frac * 100.0
+        lq = evaluate_long_quality_gate(
+            side=sig.side,
+            cfg=self.cfg,
+            source=str(sig.source or ""),
+            volatility=str(soft_ctx.get("volatility") or raw.get("volatility") or ""),
+            atr_pct=atr_pct_for_gate,
+            soft_score=float(soft_res.score),
+            soft_label=str(soft_res.label or ""),
+            htf_trend=soft_ctx.get("htf_trend", raw.get("htf_trend")),
+            local_hour=soft_ctx.get("local_hour"),
+        )
+        if long_quality_enabled(self.cfg) and lq.reason:
+            logger.info(
+                "Long quality gate %s %s: allowed=%s %s",
+                sig.symbol,
+                sig.side,
+                lq.allowed,
+                lq.reason,
+            )
+        if not lq.allowed:
+            reason = lq.reason or "long_quality: block"
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            if not self._is_silent_skip(reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+            return
+        if long_swing_exit_enabled(self.cfg) and str(sig.side).lower() in ("buy", "long"):
+            swing = read_long_swing_exit_cfg(self.cfg)
+            min_sl = float(swing.get("min_sl_pct", 1.0) or 0.0)
+            new_sl, changed = widen_buy_sl_to_min_pct(
+                side=sig.side,
+                entry=float(eff_entry or 0),
+                stop_loss=float(sl or 0),
+                min_sl_pct=min_sl,
+            )
+            if changed and new_sl > 0:
+                logger.info(
+                    "Long swing SL widen %s Buy: %.6g → %.6g (min_sl_pct=%.2f)",
+                    sig.symbol,
+                    sl,
+                    new_sl,
+                    min_sl,
+                )
+                sl = new_sl
 
         q_ok, q_reason = await self.quality_gate.check(
             sig, self.exchange, entry=eff_entry, sl=sl, tp=tp

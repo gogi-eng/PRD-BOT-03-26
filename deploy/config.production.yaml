@@ -140,6 +140,20 @@ trading:
       - telegram
       - tg
       - mirror_pump_dump
+
+  # Лонги (Buy): испытание 20.08.2026
+  long_quality_gate:
+    enabled: true
+    block_local_hours: [3, 4, 5, 10, 20]
+    preferred_local_hours: [6, 9, 12, 13, 14, 16, 17, 18, 19, 21]
+    block_volatility: [low]
+    min_atr_pct: 0.40
+    min_soft_score: 55
+    block_soft_labels: [weak, caution]
+    require_htf_align: false
+    apply_to_sources: []
+    skip_sources: []
+
   non_trading_systemd:
     enabled: true
     # false = боты работают; block_entry_utc_hours блокирует только новые входы
@@ -413,6 +427,37 @@ positions:
     min_position_age_min: 0
     min_confidence_pct: 0
   trailing_enabled: true
+
+  # 20.08: профиль выхода для Buy (лонг-свинг)
+  long_swing_exit:
+    enabled: true
+    min_sl_pct: 1.0
+    trailing_activation_pct: 3.5
+    trailing_distance_pct: 4.0
+    trailing_distance_atr_mult: 2.4
+    trailing_min_distance_pct: 2.0
+    breakeven_after_pct: 2.5
+    exit_management:
+      enabled: true
+      time_stop_enabled: true
+      time_stop_minutes: 240
+      time_stop_min_atr_progress: 0.35
+      close_on_time_stop: true
+      early_breakeven_enabled: false
+      late_breakeven_enabled: true
+      late_breakeven_retrace_pct: 40
+      close_on_late_retrace: false
+      late_tighten_distance_factor: 1.0
+    tp_progress_exit:
+      enabled: true
+      breakeven_at_profit_pct: 1.2
+      sr_trail_at_profit_pct: 2.0
+      be_fee_buffer_pct: 0.30
+      be_lock_extra_pct: 0.40
+      sr_trail_enabled: true
+      sr_sl_buffer_atr: 0.22
+      sr_level_index: 1
+      min_valid_tp_distance_pct: 0.08
   # 26.07: длинный трейлинг — больше запас на откат (не закрывать у локального min/max)
   lock_initial_sl: false
   trailing_activation_pct: 2.5

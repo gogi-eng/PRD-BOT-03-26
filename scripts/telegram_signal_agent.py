@@ -213,6 +213,10 @@ from prd_agent.entry.zone_corridor_play import (  # noqa: E402
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
 )
+from prd_agent.entry.long_quality_gate import (  # noqa: E402
+    evaluate_long_quality_gate,
+    long_quality_enabled,
+)
 from prd_agent.entry.spike_pullback_gate import (  # noqa: E402
     SpikePullbackAction,
     decide_spike_pullback,
@@ -2881,6 +2885,35 @@ class TelegramSignalAgent:
         if spike and not spike_pullback_ready:
             gate = await self._spike_pullback_gate_decision(setup, side)
             if gate in (SpikePullbackAction.WAIT_PULLBACK, SpikePullbackAction.SKIP):
+                return
+
+        if long_quality_enabled(self.cfg):
+            src_name = "SPIKE_SCANNER" if spike else "MARKET_SCANNER"
+            lq = evaluate_long_quality_gate(
+                side=side,
+                cfg=self.cfg,
+                source=src_name,
+                volatility="",
+                atr_pct=0.0,
+                soft_score=None,
+                soft_label="",
+                htf_trend=None,
+                local_hour=None,
+            )
+            if lq.reason:
+                LOG.info(
+                    "Long quality gate %s %s: allowed=%s %s",
+                    setup.symbol,
+                    side,
+                    lq.allowed,
+                    lq.reason,
+                )
+            if not lq.allowed:
+                LOG.info(
+                    "Market scanner exec skipped long_quality: %s (%s)",
+                    setup.symbol,
+                    lq.reason,
+                )
                 return
 
         digest = hashlib.sha256(
