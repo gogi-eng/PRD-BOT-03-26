@@ -360,6 +360,28 @@ class ControlBot:
         except Exception as exc:
             logger.warning("TG shutdown: %s", exc)
 
+    def on_polling_error(self, error: BaseException | None) -> bool:
+        """Обработка ошибок PTB polling.
+
+        Returns:
+            True — нужно остановить панель (_stop). Conflict / сеть — False
+            (python-telegram-bot сам повторит getUpdates).
+        """
+        if error is None:
+            return False
+        if isinstance(error, Conflict):
+            logger.warning(
+                "Telegram Conflict (панель НЕ останавливаем): тот же bot_token "
+                "кратко опрашивался другим клиентом. Проверьте, что нет второго "
+                "run_unified / control_panel на этом токене; PTB повторит опрос."
+            )
+            return False
+        if isinstance(error, (NetworkError, TimedOut)):
+            logger.warning("Telegram сеть/таймаут (панель продолжает): %s", error)
+            return False
+        logger.error("Telegram control error: %s", error)
+        return False
+
     async def run_polling(self) -> None:
         if not self.token:
             logger.warning("Telegram bot_token не задан")
@@ -375,12 +397,9 @@ class ControlBot:
         self._stop = asyncio.Event()
 
         async def _on_error(_update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-            if isinstance(context.error, Conflict):
-                logger.error(
-                    "Telegram Conflict: тот же bot_token уже опрашивается другим процессом. "
-                    "Остановите дубликат (pkill -f run_unified) или в config.yaml задайте "
-                    "telegram_signal_agent.control_panel_enabled: false"
-                )
+            # Conflict часто разовый (диагностика getUpdates, краткий дубль).
+            # Раньше _stop.set() насовсем гасил /panel до рестарта — это баг.
+            if self.on_polling_error(context.error) and self._stop is not None:
                 self._stop.set()
 
         self.app.add_error_handler(_on_error)
