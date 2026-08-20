@@ -1,3 +1,18 @@
+## 20.08.2026 — стратегия лонгов (Long Quality Gate)
+
+- Модуль `prd_agent/entry/long_quality_gate.py` + soft hours Buy≠Sell + htf 1/−1
+- Exit Buy: `positions.long_swing_exit` (min SL 1%, trail 3.5/4.0, time-stop 240)
+- Проводка: orchestrator + telegram_signal_agent (SPIKE/scanner) + position_steward
+- Config: AW ON / prod OFF
+- Лаб-симуляция: Buy WR 45.4% → 50.3% после блока часов 3/4/5/10/20
+- Тесты: test_long_quality_gate + hermes_briefing — 15 passed
+- Push/деплой: ждать «да»
+
+## 18.08.2026 — оценка логов песочницы
+
+- AW active, прод masked. Сегодня ≈ +19 USDT; 16–18.08 плюс; 7д ещё −70 из‑за 14.08.
+- Trailing GARCH живой (storm/calm на MU/TUT/SPCX). Traceback нет. Код не меняли.
+
 ## 15.08.2026 — Trailing GARCH (дистанция SL)
 
 - Модуль `prd_agent/positions/trailing_volatility_regime.py`: calm→уже, storm→шире trail distance

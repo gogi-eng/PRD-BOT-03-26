@@ -79,19 +79,28 @@ def detect_active_rules(
     hour = _local_hour(ctx, tz_offset)
     active: List[str] = []
 
-    if hour in (11, 17, 18, 19):
-        active.append("hour_green")
-    if hour in (1, 3, 14, 15, 16, 23):
-        active.append("hour_red")
+    # Часы по стороне: лаборатория skipped_backtest Buy vs Sell (UTC+3).
+    if _is_buy(side_u):
+        if hour in (6, 9, 12, 13, 14, 16, 17, 18, 19, 21):
+            active.append("hour_green")
+        if hour in (3, 4, 5, 10, 20):
+            active.append("hour_red")
+    else:
+        if hour in (4, 5, 7, 10, 14, 16, 17, 19, 20):
+            active.append("hour_green")
+        if hour in (6, 9, 12, 13, 22):
+            active.append("hour_red")
 
     htf = _s(ctx, "htf_trend")
-    if _is_buy(side_u) and htf == "bullish":
+    htf_bull = htf in ("bullish", "1", "up", "long", "buy")
+    htf_bear = htf in ("bearish", "-1", "down", "short", "sell")
+    if _is_buy(side_u) and htf_bull:
         active.append("htf_aligned")
-    elif (not _is_buy(side_u)) and side_u in ("SELL", "SHORT") and htf == "bearish":
+    elif (not _is_buy(side_u)) and side_u in ("SELL", "SHORT") and htf_bear:
         active.append("htf_aligned")
-    elif htf in ("bullish", "bearish") and side_u:
-        if (_is_buy(side_u) and htf == "bearish") or (
-            (not _is_buy(side_u)) and htf == "bullish"
+    elif (htf_bull or htf_bear) and side_u:
+        if (_is_buy(side_u) and htf_bear) or (
+            (not _is_buy(side_u)) and htf_bull
         ):
             active.append("htf_misaligned")
 

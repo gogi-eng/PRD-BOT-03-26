@@ -1,38 +1,36 @@
 # Active Context
 
-**Дата фокуса:** 15.08.2026 (UTC+3)
-**Ветки дня:** 15.08.26-PRD-BOT-ALL · 15.08.26-AGENT-WORLD (см. hash после push)
-**Проверка:** песочница active; прод masked/inactive — **не unmask**.
+**Дата фокуса:** 20.08.2026 (UTC+3)
+**Песочница:** active, hash `d7ead0b` (ветка на сервере ещё `02.08.26-AGENT-WORLD`).
+**Прод:** inactive/masked — **не unmask**.
 
-## Важно (правило пользователя)
+## Важно
 
 **Не менять код/config бота без явного «да / делай / одобряю».**
 Прод **не** unmask/start без явного «да».
+Код стратегии лонгов готов локально — **push/деплой ждать «да»**.
 
-## Текущий фокус (15.08 — Trailing GARCH)
+## Фокус 20.08 — стратегия лонгов (Buy)
 
-1. `positions.trailing_volatility_regime` — GARCH calm/normal/storm → множитель дистанции трейлинг-SL.
-2. AW: `enabled: true` (calm×0.75, normal×1.0, storm×1.35); прод: `enabled: false`.
-3. Маркер лога: `Trailing GARCH` (при смене режима).
-4. Проводка: `position_steward` (manage loop); startup в orchestrator. Signal agent не ведёт trailing SL.
-5. Деплой: только AGENT-WORLD.
+- Анализ: skipped_backtest 6974 Buy → WR 45.4%; блок часов 3/4/5/10/20 → WR 50.3% (отсечено 17.9%).
+- Модуль: `prd_agent/entry/long_quality_gate.py`
+- Выход Buy: `positions.long_swing_exit` (SL min 1%, trail 3.5/4.0, time-stop 240)
+- Soft hours: Buy ≠ Sell; htf `1`/`-1` = aligned
+- AW config ON / prod OFF
+- Тесты: `test_long_quality_gate.py` — 15 passed (с hermes_briefing)
+- Canvas: `long-trades-strategy.canvas.tsx`
 
 ## Маркеры логов
 
 | Что | Маркер |
 |-----|--------|
+| Long quality | Long quality gate |
+| Long SL widen | Long swing SL widen |
 | Trailing GARCH | Trailing GARCH |
-| Manual time-stop skip | MANUAL SAFE skip time-stop |
-| Companion skip manual | Companion skip manage / Companion skip close |
 | Zone corridor | Zone corridor |
 | SPIKE bypass | SPIKE bypass no_corridor |
 | SPIKE pullback | SPIKE pullback: |
-| SL/TP guard | Missing SL/TP on position, SL/TP guard |
-| Manual SL guard | Manual SL missing, Manual SL guard |
 | CloseWatchdog | CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ |
-| Volatility sizing | Volatility regime |
-
-**Убрано откатом (не возвращать):** MANUAL SAFE skip SL/TP manage (флаг manage_sl_tp_manual).
 
 ## Сервер
 
@@ -42,8 +40,3 @@
 | User | root |
 | Прод | /root/PRD-BOT-ALL |
 | Песочница | /root/AGENT-WORLD |
-
-## Не смешивать
-
-- /root/PRD-BOT-ALL ← только *-PRD-BOT-ALL
-- /root/AGENT-WORLD ← только *-AGENT-WORLD

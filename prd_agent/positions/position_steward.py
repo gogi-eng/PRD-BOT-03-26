@@ -161,6 +161,13 @@ class PositionSteward:
         self._pump_dump_profile = TrailingProfile.from_positions_cfg(
             p, subsection="pump_dump_trailing", root_cfg=cfg
         )
+        self._long_swing_profile = TrailingProfile.from_positions_cfg(
+            p, subsection="long_swing_exit", root_cfg=cfg
+        )
+        self._long_swing_exit_on = bool(
+            isinstance(p.get("long_swing_exit"), dict)
+            and bool((p.get("long_swing_exit") or {}).get("enabled", False))
+        )
         ps = cfg.get("position_sync", {}) if isinstance(cfg.get("position_sync"), dict) else {}
         self._sync_guard.enabled = bool(ps.get("alert_on_mismatch", True))
         self._sync_guard.alert_registry_mismatch = bool(
@@ -200,6 +207,8 @@ class PositionSteward:
     def _profile_for(self, pos: TrackedPosition) -> TrailingProfile:
         if pos.pump_dump_mode or pos.symbol in self._pump_dump_symbols:
             return self._pump_dump_profile
+        if self._long_swing_exit_on and str(pos.side) == "Buy":
+            return self._long_swing_profile
         return self._default_profile
 
     def mark_bot_opened(
