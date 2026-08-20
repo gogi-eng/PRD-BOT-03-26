@@ -1,12 +1,19 @@
+## 20.08.2026 — Telegram /panel Conflict fix
+
+- Баг: `Conflict` → `_stop.set()` гасил панель до рестарта
+- Фикс: `ControlBot.on_polling_error` — Conflict/сеть не останавливают polling
+- Тест: `test_control_bot_conflict.py` (3 passed); бэктест trailing demo OK (N/A по смыслу)
+- Push: `564be82` PRD + `df23ae3` AW; деплой оба инстанса
+
 ## 20.08.2026 — стратегия лонгов (Long Quality Gate)
 
 - Модуль `prd_agent/entry/long_quality_gate.py` + soft hours Buy≠Sell + htf 1/−1
 - Exit Buy: `positions.long_swing_exit` (min SL 1%, trail 3.5/4.0, time-stop 240)
 - Проводка: orchestrator + telegram_signal_agent (SPIKE/scanner) + position_steward
-- Config: AW ON / prod OFF
+- Config: AW ON / **prod ON** (испытание на проде)
 - Лаб-симуляция: Buy WR 45.4% → 50.3% после блока часов 3/4/5/10/20
 - Тесты: test_long_quality_gate + hermes_briefing — 15 passed
-- Push/деплой: ждать «да»
+- Прод: `e17881f` затем panel-fix `564be82`
 
 ## 18.08.2026 — оценка логов песочницы
 
