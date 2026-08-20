@@ -201,6 +201,7 @@ sudo bash scripts/deploy_agent_world_algo.sh /root/AGENT-WORLD DD.MM.YY-AGENT-WO
 | RSS AGENT-WORLD | **Анти-дубли, не выключать** | `telegram_signal_agent.py` | `duplicate_symbol_cooldown_sec`, dedup по symbol+side; **не** `agent_world.enabled: false` |
 | Telegram | **Разные боты — разные токены** | `.env` прод / песочница | Не выключать polling «из‑за 409» |
 | Telegram | **Polling и кнопки включены** | config обоих инстансов | `control_polling_enabled: true` — норма |
+| Telegram | **Conflict ≠ стоп панели** | `control_bot.py` `on_polling_error` | Не `_stop.set()` на Conflict; иначе /panel мёртв до рестарта |
 | Bybit API | **GET-подпись: sort+urlencode** | `exchange/bybit_client.py` | Иначе `10004 Error sign` на closed-pnl |
 | Bybit вход | **Реальный стакан orderbook** | `entry_engine_bridge` / ORDER | Не заглушка `MarketSetup.get` |
 | CorrectionAgent | **Импорты и синтаксис** | `correction_agent.py` | Иначе бот не стартует |
