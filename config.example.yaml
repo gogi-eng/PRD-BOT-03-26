@@ -428,3 +428,4 @@ hedge_pair:
   trend_interval: "60"
   fee_pct_roundtrip_per_leg: 0.12
   require_trend_bias: true
+  only_when_no_other_signals: true

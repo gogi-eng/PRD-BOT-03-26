@@ -2,7 +2,7 @@
 Главный цикл unified-агента: все источники сигналов, журнал, риск, ордера, сопровождение, анализ.
 
 
-Hedge pair (opt-in): see hedge_pair config and docs/strategies/HEDGE_PAIR_21.08.26.md. When hedge_pair.enabled and not execute, _hedge_pair_log_tick only logs would-open.
+Hedge pair (opt-in): see hedge_pair config and docs/strategies/HEDGE_PAIR_21.08.26.md. When hedge_pair.enabled and not execute, _hedge_pair_fallback only runs when no other signals this cycle.
 """
 from __future__ import annotations
 
@@ -90,6 +90,11 @@ from prd_agent.signals.side_utils import normalize_trade_side, trade_sides_oppos
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.strategies.router import StrategyRouter
 from prd_agent.positions.hedge_pair_manager import HedgePairManager
+from prd_agent.strategies.hedge_pair import (
+    compute_ema,
+    hedge_fallback_allowed,
+    infer_bias,
+)
 from prd_agent.telemetry.skip_baseline import format_skip_baseline_text, skip_baseline_report
 from prd_agent.telegram.notifier import TelegramNotifier
 from prd_agent.telegram.status_table import format_status_table
@@ -355,6 +360,7 @@ class UnifiedOrchestrator:
         self.zone_entry = EntryEngineBridge(self.cfg)
         self.retest_watch.cfg = self.cfg
         self.strategy_router.cfg = self.cfg
+        self.hedge_pair_mgr = HedgePairManager.from_cfg(self.cfg)
         ze = self.cfg.get("zone_entry", {}) if isinstance(self.cfg.get("zone_entry"), dict) else {}
         self._zone_kline_interval = str(ze.get("kline_interval", "15"))
 
@@ -1075,32 +1081,76 @@ class UnifiedOrchestrator:
             self._last_upnl[sym] = upnl
 
 
-    async def _hedge_pair_log_tick(self, positions: List[Dict]) -> None:
-        """Log-only hedge_pair probe when enabled; no orders unless execute=true (TODO live)."""
+    async def _hedge_pair_fallback(
+        self,
+        positions: List[Dict],
+        *,
+        signals_empty: bool,
+    ) -> None:
+        """Fallback hedge_pair only when caller confirms no other signals (or config allows).
+
+        Fetches real EMA from trend_interval klines. Log-only unless execute=true
+        (live dual-leg path still refuses with a clear warning).
+        """
+        if not signals_empty and self.hedge_pair_mgr.config.only_when_no_other_signals:
+            logger.debug("hedge_pair fallback skipped: caller signals_empty=False")
+            return
         hp = self.hedge_pair_mgr.config
         if not hp.enabled:
             return
         if self.hedge_pair_mgr.open_pairs:
             return
-        if len(positions) > 0 and hp.max_pairs <= 1:
+        if not hedge_fallback_allowed(
+            signals_empty=True,
+            open_positions=len(positions),
+            max_pairs=hp.max_pairs,
+        ):
             return
         sym = hp.symbols[0] if hp.symbols else None
         if not sym:
             return
+        interval = str(hp.trend_interval or "60")
+        period = int(hp.trend_ema_period or 50)
+        limit = max(period + 5, 60)
         try:
+            klines = await self.exchange.get_klines(sym, interval=interval, limit=limit)
             price = float(await self.exchange.get_price(sym))
         except Exception as exc:
-            logger.debug("hedge_pair price skip: %s", exc)
+            logger.debug("hedge_pair fallback data skip: %s", exc)
             return
-        bias = "long"
-        if self.hedge_pair_mgr.should_open(sym, bias=bias, price=price, ema=price * 0.999):
+        closes: List[float] = []
+        for row in klines or []:
+            try:
+                closes.append(float(row.get("close", 0) or 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        closes = [c for c in closes if c > 0]
+        if len(closes) < max(2, period // 2):
+            logger.debug(
+                "hedge_pair fallback skip %s: insufficient klines (%d)",
+                sym,
+                len(closes),
+            )
+            return
+        ema = compute_ema(closes, period)
+        if ema <= 0 or price <= 0:
+            return
+        bias = infer_bias(price, ema)
+        reason = "fallback_no_other_signals"
+        if self.hedge_pair_mgr.should_open(
+            sym, bias=bias, price=price, ema=ema, reason=reason
+        ):
             if not hp.execute:
-                self.hedge_pair_mgr.log_would_open(sym, bias, price)
+                self.hedge_pair_mgr.log_would_open(
+                    sym, bias, price, ema=ema, reason=reason
+                )
             else:
                 logger.warning(
-                    "hedge_pair.execute=true but live order path is TODO; "
-                    "refusing auto-open for %s (see hedge_pair_manager TODO)",
+                    "hedge_pair.execute=true but live dual-leg order path is TODO; "
+                    "refusing auto-open for %s bias=%s ema=%.6g (see hedge_pair_manager TODO)",
                     sym,
+                    bias,
+                    ema,
                 )
 
     async def _cycle(self) -> None:
@@ -1122,7 +1172,6 @@ class UnifiedOrchestrator:
         companion_notes = await self.trade_companion.manage_cycle(
             self.exchange, positions, self.position_steward
         )
-        await self._hedge_pair_log_tick(positions)
         await self.trade_lifecycle.maybe_sample(
             self.exchange,
             positions,
@@ -1226,6 +1275,22 @@ class UnifiedOrchestrator:
             )
             await self._maybe_execute(
                 sig, entry.id, plan_entry, plan_sl, plan_tp, zone_meta=zone_meta
+            )
+
+        # Hedge pair: only as fallback when this cycle has no other signals
+        hp_cfg = self.hedge_pair_mgr.config
+        signals_empty = len(all_signals) == 0
+        gate_signals_empty = (
+            signals_empty if hp_cfg.only_when_no_other_signals else True
+        )
+        if can_trade and hedge_fallback_allowed(
+            signals_empty=gate_signals_empty,
+            open_positions=len(positions),
+            max_pairs=hp_cfg.max_pairs,
+        ):
+            await self._hedge_pair_fallback(
+                positions,
+                signals_empty=gate_signals_empty,
             )
 
         now = datetime.now(timezone.utc).timestamp()

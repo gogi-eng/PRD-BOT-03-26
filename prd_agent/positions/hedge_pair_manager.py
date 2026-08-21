@@ -69,7 +69,9 @@ class HedgePairManager:
         price: float,
         ema: float,
         open_pair_count: Optional[int] = None,
+        reason: str = "",
     ) -> bool:
+        _ = reason  # optional context for callers / future logging
         if not self.config.enabled:
             return False
         if symbol in self.open_pairs:
@@ -195,14 +197,30 @@ class HedgePairManager:
 
         return actions
 
-    def log_would_open(self, symbol: str, bias: SideBias, price: float) -> None:
+    def log_would_open(
+        self,
+        symbol: str,
+        bias: SideBias,
+        price: float,
+        *,
+        ema: float = 0.0,
+        reason: str = "",
+    ) -> None:
         """Safe log-only hook when enabled but execute=false."""
         levels = plan_levels(price, self.config)
+        if reason == "fallback_no_other_signals":
+            prefix = "hedge_pair FALLBACK (no other signals): would open"
+        elif reason:
+            prefix = f"hedge_pair would open ({reason})"
+        else:
+            prefix = "hedge_pair would open"
         logger.info(
-            "hedge_pair would open %s bias=%s entry=%.6g long_sl=%.6g long_tp=%.6g "
+            "%s %s bias=%s ema=%.6g entry=%.6g long_sl=%.6g long_tp=%.6g "
             "short_sl=%.6g short_tp=%.6g execute=%s",
+            prefix,
             symbol,
             bias,
+            ema,
             price,
             levels["long_sl"],
             levels["long_tp"],
