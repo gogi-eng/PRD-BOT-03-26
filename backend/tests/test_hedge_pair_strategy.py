@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from prd_agent.strategies.hedge_pair import (
     HedgePairConfig,
+    compute_ema,
     expected_net_on_continuation,
     expected_net_on_immediate_flatten_at_sl,
+    hedge_fallback_allowed,
+    infer_bias,
     simulate_pair_path,
     trend_allows_entry,
 )
@@ -106,3 +109,32 @@ def test_config_from_yaml_defaults():
     assert trend_allows_entry("long", ema=100.0, price=101.0)
     assert not trend_allows_entry("long", ema=100.0, price=99.0)
     assert trend_allows_entry("short", ema=100.0, price=99.0)
+
+
+def test_infer_bias_long_short():
+    assert infer_bias(101.0, 100.0) == "long"
+    assert infer_bias(99.0, 100.0) == "short"
+    assert infer_bias(100.0, 100.0) == "short"
+
+
+def test_compute_ema_basic():
+    closes = [1.0, 2.0, 3.0, 4.0, 5.0]
+    ema = compute_ema(closes, period=3)
+    assert ema > 0
+    # last close pulls EMA up vs first
+    assert ema > closes[0]
+
+
+def test_hedge_fallback_allowed_gate():
+    assert hedge_fallback_allowed(signals_empty=False, open_positions=0, max_pairs=1) is False
+    assert hedge_fallback_allowed(signals_empty=True, open_positions=0, max_pairs=1) is True
+    assert hedge_fallback_allowed(signals_empty=True, open_positions=1, max_pairs=1) is False
+    assert hedge_fallback_allowed(signals_empty=True, open_positions=1, max_pairs=2) is True
+
+
+def test_config_only_when_no_other_signals_default():
+    cfg = HedgePairConfig.from_cfg({})
+    assert cfg.only_when_no_other_signals is True
+    cfg2 = HedgePairConfig.from_cfg({"hedge_pair": {"only_when_no_other_signals": False}})
+    assert cfg2.only_when_no_other_signals is False
+

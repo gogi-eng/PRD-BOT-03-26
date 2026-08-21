@@ -35,6 +35,7 @@ class HedgePairConfig:
     trend_interval: str = "60"
     fee_pct_roundtrip_per_leg: float = 0.12
     require_trend_bias: bool = True
+    only_when_no_other_signals: bool = True
 
     @classmethod
     def from_cfg(cls, cfg: Dict[str, Any]) -> "HedgePairConfig":
@@ -68,6 +69,7 @@ class HedgePairConfig:
             trend_interval=str(raw.get("trend_interval", "60")),
             fee_pct_roundtrip_per_leg=float(raw.get("fee_pct_roundtrip_per_leg", 0.12)),
             require_trend_bias=bool(raw.get("require_trend_bias", True)),
+            only_when_no_other_signals=bool(raw.get("only_when_no_other_signals", True)),
         )
 
 
@@ -94,6 +96,42 @@ def trend_allows_entry(side_bias: SideBias, ema: float, price: float) -> bool:
     if side_bias == "short":
         return price < ema
     raise TypeError(f"unsupported side_bias: {side_bias!r}")
+
+
+def compute_ema(closes: list[float], period: int) -> float:
+    """Exponential moving average of closes (span=period, adjust=False)."""
+    if period <= 0:
+        raise ValueError(f"period must be positive, got {period}")
+    if not closes:
+        return 0.0
+    alpha = 2.0 / (period + 1.0)
+    ema_val = float(closes[0])
+    for px in closes[1:]:
+        ema_val = alpha * float(px) + (1.0 - alpha) * ema_val
+    return float(ema_val)
+
+
+def infer_bias(price: float, ema: float) -> SideBias:
+    """Long if price above EMA, else short."""
+    if price > ema:
+        return "long"
+    return "short"
+
+
+def hedge_fallback_allowed(
+    *,
+    signals_empty: bool,
+    open_positions: int,
+    max_pairs: int,
+) -> bool:
+    """True only when no other signals this cycle and pair slots free."""
+    if not signals_empty:
+        return False
+    if max_pairs <= 0:
+        return False
+    if int(open_positions) >= int(max_pairs):
+        return False
+    return True
 
 
 def expected_net_on_continuation(config: HedgePairConfig, fee_pct_per_leg: float) -> float:

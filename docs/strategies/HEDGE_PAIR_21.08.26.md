@@ -57,6 +57,21 @@
 - Пока не прогнали `scripts/backtest_hedge_pair.py` и тесты локально.
 - На реале с `execute: true` без сухого прогона на testnet / малых суммах.
 
+
+## Когда бот выбирает hedge pair
+
+Hedge pair участвует в **общем** цикле анализа оркестратора, но выбирается **только как fallback**:
+
+- после `collect_all` (own / TA / telegram / whale / ext) список сигналов **пуст**;
+- нет открытых позиций, блокирующих `max_pairs`;
+- `hedge_pair.enabled: true`;
+- флаг `only_when_no_other_signals: true` (по умолчанию) — иначе fallback может вызываться и при наличии других сигналов (не рекомендуется).
+
+Иными словами: **не каждый цикл независимо**, а только если в этом цикле нет других сигналов после merge.
+
+При `execute: false` пишется лог вида `hedge_pair FALLBACK (no other signals): would open ...`.
+При `execute: true` live dual-leg ордера пока **отклоняются** с предупреждением (TODO Bybit hedge mode / position_idx).
+
 ## Как включить на сервере (осторожно)
 
 В `deploy/config.production.yaml` (или вашем `config.yaml`):
