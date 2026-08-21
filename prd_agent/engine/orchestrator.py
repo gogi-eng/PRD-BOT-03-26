@@ -2,7 +2,7 @@
 Главный цикл unified-агента: все источники сигналов, журнал, риск, ордера, сопровождение, анализ.
 
 
-Hedge pair (opt-in): see hedge_pair config and docs/strategies/HEDGE_PAIR_21.08.26.md. When hedge_pair.enabled and not execute, _hedge_pair_fallback only runs when no other signals this cycle.
+Hedge pair: see hedge_pair config and docs/strategies/HEDGE_PAIR_21.08.26.md. Fallback opens live long+short when enabled+execute and no other signals; requires Bybit Hedge Mode.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ from prd_agent.signals.router import SignalRouter
 from prd_agent.signals.side_utils import normalize_trade_side, trade_sides_opposite
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.strategies.router import StrategyRouter
-from prd_agent.positions.hedge_pair_manager import HedgePairManager
+from prd_agent.positions.hedge_pair_manager import HedgePairManager, qty_from_margin
 from prd_agent.strategies.hedge_pair import (
     compute_ema,
     hedge_fallback_allowed,
@@ -1081,6 +1081,26 @@ class UnifiedOrchestrator:
             self._last_upnl[sym] = upnl
 
 
+    async def _hedge_pair_manage_open(self) -> None:
+        """Apply on_price_tick actions for open hedge pairs (runner / flatten / move_sl)."""
+        if not self.hedge_pair_mgr.open_pairs:
+            return
+        # Copy keys — on_price_tick may pop closed pairs
+        symbols = list(self.hedge_pair_mgr.open_pairs.keys())
+        for sym in symbols:
+            try:
+                price = float(await self.exchange.get_price(sym))
+            except Exception as exc:
+                logger.debug("hedge_pair manage price skip %s: %s", sym, exc)
+                continue
+            if price <= 0:
+                continue
+            actions = self.hedge_pair_mgr.on_price_tick(sym, price)
+            if actions:
+                await self.hedge_pair_mgr.apply_exchange_actions(
+                    self.exchange, sym, actions
+                )
+
     async def _hedge_pair_fallback(
         self,
         positions: List[Dict],
@@ -1089,8 +1109,8 @@ class UnifiedOrchestrator:
     ) -> None:
         """Fallback hedge_pair only when caller confirms no other signals (or config allows).
 
-        Fetches real EMA from trend_interval klines. Log-only unless execute=true
-        (live dual-leg path still refuses with a clear warning).
+        Fetches real EMA from trend_interval klines. When execute=true opens both legs
+        on Bybit hedge mode (Buy idx=1, Sell idx=2) with SL/TP from plan_levels.
         """
         if not signals_empty and self.hedge_pair_mgr.config.only_when_no_other_signals:
             logger.debug("hedge_pair fallback skipped: caller signals_empty=False")
@@ -1137,21 +1157,97 @@ class UnifiedOrchestrator:
             return
         bias = infer_bias(price, ema)
         reason = "fallback_no_other_signals"
-        if self.hedge_pair_mgr.should_open(
+        if not self.hedge_pair_mgr.should_open(
             sym, bias=bias, price=price, ema=ema, reason=reason
         ):
-            if not hp.execute:
-                self.hedge_pair_mgr.log_would_open(
-                    sym, bias, price, ema=ema, reason=reason
-                )
-            else:
-                logger.warning(
-                    "hedge_pair.execute=true but live dual-leg order path is TODO; "
-                    "refusing auto-open for %s bias=%s ema=%.6g (see hedge_pair_manager TODO)",
-                    sym,
-                    bias,
-                    ema,
-                )
+            return
+        if not hp.execute:
+            self.hedge_pair_mgr.log_would_open(
+                sym, bias, price, ema=ema, reason=reason
+            )
+            return
+
+        levels = self.hedge_pair_mgr.plan_levels(price, bias)
+        try:
+            balance = float(await self.exchange.get_balance())
+        except Exception as exc:
+            logger.warning("hedge_pair open skip %s: balance error %s", sym, exc)
+            return
+        qty = qty_from_margin(
+            balance,
+            price,
+            margin_pct_per_leg=hp.margin_pct_per_leg,
+            leverage=hp.leverage,
+        )
+        client = getattr(self.exchange, "_client", None)
+        if client is not None:
+            qty, long_sl, long_tp, prep_err = await prepare_order(
+                client,
+                symbol=sym,
+                leverage=hp.leverage,
+                qty=qty,
+                stop_loss=float(levels["long_sl"]),
+                take_profit=float(levels["long_tp"]),
+            )
+            if prep_err:
+                logger.warning("hedge_pair open skip %s: %s", sym, prep_err)
+                return
+            levels["long_sl"] = float(long_sl or levels["long_sl"])
+            levels["long_tp"] = float(long_tp or levels["long_tp"])
+            _, short_sl, short_tp, prep_err2 = await prepare_order(
+                client,
+                symbol=sym,
+                leverage=hp.leverage,
+                qty=qty,
+                stop_loss=float(levels["short_sl"]),
+                take_profit=float(levels["short_tp"]),
+            )
+            if prep_err2:
+                logger.warning("hedge_pair open skip %s short prep: %s", sym, prep_err2)
+                return
+            levels["short_sl"] = float(short_sl or levels["short_sl"])
+            levels["short_tp"] = float(short_tp or levels["short_tp"])
+
+        if qty <= 0:
+            logger.warning("hedge_pair open skip %s: qty=0 (balance=%.4g)", sym, balance)
+            return
+
+        try:
+            await self.exchange.apply_trade_leverage(sym, hp.leverage)
+        except Exception as exc:
+            logger.debug("hedge_pair leverage apply %s: %s", sym, exc)
+
+        result = await self.hedge_pair_mgr.open_pair(
+            self.exchange, sym, bias, price, qty, levels
+        )
+        if not result.get("success"):
+            err = str(result.get("error", "open failed"))
+            await self.notifier.order_failed(sym, f"hedge_pair: {err[:350]}")
+            return
+
+        try:
+            # Steward tracks one symbol key; register long levels (pair managed separately)
+            self.position_steward.mark_bot_opened(
+                sym,
+                take_profit=float(levels["long_tp"]),
+                stop_loss=float(levels["long_sl"]),
+            )
+        except Exception as exc:
+            logger.debug("hedge_pair mark_bot_opened: %s", exc)
+
+        long_id = ""
+        short_id = ""
+        if isinstance(result.get("long"), dict):
+            long_id = str(result["long"].get("orderId", "") or "")
+        if isinstance(result.get("short"), dict):
+            short_id = str(result["short"].get("orderId", "") or "")
+        try:
+            await self.notifier.send(
+                f"Hedge pair OPEN {sym} bias={bias} qty={qty:.6g} lev={hp.leverage}x\n"
+                f"L idx1 + S idx2 | long_id={long_id} short_id={short_id}"
+            )
+        except Exception as exc:
+            logger.debug("hedge_pair notify: %s", exc)
 
     async def _cycle(self) -> None:
         self._light_snapshot_cache.clear()
@@ -1169,6 +1265,7 @@ class UnifiedOrchestrator:
         closed_24h = await self.monitor.fetch_closed_pnl(self.exchange, hours=24)
         await self._sync_closed_pnl_to_risk()
         trail_notes = await self.position_steward.manage(self.exchange, positions)
+        await self._hedge_pair_manage_open()
         companion_notes = await self.trade_companion.manage_cycle(
             self.exchange, positions, self.position_steward
         )

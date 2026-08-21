@@ -192,6 +192,25 @@ class BybitAdapter:
             position_idx=position_idx,
         )
 
+    async def update_stop_loss(
+        self, symbol: str, stop_loss: float, position_idx: int = 0
+    ) -> Dict:
+        if hasattr(self._client, "update_stop_loss"):
+            return await self._client.update_stop_loss(
+                symbol, stop_loss, position_idx=position_idx
+            )
+        return {"success": False, "error": "update_stop_loss not supported"}
+
+    async def update_take_profit(
+        self, symbol: str, take_profit: float, position_idx: int = 0
+    ) -> Dict:
+        if hasattr(self._client, "update_take_profit"):
+            return await self._client.update_take_profit(
+                symbol, take_profit, position_idx=position_idx
+            )
+        return {"success": False, "error": "update_take_profit not supported"}
+
+
     async def apply_trade_leverage(self, symbol: str, requested: int):
         from prd_agent.exchange.leverage_apply import apply_trade_leverage
 

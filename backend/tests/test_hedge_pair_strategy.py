@@ -138,3 +138,48 @@ def test_config_only_when_no_other_signals_default():
     cfg2 = HedgePairConfig.from_cfg({"hedge_pair": {"only_when_no_other_signals": False}})
     assert cfg2.only_when_no_other_signals is False
 
+
+def test_qty_from_margin_basic():
+    from prd_agent.positions.hedge_pair_manager import qty_from_margin
+
+    # 2% of 1000 = 20 margin; *5 lev = 100 notional; /50k = 0.002
+    q = qty_from_margin(1000.0, 50_000.0, margin_pct_per_leg=2.0, leverage=5)
+    assert abs(q - 0.002) < 1e-12
+    assert qty_from_margin(0.0, 100.0, margin_pct_per_leg=2.0, leverage=5) == 0.0
+
+
+import asyncio
+from unittest.mock import AsyncMock
+
+
+def test_open_pair_rollback_on_short_fail():
+    from prd_agent.positions.hedge_pair_manager import HedgePairManager
+    from prd_agent.strategies.hedge_pair import HedgePairConfig, plan_levels
+
+    cfg = HedgePairConfig(enabled=True, execute=True)
+    mgr = HedgePairManager(config=cfg)
+    levels = plan_levels(100.0, cfg)
+
+    exchange = AsyncMock()
+    exchange.place_order = AsyncMock(
+        side_effect=[
+            {"success": True, "orderId": "L1", "error": ""},
+            {"success": False, "orderId": "", "error": "short fail positionIdx"},
+        ]
+    )
+    exchange.close_position = AsyncMock(
+        return_value={"success": True, "orderId": "C1", "error": ""}
+    )
+
+    result = asyncio.run(
+        mgr.open_pair(exchange, "BTCUSDT", "long", 100.0, 0.01, levels)
+    )
+    assert result["success"] is False
+    assert result["rolled_back"] is True
+    assert "BTCUSDT" not in mgr.open_pairs
+    exchange.close_position.assert_awaited()
+    # long Buy idx=1 flatten
+    args, kwargs = exchange.close_position.await_args
+    assert args[0] == "BTCUSDT"
+    assert args[1] == "Buy"
+    assert kwargs.get("position_idx") == 1
