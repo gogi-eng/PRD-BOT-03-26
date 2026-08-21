@@ -413,8 +413,8 @@ whale_news:
     - https://cointelegraph.com/rss
 
 hedge_pair:
-  enabled: false          # opt-in; user enables after reading docs
-  execute: false          # log-only unless true (needs Bybit hedge mode)
+  enabled: true           # fallback hedge pair when no other signals
+  execute: true           # live open long+short (Bybit Hedge Mode required)
   symbols: [BTCUSDT, ETHUSDT]
   leverage: 5
   margin_pct_per_leg: 2.0
