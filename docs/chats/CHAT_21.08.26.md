@@ -1,4 +1,4 @@
-﻿# Чат 21.08.26 — отчёты дневного лимита, AI-Trader, маркет-сканер, трейлинг SL, схема лонг+шорт
+# Чат 21.08.26 — отчёты дневного лимита, AI-Trader, маркет-сканер, трейлинг SL, схема лонг+шорт
 
 ## Контекст
 
@@ -51,3 +51,47 @@ sudo systemctl restart trading_bot
 
 - На origin (gogi-eng/PRD-BOT-03-26) ветки 01.06.26-OPT-ALL и 30.05.26-OPT-ALL на момент сохранения чата через git ls-remote --heads не найдены; актуальные ветки — серии *-PRD-BOT-ALL / *-AGENT-WORLD и main.
 - Файл пересохранён 21.08.26 (UTF-8), чтобы гарантировать полный текст сводки на GitHub.
+
+## Hedge Pair 21.08.26 (дополнение к чату)
+
+> Ранее в этом файле: суточные отчёты убытков, AI-Trader throttle, маркет-сканер, trailing SL, анализ long+short. Ниже — продолжение за сегодня про hedge-стратегию.
+
+### Что сделали
+- Стратегия Trend-Continuation Hedge Pair запушена в прод-ветку **21.08.26-OPT-ALL**
+- Коммиты (примерно): 5c71704 (стратегия+тесты), e2356d3 (только fallback без других сигналов), 16d32df (live-открытие ордеров)
+
+### Требование пользователя
+- Хедж должен быть в общем анализе бота
+- Выбирать ситуацию **только когда других сигналов нет** (`only_when_no_other_signals: true`)
+- Не только лог «would open» — **реально открывать** ордера (`execute: true`)
+
+### Как работает сейчас
+1. Сначала collect_all (own/TA/telegram/whale...)
+2. Если есть сигналы — обычная торговля, хедж молчит
+3. Если сигналов нет + can_trade + нет открытой пары — fallback hedge
+4. Открывает long (positionIdx=1) + short (positionIdx=2) с SL/TP
+5. Если одна нога не открылась — rollback (закрыть успешную)
+6. Каждый цикл manage: close / move_sl / flatten после первого SL
+
+### Тесты бэктеста (ориентир)
+- TP=SL → минус на комиссиях (~−0.24%)
+- Continuation → плюс (~+0.40%)
+- Reversal → минус (~−1.84%)
+- Pytest hedge: 11 passed (после live-open)
+
+### Важно
+- Нужен Bybit **Hedge Mode**
+- Гарантии прибыли нет; плюс только при продолжении тренда после первого SL
+- Отключить: hedge_pair.enabled: false
+
+### Деплой
+```bash
+cd /root/PRD-BOT-ALL
+git fetch origin
+git checkout 21.08.26-OPT-ALL
+git reset --hard origin/21.08.26-OPT-ALL
+bash scripts/install_production_config.sh
+sudo systemctl restart trading_bot
+```
+
+Docs link: docs/strategies/HEDGE_PAIR_21.08.26.md on branch 21.08.26-OPT-ALL
