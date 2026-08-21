@@ -1,5 +1,8 @@
 """
 Главный цикл unified-агента: все источники сигналов, журнал, риск, ордера, сопровождение, анализ.
+
+
+Hedge pair (opt-in): see hedge_pair config and docs/strategies/HEDGE_PAIR_21.08.26.md. When hedge_pair.enabled and not execute, _hedge_pair_log_tick only logs would-open.
 """
 from __future__ import annotations
 
@@ -86,6 +89,7 @@ from prd_agent.signals.router import SignalRouter
 from prd_agent.signals.side_utils import normalize_trade_side, trade_sides_opposite
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.strategies.router import StrategyRouter
+from prd_agent.positions.hedge_pair_manager import HedgePairManager
 from prd_agent.telemetry.skip_baseline import format_skip_baseline_text, skip_baseline_report
 from prd_agent.telegram.notifier import TelegramNotifier
 from prd_agent.telegram.status_table import format_status_table
@@ -181,6 +185,7 @@ class UnifiedOrchestrator:
         self.zone_entry = EntryEngineBridge(cfg)
         self.retest_watch = RetestWatchlist(cfg)
         self.strategy_router = StrategyRouter(cfg)
+        self.hedge_pair_mgr = HedgePairManager.from_cfg(cfg)
         self._last_api_cycle_snap: Dict[str, Any] = {}
         self._light_snapshot_cache: Dict[str, Dict[str, Any]] = {}
         _ze = cfg.get("zone_entry", {}) if isinstance(cfg.get("zone_entry"), dict) else {}
@@ -1069,6 +1074,35 @@ class UnifiedOrchestrator:
                 await self.notifier.position_update(sym, side, upnl, size)
             self._last_upnl[sym] = upnl
 
+
+    async def _hedge_pair_log_tick(self, positions: List[Dict]) -> None:
+        """Log-only hedge_pair probe when enabled; no orders unless execute=true (TODO live)."""
+        hp = self.hedge_pair_mgr.config
+        if not hp.enabled:
+            return
+        if self.hedge_pair_mgr.open_pairs:
+            return
+        if len(positions) > 0 and hp.max_pairs <= 1:
+            return
+        sym = hp.symbols[0] if hp.symbols else None
+        if not sym:
+            return
+        try:
+            price = float(await self.exchange.get_price(sym))
+        except Exception as exc:
+            logger.debug("hedge_pair price skip: %s", exc)
+            return
+        bias = "long"
+        if self.hedge_pair_mgr.should_open(sym, bias=bias, price=price, ema=price * 0.999):
+            if not hp.execute:
+                self.hedge_pair_mgr.log_would_open(sym, bias, price)
+            else:
+                logger.warning(
+                    "hedge_pair.execute=true but live order path is TODO; "
+                    "refusing auto-open for %s (see hedge_pair_manager TODO)",
+                    sym,
+                )
+
     async def _cycle(self) -> None:
         self._light_snapshot_cache.clear()
         self.exchange.api_journal.begin_cycle(self._cycle_num + 1)
@@ -1088,6 +1122,7 @@ class UnifiedOrchestrator:
         companion_notes = await self.trade_companion.manage_cycle(
             self.exchange, positions, self.position_steward
         )
+        await self._hedge_pair_log_tick(positions)
         await self.trade_lifecycle.maybe_sample(
             self.exchange,
             positions,

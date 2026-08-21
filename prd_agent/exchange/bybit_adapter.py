@@ -178,7 +178,9 @@ class BybitAdapter:
         *,
         order_type: str = "Market",
         price: Optional[float] = None,
+        position_idx: int = 0,
     ) -> Dict:
+        # position_idx: 0 one-way; 1 long / 2 short in Bybit hedge mode (hedge_pair)
         return await self._client.place_order(
             symbol=symbol,
             side=side,
@@ -187,6 +189,7 @@ class BybitAdapter:
             take_profit=take_profit,
             order_type=order_type,
             price=price,
+            position_idx=position_idx,
         )
 
     async def apply_trade_leverage(self, symbol: str, requested: int):

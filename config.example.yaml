@@ -411,3 +411,20 @@ whale_news:
   rss_urls:
     - https://feeds.feedburner.com/CoinDesk
     - https://cointelegraph.com/rss
+
+hedge_pair:
+  enabled: false          # opt-in; user enables after reading docs
+  execute: false          # log-only unless true (needs Bybit hedge mode)
+  symbols: [BTCUSDT, ETHUSDT]
+  leverage: 5
+  margin_pct_per_leg: 2.0
+  sl_price_pct: 0.8
+  tp_to_sl_ratio: 1.8
+  be_after_profit_pct: 0.5
+  trail_distance_pct: 0.4
+  max_pair_minutes: 45
+  max_pairs: 1
+  trend_ema_period: 50
+  trend_interval: "60"
+  fee_pct_roundtrip_per_leg: 0.12
+  require_trend_bias: true
