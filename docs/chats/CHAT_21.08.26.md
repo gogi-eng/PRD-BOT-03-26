@@ -46,3 +46,8 @@ git reset --hard origin/<ветка>
 bash scripts/install_production_config.sh
 sudo systemctl restart trading_bot
 ```
+
+## Примечание по репозиторию
+
+- На origin (gogi-eng/PRD-BOT-03-26) ветки 01.06.26-OPT-ALL и 30.05.26-OPT-ALL на момент сохранения чата через git ls-remote --heads не найдены; актуальные ветки — серии *-PRD-BOT-ALL / *-AGENT-WORLD и main.
+- Файл пересохранён 21.08.26 (UTF-8), чтобы гарантировать полный текст сводки на GitHub.
