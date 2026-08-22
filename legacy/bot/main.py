@@ -207,7 +207,7 @@ class TradingBot(
                 self.cfg.get("exit", "trailing_swing_buffer_atr_mult", default=0.0)
             ),
             sl_buffer_atr_mult=self.cfg.get("exit", "sl_buffer_atr_mult", default=0.2),
-            fee_rate=float(self.cfg.get("exit", "fee_rate", default=0.0006)),
+            fee_rate=resolve_taker_fee_rate_from_config(self.cfg),
             ema_exit_buffer_pct=float(self.cfg.get("exit", "ema_exit_buffer_pct", default=0.0)),
             ema_trend_exit_confirm_bars=int(
                 self.cfg.get("exit", "ema_trend_exit_confirm_bars", default=2)
@@ -235,7 +235,7 @@ class TradingBot(
         self.ema_trend_exit_enabled = self.cfg.get("exit", "ema_trend_exit", default=False)
         self.ema_exit_period = int(self.cfg.get("exit", "ema_exit_period", default=20))
         # Fee rate for PnL calculation
-        self.fee_rate = float(self.cfg.get("exit", "fee_rate", default=0.001))
+        self.fee_rate = resolve_taker_fee_rate_from_config(self.cfg)
 
         self.tg = None
         tg_token = self.security.get_key("TELEGRAM_TOKEN")
