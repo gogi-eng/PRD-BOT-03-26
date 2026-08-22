@@ -69,6 +69,7 @@ from engine.rl_position_agent import RLAction, RLPositionAgent
 from engine.signal_feedback_loop import SignalFeedbackLoop
 from engine.symbol_quality_filter import SymbolQualityFilter
 from exchange.bybit_client import BybitClient
+from exchange.bybit_fees import resolve_taker_fee_rate_from_config
 from portfolio_profit_lock import PortfolioProfitLock
 from strategy import ScalpSessionStrategy
 from tg.controller import TelegramController
