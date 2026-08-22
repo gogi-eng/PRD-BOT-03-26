@@ -26,7 +26,7 @@ else
   PY="python3"
 fi
 "$PY" "${ROOT}/scripts/validate_config_yaml.py"
-# Жёстко: после install live должен держать ×1.5 baseline (не 0.1 от старого auto-tune).
+# Жёстко: после install live sizing совпадает с deploy baseline (verify_live_sizing_config).
 "$PY" "${ROOT}/scripts/verify_live_sizing_config.py" --profile production --config "$DST"
 echo "OK: $DST установлен. Ключи Bybit/Telegram возьмутся из .env если пусто в yaml."
 
