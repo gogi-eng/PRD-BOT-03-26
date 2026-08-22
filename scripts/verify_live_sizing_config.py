@@ -14,11 +14,12 @@ from pathlib import Path
 import yaml
 
 # Baseline после ×1.5 (01.08.26) + dynamic_leverage.min≥10 (02.08.26).
+# 22.08.26: prod SPIKE notional снижен 120→45 (риск-guardrails).
 EXPECTED = {
     "production": {
         "risk_pct_per_trade": 0.225,
         "min_risk_pct": 0.15,
-        "max_notional_balance_pct": 120.0,
+        "max_notional_balance_pct": 45.0,
         "dynamic_leverage_min": 10,
         "presets": (0.375, 0.525, 0.675),
     },
