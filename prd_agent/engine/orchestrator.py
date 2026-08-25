@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+import yaml
 
 from prd_agent.analysis.bybit_monitor import BybitMonitorAgent
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
@@ -433,10 +436,6 @@ class UnifiedOrchestrator:
 
     def set_trailing_enabled(self, enabled: bool) -> str:
         """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
-        import shutil
-
-        import yaml
-
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
         if path.exists():
             backup = (
@@ -457,6 +456,62 @@ class UnifiedOrchestrator:
         state = "ВКЛ" if self.position_steward.enabled else "ВЫКЛ"
         logger.info("Trailing %s via Telegram", state)
         return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
+
+    def _sync_sl_tp_guard_include_manual(self, enabled: bool) -> None:
+        """Согласовать SL/TP guard для ручных сделок с adopt_manual (без смены manual_auto_close)."""
+        steward = self.position_steward
+        cfg_obj = getattr(steward, "_sl_tp_guard_cfg", None)
+        guard = getattr(steward, "_sl_tp_guard", None)
+        if cfg_obj is None and guard is None:
+            return
+        if cfg_obj is not None:
+            cfg_obj.include_manual = bool(enabled)
+        if guard is not None and cfg_obj is not None:
+            guard.apply_config(cfg_obj)
+        elif guard is not None and hasattr(guard, "include_manual"):
+            guard.include_manual = bool(enabled)
+
+    def set_adopt_manual(self, enabled: bool) -> str:
+        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в config.yaml."""
+        enabled = bool(enabled)
+        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        if path.exists():
+            backup = (
+                self.improver.sandbox_dir
+                / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
+            )
+            shutil.copy2(path, backup)
+            with path.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            positions = data.setdefault("positions", {})
+            if not isinstance(positions, dict):
+                positions = {}
+                data["positions"] = positions
+            positions["adopt_manual"] = enabled
+            guard_block = positions.get("sl_tp_guard")
+            if isinstance(guard_block, dict):
+                guard_block["include_manual"] = enabled
+            with path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            self.reload_config()
+            backup_note = f"Резервная копия: {backup.name}"
+        else:
+            self.position_steward.adopt_manual = enabled
+            backup_note = "config.yaml не найден — только до перезапуска"
+        self._sync_sl_tp_guard_include_manual(enabled)
+        state = "ВКЛ" if self.position_steward.adopt_manual else "ВЫКЛ"
+        logger.info("adopt_manual %s via Telegram", state)
+        if self.position_steward.adopt_manual:
+            return (
+                f"Сопровождение ручных сделок: <b>{state}</b>.\n"
+                "Бот ведёт ручные позиции (трейлинг/защита), свои — как обычно.\n"
+                f"{backup_note}"
+            )
+        return (
+            f"Сопровождение ручных сделок: <b>{state}</b>.\n"
+            "Бот ведёт только свои позиции.\n"
+            f"{backup_note}"
+        )
 
     def reset_daily_loss(self) -> str:
         """Сброс дневного PnL, блокировки по лимиту и протокола Supervisor."""
@@ -1049,6 +1104,7 @@ class UnifiedOrchestrator:
             block_reason=block_reason,
             mode=mode,
             trailing_enabled=self.position_steward.enabled,
+            adopt_manual=self.position_steward.adopt_manual,
         )
 
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:

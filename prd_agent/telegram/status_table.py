@@ -14,6 +14,7 @@ def format_status_table(
     block_reason: str = "",
     mode: str = "LIVE",
     trailing_enabled: bool | None = None,
+    adopt_manual: bool | None = None,
     tp_progress_status: str = "",
 ) -> str:
     open_map: Dict[str, Dict] = {}
@@ -52,6 +53,10 @@ def format_status_table(
     if trailing_enabled is not None:
         lines.append(
             f"Трейлинг SL: <code>{'ВКЛ' if trailing_enabled else 'ВЫКЛ'}</code>"
+        )
+    if adopt_manual is not None:
+        lines.append(
+            f"Ручные сделки: <code>{'ВКЛ' if adopt_manual else 'ВЫКЛ'}</code>"
         )
     if tp_progress_status:
         lines.append(tp_progress_status)
