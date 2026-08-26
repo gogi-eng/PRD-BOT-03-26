@@ -54,6 +54,8 @@ class _BybitSection(BaseModel):
     read_api_secret: str = ""
     testnet: bool = False
     category: str = "linear"
+    # Всегда one-way (без hedge). При старте — switch-mode mode=0.
+    force_one_way_mode: bool = True
 
 
 class _TelegramSection(BaseModel):
