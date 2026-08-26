@@ -343,7 +343,8 @@ risk_presets:
 # Дальше по плану: 2) BOS scanner  3) TA  4) TG-inbox  5) whale/ext  6) RSS auto
 signals:
   own_agents_enabled: true
-  telegram_inbox_enabled: false
+  # Каналы TG (как на проде): agent пишет inbox, unified читает
+  telegram_inbox_enabled: true
   telegram_signals_jsonl: reports/telegram_signals/signals_inbox.jsonl
   telegram_inbox_only_approved: true
   telegram_inbox_backlog_lines: 100
@@ -860,8 +861,8 @@ market_scanner:
     symbol_cooldown_sec: 900
 
 telegram_signal_agent:
-  enabled: false
-  auto_execute: false
+  enabled: true
+  auto_execute: true
   auto_execute_max_open_positions: 6
   # Фаза 1 (SPIKE+own): 45% баланса на SPIKE (×1.5 от прежних 30%), иначе own не хватает маржи.
   # Было 80 при spike-only — вернуть после отключения own или при одном источнике.
@@ -886,7 +887,8 @@ telegram_signal_agent:
   control_panel_enabled: false
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
-  session_name: telegram_user_signal_agent
+  # Отдельный файл сессии AW (не делить с /root/PRD-BOT-ALL)
+  session_name: data/telegram_signal_agent_world
   ignore_bot_echo_messages: true
   allowed_chats: []
   ignored_substrings:
