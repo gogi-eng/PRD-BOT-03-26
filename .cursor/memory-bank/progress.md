@@ -1,3 +1,13 @@
+## 26.08.2026 — GARCH ON на проде (без модернизации 5-10x)
+
+- Одобрение: включить нынешний GARCH на проде как на AW
+- Config: `volatility_regime_sizing.enabled: true`, `positions.trailing_volatility_regime.enabled: true`
+- Тест: `test_sandbox_and_prod_trailing_garch_on` (вместо prod_off)
+- pytest: test_volatility_regime_sizing + test_trailing_volatility_regime — 17 passed
+- py_compile N/A (yaml+assert); бэктест N/A (включение существующей фичи)
+- Ветка: только `26.08.26-PRD-BOT-ALL` (prod yaml)
+- Маркеры: `Volatility regime`, `Trailing GARCH`
+- Откат: `06.08.26-PRD-BOT-ALL`
 ## 20.08.2026 — Telegram /panel Conflict fix
 
 - Баг: `Conflict` → `_stop.set()` гасил панель до рестарта
@@ -224,4 +234,5 @@
 ## 08.08.2026 — Companion BLESS hotfix
 - Причина: trade_companion «разворот» SMA8/21 без flip (не trailing/BE/opposite).
 - Правка: prior trend + hold 300s + пороги −3.5%/0.8%; тесты test_trade_companion.py.
+
 

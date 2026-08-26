@@ -217,9 +217,9 @@ derivatives_entry_guard:
     short_crowded_buy_ratio: 0.28
 
 # Пресеты риска — кнопки 🛡 Консерв / ⚖️ Норма / 🚀 Агресс в Telegram
-# GARCH sizing: на проде выкл. до soak на AGENT-WORLD
+# GARCH sizing: calm/normal/storm → множитель размера (как на AGENT-WORLD)
 volatility_regime_sizing:
-  enabled: false
+  enabled: true
   advisory_only: false
   block_on_storm: false
   mode: regime
@@ -535,9 +535,9 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
-  # GARCH → дистанция трейлинга: сначала проверка на AGENT-WORLD
+  # GARCH → дистанция трейлинга: calm ближе, storm шире (как на AGENT-WORLD)
   trailing_volatility_regime:
-    enabled: false
+    enabled: true
     advisory_only: false
     reuse_sizing_cfg: true
     distance_mult:
