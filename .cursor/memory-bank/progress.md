@@ -1,3 +1,10 @@
+## 26.08.2026 — AW фильтры чуть уже (меньше сделок)
+
+- Только песочница: `deploy/config.agent_world_sandbox.yaml`
+- SPIKE score 72→76, scanner 75→78, TG conf text 85 / AI 60, max_positions 8→6
+- Soft overrides 0.55→0.45; A+B каналы / polling / one-way сохранены
+- Прод не трогали; откат AW: `02.08.26-AGENT-WORLD`
+
 ## 10.08.2026 — DeepSeek + архив Chat_10_08_26
 
 - Прямой DeepSeek в prd_agent/ai/llm_gateway.py (provider deepseek), ключ DEEPSEEK_API_KEY из .env

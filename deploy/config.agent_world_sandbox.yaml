@@ -90,14 +90,14 @@ trading:
     active_sec: 45
     idle_sec: 120
     idle_after_quiet_min: 60
-  max_positions: 8
+  max_positions: 6
   dynamic_leverage:
     enabled: true
     min: 10
     max: 15
     min_confidence: 0.68
     max_confidence: 0.95
-  min_signal_confidence: 0.85
+  min_signal_confidence: 0.87
   min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
   risk_pct_per_trade: 0.225
@@ -320,11 +320,11 @@ risk_presets:
       mode: strict
   normal:
     trading:
-      min_signal_confidence: 0.85
+      min_signal_confidence: 0.87
       risk_pct_per_trade: 0.525
     quality_gate:
       min_rr_ratio: 2.0
-      min_confidence: 0.85
+      min_confidence: 0.87
     signals:
       min_analysis_confidence: 0.88
     entry_pipeline:
@@ -665,14 +665,14 @@ rule_weight_learning:
   neutral_threshold: 50
   caution_threshold: 40
   weight_overrides:
-    regime_trend: 0.55
-    adx_ok: 0.55
-    adx_strong: 0.55
-    imb_strong: 0.55
+    regime_trend: 0.45
+    adx_ok: 0.45
+    adx_strong: 0.45
+    imb_strong: 0.45
 
 quality_gate:
   enabled: true
-  min_confidence: 0.85
+  min_confidence: 0.87
   min_rr_ratio: 2.0
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
@@ -805,22 +805,22 @@ market_scanner:
     run_loop_in_signal_agent: false
     interval_sec: 90
     kline_interval: "15"
-    min_move_pct: 4.0
+    min_move_pct: 4.5
     min_24h_volume_usdt: 8000000
     max_symbols: 50
     top_n: 1
     # ЛАЙТ 28.07: чуть дольше cooldown — меньше повторных входов в ту же «памп»-монету
     symbol_cooldown_sec: 2400
     auto_execute: true
-    execute_min_score: 72
+    execute_min_score: 76
     # ЛАЙТ 28.07: объём должен подтверждать импульс (аналог «живой интерес», без on-chain)
-    min_volume_ratio: 1.40
+    min_volume_ratio: 1.55
     sl_buffer_pct: 0.25
     min_rr: 1.5
     use_closed_candle: false
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
-    extra_position_slots: 2
+    extra_position_slots: 1
     # P1: SPIKE вход через откат/FVG (прод + песочница ON)
     pullback_entry:
       enabled: true
@@ -878,7 +878,7 @@ telegram_signal_agent:
   telegram_notify: true
   market_scanner_interval_sec: 600
   market_scanner_min_score_to_notify: 58
-  market_scanner_execute_min_score: 75
+  market_scanner_execute_min_score: 78
   market_scanner_execute_require_confirmed_bos: true
   market_scanner_bos_watchlist_enabled: true
   market_scanner_bos_watchlist_timeout_hours: 6
@@ -934,9 +934,13 @@ telegram_signal_agent:
     enabled: true
     skip_noise_posts: true
     require_stop_loss: true
-    min_structure_score: 58
+    min_structure_score: 62
   require_stop_loss: true
-  min_openrouter_confidence: 68
+  # 26.08.26: чуть уже фильтры TG auto-exec
+  auto_execute_min_parser_confidence: 85
+  auto_execute_min_ai_confidence: 60
+  min_openrouter_confidence: 72
+  min_openrouter_confidence_trusted: 60
 
 reporter:
   interval_hours: 2
