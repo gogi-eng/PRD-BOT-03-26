@@ -627,6 +627,62 @@ class BybitClient:
             out["available_balance"] = out["wallet_balance"]
         return out
 
+
+    async def ensure_one_way_mode(self, *, coin: str = "USDT", probe_symbol: str = "BTCUSDT") -> Dict[str, Any]:
+        """Принудительно one-way (Merged Single). Без hedge positionIdx 1/2.
+
+        Bybit hedge на субаккаунте даёт retCode=10001 «position idx not match…»,
+        если бот шлёт ордер без hedge-idx. Мы всегда торгуем в one-way → mode=0.
+        """
+        out: Dict[str, Any] = {"ok": False, "mode": "unknown", "ret_code": None, "ret_msg": ""}
+        attempts = [
+            {"category": self.category, "coin": str(coin).upper(), "mode": 0},
+            {"category": self.category, "symbol": str(probe_symbol).upper(), "mode": 0},
+        ]
+        for params in attempts:
+            full = await self._request(
+                "POST",
+                "/v5/position/switch-mode",
+                params,
+                private=True,
+                return_full=True,
+            )
+            last_full = full if isinstance(full, dict) else None
+            code = int((last_full or {}).get("retCode", -1) or -1)
+            msg = str((last_full or {}).get("retMsg", "") or "")
+            out["ret_code"] = code
+            out["ret_msg"] = msg
+            # 0 = switched; 110025 = already one-way / not modified
+            if code in (0, 110025):
+                break
+
+        probe = await self._request(
+            "GET",
+            "/v5/position/list",
+            {"category": self.category, "symbol": str(probe_symbol).upper()},
+            private=True,
+        )
+        rows = (probe or {}).get("list") or []
+        idxs = {int(r.get("positionIdx") or 0) for r in rows}
+        if idxs & {1, 2}:
+            out["mode"] = "hedge"
+            out["ok"] = False
+            logger.warning(
+                "Bybit still HEDGE after switch-mode (idxs=%s ret=%s %s) — orders may fail 10001",
+                sorted(idxs),
+                out.get("ret_code"),
+                out.get("ret_msg"),
+            )
+        else:
+            out["mode"] = "one_way"
+            out["ok"] = True
+            logger.info(
+                "Bybit position mode ONE-WAY (no hedge idx); switch ret=%s %s",
+                out.get("ret_code"),
+                out.get("ret_msg") or "ok",
+            )
+        return out
+
     async def place_order(self, symbol: str, side: str, qty: float,
                           order_type: str = "Market", price: float = None,
                           stop_loss: float = None, take_profit: float = None,
@@ -644,8 +700,14 @@ class BybitClient:
             params["takeProfit"] = str(take_profit)
         if reduce_only:
             params["reduceOnly"] = True
-        if position_idx > 0:
-            params["positionIdx"] = position_idx
+        # Всегда one-way: hedge idx 1/2 запрещён (retCode 10001 на one-way счёте).
+        if int(position_idx or 0) != 0:
+            logger.warning(
+                "place_order %s: ignore hedge position_idx=%s → force 0 (one-way)",
+                symbol,
+                position_idx,
+            )
+        params["positionIdx"] = 0
 
         result = await self._request("POST", "/v5/order/create", params, private=True)
         if not result:
@@ -673,6 +735,8 @@ class BybitClient:
         return bool(result and not result.get("_error"))
 
     async def update_stop_loss(self, symbol: str, stop_loss: float, position_idx: int = 0) -> Dict:
+        # one-way only — hedge idx ломает trading-stop на Merged Single
+        position_idx = 0
         params = {
             "category": self.category, "symbol": symbol,
             "stopLoss": str(stop_loss), "positionIdx": position_idx,
@@ -685,6 +749,7 @@ class BybitClient:
         return {"success": False, "error": error}
 
     async def update_take_profit(self, symbol: str, take_profit: float, position_idx: int = 0) -> Dict:
+        position_idx = 0
         params = {
             "category": self.category, "symbol": symbol,
             "takeProfit": str(take_profit), "positionIdx": position_idx,
@@ -704,7 +769,7 @@ class BybitClient:
                 qty = float(positions[0].get("size", 0))
             else:
                 return {"success": False, "orderId": "", "error": "Position not found"}
-        return await self.place_order(symbol=symbol, side=close_side, qty=qty, order_type="Market", reduce_only=True, position_idx=position_idx)
+        return await self.place_order(symbol=symbol, side=close_side, qty=qty, order_type="Market", reduce_only=True, position_idx=0)
 
     async def get_symbol_leverage(self, symbol: str) -> int:
         """Фактическое плечо по символу с биржи (не «желаемое» супервизора)."""

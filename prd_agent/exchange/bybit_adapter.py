@@ -168,6 +168,12 @@ class BybitAdapter:
             return await self._client.get_long_short_ratio(symbol, period=period, limit=limit)
         return []
 
+    async def ensure_one_way_mode(self) -> Dict:
+        """Принудительно one-way на Bybit (без hedge)."""
+        if hasattr(self._client, "ensure_one_way_mode"):
+            return await self._client.ensure_one_way_mode()
+        return {"ok": False, "mode": "unsupported", "ret_code": None, "ret_msg": "no client method"}
+
     async def place_order(
         self,
         symbol: str,
@@ -179,6 +185,7 @@ class BybitAdapter:
         order_type: str = "Market",
         price: Optional[float] = None,
     ) -> Dict:
+        # positionIdx всегда 0 (one-way) — клиент сам игнорирует hedge 1/2
         return await self._client.place_order(
             symbol=symbol,
             side=side,
@@ -187,6 +194,7 @@ class BybitAdapter:
             take_profit=take_profit,
             order_type=order_type,
             price=price,
+            position_idx=0,
         )
 
     async def apply_trade_leverage(self, symbol: str, requested: int):

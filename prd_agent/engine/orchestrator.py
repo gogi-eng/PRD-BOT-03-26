@@ -533,6 +533,20 @@ class UnifiedOrchestrator:
         self._running = True
         self._notify_loop = asyncio.get_running_loop()
         self.risk.set_notify_callback(self._risk_notify)
+        # Без хеджа: Bybit one-way (positionIdx=0). Иначе ордера падают с retCode=10001.
+        bybit_cfg = self.cfg.get("bybit") or {}
+        if bool(bybit_cfg.get("force_one_way_mode", True)):
+            try:
+                mode_info = await self.exchange.ensure_one_way_mode()
+                logger.info(
+                    "Bybit force_one_way_mode: ok=%s mode=%s ret=%s %s",
+                    mode_info.get("ok"),
+                    mode_info.get("mode"),
+                    mode_info.get("ret_code"),
+                    mode_info.get("ret_msg") or "",
+                )
+            except Exception as exc:
+                logger.warning("Bybit ensure_one_way_mode failed: %s", exc)
         balance = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance)
         await self._refresh_symbols_if_due(force=True)
