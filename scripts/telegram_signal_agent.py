@@ -2204,6 +2204,19 @@ class TelegramSignalAgent:
             testnet=bool(get_cfg(self.cfg, "bybit", "testnet", False)),
             category=str(get_cfg(self.cfg, "bybit", "category", "linear")),
         )
+        # Без хеджа: one-way на субаккаунте (иначе 10001 position idx not match).
+        if bool(get_cfg(self.cfg, "bybit", "force_one_way_mode", True)):
+            try:
+                mode_info = await self.bybit.ensure_one_way_mode()
+                LOG.info(
+                    "Bybit force_one_way_mode: ok=%s mode=%s ret=%s %s",
+                    mode_info.get("ok"),
+                    mode_info.get("mode"),
+                    mode_info.get("ret_code"),
+                    mode_info.get("ret_msg") or "",
+                )
+            except Exception:
+                LOG.exception("Bybit ensure_one_way_mode failed")
         controls = SimpleNamespace(dry_run=not self._any_live_execution_enabled())
         self.execution = ExecutionEngine(self.bybit, controls, tg=None)
 
