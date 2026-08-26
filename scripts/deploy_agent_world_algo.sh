@@ -88,7 +88,7 @@ fi
 
 bash scripts/install_agent_world_config.sh
 
-mkdir -p reports/world reports/telegram_signals data/ledger data/trades data/kill_switch
+mkdir -p reports/world reports/telegram_signals data/ledger data/trades data/kill_switch data
 
 if [[ ! -f .env ]]; then
   echo ""
@@ -123,10 +123,15 @@ if [[ -f deploy/telegram_signal_agent_world.service ]]; then
       -e "s|@PYTHON@|$PYTHON|g" \
       deploy/telegram_signal_agent_world.service > "$WUNIT"
   systemctl daemon-reload
+  # Telethon session AW (отдельный файл; не трогаем session прода).
+  if [[ ! -f data/telegram_signal_agent_world.session && -f telegram_user_signal_agent.session ]]; then
+    cp -a telegram_user_signal_agent.session data/telegram_signal_agent_world.session
+    echo "bootstrap: data/telegram_signal_agent_world.session from local AW session"
+  fi
   systemctl enable telegram_signal_agent_world
   systemctl restart telegram_signal_agent_world
   echo ""
-  echo "=== telegram_signal_agent_world (RSS queue only) ==="
+  echo "=== telegram_signal_agent_world (channels + RSS) ==="
   systemctl is-active telegram_signal_agent_world || true
   journalctl -u telegram_signal_agent_world -n 10 --no-pager || true
 fi
