@@ -144,7 +144,7 @@ def test_apply_to_origins() -> None:
     )
 
 
-def test_sandbox_config_on_prod_off() -> None:
+def test_sandbox_and_prod_trailing_garch_on() -> None:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
@@ -155,8 +155,9 @@ def test_sandbox_config_on_prod_off() -> None:
     aw_block = aw.split("trailing_volatility_regime:", 1)[1].split("trailing_after_be:", 1)[0]
     prod_block = prod.split("trailing_volatility_regime:", 1)[1].split("trailing_after_be:", 1)[0]
     assert "enabled: true" in aw_block
-    assert "enabled: false" in prod_block
+    assert "enabled: true" in prod_block
     assert "calm:" in aw_block and "storm:" in aw_block
+    assert "calm:" in prod_block and "storm:" in prod_block
 
 
 def test_log_returns_used_by_garch_path() -> None:
