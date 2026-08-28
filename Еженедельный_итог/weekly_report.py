@@ -12,8 +12,17 @@
    Исполнить → мероприятия).
 5) Пишет отчёт Word на рабочий стол и в N:\\…\\Отчеты (если доступен).
 
+Ежедневно пн–пт в 16:30: отчёт за сегодня. Сб и вс — тишина.
+Догон 08:30 пн–пт: предыдущий рабочий день (в понедельник — пятница).
+снова открыть Word, если файл есть, но не правили (не сохраняли);
+ничего не делать, если уже правили (папка «принятые» или сохранение >60 сек).
+Задачи планировщика скрипт ставит сам при любом запуске.
+Недельный --from-daily склеивает правленные дни КАК ЕСТЬ (без --format).
+
 Запуск: двойной щелчок по «Сделать еженедельный итог.bat»
 или: python weekly_report.py
+      python weekly_report.py --daily
+      python weekly_report.py --from-daily
       python weekly_report.py --from 2026-07-27 --to 2026-07-30
       python weekly_report.py --events 5 --reviewed 12 --developed 4
 """
@@ -25,9 +34,30 @@ import datetime as dt
 import os
 import re
 import shutil
+import subprocess
 import sys
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None  # type: ignore[misc, assignment]
+
+_ATTESTATION = Path(r"C:\Users\v.dubovik\AttestationSync")
+if str(_ATTESTATION) not in sys.path:
+    sys.path.insert(0, str(_ATTESTATION))
+from format_weekly_report import (
+    PROTECTED_DAILY_MESSAGE,
+    format_weekly_docx,
+    is_accepted_daily_path,
+    is_protected_daily_report,
+    is_weekly_letterhead,
+    is_weekly_signatory_line,
+    validate_weekly_document,
+)
+import fix_sniot_document as sniot_office
 
 try:
     from docx import Document
@@ -47,6 +77,14 @@ N_DUBOVIK = Path(
     r"N:\9 - Служба надёжности и охраны труда (СНиОТ)\Дубовик В.В"
 )
 N_REPORTS = N_DUBOVIK / "Отчеты"
+DAILY_ROOT = DESKTOP / "Ежедневные отчёты"
+DAILY_EDIT_DIR = DAILY_ROOT / "на_правку"
+DAILY_ACCEPTED_DIR = DAILY_ROOT / "принятые"
+DO_NOT_REFORMAT_MARK = "НЕ ОФОРМЛЯТЬ ПОВТОРНО"
+EDITED_MIN_SECONDS = 60
+SCHEDULER_TASK_DAILY = "СНиОТ_ежедневный_отчёт"
+SCHEDULER_TASK_CATCH = "СНиОТ_ежедневный_отчёт_догон"
+PYTHON_EXE = Path(r"C:\Users\v.dubovik\AppData\Local\Programs\Python\Python311\python.exe")
 
 IMG_DATE_RE = re.compile(r"(?:IMG_|PHOTO_)?(\d{4})(\d{2})(\d{2})[_-]?", re.I)
 FOLDER_DATE_RE = re.compile(
@@ -67,15 +105,288 @@ SKIP_DIR_PARTS = {
 }
 
 
+def moscow_now() -> dt.datetime:
+    """Сейчас по Москве (на этом ПК обычно уже Москва; иначе Europe/Moscow)."""
+    if ZoneInfo is not None:
+        try:
+            return dt.datetime.now(ZoneInfo("Europe/Moscow")).replace(tzinfo=None)
+        except Exception:
+            pass
+    return dt.datetime.now()
+
+
+def is_weekend(day: dt.date) -> bool:
+    """Суббота и воскресенье — выходные, дневных отчётов нет."""
+    return day.weekday() >= 5
+
+
+def previous_workday(day: dt.date) -> dt.date:
+    """Предыдущий рабочий день (пн–пт). С понедельника — пятница."""
+    d = day - dt.timedelta(days=1)
+    while is_weekend(d):
+        d -= dt.timedelta(days=1)
+    return d
+
+
 def week_bounds(today: dt.date | None = None) -> tuple[dt.datetime, dt.datetime]:
-    """Понедельник 07:30 — воскресенье 23:59:59 (или сегодня, если неделя не закончена)."""
-    today = today or dt.date.today()
+    """Понедельник 07:30 — пятница 23:59:59 (или сегодня, если неделя ещё идёт). Сб/вс в период не входят."""
+    today = today or moscow_now().date()
     monday = today - dt.timedelta(days=today.weekday())
     start = dt.datetime.combine(monday, dt.time(7, 30))
-    sunday = monday + dt.timedelta(days=6)
-    end_day = min(today, sunday)
+    friday = monday + dt.timedelta(days=4)
+    if is_weekend(today):
+        end_day = friday
+    else:
+        end_day = min(today, friday)
     end = dt.datetime.combine(end_day, dt.time(23, 59, 59))
     return start, end
+
+
+def day_bounds(
+    day: dt.date | None = None,
+    now: dt.datetime | None = None,
+) -> tuple[dt.datetime, dt.datetime]:
+    """Текущие сутки по Москве: с 00:00 до сейчас (если это сегодня) или до 23:59:59."""
+    now = now or moscow_now()
+    day = day or now.date()
+    start = dt.datetime.combine(day, dt.time(0, 0, 0))
+    if now.date() == day:
+        end = now.replace(microsecond=0)
+    else:
+        end = dt.datetime.combine(day, dt.time(23, 59, 59))
+    if end < start:
+        end = start
+    return start, end
+
+
+def daily_filename(day: dt.date) -> str:
+    return f"Ежедневный_отчёт_{day.isoformat()}.docx"
+
+
+def dates_in_period(start: dt.datetime, end: dt.datetime) -> list[dt.date]:
+    days: list[dt.date] = []
+    cur = start.date()
+    last = end.date()
+    while cur <= last:
+        days.append(cur)
+        cur += dt.timedelta(days=1)
+    return days
+
+
+def workdays_in_period(start: dt.datetime, end: dt.datetime) -> list[dt.date]:
+    """Только пн–пт."""
+    return [d for d in dates_in_period(start, end) if not is_weekend(d)]
+
+
+def is_internal_report_path(path: Path) -> bool:
+    """Свои отчёты и служебные файлы в статистику работы не входят."""
+    name = path.name
+    if name.startswith("~$"):
+        return True
+    s = str(path)
+    s_low = s.lower().replace("ё", "е")
+    n_low = name.lower().replace("ё", "е")
+    if "еженедельный_итог" in s_low:
+        return True
+    if "ежедневные отчеты" in s_low:
+        return True
+    if n_low.startswith("отчет_о_работе_дубовик"):
+        return True
+    if n_low.startswith("ежедневный_отчет_"):
+        return True
+    return False
+
+
+def ensure_daily_folders(
+    edit_dir: Path | None = None,
+    accepted_dir: Path | None = None,
+) -> tuple[Path, Path]:
+    edit_dir = edit_dir or DAILY_EDIT_DIR
+    accepted_dir = accepted_dir or DAILY_ACCEPTED_DIR
+    edit_dir.mkdir(parents=True, exist_ok=True)
+    accepted_dir.mkdir(parents=True, exist_ok=True)
+    readme = (edit_dir.parent) / "_ПРОЧТИТЕ.txt"
+    if not readme.is_file():
+        readme.write_text(
+            "ЕЖЕДНЕВНЫЕ ОТЧЁТЫ\n"
+            "==================\n\n"
+            "Каждый день в 16:30 (если компьютер включён) сюда кладётся Word "
+            "за сегодня: папка «на_правку».\n\n"
+            "Что сделать:\n"
+            "1) Откройте файл Ежедневный_отчёт_ГОД-МЕСЯЦ-ДЕНЬ.docx\n"
+            "2) Поправьте текст в Word\n"
+            "3) Сохраните (тот же файл) — этого достаточно.\n"
+            "   Можно дополнительно скопировать готовый файл в папку «принятые».\n\n"
+            "Недельный итог заберёт эти файлы КАК ЕСТЬ: без повторного оформления, "
+            "спеллера и замены слов.\n\n"
+            "Суббота и воскресенье — выходные, отчётов нет.\n"
+            "Если пятницу в 16:30 не правили — в понедельник в 08:30 откроется отчёт за пятницу.\n"
+            "Задачи 16:30 и 08:30 планировщик ставит сам; в выходной скрипт сразу выходит.\n",
+            encoding="utf-8",
+        )
+    return edit_dir, accepted_dir
+
+
+def lookup_daily_in_dir(folder: Path, day: dt.date) -> Path | None:
+    if not folder.is_dir():
+        return None
+    exact = folder / daily_filename(day)
+    if exact.is_file():
+        return exact
+    needle = day.isoformat()
+    matches = [
+        p
+        for p in folder.glob("*.docx")
+        if needle in p.name and not p.name.startswith("~$")
+    ]
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    return max(matches, key=lambda p: p.stat().st_mtime)
+
+
+def find_daily_for_day(
+    day: dt.date,
+    *,
+    edit_dir: Path | None = None,
+    accepted_dir: Path | None = None,
+) -> tuple[Path | None, str]:
+    """
+    Приоритет: папка «принятые», затем «на_правку» (если сохранили поверх).
+    source: accepted | edit | missing
+    """
+    edit_dir = edit_dir or DAILY_EDIT_DIR
+    accepted_dir = accepted_dir or DAILY_ACCEPTED_DIR
+    accepted = lookup_daily_in_dir(accepted_dir, day)
+    if accepted is not None:
+        return accepted, "accepted"
+    edited = lookup_daily_in_dir(edit_dir, day)
+    if edited is not None:
+        return edited, "edit"
+    return None, "missing"
+
+
+def generated_stamp_path(docx: Path) -> Path:
+    return docx.with_name(docx.stem + ".generated.txt")
+
+
+def write_generated_stamp(docx: Path, when: dt.datetime | None = None) -> None:
+    when = when or moscow_now()
+    generated_stamp_path(docx).write_text(
+        when.isoformat(timespec="seconds"), encoding="utf-8"
+    )
+
+
+def read_generated_time(docx: Path) -> dt.datetime | None:
+    stamp = generated_stamp_path(docx)
+    if not stamp.is_file():
+        return None
+    try:
+        return dt.datetime.fromisoformat(stamp.read_text(encoding="utf-8").strip())
+    except ValueError:
+        return None
+
+
+def was_daily_edited_by_user(
+    path: Path,
+    *,
+    min_seconds: int = EDITED_MIN_SECONDS,
+) -> bool:
+    """
+    Правил = сохранил в Word после создания, либо положил в «принятые».
+    Открыл Word и закрыл без Save — не правка (mtime почти как при создании).
+    """
+    if path is None or not path.is_file():
+        return False
+    parts = [x.lower().replace("ё", "е") for x in path.parts]
+    if "принятые" in parts:
+        return True
+    _ctime, mtime = file_times(path)
+    generated = read_generated_time(path)
+    base = generated or _ctime
+    return (mtime - base).total_seconds() > min_seconds
+
+
+def catch_up_target_day(now: dt.datetime | None = None) -> dt.date:
+    """Рабочий день для догона 08:30: вчера, а в понедельник — пятница."""
+    now = now or moscow_now()
+    return previous_workday(now.date())
+
+
+def plan_daily_run(
+    day: dt.date,
+    *,
+    edit_dir: Path | None = None,
+    accepted_dir: Path | None = None,
+    catch_up: bool = False,
+) -> tuple[str, Path | None, str]:
+    """
+    skip — уже правили (принятые или сохранение спустя >60 сек);
+    reopen — файл есть, но не правили (только для догона 08:30);
+    create — файла нет, или в 16:30 есть неотредактированный (пересобрать за сегодня).
+    """
+    path, source = find_daily_for_day(
+        day, edit_dir=edit_dir, accepted_dir=accepted_dir
+    )
+    if source == "accepted" and path is not None:
+        return "skip", path, "accepted"
+    if path is not None and was_daily_edited_by_user(path):
+        return "skip", path, "edited"
+    if path is None:
+        return "create", None, "missing"
+    if catch_up:
+        return "reopen", path, "unedited"
+    return "create", path, "unedited"
+
+
+def ensure_windows_daily_tasks() -> list[str]:
+    """Поставить/обновить обе задачи планировщика. Вызывается при любом запуске."""
+    notes: list[str] = []
+    if os.environ.get("WEEKLY_SKIP_SCHEDULER") == "1":
+        return ["Планировщик: пропуск (WEEKLY_SKIP_SCHEDULER=1)"]
+    if sys.platform != "win32":
+        return ["Планировщик: не Windows — задачи не ставлю"]
+    py = str(PYTHON_EXE if PYTHON_EXE.is_file() else sys.executable)
+    script = str(Path(__file__).resolve())
+    jobs = (
+        (SCHEDULER_TASK_DAILY, "16:30", f'"{py}" "{script}" --daily'),
+        (SCHEDULER_TASK_CATCH, "08:30", f'"{py}" "{script}" --daily --catch-up'),
+    )
+    for name, at, tr in jobs:
+        cmd = [
+            "schtasks",
+            "/Create",
+            "/TN",
+            name,
+            "/SC",
+            "DAILY",
+            "/ST",
+            at,
+            "/F",
+            "/RL",
+            "LIMITED",
+            "/IT",
+            "/TR",
+            tr,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if proc.returncode == 0:
+                notes.append(f"Планировщик: {name} — каждый день в {at}")
+            else:
+                err = (proc.stderr or proc.stdout or "").strip()[:240]
+                notes.append(f"Планировщик: не удалось {name}: {err}")
+        except OSError as exc:
+            notes.append(f"Планировщик: ошибка {name}: {exc}")
+    return notes
 
 
 def parse_args():
@@ -104,6 +415,51 @@ def parse_args():
         type=int,
         default=None,
         help="Число разработанных документов вручную",
+    )
+    p.add_argument(
+        "--format",
+        dest="format_path",
+        help="Только оформить уже готовый .docx итога (с бэкапом)",
+    )
+    p.add_argument(
+        "--check",
+        dest="check_path",
+        help="Только проверить оформление готового .docx итога",
+    )
+    p.add_argument(
+        "--daily",
+        action="store_true",
+        help="Ежедневный отчёт за сутки (на правку в Word)",
+    )
+    p.add_argument(
+        "--from-daily",
+        action="store_true",
+        dest="from_daily",
+        help="Недельный итог из уже правленных дневных .docx (без повторного оформления)",
+    )
+    p.add_argument(
+        "--date",
+        dest="for_date",
+        help="Дата ГГГГ-ММ-ДД для --daily (по умолчанию сегодня по Москве)",
+    )
+    p.add_argument(
+        "--fill-missing",
+        action="store_true",
+        dest="fill_missing",
+        help="Для --from-daily: если дневного файла нет — вставить сырой черновик за этот день",
+    )
+    p.add_argument(
+        "--catch-up",
+        "--missed-yesterday",
+        dest="catch_up",
+        action="store_true",
+        help="Догон 08:30: вчерашний день. Нет файла — создать; не правили — открыть Word; правили — ничего",
+    )
+    p.add_argument(
+        "--no-open",
+        action="store_true",
+        dest="no_open",
+        help="Не открывать Word после сохранения",
     )
     return p.parse_args()
 
@@ -197,6 +553,8 @@ def scan_docs(roots: list[Path], start: dt.datetime, end: dt.datetime) -> list[d
                 if should_skip(path):
                     continue
                 if path.suffix.lower() not in DOC_EXTS:
+                    continue
+                if is_internal_report_path(path):
                     continue
                 c, m = file_times(path)
                 # главное правило: документ правили и сохранили в периоде
@@ -504,8 +862,8 @@ def add_p(doc, text, bold=False, center=False, first=True, size=14):
     p = doc.add_paragraph()
     pf = p.paragraph_format
     pf.space_before = Pt(0)
-    pf.space_after = Pt(6)
-    pf.line_spacing = 1.15
+    pf.space_after = Pt(0)
+    pf.line_spacing = 1.0
     pf.first_line_indent = Cm(1.25) if first and not center else Cm(0)
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER if center else WD_ALIGN_PARAGRAPH.JUSTIFY
     set_run_font(p.add_run(text), bold=bold, size=size)
@@ -519,8 +877,8 @@ def add_bul(doc, text):
     p = doc.add_paragraph()
     pf = p.paragraph_format
     pf.space_before = Pt(0)
-    pf.space_after = Pt(3)
-    pf.line_spacing = 1.15
+    pf.space_after = Pt(0)
+    pf.line_spacing = 1.0
     pf.left_indent = Cm(0.75)
     pf.first_line_indent = Cm(0)
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -777,6 +1135,42 @@ def count_stats(
     }
 
 
+def collect_work(
+    start: dt.datetime,
+    end: dt.datetime,
+    *,
+    events: int | None = None,
+    reviewed: int | None = None,
+    developed: int | None = None,
+) -> tuple[list[dict], dict[dt.date, list[Path]], list[Path], dict]:
+    """Сбор файлов, фото и СЭД за период (тот же, что у недельного итога)."""
+    roots = [DESKTOP, DOWNLOADS, N_DUBOVIK]
+    docs = scan_docs(roots, start, end)
+    docs = [d for d in docs if not is_internal_report_path(d["path"])]
+    docs = dedupe_editions(docs)
+    photos = scan_photos(PHOTOS, start, end)
+    sed = find_sed_screens(DOWNLOADS, start, end)
+    print(f"Скриншотов СЭД: {len(sed)}")
+    sed_info = extract_sed_tasks(sed)
+    print(
+        f"Задач СЭД распознано: {sed_info['n_total']} "
+        f"(ознакомиться/согласовать={sed_info['n_reviewed']}, "
+        f"исполнить={sed_info['n_execute']})"
+    )
+    stats = count_stats(docs, photos, start, end, sed_info=sed_info)
+    stats["manual"] = False
+    if events is not None:
+        stats["events"] = events
+        stats["manual"] = True
+    if reviewed is not None:
+        stats["reviewed_n"] = reviewed
+        stats["manual"] = True
+    if developed is not None:
+        stats["developed_n"] = developed
+        stats["manual"] = True
+    return docs, photos, sed, stats
+
+
 def build_report(
     start: dt.datetime,
     end: dt.datetime,
@@ -785,30 +1179,47 @@ def build_report(
     sed: list[Path],
     out_path: Path,
     stats: dict,
+    *,
+    kind: str = "weekly",
+    format_office: bool = True,
 ) -> Path:
     doc = Document()
     for s in doc.sections:
         s.top_margin = Cm(2)
         s.bottom_margin = Cm(2)
         s.left_margin = Cm(3)
-        s.right_margin = Cm(1.5)
+        s.right_margin = Cm(0.8)
 
     d1 = start.strftime("%d.%m.%Y")
     d2 = end.strftime("%d.%m.%Y")
-    today_s = dt.date.today().strftime("%d.%m.%Y")
+    today_s = moscow_now().strftime("%d.%m.%Y")
+    is_daily = kind == "daily"
 
-    add_p(doc, "ГОСУДАРСТВЕННОЕ ПРЕДПРИЯТИЕ «МИНСККОММУНТЕПЛОСЕТЬ»", True, True, False, 12)
-    add_p(doc, "Служба надёжности и охраны труда (СНиОТ)", False, True, False, 12)
+    add_p(doc, "ГОСУДАРСТВЕННОЕ ПРЕДПРИЯТИЕ «МИНСККОММУНТЕПЛОСЕТЬ»", True, True, False, 14)
+    add_p(doc, "Служба надёжности и охраны труда (СНиОТ)", False, True, False, 14)
     doc.add_paragraph()
     add_p(doc, "ОТЧЁТ", True, True, False, 16)
-    add_p(doc, "о выполненной работе за период", False, True, False)
-    add_p(doc, f"с {d1} по {d2}", True, True, False)
+    if is_daily:
+        add_p(doc, "о выполненной работе за сутки", False, True, False)
+        add_p(doc, d1, True, True, False)
+    else:
+        add_p(doc, "о выполненной работе за период", False, True, False)
+        add_p(doc, f"с {d1} по {d2}", True, True, False)
     doc.add_paragraph()
     add_p(
         doc,
         "Исполнитель: ведущий инженер по промышленной безопасности СНиОТ Дубовик В.В.",
         first=False,
     )
+    if is_daily:
+        add_p(
+            doc,
+            "Это ежедневный отчёт НА ПРАВКУ. Поправьте текст в Word и сохраните "
+            "этот же файл (или положите копию в папку «принятые»). "
+            "Недельный итог заберёт файл как есть, без повторного оформления, "
+            f"спеллера и замены слов. Метка: {DO_NOT_REFORMAT_MARK}.",
+            first=True,
+        )
     add_p(
         doc,
         "Документ сформирован автоматически скриптом «Еженедельный итог». "
@@ -828,9 +1239,10 @@ def build_report(
     rev = stats["reviewed_n"]
     dev = stats["developed_n"]
 
+    period_phrase = f"За сутки {d1}" if is_daily else f"За период с {d1} по {d2}"
     add_p(
         doc,
-        f"За период с {d1} по {d2} проведено мероприятий: {ev}; "
+        f"{period_phrase} проведено мероприятий: {ev}; "
         f"документов рассмотрено: {rev}; документов разработано: {dev}.",
         first=True,
     )
@@ -1040,8 +1452,173 @@ def build_report(
     add_h(doc, "6. Примечание")
     add_p(
         doc,
-        f"Скрипт: Desktop\\Еженедельный_итог\\weekly_report.py. "
+        f"Скрипт: Desktop\\Еженедельный_итог\\weekly_report.py"
+        f"{' --daily' if is_daily else ''}. "
         f"Дата формирования: {today_s}.",
+        first=True,
+    )
+    if is_daily:
+        add_p(
+            doc,
+            f"После правки сохраните файл. Метка: {DO_NOT_REFORMAT_MARK}.",
+            first=True,
+        )
+    doc.add_paragraph()
+    add_p(doc, "Ведущий инженер по промышленной безопасности СНиОТ", first=False)
+    add_p(doc, "_________________ / В.В. Дубовик /", first=False)
+    add_p(doc, today_s, first=False)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(out_path)
+    if format_office:
+        formatted = format_weekly_docx(
+            out_path,
+            backup=False,
+            allow_daily_initial=is_daily,
+        )
+        if formatted.get("issues"):
+            print("Оформление: есть замечания:")
+            for item in formatted["issues"][:12]:
+                print(" -", item)
+        else:
+            print("Оформление: Инструкция по делопроизводству 2025, без двойных пробелов")
+    else:
+        print("Оформление дневного/принятого файла не повторялось (как есть).")
+    return out_path
+
+
+def _insert_before_sectpr(dest_body, element) -> None:
+    sect = dest_body.find(qn("w:sectPr"))
+    if sect is not None:
+        sect.addprevious(element)
+    else:
+        dest_body.append(element)
+
+
+def copy_docx_body_as_is(
+    src_path: Path,
+    dest_doc: Document,
+    *,
+    skip_letterhead: bool = True,
+) -> int:
+    """Скопировать абзацы и таблицы без оформления, спеллера и замен текста."""
+    src = Document(str(src_path))
+    dest_body = dest_doc.element.body
+    skipping = skip_letterhead
+    copied = 0
+    for child in list(src.element.body):
+        if child.tag == qn("w:sectPr"):
+            continue
+        if skipping and child.tag == qn("w:p"):
+            texts = [node.text or "" for node in child.iter(qn("w:t"))]
+            text = "".join(texts)
+            if (not text.strip()) or is_weekly_letterhead(text) or is_weekly_signatory_line(text):
+                continue
+            skipping = False
+        _insert_before_sectpr(dest_body, deepcopy(child))
+        copied += 1
+    return copied
+
+
+def assemble_weekly_from_daily(
+    start: dt.datetime,
+    end: dt.datetime,
+    out_path: Path,
+    *,
+    edit_dir: Path | None = None,
+    accepted_dir: Path | None = None,
+    fill_missing: bool = False,
+) -> tuple[Path, list[str]]:
+    """
+    Склеить недельный итог из дневных Word.
+    Принятые / сохранённые дневные файлы НЕ прогонять через --format.
+    """
+    edit_dir, accepted_dir = ensure_daily_folders(edit_dir, accepted_dir)
+    notes: list[str] = []
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Cm(2)
+        section.bottom_margin = Cm(2)
+        section.left_margin = Cm(3)
+        section.right_margin = Cm(0.8)
+    sniot_office.apply_page_setup_deloproizvodstvo(doc)
+
+    d1 = start.strftime("%d.%m.%Y")
+    d2 = end.strftime("%d.%m.%Y")
+    today_s = moscow_now().strftime("%d.%m.%Y")
+
+    add_p(doc, "ГОСУДАРСТВЕННОЕ ПРЕДПРИЯТИЕ «МИНСККОММУНТЕПЛОСЕТЬ»", True, True, False, 14)
+    add_p(doc, "Служба надёжности и охраны труда (СНиОТ)", False, True, False, 14)
+    doc.add_paragraph()
+    add_p(doc, "ОТЧЁТ", True, True, False, 16)
+    add_p(doc, "о выполненной работе за период", False, True, False)
+    add_p(doc, f"с {d1} по {d2}", True, True, False)
+    doc.add_paragraph()
+    add_p(
+        doc,
+        "Исполнитель: ведущий инженер по промышленной безопасности СНиОТ Дубовик В.В.",
+        first=False,
+    )
+    add_p(
+        doc,
+        "Составлен из дневных отчётов (папки «принятые» и «на_правку»). "
+        "Тексты дней включены как есть: без повторного оформления, "
+        f"спеллера и замены слов. {DO_NOT_REFORMAT_MARK}.",
+        first=True,
+    )
+
+    for day in workdays_in_period(start, end):
+        add_h(doc, f"День {day.strftime('%d.%m.%Y')}")
+        path, source = find_daily_for_day(
+            day, edit_dir=edit_dir, accepted_dir=accepted_dir
+        )
+        if path is None and fill_missing:
+            day_start, day_end = day_bounds(
+                day, now=dt.datetime.combine(day, dt.time(23, 59, 59))
+            )
+            print(f"Нет дневного файла за {day.isoformat()} — собираю сырой черновик")
+            docs, photos, sed, stats = collect_work(day_start, day_end)
+            draft = edit_dir / daily_filename(day)
+            build_report(
+                day_start,
+                day_end,
+                docs,
+                photos,
+                sed,
+                draft,
+                stats,
+                kind="daily",
+                format_office=True,
+            )
+            path, source = draft, "draft"
+        if path is None:
+            add_p(
+                doc,
+                f"{day.strftime('%d.%m.%Y')} — дневной отчёт не найден "
+                "(компьютер был выключен в 16:30 или файл не сохраняли). "
+                "День пропущен.",
+                first=True,
+            )
+            notes.append(f"{day.isoformat()}: нет файла — пропуск")
+            continue
+        label = {
+            "accepted": "принятый (папка «принятые»)",
+            "edit": "сохранённый в «на_правку»",
+            "draft": "сырой черновик (дня не было — собран сейчас)",
+        }.get(source, source)
+        add_p(
+            doc,
+            f"Источник: {path.name} — {label}. Без повторного оформления.",
+            first=True,
+        )
+        copied = copy_docx_body_as_is(path, doc, skip_letterhead=True)
+        notes.append(f"{day.isoformat()}: {source} ({copied} фрагм.) {path.name}")
+
+    add_h(doc, "Примечание")
+    add_p(
+        doc,
+        f"Скрипт: Desktop\\Еженедельный_итог\\weekly_report.py --from-daily. "
+        f"Дата сборки: {today_s}.",
         first=True,
     )
     doc.add_paragraph()
@@ -1051,11 +1628,150 @@ def build_report(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(out_path)
-    return out_path
+    out_path.write_bytes(sniot_office.fix_page_numbering(out_path.read_bytes()))
+    return out_path, notes
+
+
+def _copy_to_n_reports(path: Path) -> None:
+    if not N_REPORTS.exists():
+        return
+    try:
+        dest = N_REPORTS / path.name
+        shutil.copy2(path, dest)
+        print(f"Копия: {dest}")
+    except OSError as e:
+        print(f"На N: не скопировано ({e})")
+
+
+def _open_docx(path: Path) -> None:
+    try:
+        os.startfile(path)  # noqa: S606
+    except OSError:
+        pass
+
+
+def _write_daily_run_log(path: Path, day: dt.date) -> None:
+    log = Path(__file__).resolve().parent / "_last_daily_run.txt"
+    try:
+        log.write_text(
+            f"{moscow_now().strftime('%Y-%m-%d %H:%M:%S')} МСК\n"
+            f"день: {day.isoformat()}\n"
+            f"файл: {path}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 def main():
     args = parse_args()
+    for line in ensure_windows_daily_tasks():
+        print(line)
+    if args.check_path:
+        path = Path(args.check_path)
+        if is_protected_daily_report(path) or is_accepted_daily_path(path):
+            print(PROTECTED_DAILY_MESSAGE)
+            print("Проверку оформления для дневного отчёта не выполняю.")
+            return 0
+        doc = Document(str(path))
+        issues = validate_weekly_document(doc)
+        issues.extend(sniot_office.validate_page_numbering(path.read_bytes()))
+        if issues:
+            print("Замечания:")
+            for item in issues:
+                print(" -", item)
+            return 1
+        print(f"Проверка OK: {path}")
+        return 0
+    if args.format_path:
+        fp = Path(args.format_path)
+        if is_protected_daily_report(fp) or is_accepted_daily_path(fp):
+            print(PROTECTED_DAILY_MESSAGE)
+            return 2
+        result = format_weekly_docx(args.format_path, backup=True)
+        for act in result["actions"]:
+            print(act)
+        if result["issues"]:
+            print("Замечания:")
+            for item in result["issues"]:
+                print(" -", item)
+            return 1
+        print(f"Готово: {result['path']}")
+        if not args.no_open:
+            _open_docx(Path(result["path"]))
+        return 0
+    if (args.daily or args.catch_up) and args.from_daily:
+        print("Нельзя одновременно --daily/--catch-up и --from-daily.")
+        return 2
+
+    if args.daily or args.catch_up:
+        today = moscow_now().date()
+        if not args.for_date and is_weekend(today):
+            print("Выходной (суббота/воскресенье) — дневных отчётов нет.")
+            return 0
+        edit_dir, accepted_dir = ensure_daily_folders()
+        if args.catch_up:
+            if args.for_date:
+                day = dt.datetime.strptime(args.for_date, "%Y-%m-%d").date()
+            else:
+                day = catch_up_target_day()
+            print(f"Догон 08:30: проверяю рабочий день {day.isoformat()} (МСК)")
+        elif args.for_date:
+            day = dt.datetime.strptime(args.for_date, "%Y-%m-%d").date()
+        else:
+            day = today
+        if is_weekend(day):
+            print("За субботу и воскресенье дневные отчёты не делаем.")
+            return 0
+        action, existing, source = plan_daily_run(
+            day,
+            edit_dir=edit_dir,
+            accepted_dir=accepted_dir,
+            catch_up=bool(args.catch_up),
+        )
+        if action == "skip":
+            print(
+                f"Отчёт за {day.isoformat()} уже правили ({source}): {existing}. "
+                "Ничего не делаю."
+            )
+            _write_daily_run_log(existing or Path("skip"), day)
+            return 0
+        if action == "reopen":
+            print(
+                f"Отчёт за {day.isoformat()} не правили (не сохраняли). "
+                f"Снова открываю Word: {existing}"
+            )
+            _write_daily_run_log(existing or Path("reopen"), day)
+            if not args.no_open and existing is not None:
+                _open_docx(existing)
+            return 0
+        start, end = day_bounds(day)
+        print(f"Ежедневный отчёт за {day.isoformat()} (МСК): {start} — {end}")
+        docs, photos, sed, stats = collect_work(
+            start,
+            end,
+            events=args.events,
+            reviewed=args.reviewed,
+            developed=args.developed,
+        )
+        print(
+            f"Итоги: мероприятий={stats['events']}, "
+            f"рассмотрено={stats['reviewed_n']}, "
+            f"разработано={stats['developed_n']}"
+        )
+        out = Path(args.out) if args.out else edit_dir / daily_filename(day)
+        path = build_report(
+            start, end, docs, photos, sed, out, stats, kind="daily", format_office=True
+        )
+        print(f"Готово на правку: {path}")
+        print("Поправьте Word и СОХРАНИТЕ. Иначе завтра в 08:30 файл откроется снова.")
+        write_generated_stamp(path)
+        _write_daily_run_log(path, day)
+        _copy_to_n_reports(path)
+        if not args.no_open:
+            _open_docx(path)
+        return 0
+
     if args.date_from and args.date_to:
         start = dt.datetime.strptime(args.date_from, "%Y-%m-%d").replace(
             hour=7, minute=30
@@ -1066,41 +1782,32 @@ def main():
     else:
         start, end = week_bounds()
 
+    if args.from_daily:
+        print(f"Неделя из дневных: {start} — {end}")
+        name = (
+            f"Отчёт_о_работе_Дубовик_ВВ_"
+            f"{start.strftime('%d.%m.%Y')}-{end.strftime('%d.%m.%Y')}.docx"
+        )
+        out = Path(args.out) if args.out else DESKTOP / name
+        path, notes = assemble_weekly_from_daily(
+            start, end, out, fill_missing=args.fill_missing
+        )
+        for line in notes:
+            print(line)
+        print(f"Готово (дневные как есть, без повторного оформления): {path}")
+        _copy_to_n_reports(path)
+        if not args.no_open:
+            _open_docx(path)
+        return 0
+
     print(f"Период: {start} — {end}")
-    roots = [DESKTOP, DOWNLOADS, N_DUBOVIK]
-    # не сканируем весь Documents (много Viber) — только если явно нужно
-    docs = scan_docs(roots, start, end)
-    # убрать сам отчёт и служебные файлы скрипта
-    docs = [
-        d
-        for d in docs
-        if "Еженедельный_итог" not in str(d["path"])
-        and not d["name"].startswith("Отчёт_о_работе_Дубовик")
-        and not d["name"].startswith("~$")
-    ]
-    docs = dedupe_editions(docs)
-    photos = scan_photos(PHOTOS, start, end)
-    sed = find_sed_screens(DOWNLOADS, start, end)
-    print(f"Скриншотов СЭД: {len(sed)}")
-    sed_info = extract_sed_tasks(sed)
-    print(
-        f"Задач СЭД распознано: {sed_info['n_total']} "
-        f"(ознакомиться/согласовать={sed_info['n_reviewed']}, "
-        f"исполнить={sed_info['n_execute']})"
+    docs, photos, sed, stats = collect_work(
+        start,
+        end,
+        events=args.events,
+        reviewed=args.reviewed,
+        developed=args.developed,
     )
-
-    stats = count_stats(docs, photos, start, end, sed_info=sed_info)
-    stats["manual"] = False
-    if args.events is not None:
-        stats["events"] = args.events
-        stats["manual"] = True
-    if args.reviewed is not None:
-        stats["reviewed_n"] = args.reviewed
-        stats["manual"] = True
-    if args.developed is not None:
-        stats["developed_n"] = args.developed
-        stats["manual"] = True
-
     print(
         f"Итоги: мероприятий={stats['events']}, "
         f"рассмотрено={stats['reviewed_n']}, "
@@ -1114,20 +1821,9 @@ def main():
     out = Path(args.out) if args.out else DESKTOP / name
     path = build_report(start, end, docs, photos, sed, out, stats)
     print(f"Готово: {path}")
-
-    if N_REPORTS.exists():
-        try:
-            dest = N_REPORTS / path.name
-            shutil.copy2(path, dest)
-            print(f"Копия: {dest}")
-        except OSError as e:
-            print(f"На N: не скопировано ({e})")
-
-    # открыть папку / файл
-    try:
-        os.startfile(path)  # noqa: S606
-    except OSError:
-        pass
+    _copy_to_n_reports(path)
+    if not args.no_open:
+        _open_docx(path)
     return 0
 
 
