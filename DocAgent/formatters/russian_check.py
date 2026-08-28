@@ -17,6 +17,9 @@
 
 Автоматически исправляются только безопасные орфографические замены
 (одно предложение и уверенность). Спорные места пишутся в отчёт.
+
+Аббревиатуры (2–6 букв, заглавные / смешанный регистр: ЛСиМ, СНиОТ, САТП, ТКП…)
+спеллер, LanguageTool и локальные замены не проверяют и не правят.
 """
 
 from __future__ import annotations
@@ -104,7 +107,27 @@ LOCAL_FIXES = [
     (r"^ремонта системы отопления\d+\.\d+\.\s*", ""),
 ]
 
-# Слова/аббревиатуры, которые спеллер часто «ломает» в наших документах
+_ADJACENT_DUP_WORD_RE = re.compile(
+    r"(?<![0-9А-Яа-яЁёA-Za-z])"
+    r"([А-Яа-яЁёA-Za-z][А-Яа-яЁёA-Za-z0-9\-]*)"
+    r"(?:[ \t\xa0]+\1)+"
+    r"(?![0-9А-Яа-яЁёA-Za-z])",
+    re.IGNORECASE,
+)
+
+
+def collapse_adjacent_duplicate_words(text: str) -> str:
+    """«службы службы» → «службы»; «ТКП ТКП» тоже. Только соседние токены."""
+    if not text:
+        return text
+    prev = None
+    t = text
+    while prev != t:
+        prev = t
+        t = _ADJACENT_DUP_WORD_RE.sub(r"\1", t)
+    return t
+
+# Слова, которые спеллер часто «ломает» (фамилии, расширения; аббревиатуры — отдельно)
 IGNORE_WORDS = {
     "сниот",
     "мктс",
@@ -118,12 +141,108 @@ IGNORE_WORDS = {
     "иот",
     "ри",
     "ди",
+    "лсим",
+    "оотиз",
+    "юо",
+    "осим",
     "вирочкин",
     "литвинов",
     "дубовик",
     "docx",
     "pdf",
 }
+
+# Служебные сокращения СНиОТ / предприятия (не «исправлять» спеллером)
+KNOWN_ABBREVS = frozenset(
+    {
+        "лсим",
+        "сниот",
+        "сатп",
+        "ткп",
+        "нпа",
+        "тнпа",
+        "лпа",
+        "фио",
+        "ртс",
+        "лэс",
+        "атп",
+        "юо",
+        "оотиз",
+        "мктс",
+        "смат",
+        "иот",
+        "ри",
+        "ди",
+        "дсм",
+        "окси",
+        "прб",
+    }
+)
+
+_ALPHA_TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё]+")
+_ABBR_MASK = "\u2063ABBR{0}\u2063"
+
+
+def _letters_only(word: str) -> str:
+    return "".join(ch for ch in (word or "") if ch.isalpha())
+
+
+def is_abbreviation_token(word: str) -> bool:
+    """
+    Короткие служебные сокращения: ЛСиМ, СНиОТ, САТП, ТКП, ООТиЗ…
+
+    2–6 букв, все заглавные или смешанный регистр с ≥2 заглавными.
+    Спеллер / pymorphy / локальные замены такие токены не трогают.
+    """
+    letters = _letters_only(word)
+    if not letters:
+        return False
+    folded = letters.replace("ё", "е").replace("Ё", "Е").lower()
+    if folded in KNOWN_ABBREVS:
+        return True
+    if not 2 <= len(letters) <= 6:
+        return False
+    n_upper = sum(1 for ch in letters if ch.isupper())
+    n_lower = sum(1 for ch in letters if ch.islower())
+    if n_lower == 0 and n_upper >= 2:
+        return True
+    if n_upper >= 2 and n_lower >= 1:
+        return True
+    return False
+
+
+def _mask_abbreviations(text: str) -> tuple[str, list[str]]:
+    """Подставить маркеры вместо аббревиатур, чтобы regex/фразы их не меняли."""
+    held: list[str] = []
+
+    def _keep(m: re.Match) -> str:
+        w = m.group(0)
+        if is_abbreviation_token(w):
+            held.append(w)
+            return _ABBR_MASK.format(len(held) - 1)
+        return w
+
+    return _ALPHA_TOKEN_RE.sub(_keep, text), held
+
+
+def _unmask_abbreviations(text: str, held: list[str]) -> str:
+    out = text
+    for i in range(len(held) - 1, -1, -1):
+        out = out.replace(_ABBR_MASK.format(i), held[i])
+    return out
+
+
+def _token_at(text: str, offset: int, length: int) -> str:
+    """Слово целиком в позиции ошибки спеллера (не только выделенный кусок)."""
+    if offset < 0 or length <= 0 or offset >= len(text):
+        return (text[offset : offset + length] if offset >= 0 else "") or ""
+    start = offset
+    while start > 0 and text[start - 1].isalpha():
+        start -= 1
+    end = offset + length
+    while end < len(text) and text[end].isalpha():
+        end += 1
+    return text[start:end]
 
 
 def _set_paragraph_text(paragraph: Paragraph, text: str) -> None:
@@ -149,8 +268,17 @@ def fix_latin_lookalikes_in_russian(text: str) -> tuple[str, int]:
     def repl_word(m: re.Match) -> str:
         nonlocal n
         w = m.group(0)
+        mixed = bool(re.search(r"[A-Za-z]", w) and re.search(r"[А-Яа-яЁё]", w))
+        # Аббревиатуры: только латинский «двойник» внутри (CНиОТ → СНиОТ), форму не менять
+        if is_abbreviation_token(w):
+            if mixed:
+                fixed = w.translate(LATIN_TO_CYR)
+                if fixed != w:
+                    n += 1
+                    return fixed
+            return w
         # есть и латиница, и кириллица — или чисто латиница длиной>=2 среди кириллицы вокруг
-        if re.search(r"[A-Za-z]", w) and re.search(r"[А-Яа-яЁё]", w):
+        if mixed:
             fixed = w.translate(LATIN_TO_CYR)
             if fixed != w:
                 n += 1
@@ -169,7 +297,7 @@ def fix_latin_lookalikes_in_russian(text: str) -> tuple[str, int]:
                 return mapped
         return w
 
-    new = re.sub(r"[A-Za-zА-Яа-яЁё]+", repl_word, text)
+    new = _ALPHA_TOKEN_RE.sub(repl_word, text)
     return new, n
 
 
@@ -179,17 +307,24 @@ def apply_local_russian_fixes(text: str) -> tuple[str, list[str]]:
     if n_lat:
         details.append(f"латиница→кириллица: {n_lat}")
         text = text2
+    masked, held = _mask_abbreviations(text)
+    work = masked
     for pat, repl in LOCAL_FIXES:
         if repl is None:
             continue
-        new, cnt = re.subn(pat, repl, text, flags=re.IGNORECASE)
+        new, cnt = re.subn(pat, repl, work, flags=re.IGNORECASE)
         if cnt:
             details.append(f"локально: {pat} → {repl} (x{cnt})")
-            text = new
-    text2, phrase_details = apply_phrase_replacements(text)
+            work = new
+    text2, phrase_details = apply_phrase_replacements(work)
     if phrase_details:
         details.extend(phrase_details)
-        text = text2
+        work = text2
+    text = _unmask_abbreviations(work, held)
+    collapsed = collapse_adjacent_duplicate_words(text)
+    if collapsed != text:
+        details.append("повтор слова подряд")
+        text = collapsed
     return text, details
 
 
@@ -247,10 +382,16 @@ def _safe_spelling_replace(text: str, offset: int, length: int, suggestion: str)
     old = text[offset : offset + length]
     if not suggestion or suggestion == old:
         return None
+    token = _token_at(text, offset, length)
+    # не трогать служебные сокращения: ЛСиМ, СНиОТ, ТКП, ООТиЗ…
+    if is_abbreviation_token(old) or is_abbreviation_token(token) or is_abbreviation_token(suggestion):
+        return None
     # не трогать аббревиатуры в ВЕРХНЕМ РЕГИСТРЕ длиннее 1
     if old.isupper() and len(old) <= 6:
         return None
     if old.lower() in IGNORE_WORDS or suggestion.lower() in IGNORE_WORDS:
+        return None
+    if token.lower() in IGNORE_WORDS:
         return None
     # не разрезать составные технические слова пробелом («теплоустановок» ≠ «тепло установок»)
     if " " not in old and " " in suggestion and re.fullmatch(r"[A-Za-zА-Яа-яЁё\-]+", old or ""):
@@ -319,6 +460,7 @@ def check_and_fix_document(
         "local_fixes": 0,
         "speller_fixes": 0,
         "grammar_notes": 0,
+        "skipped_abbreviations": 0,
         "details": [],
         "suggestions": [],
         "help_urls": HELP_URLS,
@@ -359,6 +501,10 @@ def check_and_fix_document(
                         word = err.get("word") or ""
                         pos = int(err.get("pos", -1))
                         length = int(err.get("len", len(word)))
+                        token = _token_at(text, pos, length) if pos >= 0 else word
+                        if is_abbreviation_token(word) or is_abbreviation_token(token):
+                            report["skipped_abbreviations"] += 1
+                            continue
                         suggs = err.get("s") or []
                         if not suggs:
                             report["suggestions"].append(
@@ -366,7 +512,7 @@ def check_and_fix_document(
                             )
                             continue
                         best = suggs[0]
-                        if word.lower() in IGNORE_WORDS:
+                        if word.lower() in IGNORE_WORDS or token.lower() in IGNORE_WORDS:
                             continue
                         note = f"орфография: «{word}» → «{best}»"
                         if auto_fix and len(suggs) == 1:
@@ -419,6 +565,10 @@ def check_and_fix_document(
                 rule = ((m.get("rule") or {}).get("issueType") or "").lower()
                 cat = ((m.get("rule") or {}).get("category") or {}).get("id", "")
                 snippet = text[offset : offset + length] if offset >= 0 else ""
+                token = _token_at(text, offset, length) if offset >= 0 else snippet
+                if is_abbreviation_token(snippet) or is_abbreviation_token(token):
+                    report["skipped_abbreviations"] += 1
+                    continue
                 if not reps:
                     report["suggestions"].append(f"LT: {msg} «{snippet}» (абз. {i + 1})")
                     report["grammar_notes"] += 1
@@ -450,6 +600,7 @@ def check_and_fix_document(
         f"Абзацев: {report['paragraphs']}",
         f"Локальных правок: {report['local_fixes']}",
         f"Орфография исправлена: {report['speller_fixes']}",
+        f"Аббревиатуры пропущены (не правятся): {report['skipped_abbreviations']}",
         f"Замечаний (грамматика/спорные): {report['grammar_notes']}",
         "",
         "Сайты для ручной допроверки:",
@@ -465,6 +616,7 @@ def check_and_fix_document(
     report["report_path"] = str(rep_path)
     _log(
         f"done file={docx_path} local={report['local_fixes']} "
-        f"spell={report['speller_fixes']} notes={report['grammar_notes']}"
+        f"spell={report['speller_fixes']} abbrev_skip={report['skipped_abbreviations']} "
+        f"notes={report['grammar_notes']}"
     )
     return report

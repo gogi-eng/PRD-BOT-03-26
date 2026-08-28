@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -80,38 +81,68 @@ def write_cursor_task(
     return prompt
 
 
-def open_cursor_with_task(prompt_path: Path | None = None) -> tuple[bool, str]:
-    """Открыть Cursor в папке DocAgent; вернуть (ok, сообщение)."""
-    root = str(ROOT)
-    prompt_path = prompt_path or (HANDOFF_DIR / "PROMPT_FOR_CURSOR.txt")
-    try:
-        # Открыть проект DocAgent в Cursor
-        subprocess.Popen(
-            ["cursor", root],
-            cwd=root,
-            shell=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        # Попробовать открыть текст задания
-        if prompt_path.is_file():
+def _cursor_executable_candidates() -> list[str]:
+    """Пути к Cursor на Windows (CLI cursor или Cursor.exe)."""
+    found: list[str] = []
+    for name in ("cursor", "Cursor"):
+        p = shutil.which(name)
+        if p and p not in found:
+            found.append(p)
+    local = os.environ.get("LOCALAPPDATA", "")
+    for rel in (
+        "Programs/cursor/Cursor.exe",
+        "Programs/Cursor/Cursor.exe",
+        "cursor/Cursor.exe",
+    ):
+        exe = Path(local) / rel
+        if exe.is_file() and str(exe) not in found:
+            found.append(str(exe))
+    return found
+
+
+def _spawn_cursor(args: list[str], cwd: str) -> bool:
+    for exe in _cursor_executable_candidates():
+        try:
             subprocess.Popen(
-                ["cursor", str(prompt_path)],
-                cwd=root,
+                [exe, *args],
+                cwd=cwd,
                 shell=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def open_cursor_with_task(prompt_path: Path | None = None) -> tuple[bool, str]:
+    """Открыть Cursor в папке DocAgent; вернуть (ok, сообщение)."""
+    root = str(ROOT)
+    prompt_path = prompt_path or (HANDOFF_DIR / "PROMPT_FOR_CURSOR.txt")
+    opened = _spawn_cursor([root], root)
+    if prompt_path.is_file():
+        opened = _spawn_cursor([str(prompt_path)], root) or opened
+    if not opened and prompt_path.is_file():
+        try:
+            os.startfile(str(prompt_path))
+            opened = True
+        except OSError:
+            pass
+    if opened:
         return True, (
-            "Cursor открыт. В чате Cursor вставьте содержимое файла:\n"
-            f"{prompt_path}\n"
-            "или напишите: «Выполни задание из handoff/PROMPT_FOR_CURSOR.txt»"
+            "Задание записано в handoff.\n"
+            "Cursor открыт (или файл задания).\n\n"
+            "В чате Cursor напишите:\n"
+            "«Выполни задание из handoff/PROMPT_FOR_CURSOR.txt»\n\n"
+            f"Файл задания:\n{prompt_path}"
         )
-    except Exception as e:
-        return False, (
-            f"Не удалось запустить Cursor автоматически ({e}).\n"
-            f"Откройте Cursor вручную и файл:\n{prompt_path}"
-        )
+    return False, (
+        "Задание записано в handoff, но Cursor не запустился автоматически.\n"
+        "Откройте Cursor вручную (папка DocAgent) и файл:\n"
+        f"{prompt_path}\n\n"
+        "или напишите в чат: «Выполни задание из handoff/PROMPT_FOR_CURSOR.txt»"
+    )
 
 
 def needs_cursor_assist(

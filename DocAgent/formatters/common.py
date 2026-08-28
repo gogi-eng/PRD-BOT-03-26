@@ -25,6 +25,54 @@ from .etalon_format_spec import (
 
 # Титульная таблица («УТВЕРЖДАЮ») — как основной текст
 TITLE_TABLE_FONT_PT = 14
+HIGHLIGHT_FILL_HEX = frozenset(
+    {
+        "FFFF00",
+        "00FF00",
+        "00FFFF",
+        "FF00FF",
+        "FF0000",
+        "0000FF",
+        "YELLOW",
+        "GREEN",
+        "CYAN",
+        "MAGENTA",
+        "RED",
+        "BLUE",
+        "D9D9D9",
+        "C0C0C0",
+        "E7E6E6",
+        "F2F2F2",
+        "A6A6A6",
+        "BFBFBF",
+        "D0D0D0",
+    }
+)
+
+
+def strip_visual_highlights(doc) -> int:
+    """Снять жёлтый маркер и заливку абзацев (w:highlight / w:shd), кроме служебной заливки ячеек."""
+    changed = 0
+    root = doc.element
+    for hl in list(root.iter(qn("w:highlight"))):
+        parent = hl.getparent()
+        if parent is not None:
+            parent.remove(hl)
+            changed += 1
+    for shd in list(root.iter(qn("w:shd"))):
+        parent = shd.getparent()
+        if parent is None:
+            continue
+        parent_tag = parent.tag.split("}")[-1]
+        fill = (shd.get(qn("w:fill")) or shd.get(qn("w:val")) or "").upper()
+        if parent_tag == "tcPr":
+            if fill in HIGHLIGHT_FILL_HEX:
+                parent.remove(shd)
+                changed += 1
+            continue
+        parent.remove(shd)
+        changed += 1
+    return changed
 
 
 def set_run_font(run, font_name="Times New Roman", font_size=Pt(14), bold=None):
@@ -118,7 +166,7 @@ def is_paragraph_in_table(paragraph) -> bool:
 
 
 def set_single_line_spacing(paragraph) -> bool:
-    """Одинарный межстрочный интервал. True — если меняли."""
+    """Одинарный межстрочный интервал 1.0 и before/after = 0. True — если меняли."""
     pf = paragraph.paragraph_format
     changed = False
     if pf.line_spacing_rule != WD_LINE_SPACING.SINGLE:
@@ -134,6 +182,8 @@ def set_single_line_spacing(paragraph) -> bool:
         except Exception:
             pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
             changed = True
+    if zero_para_spacing(paragraph):
+        changed = True
     return changed
 
 
@@ -479,6 +529,7 @@ def apply_basic_office_format(
                     pass
         changed_paras += 1
 
+    strip_visual_highlights(doc)
     save_docx_unprotected(doc, output_path)
     return {
         "output": output_path,

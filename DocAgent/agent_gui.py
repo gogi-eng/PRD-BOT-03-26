@@ -10,11 +10,20 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from path_resolver import is_sniot_doc, resolve_document_path, save_last_used_path
+from path_resolver import (
+    canonical_fs_path,
+    is_allowed_sample_path,
+    is_sniot_doc,
+    live_user_agent_dir,
+    resolve_document_path,
+    save_last_used_path,
+    user_agent_dir_unavailable_hint,
+)
 from rules import DOCUMENT_TYPES
 from agent_core import detect_document, find_examples, choose_best_example, process_document, log, load_config
 from learner import get_watcher, record_agent_action, learn_from_file_change
 from remote_guard import get_guard
+from formatters.sniot_document import pick_sniot_build_line
 
 
 class AgentWizard(tk.Toplevel):
@@ -25,7 +34,7 @@ class AgentWizard(tk.Toplevel):
             self.agent_name = load_config().get("agent_name", "АГЕНТ Дубовика (№ 007)")
         except Exception:
             self.agent_name = "АГЕНТ Дубовика (№ 007)"
-        self.title(f"{self.agent_name} — оформление документов")
+        self.title(f"{self.agent_name} — {pick_sniot_build_line()}")
         self.geometry("700x580")
         self.minsize(560, 480)
         self.configure(bg="#f3f7f6")
@@ -34,7 +43,7 @@ class AgentWizard(tk.Toplevel):
         self.doc_type = tk.StringVar(value="unsupported")
         self.example_path = tk.StringVar(value="")
         self.status = tk.StringVar(value="Выберите документ — я спрошу, как его оформить.")
-        self.apply_text_edits = tk.BooleanVar(value=True)
+        self.apply_text_edits = tk.BooleanVar(value=False)
         self.apply_russian_check = tk.BooleanVar(value=True)
         self.structure_rebuild = tk.BooleanVar(value=False)
         self.learn_enabled = tk.BooleanVar(value=True)
@@ -173,7 +182,7 @@ class AgentWizard(tk.Toplevel):
         # 3. Пример
         fr3 = ttk.LabelFrame(
             top,
-            text="3. Образец (агент выбирает сам; можно сменить). Только СНиОТ / Инструкция",
+            text="3. Образец для редактирования — только папка Агент, в имени слово «образец»",
         )
         fr3.pack(fill="both", expand=True, padx=12, pady=4)
 
@@ -181,7 +190,7 @@ class AgentWizard(tk.Toplevel):
         self.example_list.pack(fill="both", expand=True, padx=6, pady=(6, 2))
         self.example_list.insert(
             tk.END,
-            "Стандарт: Инструкция по делопроизводству 2025 (без файла-образца из сети)",
+            "Стандарт: Инструкция по делопроизводству 2025 (без файла-образца; не ОБМЕН/сеть)",
         )
         self._examples = [None]
 
@@ -197,8 +206,8 @@ class AgentWizard(tk.Toplevel):
         fr4.pack(fill="x", padx=12, pady=4)
         tk.Checkbutton(
             fr4,
-            text="Текстовые правки: без маркеров; отступ 1,25 см; без лишних пробелов; "
-                 "из «должен знать» убрать кодексы/законы/декреты; как в РАССМОТРЕНИЕ",
+            text="Текстовые правки по сравнению файлов (для ДИ/РИ/положений выключено: "
+                 "только оформление, слова исходника не менять)",
             variable=self.apply_text_edits,
             bg="#f3f7f6",
             activebackground="#f3f7f6",
@@ -209,8 +218,7 @@ class AgentWizard(tk.Toplevel):
         ).pack(fill="x", padx=6, pady=(6, 2))
         tk.Checkbutton(
             fr4,
-            text="Проверка русского языка (весь текст): орфография + грамматика "
-                 "(LanguageTool, text.ru/textovod — отчёт; Яндекс.Спеллер — автоправки)",
+            text="Проверка русского языка (все документы; аббревиатуры ЛСиМ, СНиОТ, ТКП не менять)",
             variable=self.apply_russian_check,
             bg="#f3f7f6",
             activebackground="#f3f7f6",
@@ -288,6 +296,7 @@ class AgentWizard(tk.Toplevel):
         self.guard_status.pack(fill="x", padx=6, pady=(0, 6))
 
         self.bind("<Configure>", self._on_resize)
+        self._reload_examples()
 
     def _toggle_learning(self):
         w = get_watcher()
@@ -333,13 +342,33 @@ class AgentWizard(tk.Toplevel):
         self.focus_force()
         self._ensure_buttons_visible()
         if path:
-            self.file_path.set(path)
+            self.file_path.set(str(canonical_fs_path(path)))
             self._analyze()
         elif not self.file_path.get().strip():
             self._auto_fill_path()
         else:
             self._on_path_edited(silent=True)
         record_agent_action("open_wizard", {"path": path or self.file_path.get().strip() or None})
+
+    def _resolve_document_path_or_warn(self, *, for_cursor: bool = False) -> str | None:
+        """Путь из поля «1. Документ» или handoff/последний/по умолчанию."""
+        path = self.file_path.get().strip()
+        if path and os.path.exists(path):
+            return str(canonical_fs_path(path))
+        found, source = resolve_document_path()
+        if found:
+            self.file_path.set(str(canonical_fs_path(found)))
+            save_last_used_path(found)
+            if not for_cursor:
+                self._analyze()
+            self.status.set(f"Путь ({source}):\n{found.name}")
+            return str(canonical_fs_path(found))
+        messagebox.showwarning(
+            "Нужен файл",
+            "Укажите путь в поле «1. Документ» (вставьте или «Обзор…»)\n"
+            "или положите source_path в handoff\\request_latest.json (папка Агент).",
+        )
+        return None
 
     def _on_path_edited(self, silent: bool = False):
         """Пользователь указал путь в поле — не перезаписывать автоматически."""
@@ -355,6 +384,8 @@ class AgentWizard(tk.Toplevel):
             if not silent:
                 self.status.set(f"Файл не найден: {path}")
             return
+        path = str(canonical_fs_path(path))
+        self.file_path.set(path)
         save_last_used_path(path)
         self._analyze()
 
@@ -370,7 +401,7 @@ class AgentWizard(tk.Toplevel):
                 "или положите путь в handoff\\request_latest.json (source_path)."
             )
             return
-        self.file_path.set(str(found))
+        self.file_path.set(str(canonical_fs_path(found)))
         save_last_used_path(found)
         self._analyze()
         self.status.set(f"Путь из таблицы handoff ({source}):\n{found.name}")
@@ -389,7 +420,7 @@ class AgentWizard(tk.Toplevel):
             ],
         )
         if path:
-            self.file_path.set(path)
+            self.file_path.set(str(canonical_fs_path(path)))
             self._analyze()
             save_last_used_path(path)
 
@@ -405,6 +436,7 @@ class AgentWizard(tk.Toplevel):
             messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{e}")
             return
         self.doc_type.set(dtype)
+        self._apply_conservative_gui_defaults(dtype)
         for i, key in enumerate(DOCUMENT_TYPES):
             if key == dtype:
                 self.type_box.current(i)
@@ -428,11 +460,21 @@ class AgentWizard(tk.Toplevel):
             },
         )
 
+    def _apply_conservative_gui_defaults(self, dtype: str) -> None:
+        if dtype in (
+            "dolzhnostnaya_instrukciya",
+            "rabochaya_instrukciya",
+            "polozhenie",
+            "instrukciya_ot",
+        ):
+            self.apply_text_edits.set(False)
+
     def _on_type_change(self, _event=None):
         val = self.type_box.get()
         key = val.split(" — ", 1)[0].strip()
         if key in DOCUMENT_TYPES:
             self.doc_type.set(key)
+            self._apply_conservative_gui_defaults(key)
             self._show_type_notes(key)
             self._reload_examples(auto_select_for=self.file_path.get().strip() or None)
 
@@ -446,15 +488,29 @@ class AgentWizard(tk.Toplevel):
         self.example_list.delete(0, tk.END)
         self.example_list.insert(
             tk.END,
-            "Стандарт: Инструкция по делопроизводству 2025 (без файла-образца из сети)",
+            "Стандарт: Инструкция по делопроизводству 2025 (без файла-образца; не ОБМЕН/сеть)",
         )
         self._examples = [None]
         key = self.doc_type.get()
+        if not isinstance(auto_select_for, str):
+            auto_select_for = self.file_path.get().strip() or None
         try:
-            items = find_examples(key, limit=12, source_path=auto_select_for)
+            items = find_examples(key, limit=100, source_path=auto_select_for)
         except Exception as e:
             log(f"find_examples error: {e}")
             items = []
+        if not items and key != "ezhenedelnyy_itog":
+            live = live_user_agent_dir()
+            if live is None:
+                hint = user_agent_dir_unavailable_hint()
+            else:
+                hint = (
+                    "В папке Агент нет файлов *образец*.docx. "
+                    "Оформление по Инструкции 2025; ОБМЕН не подставляется."
+                )
+            self.example_list.insert(tk.END, hint)
+            self._examples.append(None)
+            self.status.set(hint)
         for item in items:
             label = item.get("label") or f"{item['folder']}  |  {item['name']}"
             self.example_list.insert(tk.END, label)
@@ -490,41 +546,52 @@ class AgentWizard(tk.Toplevel):
         return best
 
     def _pick_example(self):
+        live = live_user_agent_dir()
+        initial = str(live) if live is not None else None
         path = filedialog.askopenfilename(
-            title="Свой образец (только документ, уже оформленный по Инструкции)",
+            title="Образец — только папка Агент, в имени слово «образец»",
+            initialdir=initial,
             filetypes=[
-                ("Word и RTF", "*.docx *.doc *.rtf"),
+                ("Word DOCX", "*.docx"),
                 ("Все файлы", "*.*"),
             ],
         )
         if not path:
             return
+        if not is_allowed_sample_path(path):
+            messagebox.showwarning(
+                "Образец не подходит",
+                "Образец можно брать только из папки Агент "
+                "и только если в названии файла есть слово «образец».\n\n"
+                "Файлы из ОБМЕН и файлы «_оформлен» без слова «образец» не используются.",
+            )
+            return
         self.example_list.insert(
             tk.END,
-            f"[свой по Инструкции] {os.path.basename(path)}",
+            f"[Агент / образец] {os.path.basename(path)}",
         )
         self._examples.append(path)
         self.example_list.selection_clear(0, tk.END)
         self.example_list.selection_set(tk.END)
 
     def _run(self):
-        path = self.file_path.get().strip()
+        path = self._resolve_document_path_or_warn()
         if not path:
-            messagebox.showwarning("Нужен файл", "Сначала выберите документ.")
-            return
-        if not os.path.exists(path):
-            messagebox.showerror("Нет файла", path)
             return
         dtype = self.doc_type.get()
         if dtype not in DOCUMENT_TYPES:
             dtype = "unsupported"
 
-        # если пользователь ничего не выделил — агент сам берёт лучший образец
+        # выделен пункт 0 «Стандарт» — не подменять чужим *_образец (напр. старший мастер)
         sel = self.example_list.curselection()
         example = None
+        user_chose_standard = False
         if sel:
             example = self._examples[sel[0]]
-        if example is None and dtype != "unsupported":
+            user_chose_standard = sel[0] == 0 and not example
+        if example and not is_allowed_sample_path(example):
+            example = None
+        if example is None and dtype != "unsupported" and not user_chose_standard:
             best = choose_best_example(dtype, path)
             if best:
                 example = best["path"]
@@ -558,6 +625,7 @@ class AgentWizard(tk.Toplevel):
                     apply_text_edits_flag=do_edits,
                     apply_russian_check_flag=do_ru,
                     structure_rebuild_flag=do_struct,
+                    auto_pick_example=not user_chose_standard,
                 )
                 record_agent_action(
                     "process_document",
@@ -587,17 +655,20 @@ class AgentWizard(tk.Toplevel):
 
     def _ask_cursor_help(self):
         """Передать сложную задачу (перестройка по образцу) в Cursor."""
-        path = self.file_path.get().strip()
+        path = self._resolve_document_path_or_warn(for_cursor=True)
         if not path:
-            messagebox.showwarning("Нужен файл", "Сначала выберите документ.")
             return
         dtype = self.doc_type.get() if self.doc_type.get() in DOCUMENT_TYPES else "unsupported"
         sel = self.example_list.curselection()
         example = self._examples[sel[0]] if sel else None
+        if example and not is_allowed_sample_path(example):
+            example = None
         if example is None and dtype != "unsupported":
-            best = choose_best_example(dtype, path)
-            if best:
-                example = best["path"]
+            user_std = bool(sel) and sel[0] == 0
+            if not user_std:
+                best = choose_best_example(dtype, path)
+                if best:
+                    example = best["path"]
 
         try:
             from formatters.ai_handoff import (
@@ -635,18 +706,79 @@ class AgentWizard(tk.Toplevel):
             self.status.set("Задание передано в Cursor.")
             if self.avatar:
                 self.avatar.say("Передал задачу в Cursor!")
-            messagebox.showinfo("Cursor", msg)
+            messagebox.showinfo(
+                "Cursor — задание записано",
+                msg + "\n\nФайл JSON:\n"
+                + str(Path(__file__).resolve().parent / "handoff" / "request_latest.json"),
+            )
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
 
     def _done_ok(self, result: dict):
         self.btn_run.configure(state="normal")
-        actions = " | ".join(result.get("actions", [])[:2])
-        self.status.set(f"Готово: {result.get('output')}  {actions}")
+        out = result.get("output") or ""
+        sniot = result.get("sniot_pass") or {}
+        build = pick_sniot_build_line(result)
+        if sniot.get("ok") and sniot.get("applied"):
+            sniot_status = "Правила СНиОТ: применены (отступы, символы, нумерация)."
+        elif sniot.get("applied"):
+            sniot_status = "Правила СНиОТ: применены с замечаниями — см. список ниже."
+        elif sniot:
+            sniot_status = (
+                "⚠ Правила СНиОТ НЕ применены! Закройте файл в Word и повторите."
+            )
+        else:
+            sniot_status = "Правила СНиОТ: проход не выполнялся."
+        sniot_status = f"{sniot_status}\n{build}"
+
+        actions = result.get("actions") or []
+        sniot_lines = []
+        for action in actions:
+            if action == build:
+                continue
+            if "СНиОТ" not in action:
+                continue
+            if action.startswith("СНиОТ !"):
+                continue
+            if "Validation OK" in action or "Сохранено:" in action or "исправлено замечаний" in action:
+                sniot_lines.append(action)
+            elif action.startswith("СНиОТ:") and "⛔" not in action:
+                sniot_lines.append(action)
+        sniot_lines = sniot_lines[:6]
+        extra = "\n".join(f"• {a}" for a in sniot_lines) if sniot_lines else ""
+
+        if sniot and not sniot.get("applied"):
+            self.status.set("Правила СНиОТ не применены.")
+            if self.avatar:
+                self.avatar.say("Правила не записаны. Закройте Word.")
+            fail_msg = (
+                f"{build}\n\n"
+                f"Правила СНиОТ НЕ записаны в файл.\n{out}\n\n"
+                f"{sniot_status}\n"
+                "Это не «Готово». Закройте все окна агента и Word с этим документом,\n"
+                "запустите start_agent.bat и нажмите «Оформить документ» снова.\n\n"
+                "Скрипт: C:\\Users\\v.dubovik\\AttestationSync\\fix_sniot_document.py"
+            )
+            if extra:
+                fail_msg += f"\n\n{extra}"
+            messagebox.showerror(f"Правила СНиОТ не применены — {build}", fail_msg)
+            return
+
+        self.status.set(f"Готово: {out}")
         if self.avatar:
-            self.avatar.say("Готово! Файл сохранён.")
-        if messagebox.askyesno("Готово", f"Документ оформлен:\n{result.get('output')}\n\nОткрыть папку?"):
-            folder = os.path.dirname(result.get("output") or self.file_path.get())
+            self.avatar.say("Готово! Откройте _оформлен.docx")
+        msg = (
+            f"{build}\n\n"
+            f"Документ оформлен:\n{out}\n\n"
+            "Открывайте файл с окончанием «_оформлен.docx» "
+            "(не черновик без суффикса).\n\n"
+            f"{sniot_status}\n"
+            "Скрипт: C:\\Users\\v.dubovik\\AttestationSync\\fix_sniot_document.py"
+        )
+        if extra:
+            msg += f"\n\n{extra}"
+        if messagebox.askyesno(f"Готово — {build}", msg + "\n\nОткрыть папку?"):
+            folder = os.path.dirname(out or self.file_path.get())
             os.startfile(folder)
 
     def _done_err(self, err: BaseException | None, tb: str = ""):

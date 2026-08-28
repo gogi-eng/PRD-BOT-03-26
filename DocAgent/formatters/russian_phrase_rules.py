@@ -4,6 +4,7 @@
 
 Используются в fix_sniot_document (финальный проход) и russian_check.
 Замена подстроки в тексте абзаца — нумерация «2.2.17.» не затрагивается.
+Аббревиатуры (ЛСиМ, СНиОТ, ТКП…) этим словарём не трогаются — см. russian_check.is_abbreviation_token.
 """
 
 from __future__ import annotations

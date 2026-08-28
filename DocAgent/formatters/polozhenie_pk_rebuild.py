@@ -14,6 +14,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from path_resolver import copy_file_if_different
+
 
 def _log(msg: str) -> None:
     try:
@@ -67,7 +69,7 @@ def rebuild_pk_by_cem_structure(
 
     if KNOWN_READY.is_file():
         if out.resolve() != KNOWN_READY.resolve():
-            shutil.copy2(KNOWN_READY, out)
+            copy_file_if_different(KNOWN_READY, out)
             actions.append(f"Скопирован готовый вариант по образцу ЦЭМ → {out.name}")
         else:
             actions.append(f"Использован готовый файл: {out.name}")
@@ -100,7 +102,7 @@ def rebuild_pk_by_cem_structure(
             )
         if KNOWN_READY.is_file():
             if out.resolve() != KNOWN_READY.resolve():
-                shutil.copy2(KNOWN_READY, out)
+                copy_file_if_different(KNOWN_READY, out)
             actions.append("Собран документ сборщиком по структуре П.ЦЭМ 10-02-2023")
             return {
                 "ok": True,

@@ -56,7 +56,7 @@ PATTERNS_PATH = ROOT / "learned_edit_patterns.json"
 
 # Маркеры в начале строки — запрещены (с пробелом и без: «–устав»)
 MARKER_RE = re.compile(
-    r"^[\s]*(?:[\-\u2013\u2014\u2022\u00B7\*◦▪▸►]+)[\s\u00a0]*"
+    r"^[\s]*(?:[\-\u2013\u2014\u2022\u00B7\uF0B7\uF0A7\u25CB\u25A0\u25A1\u25CF\u25E6\*◦▪▸►■○●]+)[\s\u00a0]*"
 )
 
 # Раздел «должен знать»
@@ -144,7 +144,7 @@ def strip_leading_marker(text: str) -> tuple[str, int]:
         if changed > 5:
             break
     # один символ-маркер вплотную к букве
-    m = re.match(r"^([\-\u2013\u2014\u2022\u00B7\*◦▪▸►])([^\d\s].*)$", text)
+    m = re.match(r"^([\-\u2013\u2014\u2022\u00B7\uF0B7\uF0A7\u25CB\u25A0\u25CF\*◦▪▸►■○●])([^\d\s].*)$", text)
     if m:
         text = m.group(2).lstrip()
         changed += 1
@@ -322,24 +322,24 @@ def apply_text_edits(
     from formatters.sniot_document import is_conservative_di_satp
 
     if is_conservative_di_satp(input_path, doc_type):
-        import shutil
+        from path_resolver import copy_file_if_different
 
-        shutil.copy2(input_path, output_path)
+        copy_file_if_different(input_path, output_path)
         if also_basic_format:
             apply_basic_office_format(output_path, output_path)
         report["skipped_conservative"] = True
         report["details"].append(
-            "ДИ САТП (Старший мастер): text_edits пропущены — только базовое оформление; "
-            "нумерацию восстанавливает fix_sniot_document"
+            "СНиОТ: text_edits пропущены — только оформление (слова исходника не менять); "
+            "нумерацию и подписантов восстанавливает fix_sniot_document"
         )
         report["total_edits"] = 0
         return report
 
     work = output_path
     # 0) автонумерацию Word → обычный текст (иначе номера пропадут)
-    import shutil
+    from path_resolver import copy_file_if_different
 
-    shutil.copy2(input_path, work)
+    copy_file_if_different(input_path, work)
     try:
         n_mat = 0
         from .structure_fix import materialize_list_numbers
@@ -548,7 +548,7 @@ def apply_text_edits(
                 if not is_safe_learned_replacement(old, new):
                     continue
             except Exception:
-                pass
+                continue
             text2 = safe_phrase_replace(text, old, new)
             if text2 != text:
                 text = text2

@@ -6,18 +6,34 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from docx import Document
 
-from rules import DOCUMENT_TYPES, SAMPLE_POLICY, detect_type_from_text, is_instruction_aligned_sample
+from rules import (
+    DOCUMENT_TYPES,
+    SAMPLE_POLICY,
+    detect_type_from_text,
+    filename_looks_like_di,
+    is_instruction_aligned_sample,
+    looks_like_weekly_itog,
+)
 from path_resolver import (
-    READONLY_SAMPLE_DIRS,
     USER_AGENT_DIR,
+    USER_PROJECT_DIR,
     assert_path_writable,
+    canonical_fs_path,
+    is_allowed_sample_path,
     is_path_in_user_agent_dir,
-    is_path_readonly_sample,
+    is_path_in_writable_user_dir,
+    is_sniot_doc,
+    list_agent_sample_paths,
+    live_user_agent_dir,
+    pick_best_agent_sample,
+    writable_dirs_hint,
+    _sample_rank,
 )
 from formatters.common import apply_basic_office_format
 
@@ -111,86 +127,56 @@ def ensure_pywin32() -> None:
 
 def convert_to_docx(path: str) -> str:
     """
-    Конвертация .doc / .rtf → .docx рядом с исходником (через Word).
-    .docx возвращает как есть.
+    Конвертация .doc / .rtf → .docx во временную папку TEMP (через Word).
+    В папку Агент _converted не пишем. .docx возвращает как есть.
 
-    Важно: для конвертации всегда отдельный скрытый Word (DispatchEx),
-    не трогаем и не используем уже открытый Word пользователя —
-    иначе Documents.Open часто возвращает None.
+    Важно: отдельный скрытый Word (DispatchEx), копия без Zone.Identifier,
+    OpenAndRepair, на время открытия отключается File Validation —
+    иначе Office блокирует старые .doc/.rtf («проблема с этим файлом»).
     """
-    import shutil
-    import tempfile
-
-    import win32com.client  # type: ignore
+    from formatters.word_com import (
+        convert_legacy_word_to_docx,
+        is_legacy_word_file,
+    )
 
     ext = os.path.splitext(path)[1].lower()
     if ext == ".docx":
         return path
-    if ext not in (".doc", ".rtf"):
-        raise RuntimeError(f"Неподдерживаемый формат файла: {path}")
+    if not is_legacy_word_file(path):
+        raise RuntimeError(
+            f"Неподдерживаемый формат файла (нужен .docx, .doc или .rtf):\n{path}"
+        )
 
     ensure_pywin32()
     abs_src = os.path.abspath(path)
     if not os.path.isfile(abs_src):
         raise RuntimeError(f"Файл не найден:\n{abs_src}")
 
-    out = os.path.splitext(abs_src)[0] + "_converted.docx"
-    # рабочая копия на локальном диске — надёжнее, чем открывать .doc сразу с N:\
-    td = tempfile.mkdtemp(prefix="docagent_conv_")
-    local_src = os.path.join(td, "source" + ext)
-    local_out = os.path.join(td, "converted.docx")
-    shutil.copy2(abs_src, local_src)
+    out = Path(tempfile.mkdtemp(prefix="docagent_conv_")) / "converted.docx"
 
-    word = None
-    doc = None
     try:
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        try:
-            word.DisplayAlerts = 0
-        except Exception:
-            pass
-        # ConfirmConversions=False, ReadOnly=True, AddToRecentFiles=False
-        doc = word.Documents.Open(
-            local_src,
-            False,
-            True,
-            False,
-        )
-        if doc is None:
-            raise RuntimeError(
-                "Word не смог открыть файл (Documents.Open вернул пусто).\n"
-                f"Файл: {abs_src}"
-            )
-        # 16 = wdFormatXMLDocument (.docx)
-        doc.SaveAs(local_out, FileFormat=16)
-        doc.Close(False)
-        doc = None
-        if not os.path.isfile(local_out):
-            raise RuntimeError("Word не создал временный .docx")
-        shutil.copy2(local_out, out)
+        convert_legacy_word_to_docx(abs_src, out)
     except Exception as e:
+        ext_note = ""
+        if ext == ".doc":
+            ext_note = (
+                "Если это очень старый .doc, Word на компьютере иногда не открывает его "
+                "автоматически.\n"
+                "Откройте файл двойным щелчком в Word → «Файл» → «Сохранить как» → "
+                "тип «Документ Word (*.docx)».\n"
+                "Файлы .rtf можно оформлять сразу, без этого шага.\n\n"
+            )
         raise RuntimeError(
-            f"Не удалось конвертировать {ext} → .docx через Word.\n"
+            "Не удалось открыть старый файл Word (.doc / .rtf).\n\n"
+            + ext_note
+            + "Либо положите готовый .docx в папку «Агент» и нажмите «Оформить документ».\n\n"
             f"Исходник: {abs_src}\n"
             f"Ошибка: {e}"
         ) from e
-    finally:
-        if doc is not None:
-            try:
-                doc.Close(False)
-            except Exception:
-                pass
-        if word is not None:
-            try:
-                word.Quit()
-            except Exception:
-                pass
-        shutil.rmtree(td, ignore_errors=True)
 
     if not os.path.isfile(out):
         raise RuntimeError(f"Не удалось сохранить .docx:\n{out}")
-    return out
+    return str(out)
 
 
 # совместимость со старым именем
@@ -201,6 +187,17 @@ def convert_doc_to_docx(path: str) -> str:
 def detect_document(path: str) -> tuple[str, str]:
     text = read_preview_text(path)
     dtype = detect_type_from_text(os.path.basename(path), text)
+    sniot_types = {
+        "dolzhnostnaya_instrukciya",
+        "rabochaya_instrukciya",
+        "prikaz",
+        "instrukciya_ot",
+        "polozhenie",
+    }
+    if dtype not in sniot_types and looks_like_weekly_itog(
+        os.path.basename(path), text, path
+    ):
+        dtype = "ezhenedelnyy_itog"
     return dtype, text[:800]
 
 
@@ -306,75 +303,29 @@ def _examples_topic_compatible(source_path: str, example_path: str) -> bool:
     return True
 
 
+def _coerce_allowed_sample(path: str | None) -> str | None:
+    """Config/поле образца: только Агент + «образец» в имени, иначе None."""
+    if not path or not str(path).strip():
+        return None
+    raw = str(path).strip()
+    if is_allowed_sample_path(raw) and os.path.isfile(raw):
+        return os.path.normpath(raw)
+    return None
+
+
 def choose_best_example(doc_type: str, source_path: str, limit: int = 20) -> dict | None:
     """
-    Сам выбирает лучший локальный образец:
-    — сначала образцовые шаблоны (preferred_samples / master_samples),
-      НО только если тема совпадает с исходником (ЦТП ≠ силовые КЛ);
-    — РИ: ТОЛЬКО эталон СЛЕСАРЬ 30.07.2026 (другие файлы не брать);
-    — иначе та же папка / похожее имя (должность/участок/ЦТП/разряд);
-    — приоритет правок СНиОТ/Дубовик;
-    — не берёт сам исходник и *_оформлен* (кроме эталонных preferred_samples).
-    — имя файла не меняет: образец только для ориентира оформления.
+    Лучший образец только из папки Агент, в имени есть «образец».
+    Предпочитает имя, близкое к целевому документу; иначе любой *образец* в Агент.
+    Пути из ОБМЕН / САТП / config вне Агент — игнорируются.
     """
-    # РИ: единственный эталон — жёстко, без поиска по папке
-    if doc_type == "rabochaya_instrukciya":
-        from formatters.structure_fix import RI_ETALON_PATH
-
-        preferred_path = RI_ETALON_PATH
-        try:
-            from formatters.text_edits import load_patterns
-
-            prefs = (load_patterns() or {}).get("preferred_samples") or {}
-            preferred_path = (
-                prefs.get("rabochaya_instrukciya")
-                or prefs.get("rabochaya_instrukciya_smat_slesar_5")
-                or RI_ETALON_PATH
-            )
-        except Exception:
-            preferred_path = RI_ETALON_PATH
-        try:
-            from pathlib import Path
-            import json as _json
-
-            cfg_path = Path(__file__).resolve().parent / "config.json"
-            cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
-            master = ((cfg.get("master_samples") or {}).get("rabochaya_instrukciya") or "").strip()
-            if master:
-                preferred_path = master
-        except Exception:
-            pass
-        if preferred_path and os.path.isfile(preferred_path):
-            if os.path.normcase(os.path.abspath(preferred_path)) != os.path.normcase(
-                os.path.abspath(source_path)
-            ):
-                log(f"AUTO example PREFERRED (РИ эталон): {preferred_path}")
-                return {
-                    "path": preferred_path,
-                    "name": os.path.basename(preferred_path),
-                    "folder": os.path.basename(os.path.dirname(preferred_path)),
-                    "mtime": os.path.getmtime(preferred_path),
-                    "aligned": True,
-                    "score": 999,
-                    "label": f"[ЭТАЛОН РИ] {os.path.basename(preferred_path)}",
-                    "common_tokens": [],
-                }
-        log("РИ: эталон СЛЕСАРЬ 30.07.2026 не найден на диске N:")
-        return None
-
-    # эталон, который пользователь явно «утвердил»
     preferred_path = None
     try:
         from formatters.text_edits import load_patterns
 
         prefs = (load_patterns() or {}).get("preferred_samples") or {}
-
-        # приоритет: тип документа → master_* → общий
         if doc_type == "prikaz":
-            preferred_path = (
-                prefs.get("prikaz")
-                or prefs.get("master_prikaz")
-            )
+            preferred_path = prefs.get("prikaz") or prefs.get("master_prikaz")
         elif doc_type == "dolzhnostnaya_instrukciya":
             preferred_path = (
                 prefs.get("dolzhnostnaya_instrukciya")
@@ -383,56 +334,65 @@ def choose_best_example(doc_type: str, source_path: str, limit: int = 20) -> dic
             )
         if not preferred_path:
             preferred_path = prefs.get(doc_type)
-
-        # config.json master_samples — высший приоритет по типу
-        try:
-            from pathlib import Path
-            import json as _json
-
-            cfg_path = Path(__file__).resolve().parent / "config.json"
-            cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
-            masters = cfg.get("master_samples") or {}
-            master = (masters.get(doc_type) or "").strip()
-            if master and os.path.isfile(master):
-                preferred_path = master
-            elif doc_type == "dolzhnostnaya_instrukciya":
-                # устаревшее поле master_sample_path — только если нет типизированного
-                if not preferred_path:
-                    legacy = (cfg.get("master_sample_path") or "").strip()
-                    if legacy and os.path.isfile(legacy):
-                        preferred_path = legacy
-        except Exception:
-            pass
+        cfg = load_config()
+        masters = cfg.get("master_samples") or {}
+        master = (masters.get(doc_type) or "").strip()
+        if master:
+            preferred_path = master
+        elif doc_type == "dolzhnostnaya_instrukciya" and not preferred_path:
+            legacy = (cfg.get("master_sample_path") or "").strip()
+            if legacy:
+                preferred_path = legacy
     except Exception:
         preferred_path = None
 
-    if preferred_path and os.path.isfile(preferred_path):
-        # не выбирать тот же файл, что оформляем
-        if os.path.normcase(os.path.abspath(preferred_path)) != os.path.normcase(
-            os.path.abspath(source_path)
-        ):
-            if _examples_topic_compatible(source_path, preferred_path):
-                log(f"AUTO example PREFERRED: {preferred_path}")
-                return {
-                    "path": preferred_path,
-                    "name": os.path.basename(preferred_path),
-                    "folder": os.path.basename(os.path.dirname(preferred_path)),
-                    "mtime": os.path.getmtime(preferred_path),
-                    "aligned": True,
-                    "score": 999,
-                    "label": f"[ЭТАЛОН] {os.path.basename(preferred_path)}",
-                    "common_tokens": [],
-                }
+    preferred_path = _coerce_allowed_sample(preferred_path)
+    if preferred_path:
+        src_abs = os.path.normcase(os.path.abspath(source_path))
+        pref_abs = os.path.normcase(os.path.abspath(preferred_path))
+        src_tok = _tokenize_tokens(os.path.basename(source_path))
+        pref_tok = _tokenize_tokens(os.path.basename(preferred_path))
+        if not (src_tok & pref_tok):
             log(
-                "AUTO example PREFERRED skipped (тема не совпадает): "
+                "AUTO example PREFERRED skipped (нет общих слов в имени): "
+                f"{os.path.basename(preferred_path)} ← для {os.path.basename(source_path)}"
+            )
+        elif pref_abs != src_abs and _examples_topic_compatible(source_path, preferred_path):
+            log(f"AUTO example PREFERRED: {preferred_path}")
+            return {
+                "path": preferred_path,
+                "name": os.path.basename(preferred_path),
+                "folder": os.path.basename(os.path.dirname(preferred_path)),
+                "mtime": os.path.getmtime(preferred_path),
+                "aligned": True,
+                "score": 999,
+                "label": f"[ЭТАЛОН] {os.path.basename(preferred_path)}",
+                "common_tokens": [],
+            }
+        if pref_abs != src_abs:
+            log(
+                "AUTO example PREFERRED skipped (тема не совпадает или не Агент/образец): "
                 f"{os.path.basename(preferred_path)} ← для {os.path.basename(source_path)}"
             )
 
     items = find_examples(doc_type, limit=max(limit, 40), source_path=source_path)
     if not items:
-        return None
+        picked = pick_best_agent_sample(source_path)
+        if picked is None:
+            log("AUTO example: нет файла «образец» в папке Агент — оформление по правилам mdc")
+            return None
+        return {
+            "path": str(picked),
+            "name": picked.name,
+            "folder": picked.parent.name,
+            "mtime": picked.stat().st_mtime if picked.is_file() else 0,
+            "aligned": True,
+            "score": 1,
+            "label": f"[Агент] {picked.name}",
+            "common_tokens": [],
+        }
+
     src_abs = os.path.normcase(os.path.abspath(source_path))
-    src_dir = os.path.normcase(os.path.dirname(src_abs))
     src_name = os.path.basename(source_path)
     src_tokens = _tokenize_tokens(src_name)
     src_topics = _topic_tags(src_name)
@@ -440,6 +400,8 @@ def choose_best_example(doc_type: str, source_path: str, limit: int = 20) -> dic
     scored: list[tuple[float, dict]] = []
     for item in items:
         path = item["path"]
+        if not is_allowed_sample_path(path):
+            continue
         try:
             p_abs = os.path.normcase(os.path.abspath(path))
         except OSError:
@@ -449,44 +411,25 @@ def choose_best_example(doc_type: str, source_path: str, limit: int = 20) -> dic
         name_low = item["name"].lower()
         if name_low.startswith("~$"):
             continue
-        # не брать собственные результаты агента как «образец»
-        if any(
-            x in name_low
-            for x in (
-                "_оформлен",
-                "оформлен.",
-                "_исправлен",
-                "исправлен_агент",
-                "_converted",
-            )
-        ):
-            continue
-        if not _examples_topic_compatible(source_path, path):
-            continue
-        score = 0.0
-        p_dir = os.path.normcase(os.path.dirname(p_abs))
-        if p_dir == src_dir:
-            score += 100
-        elif os.path.basename(p_dir) == os.path.basename(src_dir):
-            score += 40
-        if item.get("aligned"):
-            score += 35
+        exact, overlap = _sample_rank(Path(source_path), Path(path))
         tok = _tokenize_tokens(item["name"])
         common = src_tokens & tok
-        score += 12 * len(common)
-        # сильный бонус за ту же узкую тему (ЦТП, КЛ…)
         ex_topics = _topic_tags(item["name"])
+        if exact == 0 and overlap < 2 and not common and not (src_topics & ex_topics):
+            continue
+        score = 0.0
+        if item.get("aligned"):
+            score += 35
+        score += 12 * len(common)
         score += 80 * len(src_topics & ex_topics)
         if "цтп" in src_tokens and "цтп" in tok:
             score += 200
         if "эксплуатац" in src_name.lower() and "эксплуатац" in name_low:
             score += 60
-        # штраф за чужую тему
         if ("ctp_itp" in src_topics) and ("cable_kl" in ex_topics):
             score -= 500
         if ("cable_kl" in src_topics) and ("ctp_itp" in ex_topics):
             score -= 500
-        # свежесть
         score += min(item.get("mtime", 0) / 1e12, 5)
         item = dict(item)
         item["score"] = score
@@ -494,7 +437,19 @@ def choose_best_example(doc_type: str, source_path: str, limit: int = 20) -> dic
         scored.append((score, item))
 
     if not scored:
-        return items[0] if items else None
+        picked = pick_best_agent_sample(source_path)
+        if picked is None:
+            return None
+        return {
+            "path": str(picked),
+            "name": picked.name,
+            "folder": picked.parent.name,
+            "mtime": picked.stat().st_mtime if picked.is_file() else 0,
+            "aligned": True,
+            "score": 1,
+            "label": f"[Агент] {picked.name}",
+            "common_tokens": [],
+        }
     scored.sort(key=lambda x: (-x[0], -x[1].get("mtime", 0)))
     best = scored[0][1]
     log(
@@ -504,75 +459,45 @@ def choose_best_example(doc_type: str, source_path: str, limit: int = 20) -> dic
     return best
 
 
-def find_examples(doc_type: str, limit: int = 12, source_path: str | None = None) -> list[dict]:
+def find_examples(doc_type: str, limit: int = 100, source_path: str | None = None) -> list[dict]:
     """
-    Ищет локальные примеры ТОЛЬКО из рабочих папок пользователя.
-    Приоритет — файлы с правками СНиОТ/Дубовик (уже с учётом Инструкции).
-    Интернет-шаблоны не используются (SAMPLE_POLICY.allow_web_templates = False).
+    Все *образец*.docx только из папки Агент (N:\\ или UNC).
+    Без обхода ОБМЕН / N:\\. Интернет-шаблоны не используются.
     """
     if SAMPLE_POLICY.get("allow_web_templates"):
         log("WARNING: web templates enabled — отклонение от политики")
 
-    cfg = load_config()
-    keywords = list(DOCUMENT_TYPES.get(doc_type, {}).get("keywords", []) or [])
-    # для инструкций по эксплуатации ищем по теме исходника, а не только «положение о»
-    src_l = (os.path.basename(source_path) if source_path else "").lower()
-    if doc_type == "polozhenie":
-        keywords.extend(
-            [
-                "инструкция по эксплуатации",
-                "по эксплуатации",
-                "эксплуатации цтп",
-                "эксплуатации итп",
-            ]
-        )
-        if "цтп" in src_l:
-            keywords.append("цтп")
-        if "кл" in src_l or "кабель" in src_l:
-            keywords.extend(["силовых кл", "кабельн", "0,4-10", "0.4-10"])
-    roots = [str(r) for r in READONLY_SAMPLE_DIRS if r.is_dir()]
-    for r in cfg.get("example_roots") or SAMPLE_POLICY.get("local_practice_roots", []):
-        if is_path_readonly_sample(r) and os.path.isdir(r) and r not in roots:
-            roots.append(r)
+    if doc_type == "ezhenedelnyy_itog":
+        return []
+
     results = []
-    for root in roots:
-        if not os.path.isdir(root):
+    folder = live_user_agent_dir()
+    folder_name = folder.name if folder is not None else USER_AGENT_DIR.name
+    for full_path in list_agent_sample_paths():
+        name = full_path.name
+        try:
+            mtime = full_path.stat().st_mtime
+        except OSError:
             continue
-        for dirpath, _dirnames, filenames in os.walk(root):
-            rel = os.path.relpath(dirpath, root)
-            if rel.count(os.sep) > 3:
-                continue
-            for name in filenames:
-                low = name.lower()
-                if not low.endswith((".docx", ".doc", ".rtf")):
-                    continue
-                if keywords and not any(k in low for k in keywords):
-                    if doc_type == "prikaz" and "приказ" not in low:
-                        continue
-                    if doc_type != "prikaz":
-                        continue
-                full = os.path.join(dirpath, name)
-                try:
-                    mtime = os.path.getmtime(full)
-                except OSError:
-                    continue
-                aligned = is_instruction_aligned_sample(name)
-                results.append(
-                    {
-                        "path": full,
-                        "name": name,
-                        "folder": os.path.basename(dirpath),
-                        "mtime": mtime,
-                        "aligned": aligned,
-                        "label": (
-                            f"[по Инструкции/СНиОТ] {os.path.basename(dirpath)} | {name}"
-                            if aligned
-                            else f"[локальный] {os.path.basename(dirpath)} | {name}"
-                        ),
-                    }
-                )
-    # сначала ваши правки (aligned), потом свежие
-    results.sort(key=lambda x: (not x["aligned"], -x["mtime"]))
+        aligned = is_instruction_aligned_sample(name)
+        results.append(
+            {
+                "path": str(full_path),
+                "name": name,
+                "folder": folder_name,
+                "mtime": mtime,
+                "aligned": aligned,
+                "label": f"[Агент / образец] {name}",
+            }
+        )
+    src_name = os.path.basename(source_path) if source_path else ""
+    results.sort(
+        key=lambda item: (
+            not item["aligned"],
+            -len(_tokenize_tokens(src_name) & _tokenize_tokens(item["name"])),
+            -item["mtime"],
+        )
+    )
     seen = set()
     uniq = []
     for item in results:
@@ -604,12 +529,15 @@ def _clean_output_stem(stem: str) -> str:
 
 
 def output_path_for(input_path: str) -> str:
-    stem = _clean_output_stem(Path(input_path).stem)
+    src = canonical_fs_path(input_path)
+    stem = _clean_output_stem(src.stem)
+    if is_path_in_writable_user_dir(src):
+        return str(src.parent / f"{stem}_оформлен.docx")
     return str(USER_AGENT_DIR / f"{stem}_оформлен.docx")
 
 
 def _can_write_file(path: str) -> bool:
-    """Проверка: можно ли создать/перезаписать файл (только папка Агент)."""
+    """Проверка: можно ли создать/перезаписать файл (Агент или Проекты)."""
     try:
         assert_path_writable(path)
     except PermissionError:
@@ -646,7 +574,7 @@ def _output_candidates_for_input(input_path: str) -> list[str]:
     stem = _clean_output_stem(Path(input_path).stem)
     candidates: list[str] = []
 
-    if is_path_in_user_agent_dir(input_path):
+    if is_path_in_writable_user_dir(input_path):
         same_dir = Path(input_path).parent
         candidates.extend(
             [
@@ -740,10 +668,16 @@ def _apply_russian_language_check(summary: dict, cfg: dict, enabled: bool) -> di
         )
         summary["russian_check"] = rep
         summary["actions"].append(
-            "Проверка русского языка (весь текст): "
+            "Проверка русского языка (весь текст, все типы документов): "
             f"локально {rep.get('local_fixes', 0)}, "
             f"орфография {rep.get('speller_fixes', 0)}, "
-            f"грамматика/замечания {rep.get('grammar_notes', 0)}"
+            f"грамматика/замечания {rep.get('grammar_notes', 0)}; "
+            "аббревиатуры (ЛСиМ, СНиОТ, ТКП…) не правятся"
+            + (
+                f", пропущено {rep.get('skipped_abbreviations', 0)}"
+                if rep.get("skipped_abbreviations")
+                else ""
+            )
         )
         if rep.get("report_path"):
             summary["actions"].append(f"Отчёт по русскому языку: {rep['report_path']}")
@@ -795,20 +729,37 @@ def process_document(
     apply_text_edits_flag: bool = True,
     apply_russian_check_flag: bool | None = None,
     structure_rebuild_flag: bool = False,
+    auto_pick_example: bool = True,
 ) -> dict:
     """
     Главный обработчик.
-    example_path — образец (read-only, часто из ОБМЕН); если не указан, агент выбирает сам.
-    apply_text_edits_flag — правки/удаления по сравнению ваших файлов в РАССМОТРЕНИЕ.
+    example_path — образец только из папки Агент, в имени «образец»; иначе агент ищет сам.
+    Нет образца / выбран «Стандарт» (auto_pick_example=False) — оформление по правилам
+    Инструкции 2025 без эталона docx (без ОБМЕН / сети).
+    apply_text_edits_flag — правки/удаления по сравнению ваших файлов.
     apply_russian_check_flag — перечитать весь текст на правила русского языка.
     structure_rebuild_flag — перестроить содержание по структуре образца (ЦЭМ и т.п.).
     """
-    if not is_path_in_user_agent_dir(input_path):
+    input_path = str(canonical_fs_path(input_path))
+    weekly_hit = doc_type == "ezhenedelnyy_itog" or looks_like_weekly_itog(
+        os.path.basename(input_path), path=input_path
+    )
+    if weekly_hit:
+        from formatters.weekly_report_office import process_weekly_itog_document
+
+        cfg_weekly = load_config()
+        if apply_russian_check_flag is None:
+            apply_russian_check_flag = bool(cfg_weekly.get("russian_language_check", True))
+        weekly_summary = process_weekly_itog_document(input_path)
+        return _apply_russian_language_check(
+            weekly_summary, cfg_weekly, bool(apply_russian_check_flag)
+        )
+    if not is_path_in_writable_user_dir(input_path):
         raise RuntimeError(
-            "Редактировать можно только файлы в папке Агент:\n"
-            f"{USER_AGENT_DIR}\n\n"
+            "Редактировать можно только файлы в папке Агент или Проекты:\n"
+            f"{writable_dirs_hint()}\n\n"
             f"Указан: {input_path}\n\n"
-            "Образцы из папки ОБМЕН — только для чтения (эталон), не для правки."
+            "Образец — только файл со словом «образец» в папке Агент."
         )
     cfg = load_config()
     if apply_russian_check_flag is None:
@@ -845,16 +796,14 @@ def process_document(
             summary.setdefault("actions", []).append(
                 f"проверка перед публикацией: ошибка ({e})"
             )
-        summary = _apply_russian_language_check(
-            summary, cfg, bool(apply_russian_check_flag)
-        )
         # ВСЕГДА в самом конце: примечания + подписанты по эталону
-        # Для ДИ САТП «Старший мастер» — пропуск: finalize ломает нумерацию; финал = fix_sniot_document
+        # Для ДИ — пропуск finalize (ломает нумерацию); финал = fix_sniot_document
         try:
             if summary.get("conservative_di_satp"):
-                log("Conservative DI: skip finalize_notes_and_signatories")
+                log("Conservative СНиОТ: skip finalize_notes_and_signatories")
                 summary.setdefault("actions", []).append(
-                    "ДИ САТП (Старший мастер): без text_edits и finalize — только fix_sniot_document"
+                    "СНиОТ: без text_edits и finalize — только оформление; "
+                    "проверка русского — по галочке (аббревиатуры не правятся)"
                 )
             else:
                 from formatters.structure_fix import finalize_notes_and_signatories
@@ -928,6 +877,12 @@ def process_document(
                 log(f"SNIOT pass start: {out_path}")
                 sniot = apply_sniot_rules_to_output(out_path)
                 summary["sniot_pass"] = sniot
+                if sniot.get("build"):
+                    summary["sniot_build"] = sniot["build"]
+                    acts = summary.setdefault("actions", [])
+                    if sniot["build"] in acts:
+                        acts.remove(sniot["build"])
+                    acts.insert(0, sniot["build"])
                 for act in sniot.get("actions") or []:
                     if act not in (summary.get("actions") or []):
                         summary.setdefault("actions", []).append(act)
@@ -936,8 +891,31 @@ def process_document(
                     log(f"SNIOT pass OK: validation issues={after_n}")
                 elif sniot.get("applied"):
                     log(f"SNIOT pass done with issues ({after_n}): {sniot.get('after_issues')}")
+                    summary.setdefault("actions", []).insert(
+                        0,
+                        f"⚠ СНиОТ: остались замечания ({after_n}) — проверьте отступы и нумерацию",
+                    )
                 elif not sniot.get("applied"):
                     log(f"SNIOT pass not applied: {sniot.get('actions')}")
+                    acts = sniot.get("actions") or []
+                    build = next(
+                        (a for a in acts if a.startswith("СНиОТ: сборка")),
+                        "",
+                    )
+                    if any("остались замечания" in a for a in acts):
+                        head = (
+                            "⚠ СНиОТ не записал «_оформлен» — после правки остались замечания. "
+                            "Ниже только то, что не удалось исправить."
+                        )
+                    elif any("закройте" in a.lower() and "word" in a.lower() for a in acts):
+                        head = (
+                            "⚠ СНиОТ НЕ применён — закройте _оформлен.docx в Word и повторите."
+                        )
+                    else:
+                        head = "⚠ СНиОТ НЕ применён — смотрите список ниже."
+                    if build:
+                        head = f"{head} {build}"
+                    summary.setdefault("actions", []).insert(0, head)
                 else:
                     log(f"SNIOT pass failed: {sniot.get('actions')}")
             elif out_path and dtype != "prikaz":
@@ -950,6 +928,13 @@ def process_document(
             summary.setdefault("actions", []).append(
                 f"финал СНиОТ (fix_sniot_document): ошибка ({e})"
             )
+        # После XML СНиОТ: спеллер/грамматика DocAgent по финальному тексту
+        # (все типы документов, включая ДИ; галочка по умолчанию включена).
+        summary = _apply_russian_language_check(
+            summary,
+            cfg,
+            bool(apply_russian_check_flag),
+        )
         return summary
 
     # если в имени/титуле ясно написано РИ/ДИ — не оформлять как приказ
@@ -958,26 +943,37 @@ def process_document(
     except Exception:
         detected = doc_type
     name_l = os.path.basename(input_path).lower()
+    if filename_looks_like_di(name_l):
+        if doc_type != "dolzhnostnaya_instrukciya":
+            log(
+                f"TYPE override {doc_type} -> dolzhnostnaya_instrukciya (имя «ДИ …»)"
+            )
+        doc_type = "dolzhnostnaya_instrukciya"
+        detected = "dolzhnostnaya_instrukciya"
     strong = {
         "rabochaya_instrukciya": ("рабоч" in name_l and "инструкц" in name_l)
         or detected == "rabochaya_instrukciya",
         "dolzhnostnaya_instrukciya": (
-            ("должностн" in name_l and "инструкц" in name_l)
+            filename_looks_like_di(name_l)
+            or ("должностн" in name_l and "инструкц" in name_l)
             or name_l.startswith("ди ")
             or ("проект" in name_l and "мастер" in name_l)
             or detected == "dolzhnostnaya_instrukciya"
         ),
         "polozhenie": (
-            ("положен" in name_l)
-            or ("инструкц" in name_l and "эксплуатац" in name_l)
-            or (
-                "инструкц" in name_l
-                and "рабоч" not in name_l
-                and "должностн" not in name_l
-                and "охране труда" not in name_l
-                and "иот" not in name_l
+            (not filename_looks_like_di(name_l))
+            and (
+                ("положен" in name_l)
+                or ("инструкц" in name_l and "эксплуатац" in name_l)
+                or (
+                    "инструкц" in name_l
+                    and "рабоч" not in name_l
+                    and "должностн" not in name_l
+                    and "охране труда" not in name_l
+                    and "иот" not in name_l
+                )
+                or detected == "polozhenie"
             )
-            or detected == "polozhenie"
         ),
         "instrukciya_ot": "охране труда" in name_l or "иот" in name_l,
     }
@@ -988,13 +984,33 @@ def process_document(
     conservative_di = is_conservative_di_satp(input_path, doc_type)
     if conservative_di:
         apply_text_edits_flag = False
-        log("Conservative DI САТП: text_edits и structure_fix отключены")
+        structure_rebuild_flag = False
+        log(
+            "Conservative СНиОТ: text_edits и structure_fix отключены; "
+            f"проверка русского={'да' if apply_russian_check_flag else 'нет'}"
+        )
 
-    if not example_path and doc_type not in ("unsupported",):
+    if example_path:
+        coerced = _coerce_allowed_sample(example_path)
+        if coerced is None:
+            log(
+                "example_path отклонён (не папка Агент или нет слова «образец» в имени): "
+                f"{example_path}"
+            )
+            example_path = None
+        else:
+            example_path = coerced
+
+    if not example_path and auto_pick_example and doc_type not in (
+        "unsupported",
+        "ezhenedelnyy_itog",
+    ):
         best = choose_best_example(doc_type, input_path)
         if best:
             example_path = best["path"]
             log(f"AUTO-selected example: {example_path}")
+        else:
+            log("AUTO example: нет подходящего «образец» в папке Агент — Инструкция 2025 без эталона")
 
     log(
         f"PROCESS type={doc_type} file={input_path} example={example_path} "
@@ -1005,21 +1021,11 @@ def process_document(
     work_path = input_path
     ext = os.path.splitext(work_path)[1].lower()
     if ext in (".doc", ".rtf"):
-        try:
-            work_path = convert_to_docx(work_path)
-            log(f"Converted to {work_path}")
-        except Exception as e:
-            raise RuntimeError(
-                "Не удалось открыть файл старого формата (.doc / .rtf).\n\n"
-                "Нужны:\n"
-                "• пакет pywin32 — запустите install_deps.bat в папке DocAgent\n"
-                "• установленный Microsoft Word\n\n"
-                "Либо откройте файл в Word и сохраните как .docx, затем оформите снова.\n\n"
-                f"Ошибка: {e}"
-            ) from e
+        work_path = convert_to_docx(work_path)
+        log(f"Converted to {work_path}")
 
     # --- Перестройка содержания по образцу (Положение о ПК ↔ ЦЭМ) ---
-    if structure_rebuild_flag or doc_type == "polozhenie":
+    if structure_rebuild_flag or (doc_type == "polozhenie" and not conservative_di):
         try:
             from formatters.polozhenie_pk_rebuild import (
                 is_cem_sample,
@@ -1089,6 +1095,12 @@ def process_document(
     # Для РИ в ваших примерах правое поле часто 12,5 мм
     if doc_type == "rabochaya_instrukciya":
         margins["right"] = 12.5
+    # Документы СНиОТ этого агента: 30/10/20/20 (Минюст №65 п.18 допускает правое ≥8 мм).
+    if is_sniot_doc(Path(input_path)):
+        margins["left"] = 30
+        margins["right"] = 10
+        margins["top"] = 20
+        margins["bottom"] = 20
 
     summary = {
         "input": input_path,
@@ -1178,7 +1190,7 @@ def process_document(
         if isinstance(e, PermissionError) or getattr(e, "errno", None) == 13 or "Permission denied" in str(e):
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             retry_candidates: list[str] = []
-            if is_path_in_user_agent_dir(input_path):
+            if is_path_in_writable_user_dir(input_path):
                 same_dir = Path(input_path).parent
                 stem = _clean_output_stem(Path(work_path).stem)
                 retry_candidates.extend(

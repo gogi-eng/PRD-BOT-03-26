@@ -13,6 +13,9 @@ import os
 import sys
 import tkinter as tk
 
+# Тот же номер, что SCRIPT_BUILD в fix_sniot_document.py. start_agent.bat запускает этот файл.
+AGENT_BUILD = "2026-08-24-agent-projects"
+
 # работаем из папки агента
 ROOT = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ROOT)
@@ -27,7 +30,7 @@ from remote_guard import get_guard
 
 
 def main():
-    log("Agent start")
+    log(f"Agent start build {AGENT_BUILD}")
     cfg = load_config()
     agent_name = cfg.get("agent_name", "АГЕНТ Дубовика (№ 007)")
 
@@ -38,7 +41,7 @@ def main():
 
     root = tk.Tk()
     root.withdraw()  # главное окно скрыто — виден аватар
-    root.title(agent_name)
+    root.title(f"{agent_name} — {AGENT_BUILD}")
 
     # аварийный контроль удалённого доступа / админа
     guard = get_guard(ui_root=root)

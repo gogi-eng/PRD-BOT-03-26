@@ -652,7 +652,11 @@ def format_grounds_block(point_text: str) -> list:
 def strip_leading_marker_line(text: str) -> str:
     """Убрать маркер в начале строки списка."""
     t = text or ""
-    t = re.sub(r"^[\s]*[\-\u2013\u2014\u2022\*◦▪▸►]+\s*", "", t)
+    t = re.sub(
+        r"^[\s]*[\-\u2013\u2014\u2022\u00B7\uF0B7\uF0A7\u25CB\u25A0\u25CF\*◦▪▸►■○●]+\s*",
+        "",
+        t,
+    )
     return t
 
 

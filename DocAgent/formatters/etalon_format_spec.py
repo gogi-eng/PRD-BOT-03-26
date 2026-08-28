@@ -41,7 +41,7 @@ FONT_NAME = "Times New Roman"
 FONT_SIZE_PT = 14
 FONT_SIZE_HALF_POINTS = 28  # w:sz = 28 → 14 пт
 TABLE_FONT_PT = 12
-TITLE_NUMBER_LABEL_PT = 11  # «номер инструкции» в эталоне
+TITLE_NUMBER_LABEL_PT = 12  # «номер инструкции» на титуле — 12 pt, не 14
 
 # --- абзац тела (стиль Body Text: w:ind w:firstLine="709") ---
 FIRST_INDENT_TWIPS = 709  # 709 twips ≈ 1,25 см
@@ -75,10 +75,9 @@ TABLE_SPACE_AFTER_PT = 0
 
 
 def resolve_etalon_path() -> str:
+    """Внутренние числа стилей. Не образец оформления пользователя (не ОБМЕН/сеть)."""
     if Path(ETALON_LOCAL).is_file():
         return ETALON_LOCAL
-    if Path(ETALON_NETWORK).is_file():
-        return ETALON_NETWORK
     return ETALON_LOCAL
 
 

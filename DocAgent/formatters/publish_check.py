@@ -24,7 +24,9 @@ from .structure_fix import (
     resolve_instruction_doc_type,
 )
 
-MARKER_RE = re.compile(r"^[\s]*[\-\u2013\u2014\u2022\*◦▪▸►]+")
+MARKER_RE = re.compile(
+    r"^[\s]*[\-\u2013\u2014\u2022\u00B7\uF0B7\uF0A7\u25CB\u25A0\u25CF\*◦▪▸►■○●]+"
+)
 SIGN_FIO_TAB_CM = 12.0
 
 
@@ -73,45 +75,54 @@ def verify_document_before_publish(
     except Exception as e:
         report["details"].append(f"замена табуляции: {e}")
 
-    # --- ОБЯЗАТЕЛЬНО: проверка корректности нумерации перед выдачей ---
+    # --- нумерация: ДИ — не перенумеровывать исходник (только стиль чужих типов) ---
     try:
-        from .structure_fix import (
-            normalize_numbering_style,
-            verify_and_fix_numbering,
-            collapse_duplicate_number_prefix,
-        )
-
-        for p in doc.paragraphs:
-            t = p.text or ""
-            if not t.strip():
-                continue
-            new_t = normalize_numbering_style(collapse_duplicate_number_prefix(t))
-            if new_t != t:
-                _rewrite_para(p, new_t)
-                changed = True
-                report["fixed"] += 1
-                report["details"].append(f"нумерация (стиль): {t[:50]} → {new_t[:50]}")
-        chk = verify_and_fix_numbering(doc)
-        if chk.get("fixed"):
-            changed = True
-            report["fixed"] += int(chk["fixed"])
+        name_l = path.name.lower()
+        skip_renumber = (doc_type or "").lower() in (
+            "dolzhnostnaya_instrukciya",
+            "di",
+        ) or name_l.startswith("ди ") or name_l.startswith("ди_")
+        if skip_renumber:
             report["details"].append(
-                f"нумерация: исправлено пунктов {chk['fixed']} "
-                f"(проверено {chk.get('checked', 0)})"
+                "нумерация ДИ: исходник сохранён (без перенумерации publish_check)"
             )
-        # повторная проверка — не оставлять известные сбои
-        chk2 = verify_and_fix_numbering(doc)
-        if chk2.get("fixed"):
-            changed = True
-            report["fixed"] += int(chk2["fixed"])
-            report["details"].append(f"нумерация (2-й проход): +{chk2['fixed']}")
-        left_issues = chk2.get("issues") or chk.get("issues") or []
-        if left_issues:
-            report["ok"] = False
-            report["issues"].append(
-                "нумерация: остались замечания — " + "; ".join(left_issues[:5])
+        else:
+            from .structure_fix import (
+                normalize_numbering_style,
+                verify_and_fix_numbering,
+                collapse_duplicate_number_prefix,
             )
-        report["numbering_check"] = chk2 if chk2 else chk
+
+            for p in doc.paragraphs:
+                t = p.text or ""
+                if not t.strip():
+                    continue
+                new_t = normalize_numbering_style(collapse_duplicate_number_prefix(t))
+                if new_t != t:
+                    _rewrite_para(p, new_t)
+                    changed = True
+                    report["fixed"] += 1
+                    report["details"].append(f"нумерация (стиль): {t[:50]} → {new_t[:50]}")
+            chk = verify_and_fix_numbering(doc)
+            if chk.get("fixed"):
+                changed = True
+                report["fixed"] += int(chk["fixed"])
+                report["details"].append(
+                    f"нумерация: исправлено пунктов {chk['fixed']} "
+                    f"(проверено {chk.get('checked', 0)})"
+                )
+            chk2 = verify_and_fix_numbering(doc)
+            if chk2.get("fixed"):
+                changed = True
+                report["fixed"] += int(chk2["fixed"])
+                report["details"].append(f"нумерация (2-й проход): +{chk2['fixed']}")
+            left_issues = chk2.get("issues") or chk.get("issues") or []
+            if left_issues:
+                report["ok"] = False
+                report["issues"].append(
+                    "нумерация: остались замечания — " + "; ".join(left_issues[:5])
+                )
+            report["numbering_check"] = chk2 if chk2 else chk
     except Exception as e:
         report["ok"] = False
         report["issues"].append(f"нумерация: сбой проверки — {e}")
@@ -186,7 +197,7 @@ def verify_document_before_publish(
     except Exception as e:
         report["details"].append(f"интервал глав: {e}")
 
-    # --- титул: «номер инструкции» = 11 пт (эталон КЛ) ---
+    # --- титул: «номер инструкции» = 12 пт ---
     try:
         from .structure_fix import apply_title_instruction_number_font
 
@@ -194,7 +205,7 @@ def verify_document_before_publish(
         if nfont:
             changed = True
             report["fixed"] += nfont
-            report["details"].append(f"титул: «номер инструкции» → 11 пт ({nfont})")
+            report["details"].append(f"титул: «номер инструкции» → 12 пт ({nfont})")
     except Exception as e:
         report["details"].append(f"шрифт номера инструкции: {e}")
 

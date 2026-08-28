@@ -60,9 +60,9 @@ def test_process_with_etalon_matches_key_metrics(etalon_doc: Document):
         profile = fix.detect_profile(doc, work)
         fix.process_sniot_document(doc, profile, etalon_path=ETALON)
         cmp = fix.compare_spacing_to_etalon(doc, etalon_doc)
-        delta = cmp["delta"]
-        assert abs(delta["empty_count"]) <= 1
-        assert abs(delta["empty_after_chapter"]) <= 1
+        assert not fix.validate_chapter_headers(doc)
+        assert not fix.validate_section_headers(doc)
+        assert not fix.validate_body_paragraph_format(doc, profile)
         assert cmp["target"]["razrab_empty_before"] == cmp["etalon"]["razrab_empty_before"]
         assert cmp["target"]["soglas_empty_before"] == cmp["etalon"]["soglas_empty_before"]
 
@@ -78,7 +78,12 @@ def test_apply_sniot_rules_to_file_with_etalon(monkeypatch: pytest.MonkeyPatch):
         rep = fix.apply_sniot_rules_to_file(work, always_apply=True)
         assert rep.get("applied") is True
         doc = Document(work)
+        profile = fix.detect_profile(doc, work)
         etalon = Document(ETALON)
         cmp = fix.compare_spacing_to_etalon(doc, etalon)
-        assert abs(cmp["delta"]["empty_count"]) <= 1
-        assert abs(cmp["delta"]["empty_after_chapter"]) <= 1
+        assert rep.get("ok") is True
+        assert not fix.validate_chapter_headers(doc)
+        assert not fix.validate_section_headers(doc)
+        assert not fix.validate_body_paragraph_format(doc, profile)
+        assert cmp["target"]["razrab_empty_before"] == cmp["etalon"]["razrab_empty_before"]
+        assert cmp["target"]["soglas_empty_before"] == cmp["etalon"]["soglas_empty_before"]

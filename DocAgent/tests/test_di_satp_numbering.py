@@ -47,7 +47,12 @@ def test_conservative_di_satp_flag():
         r"N:\9\!!!ОБМЕН\САТП\ПРОЕКТ Старший мастер_оформлен.docx",
         "dolzhnostnaya_instrukciya",
     )
-    assert not is_conservative_di_satp("РИ.docx", "rabochaya_instrukciya")
+    assert is_conservative_di_satp(
+        r"N:\Агент\ДИ  инженер  ЛСиМ_2026 (Романовский).doc",
+        "dolzhnostnaya_instrukciya",
+    )
+    assert not is_conservative_di_satp("РИ слесарь.docx", "rabochaya_instrukciya")
+    assert not is_conservative_di_satp("приказ.docx", "prikaz")
 
 
 def test_validate_save_integrity_blocks_numbering_loss(fix_mod):
@@ -95,8 +100,8 @@ def test_fix_numbering_adds_prefixes_from_dump(tmp_path, fix_mod):
     numbered = fix_mod.count_numbered_paragraphs(doc2)
     assert numbered >= 80
     texts = [p.text for p in doc2.paragraphs]
-    assert any(t.startswith("1.4.1.") for t in texts)
-    assert any(t.startswith("1.5.1.") for t in texts)
+    assert any(t.startswith("1.8.1.") for t in texts)
+    assert any(t.startswith("1.9.1.") for t in texts)
     assert any(t.startswith("2.1.1.") for t in texts)
     assert any(t.startswith("5.1.1.") for t in texts)
 
@@ -175,3 +180,22 @@ def test_text_edits_skips_conservative_di(tmp_path):
     )
     assert rep.get("skipped_conservative") is True
     assert rep.get("deleted_paragraphs", 0) == 0
+
+
+def test_text_edits_skips_any_di(tmp_path):
+    from formatters.text_edits import apply_text_edits
+
+    src = tmp_path / "ДИ  инженер  ЛСиМ_2026 (Романовский).docx"
+    out = tmp_path / "ДИ  инженер  ЛСиМ_2026 (Романовский)_оформлен.docx"
+    doc = Document()
+    doc.add_paragraph("1.6. Выполняет локальные правовые акты предприятия.")
+    doc.save(src)
+
+    rep = apply_text_edits(
+        str(src),
+        str(out),
+        doc_type="dolzhnostnaya_instrukciya",
+    )
+    assert rep.get("skipped_conservative") is True
+    saved = Document(str(out))
+    assert "Выполняет локальные правовые акты" in saved.paragraphs[0].text

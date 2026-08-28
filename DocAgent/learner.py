@@ -75,7 +75,33 @@ def is_safe_learned_replacement(old: str, new: str) -> bool:
         if re.search(r"(?i)\bпо\s+эксплуатац", o):
             return False
 
-    # введение опечаток
+    # замена шапки предприятия / титула на ТКП, Правила, ГОСТ
+    if re.match(r"(?i)^(ТКП|ГОСТ|СНиП|Правила|«Правила)\b", n) and not re.match(
+        r"(?i)^(ТКП|ГОСТ|СНиП|Правила|«Правила)\b", o
+    ):
+        return False
+    if any(
+        marker in o.upper()
+        for marker in (
+            "КОММУНАЛЬНЫХ ТЕПЛОВЫХ СЕТЕЙ",
+            "МИНСКИЙ ГОРОДСКОЙ ИСПОЛНИТЕЛЬНЫЙ",
+            "МИНСККОММУНТЕПЛОСЕТЬ",
+            "КОММУНАЛЬНОЕ УНИТАРНОЕ ПРОИЗВОДСТВЕННОЕ",
+        )
+    ) and n.upper() != o.upper():
+        if "ТКП" in n.upper() or "ПРАВИЛА" in n.upper():
+            return False
+
+    # аббревиатура подразделения: ЛСиМ → Осим
+    if " " not in o and " " not in n and o.isalpha() and n.isalpha():
+        if 2 <= len(o) <= 6 and 2 <= len(n) <= 6 and ol != nl:
+            return False
+
+    # один номер ТКП нельзя подменять другим
+    m_old = re.search(r"ТКП\s+(\d+-\d+)", o, re.I)
+    m_new = re.search(r"ТКП\s+(\d+-\d+)", n, re.I)
+    if m_old and m_new and m_old.group(1) != m_new.group(1):
+        return False
     if "сследить" in nl and "сследить" not in ol:
         return False
     if "поэксплуатац" in nl and "поэксплуатац" not in ol:

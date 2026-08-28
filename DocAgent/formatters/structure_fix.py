@@ -73,11 +73,7 @@ _RI_ETALON_NETWORK = (
 
 
 def _resolve_ri_etalon_path() -> str:
-    """Локальная копия в etalons/ — основная; сеть N: — запасной путь."""
-    if Path(_RI_ETALON_LOCAL).is_file():
-        return _RI_ETALON_LOCAL
-    if Path(_RI_ETALON_NETWORK).is_file():
-        return _RI_ETALON_NETWORK
+    """Локальная копия в etalons/ — внутренний шаблон стилей. ОБМЕН/сеть не образец."""
     return _RI_ETALON_LOCAL
 
 
@@ -91,7 +87,7 @@ RI_SIGN_CHARS_PER_TAB = 5
 # Обязательные пустые строки титула (эталон СЛЕСАРЬ 30.07.2026)
 TITLE_EMPTY_BEFORE_TABLE = 2
 TITLE_EMPTY_BEFORE_MINSK = 15
-# Подпись «номер инструкции» на титуле — 11 пт (эталон КЛ 31.07.2026)
+# Подпись «номер инструкции» на титуле — 12 пт (не 14)
 TITLE_INSTR_NUMBER_LABEL = "номер инструкции"
 
 
@@ -332,9 +328,20 @@ def is_instruction_number_label(text: str) -> bool:
 def apply_title_instruction_number_font(doc: Document) -> int:
     """На титуле подпись «номер инструкции» — всегда Times New Roman 12 пт."""
     fixed = 0
-    for p in doc.paragraphs[:45]:
-        if not is_instruction_number_label(p.text):
+    paras = list(doc.paragraphs[:45])
+    for table in doc.tables:
+        blob = " ".join(c.text for row in table.rows for c in row.cells).upper()
+        if "УТВЕРЖДАЮ" not in blob and "ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ" not in blob:
             continue
+        for row in table.rows:
+            for cell in row.cells:
+                paras.extend(cell.paragraphs)
+    seen: set[int] = set()
+    for p in paras:
+        pid = id(p._element)
+        if pid in seen or not is_instruction_number_label(p.text):
+            continue
+        seen.add(pid)
         p.paragraph_format.first_line_indent = Cm(0)
         p.paragraph_format.left_indent = Cm(0)
         if p.runs:
@@ -349,7 +356,6 @@ def apply_title_instruction_number_font(doc: Document) -> int:
             run = p.add_run(TITLE_INSTR_NUMBER_LABEL)
             set_run_font(run, font_size=Pt(TITLE_INSTR_NUMBER_PT), bold=False)
             fixed += 1
-        # oxml на случай run без python-docx font
         _set_oxml_para_font(p._element, size_pt=TITLE_INSTR_NUMBER_PT)
     return fixed
 
@@ -448,14 +454,8 @@ def materialize_list_numbers(docx_path: str) -> int:
             if pPr is not None and pPr.numPr is not None:
                 pPr.remove(pPr.numPr)
             continue
-        # длинные повествовательные абзацы: только снять ложную автонумерацию,
-        # не вписывать «4.2.» в середину инструкции
-        if len(body) > 100:
-            pPr = p._element.pPr
-            if pPr is not None and pPr.numPr is not None:
-                pPr.remove(pPr.numPr)
-                changed += 1
-            continue
+        # Длинные пункты ДИ тоже нумеруются списком Word (2.2.1. …) —
+        # номер из ListString всегда вписываем, не снимаем numPr втихую.
         if re.fullmatch(r"\d+", ls):
             prefix = f"{ls} "
         elif ls.endswith("."):
@@ -567,7 +567,7 @@ _CAPTION_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 _TEXT_MARKER_RE = re.compile(
-    r"^[\-\u2013\u2014\u2022\u00B7\*◦▪▸►]+\s*"
+    r"^[\-\u2013\u2014\u2022\u00B7\uF0B7\uF0A7\u25CB\u25A0\u25A1\u25CF\u25E6\*◦▪▸►■○●]+\s*"
 )
 
 
@@ -673,7 +673,7 @@ def _strip_leading_marker_text(text: str) -> tuple[str, int]:
         if changed > 5:
             break
     # маркер вплотную к букве: «–текст»
-    m2 = re.match(r"^([\-\u2013\u2014\u2022\u00B7\*◦▪▸►])([^\d\s].*)$", t)
+    m2 = re.match(r"^([\-\u2013\u2014\u2022\u00B7\uF0B7\uF0A7\u25CB\u25A0\u25CF\*◦▪▸►■○●])([^\d\s].*)$", t)
     if m2:
         t = m2.group(2).lstrip()
         changed += 1
@@ -940,11 +940,12 @@ def _next_expected(prev: tuple[int, ...] | None, depth: int) -> tuple[int, ...]:
     return prev[: depth - 1] + (prev[depth - 1] + 1,)
 
 
-def verify_and_fix_numbering(doc: Document) -> dict:
+def verify_and_fix_numbering(doc: Document, *, rewrite_numbers: bool = False) -> dict:
     """
     После оформления — проверить КАЖДЫЙ пункт с номером по порядку.
-    Внутри одного родителя (1.10 → 1.10.1, 1.10.2…) номера должны идти без пропусков и дублей.
-    Разделы: 1, 2, 3… подряд.
+    По умолчанию номера исходника не переписываем (только отчёт): иначе
+    1.6./2.2.10. «подтягивались» к 1.3./2.2.1. и пропадали пункты.
+    rewrite_numbers=True — старое поведение (заполнить пропуски), только по явной просьбе.
     """
     report = {
         "checked": 0,
@@ -1022,21 +1023,27 @@ def verify_and_fix_numbering(doc: Document) -> dict:
             expected_n = last_section + 1
             expected = (expected_n,)
             if cur != expected:
-                new_text = f"{expected_n} {rest.lstrip()}"
-                bold = p.runs[0].bold if p.runs else None
-                _set_runs(p, new_text, bold=bold)
                 msg = f"абз.{i + 1}: раздел «{num_str}» → «{expected_n}»"
-                report["fixed"] += 1
-                report["fixes"].append(msg)
+                if rewrite_numbers:
+                    new_text = f"{expected_n} {rest.lstrip()}"
+                    bold = p.runs[0].bold if p.runs else None
+                    _set_runs(p, new_text, bold=bold)
+                    report["fixed"] += 1
+                    report["fixes"].append(msg)
+                    last_section = expected_n
+                else:
+                    report["ok"] += 1
+                    last_section = cur[0]
                 report["issues"].append(msg)
             else:
                 report["ok"] += 1
-            last_section = expected_n
+                last_section = expected_n
             # новый раздел — сбросить счётчики детей других разделов
+            keep_section = last_section
             for key in list(last_child.keys()):
-                if not key or key[0] != expected_n:
+                if not key or key[0] != keep_section:
                     del last_child[key]
-            last_child[()] = expected_n
+            last_child[()] = keep_section
             continue
 
         # обычный пункт N.M.K…
@@ -1049,18 +1056,22 @@ def verify_and_fix_numbering(doc: Document) -> dict:
             last_section = parent[0]
 
         if prev_tail is None:
-            # первая встреча ветки: если начинается не с 1 (после удаления 2.2.1) — пододвинуть
+            # первая встреча ветки: номер исходника сохраняем (1.6. не сдвигать в 1.1.)
             if cur[-1] > 1 and len(cur) >= 2:
                 expected = parent + (1,)
-                pref = ".".join(str(x) for x in expected) + "."
-                new_text = f"{pref} {rest.lstrip()}"
-                bold = p.runs[0].bold if p.runs else None
-                _set_runs(p, new_text, bold=bold)
                 msg = f"абз.{i + 1}: старт ветки «{num_str}» → «{'.'.join(map(str, expected))}»"
-                report["fixed"] += 1
-                report["fixes"].append(msg)
+                if rewrite_numbers:
+                    pref = ".".join(str(x) for x in expected) + "."
+                    new_text = f"{pref} {rest.lstrip()}"
+                    bold = p.runs[0].bold if p.runs else None
+                    _set_runs(p, new_text, bold=bold)
+                    report["fixed"] += 1
+                    report["fixes"].append(msg)
+                    last_child[parent] = 1
+                else:
+                    report["ok"] += 1
+                    last_child[parent] = cur[-1]
                 report["issues"].append(msg)
-                last_child[parent] = 1
             else:
                 report["ok"] += 1
                 last_child[parent] = cur[-1]
@@ -1068,29 +1079,35 @@ def verify_and_fix_numbering(doc: Document) -> dict:
             report["ok"] += 1
             last_child[parent] = cur[-1]
         elif cur[-1] > prev_tail + 1:
-            # пропуск после удаления пункта — пододвинуть к prev+1
             expected = parent + (prev_tail + 1,)
-            pref = ".".join(str(x) for x in expected) + "."
-            new_text = f"{pref} {rest.lstrip()}"
-            bold = p.runs[0].bold if p.runs else None
-            _set_runs(p, new_text, bold=bold)
             msg = f"абз.{i + 1}: пропуск «{num_str}» → «{'.'.join(map(str, expected))}»"
-            report["fixed"] += 1
-            report["fixes"].append(msg)
+            if rewrite_numbers:
+                pref = ".".join(str(x) for x in expected) + "."
+                new_text = f"{pref} {rest.lstrip()}"
+                bold = p.runs[0].bold if p.runs else None
+                _set_runs(p, new_text, bold=bold)
+                report["fixed"] += 1
+                report["fixes"].append(msg)
+                last_child[parent] = expected[-1]
+            else:
+                report["ok"] += 1
+                last_child[parent] = cur[-1]
             report["issues"].append(msg)
-            last_child[parent] = expected[-1]
         elif cur[-1] == prev_tail:
-            # дубль — мягко сдвинуть на +1
             expected = parent + (prev_tail + 1,)
-            pref = ".".join(str(x) for x in expected) + "."
-            new_text = f"{pref} {rest.lstrip()}"
-            bold = p.runs[0].bold if p.runs else None
-            _set_runs(p, new_text, bold=bold)
             msg = f"абз.{i + 1}: дубль «{num_str}» → «{'.'.join(map(str, expected))}»"
-            report["fixed"] += 1
-            report["fixes"].append(msg)
+            if rewrite_numbers:
+                pref = ".".join(str(x) for x in expected) + "."
+                new_text = f"{pref} {rest.lstrip()}"
+                bold = p.runs[0].bold if p.runs else None
+                _set_runs(p, new_text, bold=bold)
+                report["fixed"] += 1
+                report["fixes"].append(msg)
+                last_child[parent] = expected[-1]
+            else:
+                report["ok"] += 1
+                last_child[parent] = cur[-1]
             report["issues"].append(msg)
-            last_child[parent] = expected[-1]
         else:
             # откат назад — только замечание, текст не трогаем
             report["ok"] += 1
@@ -1675,10 +1692,17 @@ def _polish_existing_title_table(table, doc_type: str) -> int:
     except Exception:
         return 0
     want = _doc_kind_label(doc_type, c00)
-    if not c00 or (INSTR_RE.search(c00) and c00.upper() != want):
+    if not c00:
         if "РАБОЧАЯ" in want or "ДОЛЖНОСТНАЯ" in want:
             _write_cell_lines(table.rows[0].cells[0], [want], bold_first=True)
             changed += 1
+    elif INSTR_RE.search(c00) and c00.upper().strip() != want:
+        rest = INSTR_RE.sub("", c00).strip(" _")
+        if not rest:
+            if "РАБОЧАЯ" in want or "ДОЛЖНОСТНАЯ" in want:
+                _write_cell_lines(table.rows[0].cells[0], [want], bold_first=True)
+                changed += 1
+        # иначе в ячейке своё название (инженер ЛСиМ и т.п.) — не затирать
     if not c01 or "утверждаю" not in c01.lower():
         _write_cell_lines(table.rows[0].cells[1], ["УТВЕРЖДАЮ"], bold_first=True)
         changed += 1
@@ -1754,8 +1778,9 @@ def ensure_title_table_like_sample(doc: Document, doc_type: str = "unsupported")
         or any(INSTR_RE.search(p.text) for p in mashed_with_text)
     )
     if not looks_like_title_mash:
-        # титула нет: НЕ выдумывать шапку ДИ для инструкции по эксплуатации /
-        # документов, начинающихся с «СОДЕРЖАНИЕ» без шапки организации
+        # шапка организации уже есть абзацами — не вставлять второй титул
+        if has_org:
+            return 0
         if _should_skip_invented_title(doc, doc_type):
             return 0
         return create_title_page_from_scratch(doc, doc_type, source_path=getattr(doc, "_source_path", "") or "")
@@ -1900,8 +1925,12 @@ def create_title_page_from_scratch(doc: Document, doc_type: str = "unsupported",
     # уже есть таблица УТВЕРЖДАЮ / шапка организации — не дублировать
     if _find_title_table(doc) is not None:
         return 0
-    head = " ".join(p.text for p in doc.paragraphs[:8]).lower()
-    if "минсккоммунтеплосеть" in head and "утверждаю" in head:
+    head = " ".join(p.text for p in doc.paragraphs[:15]).lower()
+    if (
+        "минсккоммунтеплосеть" in head
+        or "коммунальное унитарное" in head
+        or "исполнительный комитет" in head
+    ):
         return 0
     if _should_skip_invented_title(doc, doc_type):
         return 0
@@ -2267,7 +2296,7 @@ def apply_table_fonts(doc: Document, body_pt: int = TABLE_FONT_PT) -> int:
                     set_single_line_spacing(p)
                     for run in p.runs:
                         low = (run.text or "").strip().lower()
-                        # подпись «номер инструкции» на титуле — 11 пт (эталон)
+                        # подпись «номер инструкции» на титуле — 12 пт
                         want = (
                             Pt(TITLE_INSTR_NUMBER_PT)
                             if low.startswith("номер инструкции")
@@ -2919,14 +2948,18 @@ def resolve_instruction_doc_type(
     Важно: «РАБОЧАЯ ИНСТРУКЦИЯ» часто только в таблице титула — paragraphs[] её не видят.
     """
     hint = (doc_type or "").lower().strip()
-    if hint in ("rabochaya_instrukciya", "dolzhnostnaya_instrukciya", "polozhenie", "instrukciya_ot", "prikaz"):
-        return hint
-
     name = Path(source_path).name.lower() if source_path else ""
     blob = ""
     if doc is not None:
         blob = document_text_blob(doc).lower()
     packed = f"{name}\n{blob}"
+
+    # имя «ДИ …» важнее ошибочного hint=polozhenie
+    if re.search(r"(^|[\s_])ди([\s_.]|$)", name) or re.match(r"^ди[\s_]", name):
+        return "dolzhnostnaya_instrukciya"
+
+    if hint in ("rabochaya_instrukciya", "dolzhnostnaya_instrukciya", "polozhenie", "instrukciya_ot", "prikaz"):
+        return hint
 
     if (
         "рабочая инструкция" in packed
@@ -3750,11 +3783,19 @@ def finalize_notes_and_signatories(docx_path: str, doc_type: str = "") -> dict:
         pass
 
     try:
-        chk = verify_and_fix_numbering(doc)
-        report["numbers_fixed"] = int(chk.get("fixed", 0))
-        chk2 = verify_and_fix_numbering(doc)
-        report["numbers_fixed"] += int(chk2.get("fixed", 0))
-        report["numbering_check"] = chk2
+        name_l = Path(docx_path).name.lower() if docx_path else ""
+        skip_renumber = dtype == "dolzhnostnaya_instrukciya" or name_l.startswith(
+            "ди "
+        ) or name_l.startswith("ди_")
+        if skip_renumber:
+            report["numbers_fixed"] = 0
+            report["numbering_check"] = {"skipped": "source_preserved"}
+        else:
+            chk = verify_and_fix_numbering(doc)
+            report["numbers_fixed"] = int(chk.get("fixed", 0))
+            chk2 = verify_and_fix_numbering(doc)
+            report["numbers_fixed"] += int(chk2.get("fixed", 0))
+            report["numbering_check"] = chk2
     except Exception as e:
         report["numbering_error"] = str(e)
 

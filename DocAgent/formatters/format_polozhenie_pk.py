@@ -16,6 +16,8 @@ import re
 import shutil
 from pathlib import Path
 
+from path_resolver import copy_file_if_different
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
@@ -109,7 +111,7 @@ def format_polozhenie_pk(docx_path: str | Path, *, backup: bool = False) -> dict
     if backup:
         bak = path.with_name(path.stem + "_до_оформления.docx")
         if not bak.exists():
-            shutil.copy2(path, bak)
+            copy_file_if_different(path, bak)
             report["backup"] = str(bak)
 
     doc = Document(str(path))
