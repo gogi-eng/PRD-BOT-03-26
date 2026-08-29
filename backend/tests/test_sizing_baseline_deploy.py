@@ -44,3 +44,16 @@ def test_self_improver_risk_floor_protects_baseline() -> None:
     assert lo == 0.225
     assert hi == 1.5
     assert step == 0.05
+
+
+def test_agent_world_keeps_garch_trailing_and_long_quality() -> None:
+    """Регресс: ветка AW не должна терять Trailing GARCH / Long Quality / manual_sl_guard."""
+    cfg = _load("config.agent_world_sandbox.yaml")
+    assert cfg["volatility_regime_sizing"]["enabled"] is True
+    tvr = cfg["positions"]["trailing_volatility_regime"]
+    assert tvr["enabled"] is True
+    assert float(tvr["distance_mult"]["calm"]) == 0.75
+    assert float(tvr["distance_mult"]["storm"]) == 1.35
+    assert cfg["trading"]["long_quality_gate"]["enabled"] is True
+    assert cfg["trading"]["long_swing_exit"]["enabled"] is True
+    assert cfg["positions"]["manual_sl_guard"]["enabled"] is True
