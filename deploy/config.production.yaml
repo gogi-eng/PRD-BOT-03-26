@@ -688,7 +688,7 @@ supervisor_v4:
   skipped_backtest_interval_hours: 3.5
   skipped_signal_backtest:
     enabled: true
-    auto_tune_filters: true
+    auto_tune_filters: false
     auto_tune_min_samples: 5
     lookback_hours: 72
     max_per_run: 40
@@ -816,8 +816,8 @@ telegram_signal_agent:
   enabled: true
   auto_execute: true
   auto_execute_max_open_positions: 6
-  # SPIKE/scanner: номинал = 120% баланса Bybit (×1.5 от прежних 80%)
-  max_notional_balance_pct: 120
+  # SPIKE/scanner: номинал = 45% баланса Bybit (×1.5 от прежних 80%)
+  max_notional_balance_pct: 45
   photo_ocr_enabled: true
   audit_jsonl_enabled: true
   market_scanner_auto_execute: true
