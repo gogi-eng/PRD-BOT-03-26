@@ -90,14 +90,14 @@ trading:
     active_sec: 45
     idle_sec: 120
     idle_after_quiet_min: 60
-  max_positions: 8
+  max_positions: 6
   dynamic_leverage:
     enabled: true
     min: 10
     max: 15
     min_confidence: 0.68
     max_confidence: 0.95
-  min_signal_confidence: 0.85
+  min_signal_confidence: 0.87
   min_own_agent_confidence: 0.82
   min_multi_agent_score: 0.4
   risk_pct_per_trade: 0.225
@@ -155,8 +155,6 @@ trading:
       - mirror_pump_dump
       - agent_world
       - world_feed
-
-  # Лонги (Buy): испытание 20.08.2026
   long_quality_gate:
     enabled: true
     block_local_hours: [3, 4, 5, 10, 20]
@@ -168,6 +166,37 @@ trading:
     require_htf_align: false
     apply_to_sources: []
     skip_sources: []
+
+  long_swing_exit:
+    enabled: true
+    min_sl_pct: 1.0
+    trailing_activation_pct: 3.5
+    trailing_distance_pct: 4.0
+    trailing_distance_atr_mult: 2.4
+    trailing_min_distance_pct: 2.0
+    breakeven_after_pct: 2.5
+    exit_management:
+      enabled: true
+      time_stop_enabled: true
+      time_stop_minutes: 240
+      time_stop_min_atr_progress: 0.35
+      close_on_time_stop: true
+      early_breakeven_enabled: false
+      late_breakeven_enabled: true
+      late_breakeven_retrace_pct: 40
+      close_on_late_retrace: false
+      late_tighten_distance_factor: 1.0
+    tp_progress_exit:
+      enabled: true
+      breakeven_at_profit_pct: 1.2
+      sr_trail_at_profit_pct: 2.0
+      be_fee_buffer_pct: 0.30
+      be_lock_extra_pct: 0.40
+      sr_trail_enabled: true
+      sr_sl_buffer_atr: 0.22
+      sr_level_index: 1
+      min_valid_tp_distance_pct: 0.08
+  # 26.07: длинный трейлинг — больше запас на откат (не закрывать у локального min/max)
 
   non_trading_systemd:
     enabled: true
@@ -334,11 +363,11 @@ risk_presets:
       mode: strict
   normal:
     trading:
-      min_signal_confidence: 0.85
+      min_signal_confidence: 0.87
       risk_pct_per_trade: 0.525
     quality_gate:
       min_rr_ratio: 2.0
-      min_confidence: 0.85
+      min_confidence: 0.87
     signals:
       min_analysis_confidence: 0.88
     entry_pipeline:
@@ -416,29 +445,6 @@ positions:
   adopt_manual: true
   # false = не закрывать origin=manual time-stop/late_retrace (только trailing/SL биржи)
   manual_auto_close: false
-  # Сторож закрытий: все сделки (ручные + бот). Алерт в Telegram если
-  # убытков подряд > 2 или некорректных закрытий > 2.
-  # Маркер лога: CloseWatchdog / АВАРИЯ ЗАКРЫТИЙ
-  close_watchdog:
-    enabled: true
-    alert_when_losses_gt: 2
-    alert_when_bad_closes_gt: 2
-    fast_loss_minutes: 5.0
-    large_loss_pct: 3.0
-    # копейки / age≈0 от adopt не спамят Telegram
-    min_loss_usdt_for_streak: 0.15
-    min_loss_usdt_for_bad: 0.15
-    treat_unreliable_age_as_fast: false
-    notify_telegram: true
-    alert_cooldown_sec: 120
-  # Защитный SL для manual БЕЗ стопа на бирже (trailing/BE+ остаются ON).
-  # НЕ то же самое, что откатанный manage_sl_tp_manual:false.
-  # Маркеры: "Manual SL missing", "Manual SL guard".
-  manual_sl_guard:
-    enabled: true
-    default_sl_pct: 1.0
-    interval_sec: 30
-    once_per_position: true
   # Периодическая проверка: на бирже у каждой открытой позиции должны быть SL и TP.
   # Маркеры лога: "Missing SL/TP on position", "SL/TP guard".
   sl_tp_guard:
@@ -451,37 +457,6 @@ positions:
   session_boundary_close:
     enabled: false
   trailing_enabled: true
-
-  # 20.08: профиль выхода для Buy (лонг-свинг)
-  long_swing_exit:
-    enabled: true
-    min_sl_pct: 1.0
-    trailing_activation_pct: 3.5
-    trailing_distance_pct: 4.0
-    trailing_distance_atr_mult: 2.4
-    trailing_min_distance_pct: 2.0
-    breakeven_after_pct: 2.5
-    exit_management:
-      enabled: true
-      time_stop_enabled: true
-      time_stop_minutes: 240
-      time_stop_min_atr_progress: 0.35
-      close_on_time_stop: true
-      early_breakeven_enabled: false
-      late_breakeven_enabled: true
-      late_breakeven_retrace_pct: 40
-      close_on_late_retrace: false
-      late_tighten_distance_factor: 1.0
-    tp_progress_exit:
-      enabled: true
-      breakeven_at_profit_pct: 1.2
-      sr_trail_at_profit_pct: 2.0
-      be_fee_buffer_pct: 0.30
-      be_lock_extra_pct: 0.40
-      sr_trail_enabled: true
-      sr_sl_buffer_atr: 0.22
-      sr_level_index: 1
-      min_valid_tp_distance_pct: 0.08
   # 26.07: длинный трейлинг — больше запас на откат (не закрывать у локального min/max)
   liquidation_guard:
     enabled: true
@@ -557,7 +532,7 @@ positions:
     apply_to_manual: true
     apply_to_pump_dump: true
     apply_to_bot: true
-  # GARCH → дистанция трейлинга: calm ближе, storm шире (песочница ON)
+  # После BE/BE+: дистанция трейлинга на 0.5 п.п. короче (как на проде)
   trailing_volatility_regime:
     enabled: true
     advisory_only: false
@@ -571,10 +546,16 @@ positions:
     apply_to_manual: true
     apply_to_bot: true
     apply_to_pump_dump: true
-  # После BE/BE+: дистанция трейлинга на 0.5 п.п. короче (как на проде)
+
   trailing_after_be:
     enabled: true
     distance_reduce_pct: 0.5
+  manual_sl_guard:
+    enabled: true
+    default_sl_pct: 1.0
+    interval_sec: 30
+    once_per_position: true
+
   fee_breakeven:
     taker_rate: 0.00055
     maker_rate: 0.0002
@@ -747,14 +728,14 @@ rule_weight_learning:
   neutral_threshold: 50
   caution_threshold: 40
   weight_overrides:
-    regime_trend: 0.55
-    adx_ok: 0.55
-    adx_strong: 0.55
-    imb_strong: 0.55
+    regime_trend: 0.45
+    adx_ok: 0.45
+    adx_strong: 0.45
+    imb_strong: 0.45
 
 quality_gate:
   enabled: true
-  min_confidence: 0.85
+  min_confidence: 0.87
   min_rr_ratio: 2.0
   require_sl_tp: true
   min_24h_volume_usdt: 10000000
@@ -887,22 +868,22 @@ market_scanner:
     run_loop_in_signal_agent: false
     interval_sec: 90
     kline_interval: "15"
-    min_move_pct: 4.0
+    min_move_pct: 4.5
     min_24h_volume_usdt: 8000000
     max_symbols: 50
     top_n: 1
     # ЛАЙТ 28.07: чуть дольше cooldown — меньше повторных входов в ту же «памп»-монету
     symbol_cooldown_sec: 2400
     auto_execute: true
-    execute_min_score: 72
+    execute_min_score: 76
     # ЛАЙТ 28.07: объём должен подтверждать импульс (аналог «живой интерес», без on-chain)
-    min_volume_ratio: 1.40
+    min_volume_ratio: 1.55
     sl_buffer_pct: 0.25
     min_rr: 1.5
     use_closed_candle: false
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
-    extra_position_slots: 2
+    extra_position_slots: 1
     # P1: SPIKE вход через откат/FVG (прод + песочница ON)
     pullback_entry:
       enabled: true
@@ -960,7 +941,7 @@ telegram_signal_agent:
   telegram_notify: true
   market_scanner_interval_sec: 600
   market_scanner_min_score_to_notify: 58
-  market_scanner_execute_min_score: 75
+  market_scanner_execute_min_score: 78
   market_scanner_execute_require_confirmed_bos: true
   market_scanner_bos_watchlist_enabled: true
   market_scanner_bos_watchlist_timeout_hours: 6
@@ -1016,9 +997,13 @@ telegram_signal_agent:
     enabled: true
     skip_noise_posts: true
     require_stop_loss: true
-    min_structure_score: 58
+    min_structure_score: 62
   require_stop_loss: true
-  min_openrouter_confidence: 68
+  # 26.08.26: чуть уже фильтры TG auto-exec
+  auto_execute_min_parser_confidence: 85
+  auto_execute_min_ai_confidence: 60
+  min_openrouter_confidence: 72
+  min_openrouter_confidence_trusted: 60
 
 reporter:
   interval_hours: 2
@@ -1046,9 +1031,9 @@ analytics:
   # Бывший Hermes weekly — не используется; правки часов вручную по Лаборатории
 
 ai:
-  # openrouter | deepseek | aiai | fcc
-  # AIAI.BY (Беларусь, OpenAI-compatible): provider: aiai + AIAI_API_KEY в .env
-  provider: aiai
+  # openrouter | deepseek | fcc
+  # DeepSeek напрямую (без OpenRouter): provider: deepseek + DEEPSEEK_API_KEY в .env
+  provider: openrouter
 
 free_claude_code:
   enabled: false
@@ -1067,14 +1052,6 @@ deepseek:
   api_key: ""
   model: deepseek-chat
   base_url: https://api.deepseek.com/v1
-  timeout_sec: 30
-
-# AIAI.BY — OpenAI-compatible API (https://api.aiai.by/v1). Ключ в .env: AIAI_API_KEY
-# Модели (примеры): gemini-2.0-flash | gpt-4o-mini | deepseek-chat | gpt-4o
-aiai:
-  api_key: ""
-  model: gemini-2.0-flash
-  base_url: https://api.aiai.by/v1
   timeout_sec: 30
 
 macro_ai:
