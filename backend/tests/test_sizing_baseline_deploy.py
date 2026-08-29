@@ -18,7 +18,7 @@ def test_production_sizing_baseline() -> None:
     assert float(cfg["trading"]["risk_pct_per_trade"]) == 0.225
     assert int(cfg["trading"]["dynamic_leverage"]["min"]) == 10
     assert float(cfg["supervisor_v4"]["min_risk_pct"]) == 0.15
-    assert float(cfg["telegram_signal_agent"]["max_notional_balance_pct"]) == 120.0
+    assert float(cfg["telegram_signal_agent"]["max_notional_balance_pct"]) == 45.0
     presets = cfg["risk_presets"]
     assert float(presets["conservative"]["trading"]["risk_pct_per_trade"]) == 0.375
     assert float(presets["normal"]["trading"]["risk_pct_per_trade"]) == 0.525
