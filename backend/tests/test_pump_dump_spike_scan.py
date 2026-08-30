@@ -277,12 +277,18 @@ def test_agent_world_deploy_yaml_position_limits():
     assert int(cfg["trading"]["max_positions"]) == 8
     spike = cfg["market_scanner"]["spike_scalp"]
     assert int(spike["extra_position_slots"]) == 2
+    assert float(spike["min_move_pct"]) == 4.0
+    assert int(spike["execute_min_score"]) == 72
+    assert float(spike["min_volume_ratio"]) == 1.40
     assert int(spike["max_positions_bypass_min_score"]) == 88
+    assert float(cfg["trading"]["min_signal_confidence"]) == 0.85
+    assert int(cfg["telegram_signal_agent"]["market_scanner_execute_min_score"]) == 75
     assert spike.get("use_dynamic_leverage") is True
     assert int(spike["max_symbols"]) == 50
     assert int(spike["top_n"]) == 1
     assert cfg["market_scanner"]["bos_scan_enabled"] is False
-    assert cfg["signals"]["own_agents_enabled"] is False
+    # AW: own agents / каналы A+B включены (не откатывать при восстановлении SPIKE 22.08)
+    assert cfg["signals"]["own_agents_enabled"] is True
     assert cfg["market_scanner"]["spike_scalp"]["auto_execute"] is True
     spike_cfg = SpikeScanConfig.from_cfg(cfg)
     cap_base = int(cfg["telegram_signal_agent"].get("auto_execute_max_open_positions") or 6)

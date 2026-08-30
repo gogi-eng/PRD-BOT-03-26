@@ -176,3 +176,7 @@
 - Причина: trade_companion «разворот» SMA8/21 без flip (не trailing/BE/opposite).
 - Правка: prior trend + hold 300s + пороги −3.5%/0.8%; тесты test_trade_companion.py.
 
+
+## 30.08.2026
+- AW: откат SPIKE + max_positions=8 к профилю 22.08 (после анализа прибыльных окон).
+
