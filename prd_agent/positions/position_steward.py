@@ -38,9 +38,14 @@ from prd_agent.positions.trailing_after_be import (
     TrailingAfterBeConfig,
     apply_trailing_after_be_distance,
 )
+from prd_agent.positions.manual_trailing_garch_learner import (
+    ManualTrailingGarchConfig,
+    ManualTrailingGarchLearner,
+)
 from prd_agent.positions.trailing_volatility_regime import (
     TrailingVolatilityRegimeConfig,
     apply_trailing_garch_to_distance_factor,
+    regime_distance_mult,
     should_apply_trailing_volatility_regime,
 )
 from prd_agent.positions.tp_progress_exit import evaluate_tp_progress_exit
@@ -103,6 +108,7 @@ class PositionSteward:
         self._sl_tp_guard = SlTpExchangeGuard()
         self._manual_sl_guard = ManualSlGuard()
         self._session_flush_done: set[str] = set()
+        self._manual_trailing_learner = ManualTrailingGarchLearner(cfg, self._data_dir)
         self.apply_config(cfg)
         self._load_bot_registry()
 
@@ -187,6 +193,12 @@ class PositionSteward:
         self._sl_tp_guard.apply_config(self._sl_tp_guard_cfg)
         self._manual_sl_guard_cfg = ManualSlGuardConfig.from_cfg(cfg)
         self._manual_sl_guard.apply_config(self._manual_sl_guard_cfg)
+        self._manual_trailing_learner.cfg = ManualTrailingGarchConfig.from_cfg(cfg)
+        self._manual_trailing_learner.trail_cfg = self._trailing_garch
+        self._manual_trailing_learner.root_cfg = dict(cfg)
+
+    def get_manual_trailing_garch_summary(self) -> str:
+        return self._manual_trailing_learner.telegram_rules_summary()
 
     def _be_fee_buffer_for(
         self,
@@ -514,6 +526,7 @@ class PositionSteward:
             not self.enabled
             and not self.exit_cfg.enabled
             and not self._default_profile.tp_progress.enabled
+            and not self._manual_trailing_learner.cfg.enabled
         ):
             return notes
 
@@ -560,6 +573,23 @@ class PositionSteward:
             if self._trailing_garch.enabled:
                 kline_limit = max(kline_limit, int(self._trailing_garch.lookback_bars))
             klines = await exchange.get_klines(sym, interval="15", limit=kline_limit)
+            ex_sl = float(row.get("stopLoss") or 0)
+            if ex_sl > 0 and self._manual_trailing_learner.cfg.enabled:
+                learn_msg = self._manual_trailing_learner.observe_exchange_sl(
+                    symbol=sym,
+                    side=pos.side,
+                    origin=pos.origin,
+                    mark=price,
+                    exchange_sl=ex_sl,
+                    entry=pos.entry,
+                    klines=klines or [],
+                    bot_sent_sl=pos.last_sl_sent,
+                    trailing_bot_enabled=self.enabled,
+                )
+                if learn_msg:
+                    notes.append(learn_msg)
+                if abs(ex_sl - pos.stop_loss) > 1e-9:
+                    pos.stop_loss = ex_sl
             atr = self._atr_from_klines(klines, self.atr_period)
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
@@ -662,6 +692,14 @@ class PositionSteward:
                     prev_regime=pos.trailing_garch_regime,
                     log=logger,
                 )
+                eff_mult, _src = self._manual_trailing_learner.effective_regime_mult(g_regime)
+                base_mult = regime_distance_mult(g_regime, self._trailing_garch)
+                if (
+                    base_mult > 1e-9
+                    and eff_mult != base_mult
+                    and not self._trailing_garch.advisory_only
+                ):
+                    dist_factor = dist_factor * (eff_mult / base_mult)
                 pos.trailing_garch_regime = g_regime
 
             if self.lock_initial_sl:
