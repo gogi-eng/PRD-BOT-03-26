@@ -950,6 +950,8 @@ telegram_signal_agent:
   market_scanner_top_n: 3
   market_scanner_max_symbols: 60
   control_panel_enabled: false
+  # Не перетирать кнопки панели unified bot значениями из yaml при каждом save/callback
+  runtime_controls_sync_yaml: false
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   # Отдельный файл сессии AW (не делить с /root/PRD-BOT-ALL)

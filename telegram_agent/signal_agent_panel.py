@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -142,6 +143,10 @@ async def _on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, agent
         await query.answer()
         return
 
+    from prd_agent.ops.runtime_controls import save_runtime_controls
+
+    root = Path(getattr(agent, "state_path", Path("."))).parent
+    save_runtime_controls(root, dict(rtc))
     sync = getattr(agent, "_sync_execution_dry_run", None)
     if callable(sync):
         sync()

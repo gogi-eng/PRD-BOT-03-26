@@ -13,6 +13,16 @@ def state_path(root: Path) -> Path:
     return root / "telegram_signal_agent_state.json"
 
 
+# Ключи, которые пишет unified ControlBot в state JSON — signal agent не должен затирать их при _save_state.
+PANEL_RTC_KEYS = (
+    "pause_all_execution",
+    "signal_only_mode",
+    "channel_auto_execute",
+    "market_scanner_auto_execute",
+    "trailing_user_override",
+)
+
+
 def _blank_rtc() -> Dict[str, Any]:
     return {
         "pause_all_execution": False,
@@ -40,6 +50,52 @@ def load_runtime_controls(root: Path) -> Dict[str, Any]:
     for key, default in _blank_rtc().items():
         rtc.setdefault(key, default)
     return rtc
+
+
+def merge_runtime_controls_on_save(root: Path, state: Dict[str, Any]) -> None:
+    """Перед записью state JSON: флаги панели с диска важнее устаревшей копии в памяти агента."""
+    path = state_path(root)
+    if not path.exists():
+        return
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            disk_raw = json.load(handle)
+    except Exception:
+        return
+    if not isinstance(disk_raw, dict):
+        return
+    disk_rtc = disk_raw.get("agent_runtime_controls")
+    if not isinstance(disk_rtc, dict):
+        return
+    rtc = state.get("agent_runtime_controls")
+    if not isinstance(rtc, dict):
+        rtc = {}
+        state["agent_runtime_controls"] = rtc
+    for key in PANEL_RTC_KEYS:
+        if key in disk_rtc:
+            rtc[key] = disk_rtc[key]
+
+
+def refresh_runtime_controls_from_disk(root: Path, state: Dict[str, Any]) -> None:
+    """Подтянуть agent_runtime_controls с диска в in-memory state (панель unified bot)."""
+    merge_runtime_controls_on_save(root, state)
+
+
+def set_runtime_trailing_override(root: Path, enabled: bool) -> None:
+    rtc = load_runtime_controls(root)
+    rtc["trailing_user_override"] = bool(enabled)
+    save_runtime_controls(root, rtc)
+
+
+def effective_trailing_enabled(cfg: Dict[str, Any], root: Path) -> bool:
+    rtc = load_runtime_controls(root)
+    if "trailing_user_override" in rtc:
+        return bool(rtc["trailing_user_override"])
+    bot = cfg.get("bot", {}) if isinstance(cfg.get("bot"), dict) else {}
+    if "trailing_user_override" in bot:
+        return bool(bot.get("trailing_user_override"))
+    positions = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
+    return bool(positions.get("trailing_enabled", True))
 
 
 def save_runtime_controls(root: Path, rtc: Dict[str, Any]) -> None:
