@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+import yaml
 
 from prd_agent.analysis.bybit_monitor import BybitMonitorAgent
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
@@ -38,13 +41,6 @@ from prd_agent.entry.zone_corridor_play import (
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
 )
-from prd_agent.entry.long_quality_gate import (
-    evaluate_long_quality_gate,
-    long_quality_enabled,
-    long_swing_exit_enabled,
-    read_long_swing_exit_cfg,
-    widen_buy_sl_to_min_pct,
-)
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -54,7 +50,6 @@ from prd_agent.risk.volatility_regime_sizing import (
     evaluate_volatility_regime_sizing,
     log_volatility_regime_startup,
 )
-from prd_agent.positions.trailing_volatility_regime import log_trailing_garch_startup
 from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
@@ -70,7 +65,12 @@ from prd_agent.market.market_scanner_bridge import (
     unified_should_run_spike_scan,
 )
 from prd_agent.ops.bot_manager import BotManagerAgent
-from prd_agent.ops.runtime_controls import is_signal_only_active, load_runtime_controls
+from prd_agent.ops.runtime_controls import (
+    effective_trailing_enabled,
+    is_signal_only_active,
+    load_runtime_controls,
+    set_runtime_trailing_override,
+)
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
 from prd_agent.positions.opposite_signal_policy import (
@@ -80,7 +80,6 @@ from prd_agent.positions.opposite_signal_policy import (
 )
 from prd_agent.positions.scanner_reversal_sl import position_age_minutes
 from prd_agent.positions.position_steward import PositionSteward
-from prd_agent.positions.close_watchdog import CloseWatchdog, CloseWatchdogConfig
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
 from prd_agent.supervisor.supervisor_v4 import SupervisorV4
@@ -128,22 +127,10 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
-        self.close_watchdog = CloseWatchdog(
-            CloseWatchdogConfig.from_cfg(cfg),
-            self.data_dir,
-        )
-        if self.close_watchdog.cfg.enabled:
-            logger.info(
-                "CloseWatchdog: слежение за ВСЕМИ сделками (ручные+бот); "
-                "алерт при убытках > %s или некорректных > %s",
-                self.close_watchdog.cfg.alert_when_losses_gt,
-                self.close_watchdog.cfg.alert_when_bad_closes_gt,
-            )
         self.trade_companion = TradeCompanionAgent(cfg)
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
         log_volatility_regime_startup(cfg)
-        log_trailing_garch_startup(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bybit_monitor = BybitMonitorAgent(cfg)
         self.wallet_tracker = WalletFlowAgent(cfg, self.data_dir)
@@ -320,6 +307,7 @@ class UnifiedOrchestrator:
         )
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
+        self.position_steward.enabled = effective_trailing_enabled(self.cfg, self.root)
         self.trade_companion.apply_config(self.cfg)
         self.trade_lifecycle.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
@@ -454,10 +442,6 @@ class UnifiedOrchestrator:
 
     def set_trailing_enabled(self, enabled: bool) -> str:
         """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
-        import shutil
-
-        import yaml
-
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
         if path.exists():
             backup = (
@@ -470,14 +454,72 @@ class UnifiedOrchestrator:
             data.setdefault("positions", {})["trailing_enabled"] = bool(enabled)
             with path.open("w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            set_runtime_trailing_override(self.root, bool(enabled))
             self.reload_config()
             backup_note = f"Резервная копия: {backup.name}"
         else:
+            set_runtime_trailing_override(self.root, bool(enabled))
             self.position_steward.enabled = bool(enabled)
             backup_note = "config.yaml не найден — только до перезапуска"
         state = "ВКЛ" if self.position_steward.enabled else "ВЫКЛ"
         logger.info("Trailing %s via Telegram", state)
         return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
+
+    def _sync_sl_tp_guard_include_manual(self, enabled: bool) -> None:
+        """Согласовать SL/TP guard для ручных сделок с adopt_manual (без смены manual_auto_close)."""
+        steward = self.position_steward
+        cfg_obj = getattr(steward, "_sl_tp_guard_cfg", None)
+        guard = getattr(steward, "_sl_tp_guard", None)
+        if cfg_obj is None and guard is None:
+            return
+        if cfg_obj is not None:
+            cfg_obj.include_manual = bool(enabled)
+        if guard is not None and cfg_obj is not None:
+            guard.apply_config(cfg_obj)
+        elif guard is not None and hasattr(guard, "include_manual"):
+            guard.include_manual = bool(enabled)
+
+    def set_adopt_manual(self, enabled: bool) -> str:
+        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в config.yaml."""
+        enabled = bool(enabled)
+        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        if path.exists():
+            backup = (
+                self.improver.sandbox_dir
+                / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
+            )
+            shutil.copy2(path, backup)
+            with path.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            positions = data.setdefault("positions", {})
+            if not isinstance(positions, dict):
+                positions = {}
+                data["positions"] = positions
+            positions["adopt_manual"] = enabled
+            guard_block = positions.get("sl_tp_guard")
+            if isinstance(guard_block, dict):
+                guard_block["include_manual"] = enabled
+            with path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            self.reload_config()
+            backup_note = f"Резервная копия: {backup.name}"
+        else:
+            self.position_steward.adopt_manual = enabled
+            backup_note = "config.yaml не найден — только до перезапуска"
+        self._sync_sl_tp_guard_include_manual(enabled)
+        state = "ВКЛ" if self.position_steward.adopt_manual else "ВЫКЛ"
+        logger.info("adopt_manual %s via Telegram", state)
+        if self.position_steward.adopt_manual:
+            return (
+                f"Сопровождение ручных сделок: <b>{state}</b>.\n"
+                "Бот ведёт ручные позиции (трейлинг/защита), свои — как обычно.\n"
+                f"{backup_note}"
+            )
+        return (
+            f"Сопровождение ручных сделок: <b>{state}</b>.\n"
+            "Бот ведёт только свои позиции.\n"
+            f"{backup_note}"
+        )
 
     def reset_daily_loss(self) -> str:
         """Сброс дневного PnL, блокировки по лимиту и протокола Supervisor."""
@@ -771,16 +813,6 @@ class UnifiedOrchestrator:
                 origin=origin,
                 exit_context=exit_ctx,
             )
-            alert = self.close_watchdog.on_closed_trade(
-                r,
-                origin=str(origin or "manual"),
-                order_id=oid,
-            )
-            if alert:
-                try:
-                    await self.notifier.send(alert)
-                except Exception as exc:
-                    logger.warning("CloseWatchdog telegram failed: %s", exc)
         self.rule_weight_tracker.refresh_if_due(journal_path, force=False)
 
     @staticmethod
@@ -1094,6 +1126,7 @@ class UnifiedOrchestrator:
             block_reason=block_reason,
             mode=mode,
             trailing_enabled=self.position_steward.enabled,
+            adopt_manual=self.position_steward.adopt_manual,
         )
 
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
@@ -1121,11 +1154,6 @@ class UnifiedOrchestrator:
         positions = await self.exchange.get_positions()
         await self._sync_orderbook_ws(positions)
         self.risk.open_positions_count = len(positions)
-        self.close_watchdog.snapshot_opens(
-            positions,
-            bot_symbols=self.position_steward._bot_symbols,
-            tracked=self.position_steward._tracked,
-        )
         await self._monitor_positions(positions)
         self.trade_lifecycle.update_mark_prices(
             positions,
@@ -1559,62 +1587,6 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, soft_reason)
             return
 
-        soft_ctx = self._build_soft_score_context(sig, atr_pct_frac=atr_pct_frac)
-        soft_res = compute_soft_score(
-            soft_ctx,
-            side=sig.side,
-            cfg=self.cfg,
-            rule_weights=self.rule_weight_tracker.get_weights(),
-        )
-        atr_pct_for_gate = float(soft_ctx.get("atr_pct") or 0.0)
-        if atr_pct_for_gate <= 0 and atr_pct_frac > 0:
-            atr_pct_for_gate = atr_pct_frac * 100.0
-        lq = evaluate_long_quality_gate(
-            side=sig.side,
-            cfg=self.cfg,
-            source=str(sig.source or ""),
-            volatility=str(soft_ctx.get("volatility") or raw.get("volatility") or ""),
-            atr_pct=atr_pct_for_gate,
-            soft_score=float(soft_res.score),
-            soft_label=str(soft_res.label or ""),
-            htf_trend=soft_ctx.get("htf_trend", raw.get("htf_trend")),
-            local_hour=soft_ctx.get("local_hour"),
-        )
-        if long_quality_enabled(self.cfg) and lq.reason:
-            logger.info(
-                "Long quality gate %s %s: allowed=%s %s",
-                sig.symbol,
-                sig.side,
-                lq.allowed,
-                lq.reason,
-            )
-        if not lq.allowed:
-            reason = lq.reason or "long_quality: block"
-            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
-            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
-            if not self._is_silent_skip(reason):
-                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
-            return
-        if long_swing_exit_enabled(self.cfg) and str(sig.side).lower() in ("buy", "long"):
-            swing = read_long_swing_exit_cfg(self.cfg)
-            min_sl = float(swing.get("min_sl_pct", 1.0) or 0.0)
-            new_sl, changed = widen_buy_sl_to_min_pct(
-                side=sig.side,
-                entry=float(eff_entry or 0),
-                stop_loss=float(sl or 0),
-                min_sl_pct=min_sl,
-            )
-            if changed and new_sl > 0:
-                logger.info(
-                    "Long swing SL widen %s Buy: %.6g → %.6g (min_sl_pct=%.2f)",
-                    sig.symbol,
-                    sl,
-                    new_sl,
-                    min_sl,
-                )
-                sl = new_sl
-
         q_ok, q_reason = await self.quality_gate.check(
             sig, self.exchange, entry=eff_entry, sl=sl, tp=tp
         )
@@ -1996,6 +1968,9 @@ class UnifiedOrchestrator:
         h = float(hours if hours is not None else self._skipped_lab_hours)
         last = getattr(self.supervisor, "_last_skipped_bt_summary", None) or {}
         return self.supervisor.skipped_bt.build_telegram_report(h, last_run=last)
+
+    def get_manual_trailing_garch_report(self) -> str:
+        return self.position_steward.get_manual_trailing_garch_summary()
 
     def get_hermes_briefing(self) -> str:
         hermes = self.cfg.get("hermes", {}) if isinstance(self.cfg.get("hermes"), dict) else {}
