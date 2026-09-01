@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+import yaml
+
 from prd_agent.analysis.bybit_monitor import BybitMonitorAgent
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
+from prd_agent.analysis.wallet_flow_agent import WalletFlowAgent
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
 from prd_agent.analysis.signal_ledger import LedgerEntry, SignalLedger, SignalStatus
@@ -36,13 +40,6 @@ from prd_agent.entry.rule_weight_tracker import RuleWeightTracker
 from prd_agent.entry.zone_corridor_play import (
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
-)
-from prd_agent.entry.long_quality_gate import (
-    evaluate_long_quality_gate,
-    long_quality_enabled,
-    long_swing_exit_enabled,
-    read_long_swing_exit_cfg,
-    widen_buy_sl_to_min_pct,
 )
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
@@ -72,13 +69,16 @@ from prd_agent.ops.runtime_controls import (
     effective_trailing_enabled,
     is_signal_only_active,
     load_runtime_controls,
+    set_runtime_trailing_override,
 )
 from prd_agent.market.symbol_scanner import SymbolScanner
 from prd_agent.positions.bot_position_registry import resolve_closed_origin
 from prd_agent.positions.opposite_signal_policy import (
     lookup_open_entry_meta,
+    should_block_opposite_exit_for_weak_or_young,
     should_skip_opposite_exit_for_spike_own,
 )
+from prd_agent.positions.scanner_reversal_sl import position_age_minutes
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -133,11 +133,14 @@ class UnifiedOrchestrator:
         log_volatility_regime_startup(cfg)
         self.macro_ai = MacroAI(cfg)
         self.bybit_monitor = BybitMonitorAgent(cfg)
+        self.wallet_tracker = WalletFlowAgent(cfg, self.data_dir)
         self.bot_manager = BotManagerAgent(cfg)
         an = cfg.get("analytics", {})
         self._stats_hours = float(an.get("report_hours", 24))
         self._portfolio_quality_hours = float(an.get("portfolio_quality_hours", 168))
         self._daily_pnl_days = int(an.get("daily_pnl_days", 7))
+        self._daily_pnl_split_origin = bool(an.get("daily_pnl_split_origin", True))
+        self._daily_pnl_exclude_manual = bool(an.get("exclude_manual", False))
         self._skipped_lab_hours = float(an.get("skipped_lab_hours", 168))
 
         t = cfg.get("trading", {})
@@ -169,6 +172,7 @@ class UnifiedOrchestrator:
         self._spike_scan_task: Optional[asyncio.Task] = None
         self._bot_manager_task: Optional[asyncio.Task] = None
         self._bybit_monitor_task: Optional[asyncio.Task] = None
+        self._wallet_tracker_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -315,6 +319,12 @@ class UnifiedOrchestrator:
             an.get("portfolio_quality_hours", self._portfolio_quality_hours)
         )
         self._daily_pnl_days = int(an.get("daily_pnl_days", self._daily_pnl_days))
+        self._daily_pnl_split_origin = bool(
+            an.get("daily_pnl_split_origin", self._daily_pnl_split_origin)
+        )
+        self._daily_pnl_exclude_manual = bool(
+            an.get("exclude_manual", self._daily_pnl_exclude_manual)
+        )
         self._skipped_lab_hours = float(
             an.get("skipped_lab_hours", self._skipped_lab_hours)
         )
@@ -432,12 +442,6 @@ class UnifiedOrchestrator:
 
     def set_trailing_enabled(self, enabled: bool) -> str:
         """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
-        import shutil
-
-        import yaml
-
-        from prd_agent.ops.runtime_controls import set_runtime_trailing_override
-
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
         if path.exists():
             backup = (
@@ -460,6 +464,62 @@ class UnifiedOrchestrator:
         state = "ВКЛ" if self.position_steward.enabled else "ВЫКЛ"
         logger.info("Trailing %s via Telegram", state)
         return f"Трейлинг позиций: <b>{state}</b>\n{backup_note}"
+
+    def _sync_sl_tp_guard_include_manual(self, enabled: bool) -> None:
+        """Согласовать SL/TP guard для ручных сделок с adopt_manual (без смены manual_auto_close)."""
+        steward = self.position_steward
+        cfg_obj = getattr(steward, "_sl_tp_guard_cfg", None)
+        guard = getattr(steward, "_sl_tp_guard", None)
+        if cfg_obj is None and guard is None:
+            return
+        if cfg_obj is not None:
+            cfg_obj.include_manual = bool(enabled)
+        if guard is not None and cfg_obj is not None:
+            guard.apply_config(cfg_obj)
+        elif guard is not None and hasattr(guard, "include_manual"):
+            guard.include_manual = bool(enabled)
+
+    def set_adopt_manual(self, enabled: bool) -> str:
+        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в config.yaml."""
+        enabled = bool(enabled)
+        path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        if path.exists():
+            backup = (
+                self.improver.sandbox_dir
+                / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
+            )
+            shutil.copy2(path, backup)
+            with path.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            positions = data.setdefault("positions", {})
+            if not isinstance(positions, dict):
+                positions = {}
+                data["positions"] = positions
+            positions["adopt_manual"] = enabled
+            guard_block = positions.get("sl_tp_guard")
+            if isinstance(guard_block, dict):
+                guard_block["include_manual"] = enabled
+            with path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            self.reload_config()
+            backup_note = f"Резервная копия: {backup.name}"
+        else:
+            self.position_steward.adopt_manual = enabled
+            backup_note = "config.yaml не найден — только до перезапуска"
+        self._sync_sl_tp_guard_include_manual(enabled)
+        state = "ВКЛ" if self.position_steward.adopt_manual else "ВЫКЛ"
+        logger.info("adopt_manual %s via Telegram", state)
+        if self.position_steward.adopt_manual:
+            return (
+                f"Сопровождение ручных сделок: <b>{state}</b>.\n"
+                "Бот ведёт ручные позиции (трейлинг/защита), свои — как обычно.\n"
+                f"{backup_note}"
+            )
+        return (
+            f"Сопровождение ручных сделок: <b>{state}</b>.\n"
+            "Бот ведёт только свои позиции.\n"
+            f"{backup_note}"
+        )
 
     def reset_daily_loss(self) -> str:
         """Сброс дневного PnL, блокировки по лимиту и протокола Supervisor."""
@@ -561,6 +621,12 @@ class UnifiedOrchestrator:
                 "BYBIT MONITOR: фоновые алерты, интервал %.0f сек",
                 self.bybit_monitor.interval_sec,
             )
+        if self.wallet_tracker.should_run_loop():
+            self._wallet_tracker_task = asyncio.create_task(self._wallet_tracker_loop())
+            logger.info(
+                "Wallet tracker advisory: цикл опроса, интервал %.0f сек",
+                self.wallet_tracker.poll_interval_sec,
+            )
         if self.trade_companion.enabled:
             logger.info("TRADE COMPANION: сопровождение открытых сделок включено")
         if self.trade_lifecycle.enabled:
@@ -588,6 +654,9 @@ class UnifiedOrchestrator:
         if self._bybit_monitor_task is not None:
             self._bybit_monitor_task.cancel()
             self._bybit_monitor_task = None
+        if self._wallet_tracker_task is not None:
+            self._wallet_tracker_task.cancel()
+            self._wallet_tracker_task = None
 
     async def close(self) -> None:
         self.stop()
@@ -615,6 +684,12 @@ class UnifiedOrchestrator:
             except asyncio.CancelledError:
                 pass
             self._bybit_monitor_task = None
+        if self._wallet_tracker_task is not None:
+            try:
+                await self._wallet_tracker_task
+            except asyncio.CancelledError:
+                pass
+            self._wallet_tracker_task = None
         if self.bybit_monitor._read_exchange is not None:
             await self.bybit_monitor._read_exchange.close()
         await self.exchange.close()
@@ -682,6 +757,22 @@ class UnifiedOrchestrator:
 
     async def get_bybit_monitor_report(self) -> str:
         return await self.bybit_monitor.build_report(self)
+
+    def get_wallet_tracker_report(self) -> str:
+        """Текстовый отчёт wallet tracker (без новой кнопки Telegram в v1)."""
+        return self.wallet_tracker.build_report()
+
+    async def _wallet_tracker_loop(self) -> None:
+        """Фоновый опрос watch-кошельков → advisory рекомендации (без ордеров)."""
+        await asyncio.sleep(75)
+        while self._running:
+            try:
+                await self.wallet_tracker.poll_and_recommend(notifier=self.notifier)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Wallet tracker: %s", exc)
+            await asyncio.sleep(max(60.0, self.wallet_tracker.poll_interval_sec))
 
     async def _sync_closed_pnl_to_risk(self) -> None:
         """Только новые закрытия с биржи; дедуп на диске — иначе после рестарта убыток «удваивается»."""
@@ -786,6 +877,18 @@ class UnifiedOrchestrator:
                     if isinstance(self.cfg.get("positions"), dict)
                     else {}
                 )
+                tracked = self.position_steward._tracked.get(sym)
+                if (
+                    tracked is not None
+                    and str(getattr(tracked, "origin", "") or "").lower() == "manual"
+                    and not bool(pos_cfg.get("manual_auto_close", False))
+                ):
+                    logger.info(
+                        "Opposite signal EXIT skipped %s origin=manual "
+                        "(manual_auto_close=false)",
+                        sym,
+                    )
+                    return
                 open_src, open_pd = lookup_open_entry_meta(self.data_dir, sym)
                 if should_skip_opposite_exit_for_spike_own(
                     position_source=open_src,
@@ -801,6 +904,21 @@ class UnifiedOrchestrator:
                         sig.side,
                         open_src or "?",
                         sig.source,
+                    )
+                    return
+                pos_age = position_age_minutes(pos_row)
+                blocked, block_why = should_block_opposite_exit_for_weak_or_young(
+                    confidence=sig.confidence,
+                    position_age_min=pos_age,
+                    positions_cfg=pos_cfg,
+                )
+                if blocked:
+                    logger.info(
+                        "Opposite signal EXIT skipped %s open=%s signal=%s: %s",
+                        sym,
+                        pos_side,
+                        sig.side,
+                        block_why,
                     )
                     return
                 await self._close_on_reverse_signal(sig, pos_row)
@@ -1008,6 +1126,7 @@ class UnifiedOrchestrator:
             block_reason=block_reason,
             mode=mode,
             trailing_enabled=self.position_steward.enabled,
+            adopt_manual=self.position_steward.adopt_manual,
         )
 
     async def _notify_risk_block_once(self, block_reason: str, positions: List[Dict]) -> None:
@@ -1246,6 +1365,18 @@ class UnifiedOrchestrator:
             self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
             return
 
+        # Soft advisory: совпадение с wallet_flow (не блокирует вход)
+        if self.wallet_tracker.enabled:
+            wf_rec = self.wallet_tracker.recommendation_for_symbol(sig.symbol)
+            if wf_rec is not None:
+                logger.info(
+                    "Wallet tracker soft match %s signal=%s bias=%s conf=%.2f (advisory only)",
+                    sig.symbol,
+                    sig.side,
+                    wf_rec.bias,
+                    wf_rec.confidence,
+                )
+
         entry, sl, tp = plan_entry, plan_sl, plan_tp
         zone_meta = zone_meta or {}
         pipeline_size_mult = 1.0
@@ -1368,6 +1499,26 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
 
+        raw_for_corridor = sig.raw if isinstance(sig.raw, dict) else {}
+        try:
+            corridor_score = float(
+                raw_for_corridor.get("score", getattr(sig, "confidence", 0) or 0) or 0
+            )
+        except (TypeError, ValueError):
+            corridor_score = 0.0
+        # confidence often 0..1 for non-SPIKE; SPIKE scanner uses 0..100-ish
+        if 0 < corridor_score <= 1.0 and str(sig.source or "").upper().find("SPIKE") >= 0:
+            corridor_score *= 100.0
+        try:
+            corridor_move = float(
+                raw_for_corridor.get(
+                    "range_pct",
+                    raw_for_corridor.get("move_pct", raw_for_corridor.get("move", 0)),
+                )
+                or 0
+            )
+        except (TypeError, ValueError):
+            corridor_move = 0.0
         corridor = evaluate_zone_corridor_play(
             side=sig.side,
             price=float(eff_entry or 0),
@@ -1376,6 +1527,8 @@ class UnifiedOrchestrator:
             source=str(sig.source or ""),
             has_bos=bool(zone_meta.get("has_bos")),
             atr=float(atr_v or 0),
+            score=corridor_score,
+            move_pct=corridor_move,
         )
         if zone_corridor_enabled(self.cfg) and corridor.reason:
             logger.info(
@@ -1433,63 +1586,6 @@ class UnifiedOrchestrator:
             if not self._is_silent_skip(soft_reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, soft_reason)
             return
-
-        soft_ctx = self._build_soft_score_context(sig, atr_pct_frac=atr_pct_frac)
-        soft_res = compute_soft_score(
-            soft_ctx,
-            side=sig.side,
-            cfg=self.cfg,
-            rule_weights=self.rule_weight_tracker.get_weights(),
-        )
-        # atr_pct в soft_ctx обычно в % пункта (как в entry_context)
-        atr_pct_for_gate = float(soft_ctx.get("atr_pct") or 0.0)
-        if atr_pct_for_gate <= 0 and atr_pct_frac > 0:
-            atr_pct_for_gate = atr_pct_frac * 100.0
-        lq = evaluate_long_quality_gate(
-            side=sig.side,
-            cfg=self.cfg,
-            source=str(sig.source or ""),
-            volatility=str(soft_ctx.get("volatility") or raw.get("volatility") or ""),
-            atr_pct=atr_pct_for_gate,
-            soft_score=float(soft_res.score),
-            soft_label=str(soft_res.label or ""),
-            htf_trend=soft_ctx.get("htf_trend", raw.get("htf_trend")),
-            local_hour=soft_ctx.get("local_hour"),
-        )
-        if long_quality_enabled(self.cfg) and lq.reason:
-            logger.info(
-                "Long quality gate %s %s: allowed=%s %s",
-                sig.symbol,
-                sig.side,
-                lq.allowed,
-                lq.reason,
-            )
-        if not lq.allowed:
-            reason = lq.reason or "long_quality: block"
-            logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
-            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
-            if not self._is_silent_skip(reason):
-                await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
-            return
-        if long_swing_exit_enabled(self.cfg) and str(sig.side).lower() in ("buy", "long"):
-            swing = read_long_swing_exit_cfg(self.cfg)
-            min_sl = float(swing.get("min_sl_pct", 1.0) or 0.0)
-            new_sl, changed = widen_buy_sl_to_min_pct(
-                side=sig.side,
-                entry=float(eff_entry or 0),
-                stop_loss=float(sl or 0),
-                min_sl_pct=min_sl,
-            )
-            if changed and new_sl > 0:
-                logger.info(
-                    "Long swing SL widen %s Buy: %.6g → %.6g (min_sl_pct=%.2f)",
-                    sig.symbol,
-                    sl,
-                    new_sl,
-                    min_sl,
-                )
-                sl = new_sl
 
         q_ok, q_reason = await self.quality_gate.check(
             sig, self.exchange, entry=eff_entry, sl=sl, tp=tp
@@ -1864,6 +1960,8 @@ class UnifiedOrchestrator:
             self.trade_journal.path,
             days=d,
             timezone_offset=tz,
+            split_origin=self._daily_pnl_split_origin,
+            exclude_manual=self._daily_pnl_exclude_manual,
         )
 
     def get_skipped_lab_report(self, hours: Optional[float] = None) -> str:

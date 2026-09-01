@@ -12,10 +12,10 @@ from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from prd_agent.ops.runtime_controls import (
+    effective_trailing_enabled,
     load_runtime_controls,
     runtime_controls_status_text,
     toggle_runtime_flag,
-    effective_trailing_enabled,
 )
 from prd_agent.ops.log_redact import apply_log_safety
 from prd_agent.telegram.panel_guide import build_panel_help_text
@@ -50,6 +50,15 @@ class ControlBot:
             )
         return InlineKeyboardButton(
             "✅ Включить трейлинг", callback_data="act:trailing_on"
+        )
+
+    def _adopt_manual_button(self) -> InlineKeyboardButton:
+        if self.orch.position_steward.adopt_manual:
+            return InlineKeyboardButton(
+                "🖐 Ручные: ВКЛ", callback_data="act:adopt_manual_off"
+            )
+        return InlineKeyboardButton(
+            "🖐 Ручные: ВЫКЛ", callback_data="act:adopt_manual_on"
         )
 
     def _runtime_button_labels(self) -> tuple[str, str, str, str]:
@@ -111,6 +120,9 @@ class ControlBot:
                 ],
                 [
                     self._trailing_button(),
+                ],
+                [
+                    self._adopt_manual_button(),
                 ],
                 [
                     InlineKeyboardButton("🛑 Emergency stop", callback_data="act:emergency"),
@@ -245,7 +257,11 @@ class ControlBot:
                 return
             await query.answer()
             text = await self._handle_action(action)
-            html_reply = action in html_actions or action.startswith("trailing_")
+            html_reply = (
+                action in html_actions
+                or action.startswith("trailing_")
+                or action.startswith("adopt_manual_")
+            )
             await self._safe_edit(query, text, html=html_reply)
         except Exception as exc:
             logger.exception("on_button %s: %s", action, exc)
@@ -321,6 +337,10 @@ class ControlBot:
             return self.orch.set_trailing_enabled(False)
         if action == "trailing_on":
             return self.orch.set_trailing_enabled(True)
+        if action == "adopt_manual_off":
+            return self.orch.set_adopt_manual(False)
+        if action == "adopt_manual_on":
+            return self.orch.set_adopt_manual(True)
         if action == "bot_manager":
             return await self.orch.get_bot_manager_review()
         if action == "toggle_channel":
