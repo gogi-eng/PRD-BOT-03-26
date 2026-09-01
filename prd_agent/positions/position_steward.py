@@ -34,6 +34,15 @@ from prd_agent.positions.adaptive_trailing import (
     compute_adaptive_distance_factor,
     should_apply_adaptive_trailing,
 )
+from prd_agent.positions.manual_trailing_garch_learner import (
+    ManualTrailingGarchConfig,
+    ManualTrailingGarchLearner,
+)
+from prd_agent.positions.trailing_volatility_regime import (
+    TrailingVolatilityRegimeConfig,
+    compute_trailing_garch_distance_factor,
+    should_apply_trailing_volatility_regime,
+)
 from prd_agent.positions.trailing_after_be import (
     TrailingAfterBeConfig,
     apply_trailing_after_be_distance,
@@ -95,6 +104,9 @@ class PositionSteward:
         self._sync_guard = PositionSyncGuard()
         self._sl_tp_guard = SlTpExchangeGuard()
         self._session_flush_done: set[str] = set()
+        self._trailing_garch_cfg = TrailingVolatilityRegimeConfig(enabled=False)
+        self._trailing_garch_prev_regime: Dict[str, str] = {}
+        self._manual_trailing_learner = ManualTrailingGarchLearner(cfg, self._data_dir)
         self.apply_config(cfg)
         self._load_bot_registry()
 
@@ -169,6 +181,13 @@ class PositionSteward:
         self._session_boundary = SessionBoundaryCloseConfig.from_cfg(cfg)
         self._sl_tp_guard_cfg = SlTpGuardConfig.from_cfg(cfg)
         self._sl_tp_guard.apply_config(self._sl_tp_guard_cfg)
+        self._trailing_garch_cfg = TrailingVolatilityRegimeConfig.from_cfg(cfg)
+        self._manual_trailing_learner.cfg = ManualTrailingGarchConfig.from_cfg(cfg)
+        self._manual_trailing_learner.trail_cfg = self._trailing_garch_cfg
+        self._manual_trailing_learner.root_cfg = dict(cfg)
+
+    def get_manual_trailing_garch_summary(self) -> str:
+        return self._manual_trailing_learner.telegram_rules_summary()
 
     def _be_fee_buffer_for(
         self,
@@ -479,6 +498,7 @@ class PositionSteward:
             not self.enabled
             and not self.exit_cfg.enabled
             and not self._default_profile.tp_progress.enabled
+            and not self._manual_trailing_learner.cfg.enabled
         ):
             return notes
 
@@ -522,6 +542,23 @@ class PositionSteward:
                 continue
             price = float(row.get("markPrice") or pos.entry)
             klines = await exchange.get_klines(sym, interval="15", limit=80)
+            ex_sl = float(row.get("stopLoss") or 0)
+            if ex_sl > 0 and self._manual_trailing_learner.cfg.enabled:
+                learn_msg = self._manual_trailing_learner.observe_exchange_sl(
+                    symbol=sym,
+                    side=pos.side,
+                    origin=pos.origin,
+                    mark=price,
+                    exchange_sl=ex_sl,
+                    entry=pos.entry,
+                    klines=klines or [],
+                    bot_sent_sl=pos.last_sl_sent,
+                    trailing_bot_enabled=self.enabled,
+                )
+                if learn_msg:
+                    notes.append(learn_msg)
+                if abs(ex_sl - pos.stop_loss) > 1e-9:
+                    pos.stop_loss = ex_sl
             atr = self._atr_from_klines(klines, self.atr_period)
             p_pct = profit_pct(pos.side, pos.entry, price)
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
@@ -608,6 +645,42 @@ class PositionSteward:
                         ad_note,
                         dist_factor,
                     )
+
+            if should_apply_trailing_volatility_regime(
+                cfg=self._trailing_garch_cfg,
+                origin=pos.origin,
+                pump_dump_mode=pos.pump_dump_mode or sym in self._pump_dump_symbols,
+            ):
+                _base_mult, regime, gnote = compute_trailing_garch_distance_factor(
+                    klines=klines or [],
+                    trail_cfg=self._trailing_garch_cfg,
+                    root_cfg=self.cfg,
+                )
+                eff_mult, src = self._manual_trailing_learner.effective_regime_mult(regime)
+                if self._trailing_garch_cfg.advisory_only:
+                    if regime != self._trailing_garch_prev_regime.get(sym, ""):
+                        logger.info(
+                            "Trailing GARCH advisory %s %s regime=%s mult=%.2f (%s) %s",
+                            sym,
+                            pos.side,
+                            regime,
+                            eff_mult,
+                            src,
+                            gnote,
+                        )
+                else:
+                    dist_factor *= eff_mult
+                    if regime != self._trailing_garch_prev_regime.get(sym, ""):
+                        logger.info(
+                            "Trailing GARCH %s %s regime=%s dist×%.2f (%s) %s",
+                            sym,
+                            pos.side,
+                            regime,
+                            eff_mult,
+                            src,
+                            gnote,
+                        )
+                self._trailing_garch_prev_regime[sym] = regime
 
             if self.lock_initial_sl:
                 continue

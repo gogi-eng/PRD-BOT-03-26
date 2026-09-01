@@ -292,6 +292,17 @@ volatility_regime_sizing:
   skip_fast_sources: false
   apply_to_sources: []
 
+# GARCH учится по вашим ручным переносам SL на Bybit (режим calm/normal/storm).
+manual_trailing_garch_learning:
+  enabled: true
+  learn_from_manual_only: true
+  min_sl_move_pct: 0.03
+  min_profit_pct: 0.05
+  min_samples_per_regime: 5
+  auto_apply_learned_mult: true
+  blend_weight: 0.45
+  state_path: data/garch/manual_trailing_rules.json
+
 # Wallet Flow Agent (v1): watch-кошельки → advisory рекомендации (НЕ ставит ордера).
 # API-ключи только в .env: DEBANK_ACCESS_KEY и/или ETHERSCAN_API_KEY
 wallet_tracker:

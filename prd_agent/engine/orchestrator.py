@@ -1969,6 +1969,9 @@ class UnifiedOrchestrator:
         last = getattr(self.supervisor, "_last_skipped_bt_summary", None) or {}
         return self.supervisor.skipped_bt.build_telegram_report(h, last_run=last)
 
+    def get_manual_trailing_garch_report(self) -> str:
+        return self.position_steward.get_manual_trailing_garch_summary()
+
     def get_hermes_briefing(self) -> str:
         hermes = self.cfg.get("hermes", {}) if isinstance(self.cfg.get("hermes"), dict) else {}
         if not bool(hermes.get("enabled", False)):

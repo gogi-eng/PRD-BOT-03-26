@@ -100,6 +100,9 @@ class ControlBot:
                     InlineKeyboardButton("🧪 Лаборатория", callback_data="act:skipped_lab"),
                 ],
                 [
+                    InlineKeyboardButton("📐 GARCH правила", callback_data="act:garch_rules"),
+                ],
+                [
                     InlineKeyboardButton(ch_lbl, callback_data="act:toggle_channel"),
                     InlineKeyboardButton(sc_lbl, callback_data="act:toggle_scanner"),
                 ],
@@ -191,6 +194,7 @@ class ControlBot:
             "portfolio_quality",
             "daily_pnl",
             "skipped_lab",
+            "garch_rules",
             "hermes",
             "macro",
             "ta_scan",
@@ -317,6 +321,8 @@ class ControlBot:
             return self.orch.get_daily_pnl_report()
         if action == "skipped_lab":
             return self.orch.get_skipped_lab_report()
+        if action == "garch_rules":
+            return self.orch.get_manual_trailing_garch_report()
         if action == "hermes":
             return (
                 "<b>📊 Hermes отключён</b>\n\n"
