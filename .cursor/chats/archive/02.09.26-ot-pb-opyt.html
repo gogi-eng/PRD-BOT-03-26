@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>02.09.26 — дописать опыт на ot-pb.by (домашний ПК)</title>
+  <style>
+    body { font-family: "Times New Roman", Times, serif; font-size: 16px; line-height: 1.45; max-width: 920px; margin: 24px auto; padding: 0 20px; color: #111; }
+    h1, h2, h3 { line-height: 1.25; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; }
+    th, td { border: 1px solid #444; padding: 6px 8px; vertical-align: top; text-align: left; }
+    th { background: #f3f3f3; }
+    pre { background: #f6f6f6; border: 1px solid #ccc; padding: 10px 12px; white-space: pre-wrap; }
+    .warn { border-left: 4px solid #b00; padding: 8px 12px; background: #fff6f6; }
+    .ok { border-left: 4px solid #060; padding: 8px 12px; background: #f6fff6; }
+    ol.steps > li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>Задача: дописать опыт на сайт ot-pb.by</h1>
+  <p>Дата: 02.09.2026. Сессия Cursor: <code>a949f16f</code>. Ветка: <b>02.09.26-ИП-ОТ-ПБ</b>. С служебного ПК (МКТС) исходник не открыли: нет SSH-ключа, порт 22 закрыт. Пользователь: выполнить <b>на домашнем ПК</b>.</p>
+  <p class="warn"><b>Не готово.</b> На живой сайт текст ещё не записан. Сайт с облака отдавал ошибку сервера (500). Исходник, по словам владельца, на сервере DigitalOcean.</p>
+
+  <h2>Что сделать</h2>
+  <p>На <a href="https://ot-pb.by">https://ot-pb.by</a> в блок «О себе» / «Почему я» (над прайсом, в том же оформлении, что соседние абзацы) вставить опыт.</p>
+  <p><b>Основной текст (вставить этот):</b></p>
+  <pre>Документы, проверки и сопровождение охраны труда — по практике работы в этой области, в том числе 6 лет в должности начальника отдела охраны труда.</pre>
+  <p><b>Короткий вариант</b> (если на сайте уже есть абзац про специалиста — две строки):</p>
+  <pre>Опыт работы по охране труда.
+6 лет — руководство отделом охраны труда.</pre>
+  <ul>
+    <li>Не указывать нынешнего нанимателя (Минсккоммунтеплосеть / МКТС), если пользователь сам не попросит.</li>
+    <li>Не копировать с резюме зарплату, паспорт, телефон, если их ещё нет на сайте.</li>
+    <li>Не пересобирать сайт с нуля: только вставка в существующий файл.</li>
+    <li>Перед правкой — копия файла на сервере (рядом, с датой в имени).</li>
+    <li>После записи открыть https://ot-pb.by и проверить, что абзац виден и страница не 500.</li>
+  </ul>
+
+  <h2>Где лежит исходник</h2>
+  <table>
+    <tr><th>Что</th><th>Значение</th></tr>
+    <tr><td>Сайт</td><td>https://ot-pb.by</td></tr>
+    <tr><td>DNS / сервер</td><td>тот же дроплет, что боты: <b>207.154.238.178</b> (сверить в DigitalOcean)</td></tr>
+    <tr><td>Пользователь SSH</td><td>root</td></tr>
+    <tr><td>Где искать файл</td><td>/var/www , /var/www/ot-pb , /root/ot-pb , /root/ot-pb.by ; nginx: /etc/nginx/sites-enabled и /etc/nginx/conf.d</td></tr>
+    <tr><td>Бот не трогать</td><td>/root/PRD-BOT-ALL и /root/AGENT-WORLD — это не сайт</td></tr>
+    <tr><td>Доступ с дома</td><td>SSH-ключ на домашнем ПК; FileZilla SFTP + ключ id_rsa. Гайд: docs/server-access-ssh-filezilla.md</td></tr>
+  </table>
+  <p>Команды на сервере (найти файл):</p>
+  <pre>grep -R "ot-pb" /etc/nginx /etc/apache2 2>/dev/null | head
+ls -la /var/www /root/ot-pb /root/ot-pb.by 2>/dev/null
+find /var/www /root -maxdepth 3 -iname "*index*.html" 2>/dev/null | head</pre>
+
+  <h2>Как запустить на домашнем ПК</h2>
+  <ol class="steps">
+    <li>В папке репозитория: <code>git fetch origin</code> → <code>git checkout 02.09.26-ИП-ОТ-ПБ</code> → <code>git pull</code>.</li>
+    <li>Открыть этот файл в браузере: <code>.cursor/chats/archive/02.09.26-ot-pb-opyt.html</code>.</li>
+    <li>В Cursor сказать: «Допиши опыт на ot-pb.by по памятке 02.09.26-ot-pb-opyt.html. Исходник на сервере. SSH с домашнего ПК.»</li>
+    <li>Проверка: страница открывается, абзац про 6 лет руководства отделом на месте.</li>
+  </ol>
+  <p class="ok">Служебный ПК задачу не закрывает. Домашний — с ключом SSH.</p>
+
+  <h2>Связанные файлы этой сессии</h2>
+  <table>
+    <tr><td>Чат регистрации ИП / НПД</td><td>02.09.26-IP-OT-PB.html</td></tr>
+    <tr><td>План регистрации</td><td>02.09.26-plan-registraciya-IP.html</td></tr>
+    <tr><td>Заявление ИП</td><td>02.09.26-zayavlenie-IP.docx</td></tr>
+    <tr><td>Аккредитация Минтруда</td><td>02.09.26-akkreditaciya-Mintrud.html</td></tr>
+  </table>
+</body>
+</html>
