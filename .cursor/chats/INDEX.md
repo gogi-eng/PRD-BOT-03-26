@@ -7,7 +7,7 @@
 
 | Дата | ID | Заголовок | Файл |
 |------|----|-----------|------|
-| 2026-09-02 | `a949f16f` / **02.09.26-ИП-ОТ-ПБ** | Регистрация ИП под услуги ОТ/ПБ: коды, план, заявление | [открыть чат](archive/02.09.26-IP-OT-PB.html) · [план](archive/02.09.26-plan-registraciya-IP.html) · [заявление](archive/02.09.26-zayavlenie-IP.docx) |
+| 2026-09-02 | `a949f16f` / **02.09.26-ИП-ОТ-ПБ** | Регистрация ИП + аккредитация Минтруда | [чат](archive/02.09.26-IP-OT-PB.html) · [план](archive/02.09.26-plan-registraciya-IP.html) · [заявление](archive/02.09.26-zayavlenie-IP.docx) · [аккредитация](archive/02.09.26-akkreditaciya-Mintrud.html) |
 | 2026-08-10 | `9cf94508` / **Chat_10_08_26** | Дамп AGENT-WORLD + прямой DeepSeek API | [Chat_10_08_26.md](archive/Chat_10_08_26.md) |
 | 2026-07-30 | `d66d4e5e` | SSH/FileZilla доступ DigitalOcean (выжимка) | [30.07.26-ssh-filezilla-access.md](archive/30.07.26-ssh-filezilla-access.md) |
 | 2026-05-17 | `705ec011` | Изучи проанализируй новую стратегию: "C:\Users\Labuh\.vscode\Новая стратегия.txt | [705ec011-c882-4248-bb2a-3e952c2b17de.md](archive/705ec011-c882-4248-bb2a-3e952c2b17de.md) |
