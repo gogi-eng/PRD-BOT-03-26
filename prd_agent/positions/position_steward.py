@@ -42,6 +42,10 @@ from prd_agent.positions.manual_trailing_garch_learner import (
     ManualTrailingGarchConfig,
     ManualTrailingGarchLearner,
 )
+from prd_agent.positions.garch_tp_peak_retrace import (
+    GarchTpPeakRetraceConfig,
+    evaluate_garch_tp_peak_retrace,
+)
 from prd_agent.positions.trailing_volatility_regime import (
     TrailingVolatilityRegimeConfig,
     apply_trailing_garch_to_distance_factor,
@@ -93,6 +97,8 @@ class TrackedPosition:
     last_sl_sent: float = 0.0
     opened_at_utc: str = ""
     peak_profit_pct: float = 0.0
+    tp_zone_armed: bool = False
+    tp_zone_peak_profit_pct: float = 0.0
 
 
 class PositionSteward:
@@ -196,6 +202,7 @@ class PositionSteward:
         self._manual_trailing_learner.cfg = ManualTrailingGarchConfig.from_cfg(cfg)
         self._manual_trailing_learner.trail_cfg = self._trailing_garch
         self._manual_trailing_learner.root_cfg = dict(cfg)
+        self._tp_peak_retrace_cfg = GarchTpPeakRetraceConfig.from_cfg(cfg)
 
     def get_manual_trailing_garch_summary(self) -> str:
         return self._manual_trailing_learner.telegram_rules_summary()
@@ -527,6 +534,7 @@ class PositionSteward:
             and not self.exit_cfg.enabled
             and not self._default_profile.tp_progress.enabled
             and not self._manual_trailing_learner.cfg.enabled
+            and not self._tp_peak_retrace_cfg.enabled
         ):
             return notes
 
@@ -595,6 +603,39 @@ class PositionSteward:
             pos.peak_profit_pct = max(pos.peak_profit_pct, p_pct)
             prog_atr = progress_in_atr(pos.side, pos.entry, price, atr)
             profile = self._profile_for(pos)
+
+            garch_regime = "normal"
+            if self._trailing_garch_cfg.enabled:
+                _gm, garch_regime, _gn = compute_trailing_garch_distance_factor(
+                    klines=klines or [],
+                    trail_cfg=self._trailing_garch_cfg,
+                    root_cfg=self.cfg,
+                )
+
+            if self._tp_peak_retrace_cfg.enabled:
+                tp_armed, tp_peak, tp_action, tp_note = evaluate_garch_tp_peak_retrace(
+                    side=pos.side,
+                    entry=pos.entry,
+                    mark=price,
+                    take_profit=pos.take_profit,
+                    current_profit_pct=p_pct,
+                    tp_zone_armed=pos.tp_zone_armed,
+                    tp_zone_peak_profit_pct=pos.tp_zone_peak_profit_pct,
+                    regime=garch_regime,
+                    origin=pos.origin,
+                    cfg=self._tp_peak_retrace_cfg,
+                    symbol=sym,
+                )
+                pos.tp_zone_armed = tp_armed
+                pos.tp_zone_peak_profit_pct = tp_peak
+                if tp_action == "close_garch_tp_retrace":
+                    closed_msg = await self._try_close_position(exchange, pos, tp_note)
+                    if closed_msg:
+                        notes.append(closed_msg)
+                        self._log_note_close(pos, tp_action, tp_note)
+                        self._bot_levels.pop(sym, None)
+                        del self._tracked[sym]
+                    continue
 
             liq_price = float(row.get("liqPrice") or 0)
             liq_hit, liq_reason = evaluate_liquidation_stop(

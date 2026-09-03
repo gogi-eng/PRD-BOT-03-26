@@ -302,6 +302,18 @@ manual_trailing_garch_learning:
   auto_apply_learned_mult: true
   blend_weight: 0.45
   state_path: data/garch/manual_trailing_rules.json
+  # Закрытие при откате от пика после ≥90% пути к TP (пороги из логов 20 дней)
+  tp_peak_retrace_exit:
+    enabled: true
+    min_tp_progress_pct: 90.0
+    retrace_from_peak_pct: 25.0
+    retrace_by_regime:
+      calm: 20.0
+      normal: 25.0
+      storm: 35.0
+    min_peak_profit_pct: 0.5
+    apply_to_manual: true
+    apply_to_bot: true
 
 # Wallet Flow Agent (v1): watch-кошельки → advisory рекомендации (НЕ ставит ордера).
 # API-ключи только в .env: DEBANK_ACCESS_KEY и/или ETHERSCAN_API_KEY
