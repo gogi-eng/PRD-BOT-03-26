@@ -21,6 +21,10 @@ from prd_agent.positions.trailing_volatility_regime import (
     compute_trailing_garch_distance_factor,
     regime_distance_mult,
 )
+from prd_agent.positions.garch_tp_peak_retrace import (
+    GarchTpPeakRetraceConfig,
+    format_telegram_tp_retrace_summary,
+)
 from prd_agent.risk.volatility_regime_sizing import closes_from_klines
 
 logger = logging.getLogger("prd_agent.manual_trailing_garch")
@@ -267,6 +271,8 @@ class ManualTrailingGarchLearner:
                 f"(config {st.baseline_mult:.2f}, learned {st.learned_mult:.2f}, "
                 f"samples={len(st.samples)}) — {src}"
             )
+        lines.append("")
+        lines.append(format_telegram_tp_retrace_summary(GarchTpPeakRetraceConfig.from_cfg(self.root_cfg)))
         lines.append("")
         lines.append(
             "<i>Бот учится, когда вы двигаете SL на Bybit вручную при включённом GARCH.</i>"
