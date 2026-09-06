@@ -13,6 +13,16 @@ def state_path(root: Path) -> Path:
     return root / "telegram_signal_agent_state.json"
 
 
+# Ключи панели unified ControlBot — signal agent не должен затирать их при _save_state.
+PANEL_RTC_KEYS = (
+    "pause_all_execution",
+    "signal_only_mode",
+    "channel_auto_execute",
+    "market_scanner_auto_execute",
+    "trailing_user_override",
+)
+
+
 def _blank_rtc() -> Dict[str, Any]:
     return {
         "pause_all_execution": False,
@@ -40,6 +50,20 @@ def load_runtime_controls(root: Path) -> Dict[str, Any]:
     for key, default in _blank_rtc().items():
         rtc.setdefault(key, default)
     return rtc
+
+
+def set_runtime_trailing_override(root: Path, enabled: bool) -> None:
+    rtc = load_runtime_controls(root)
+    rtc["trailing_user_override"] = bool(enabled)
+    save_runtime_controls(root, rtc)
+
+
+def effective_trailing_enabled(cfg: Dict[str, Any], root: Path) -> bool:
+    rtc = load_runtime_controls(root)
+    if "trailing_user_override" in rtc:
+        return bool(rtc["trailing_user_override"])
+    positions = cfg.get("positions", {}) if isinstance(cfg.get("positions"), dict) else {}
+    return bool(positions.get("trailing_enabled", True))
 
 
 def save_runtime_controls(root: Path, rtc: Dict[str, Any]) -> None:
