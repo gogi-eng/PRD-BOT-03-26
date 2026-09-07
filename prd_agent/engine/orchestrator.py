@@ -41,6 +41,7 @@ from prd_agent.entry.zone_corridor_play import (
     evaluate_zone_corridor_play,
     zone_corridor_enabled,
 )
+from prd_agent.entry.zone_quality_gate import evaluate_zone_quality, zone_quality_enabled
 from prd_agent.evolution.self_improver import SelfImprover
 from prd_agent.exchange.bybit_adapter import BybitAdapter
 from prd_agent.exchange.order_prep import prepare_order
@@ -1791,6 +1792,19 @@ class UnifiedOrchestrator:
             if not self._is_silent_skip(q_reason2):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason2)
             return
+
+        if zone_quality_enabled(self.cfg):
+            zg_ok, zg_reason = await evaluate_zone_quality(
+                sig, self.exchange, klines15=klines_entry or None, cfg=self.cfg
+            )
+            if not zg_ok:
+                reason = zg_reason or "zone_quality: block"
+                logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
+                self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+                self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+                if not self._is_silent_skip(reason):
+                    await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
+                return
 
         if is_signal_only_active(self.cfg, self.root):
             reason = (
