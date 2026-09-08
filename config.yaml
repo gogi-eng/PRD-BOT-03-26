@@ -132,7 +132,7 @@ entry:
   volume_guard_min_ratio: 0.35
 entry_guard:
   enabled: true
-  max_limit_drift_pct: 0.012
+  max_limit_drift_pct: 0.015
   max_market_drift_pct: 0.012
   max_skip_drift_pct: 0.015
   telegram_limit_entry: true
@@ -441,7 +441,7 @@ positions:
     distance_reduce_pct: 0.5
     enabled: true
   trailing_distance_atr_mult: 2.2
-  trailing_distance_pct: 1.5
+  trailing_distance_pct: 1.2
   trailing_enabled: true
   trailing_min_distance_pct: 1.8
   trailing_volatility_regime:
@@ -605,9 +605,13 @@ supervisor_v4:
   - 0
   - 1
   - 2
+  - 3
+  - 4
   - 5
+  - 6
   - 9
   - 10
+  - 11
   - 14
   - 15
   - 16
@@ -621,13 +625,12 @@ supervisor_v4:
   - CLOUSDT
   - DUSKUSDT
   seed_blocked_utc_hours:
-  - 3
-  - 6
   - 7
   - 8
-  - 11
   - 12
   - 13
+  - 17
+  - 18
   skipped_backtest_interval_hours: 3.5
   skipped_signal_backtest:
     auto_tune_filters: true
@@ -778,13 +781,12 @@ trading:
     idle_sec: 120
   auto_start: true
   block_entry_utc_hours:
-  - 3
-  - 6
   - 7
   - 8
-  - 11
   - 12
   - 13
+  - 17
+  - 18
   dynamic_leverage:
     enabled: true
     max: 15
@@ -856,7 +858,7 @@ trading:
   min_24h_volume_usdt: 10000000
   min_multi_agent_score: 0.4
   min_own_agent_confidence: 0.82
-  min_signal_confidence: 0.85
+  min_signal_confidence: 0.79
   non_trading_systemd:
     enabled: true
     ny_open_block:
@@ -1012,21 +1014,6 @@ whale_news:
   - https://feeds.bbci.co.uk/news/world/rss.xml
   - https://feeds.bbci.co.uk/news/business/rss.xml
   - https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en
-
-# zone-quality gate: сильные S/R зоны + структура (S->R / R->S) с учётом старших ТФ и стакана (опц.)
-zone_quality_gate:
-  enabled: true
-  tfs: ["15", "60", "240"]
-  min_strength: 0.6
-  require_structure: true
-  prefer_zone_edge: true
-  entry_prefer_low_zone: true
-  entry_prefer_high_zone: true
-  prev_move_max_atr: 3.0
-  check_orderbook: false
-  ob_min_ratio: 1.0
-
-
 zone_entry:
   block_if_no_zone: false
   enabled: true
@@ -1048,3 +1035,17 @@ zone_entry:
   - own_multi_agent
   - ta_volatility
   - hybrid
+zone_quality_gate:
+  check_orderbook: false
+  enabled: true
+  entry_prefer_high_zone: true
+  entry_prefer_low_zone: true
+  min_strength: 0.6
+  ob_min_ratio: 1.0
+  prefer_zone_edge: true
+  prev_move_max_atr: 3.0
+  require_structure: true
+  tfs:
+  - '15'
+  - '60'
+  - '240'

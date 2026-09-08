@@ -4415,6 +4415,42 @@ class TelegramSignalAgent:
                 return []
             return await self._run_spike_scan_once_locked()
 
+    async def _book_blocks_spike_chase(self, setup: MarketSetup) -> bool:
+        """Стакан против продолжения импульса / цена в конце хода -> не слать и не входить."""
+        try:
+            if not bool(getattr(setup, "spike_mode", False)):
+                return False
+            scen = str(getattr(setup, "scenario", "") or "").upper()
+            side = "SELL" if scen == "DUMP" else "BUY" if scen == "PUMP" else ""
+            if not side or self.bybit is None:
+                return False
+            book = await self.bybit.get_orderbook(str(setup.symbol).upper(), limit=20, lazy=False)
+            if not isinstance(book, dict) or not book.get("bids") or not book.get("asks"):
+                return False
+            bsum = sum(float(x[1]) for x in book["bids"][:10])
+            asum = sum(float(x[1]) for x in book["asks"][:10])
+            price = float(getattr(setup, "price", 0) or 0)
+            lo = float(getattr(setup, "range_low", 0) or 0)
+            hi = float(getattr(setup, "range_high", 0) or 0)
+            if side == "SELL":
+                if bsum > 0 and asum > 0 and bsum >= asum * 1.05:
+                    LOG.info("book block SPIKE %s SELL: bids %.0f >= asks %.0f*1.05", setup.symbol, bsum, asum)
+                    return True
+                if lo > 0 and price > 0 and price <= lo * 1.001:
+                    LOG.info("book block SPIKE %s SELL: цена у дна lo=%.6g price=%.6g", setup.symbol, lo, price)
+                    return True
+            elif side == "BUY":
+                if bsum > 0 and asum > 0 and asum >= bsum * 1.05:
+                    LOG.info("book block SPIKE %s BUY: asks %.0f >= bids %.0f*1.05", setup.symbol, asum, bsum)
+                    return True
+                if hi > 0 and price > 0 and price >= hi * 0.999:
+                    LOG.info("book block SPIKE %s BUY: цена у верха hi=%.6g price=%.6g", setup.symbol, hi, price)
+                    return True
+        except Exception as exc:
+            LOG.warning("book_blocks_spike_chase %s: %s", getattr(setup, "symbol", "?"), exc)
+        return False
+
+
     async def _run_spike_scan_once_locked(self) -> list[MarketSetup]:
         await self._ensure_execution()
         assert self.bybit is not None
@@ -4450,6 +4486,8 @@ class TelegramSignalAgent:
 
         notified = 0
         for setup in setups[: max(1, self.spike_scalp_top_n)]:
+            if await self._book_blocks_spike_chase(setup):
+                continue
             if self._spike_scanner_on_cooldown(setup.symbol):
                 continue
             self._mark_spike_scanner_notified(setup)
