@@ -2392,6 +2392,16 @@ class TelegramSignalAgent:
             wallet,
             float(avail or 0.0),
         )
+        # Bybit linear: мин. номинал ордера 5 USDT (retCode=110094). Если меньше —
+        # не постить бесполезный ордер, вернуть понятную ошибку.
+        min_notional = 5.0
+        if notional < min_notional:
+            err = (
+                f"min_notional: номинал {notional:.4f} USDT < {min_notional:.0f} USDT "
+                f"(плечо {leverage}x, {size_reason}) - ордер не отправлен"
+            )
+            LOG.warning("Signal %s %s skip: %s", signal.symbol, signal.side, err)
+            return {"success": False, "orderId": "", "error": err, "executed_qty": 0.0, "avg_price": 0.0}
         if volatility_regime_enabled(self.cfg):
             try:
                 vol_kl: list = []

@@ -1806,6 +1806,34 @@ class UnifiedOrchestrator:
                     await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
                 return
 
+        # --- LONG 1H-trend gate (качественные лонги) ---
+        if str(getattr(sig, "side", "") or "").upper() in ("BUY", "LONG"):
+            _lq = self.cfg.get("trading", {})
+            _lq2 = _lq.get("long_quality_gate", {}) if isinstance(_lq, dict) else {}
+            if bool(_lq2.get("require_1h_uptrend_for_buy", False)) and str(sig.source or "").upper().find("SPIKE") < 0 and str(sig.source or "").upper().find("SCANNER") < 0:
+                try:
+                    _h1 = await self.exchange.get_klines(sig.symbol, interval="60", limit=80) or []
+                    _cl = [float(k.get("close") or 0) for k in _h1]
+                    if len(_cl) >= 60:
+                        def _ema(vals, n):
+                            k = 2.0 / (n + 1.0)
+                            e = vals[0]
+                            for v in vals[1:]:
+                                e = v * k + e * (1 - k)
+                            return e
+                        f = _ema(_cl, 21)
+                        s = _ema(_cl, 55)
+                        if f < s:
+                            _reason = "long_1h: 1H-тренд вниз (EMA21<EMA55) - лонг против тренда"
+                            logger.info("Skip %s Buy: %s", sig.symbol, _reason)
+                            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, _reason)
+                            self.supervisor.note_signal_outcome(ledger_id, "skipped", _reason)
+                            if not self._is_silent_skip(_reason):
+                                await self.notifier.signal_skipped(sig.symbol, sig.side, _reason)
+                            return
+                except Exception as _exc:
+                    logger.warning("long_1h gate skip %s: %s", sig.symbol, _exc)
+
         if is_signal_only_active(self.cfg, self.root):
             reason = (
                 f"signal_only: {sig.symbol} {sig.side} entry≈{eff_entry:.6g} "

@@ -789,11 +789,11 @@ trading:
   - 18
   dynamic_leverage:
     enabled: true
-    max: 15
+    max: 30
     max_confidence: 0.95
-    min: 10
+    min: 20
     min_confidence: 0.68
-  leverage: 10
+  leverage: 20
   long_quality_gate:
     apply_to_sources: []
     block_local_hours:
@@ -808,6 +808,7 @@ trading:
     block_volatility:
     - low
     enabled: true
+    require_1h_uptrend_for_buy: true
     min_atr_pct: 0.4
     min_soft_score: 55
     preferred_local_hours:
@@ -858,7 +859,7 @@ trading:
   min_24h_volume_usdt: 10000000
   min_multi_agent_score: 0.4
   min_own_agent_confidence: 0.82
-  min_signal_confidence: 0.79
+  min_signal_confidence: 0.74
   non_trading_systemd:
     enabled: true
     ny_open_block:
