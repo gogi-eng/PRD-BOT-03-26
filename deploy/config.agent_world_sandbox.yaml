@@ -794,6 +794,9 @@ supervisor_v4:
     - 11
     - 12
     - 13
+    - 16
+    - 17
+    - 18
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry + ny_open_block)
     - 0
