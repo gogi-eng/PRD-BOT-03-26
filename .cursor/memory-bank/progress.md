@@ -236,3 +236,11 @@
 - Правка: prior trend + hold 300s + пороги −3.5%/0.8%; тесты test_trade_companion.py.
 
 
+
+
+## 2026-09-12
+- Cleanup: redacted API keys/tokens in .cursor/chats/archive and README.md; deleted BOT_DUMP*.txt; updated .gitignore.
+- Fixed pytest collection: backend/tests/conftest.py adds legacy/ to sys.path and ignores tests referencing removed modules.
+- Updated deploy/config.agent_world_sandbox.yaml: manual_auto_close=true, auto_close_manual=true, seed_blocked_utc_hours includes 17.
+- Pushed cleanup to 11.09.26-PRD-BOT-ALL and 11.09.26-AGENT-WORLD; pushed config fix to AGENT-WORLD.
+- Deploy to 207.154.238.178 blocked: SSH port 22 connection timed out from local environment.
