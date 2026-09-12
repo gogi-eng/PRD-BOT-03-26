@@ -57,7 +57,7 @@ trade_companion:
   enabled: true
   bot_positions_only: true
   # false = Companion НЕ закрывает ручные (разворот/откат)
-  auto_close_manual: false
+  auto_close_manual: true
   notify_telegram: true
   extend_tp_enabled: true
   extend_tp_min_profit_pct: 2.5
@@ -467,7 +467,7 @@ profit_lock:
 positions:
   adopt_manual: true
   # false = не закрывать origin=manual time-stop/late_retrace (только trailing/SL биржи)
-  manual_auto_close: false
+  manual_auto_close: true
   # Периодическая проверка: на бирже у каждой открытой позиции должны быть SL и TP.
   # Маркеры лога: "Missing SL/TP on position", "SL/TP guard".
   sl_tp_guard:
@@ -805,6 +805,7 @@ supervisor_v4:
     - 14
     - 15
     - 16
+    - 17
     - 19
     - 20
     - 21
