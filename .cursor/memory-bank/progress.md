@@ -1,9 +1,68 @@
-## 26.08.2026 — AW фильтры чуть уже (меньше сделок)
+## 26.08.2026 — GARCH ON на проде (без модернизации 5-10x)
 
-- Только песочница: `deploy/config.agent_world_sandbox.yaml`
-- SPIKE score 72→76, scanner 75→78, TG conf text 85 / AI 60, max_positions 8→6
-- Soft overrides 0.55→0.45; A+B каналы / polling / one-way сохранены
-- Прод не трогали; откат AW: `02.08.26-AGENT-WORLD`
+- Одобрение: включить нынешний GARCH на проде как на AW
+- Config: `volatility_regime_sizing.enabled: true`, `positions.trailing_volatility_regime.enabled: true`
+- Тест: `test_sandbox_and_prod_trailing_garch_on` (вместо prod_off)
+- pytest: test_volatility_regime_sizing + test_trailing_volatility_regime — 17 passed
+- py_compile N/A (yaml+assert); бэктест N/A (включение существующей фичи)
+- Ветка: только `26.08.26-PRD-BOT-ALL` (prod yaml)
+- Маркеры: `Volatility regime`, `Trailing GARCH`
+- Откат: `06.08.26-PRD-BOT-ALL`
+## 20.08.2026 — Telegram /panel Conflict fix
+
+- Баг: `Conflict` → `_stop.set()` гасил панель до рестарта
+- Фикс: `ControlBot.on_polling_error` — Conflict/сеть не останавливают polling
+- Тест: `test_control_bot_conflict.py` (3 passed); бэктест trailing demo OK (N/A по смыслу)
+- Push: `564be82` PRD + `df23ae3` AW; деплой оба инстанса
+
+## 20.08.2026 — стратегия лонгов (Long Quality Gate)
+
+- Модуль `prd_agent/entry/long_quality_gate.py` + soft hours Buy≠Sell + htf 1/−1
+- Exit Buy: `positions.long_swing_exit` (min SL 1%, trail 3.5/4.0, time-stop 240)
+- Проводка: orchestrator + telegram_signal_agent (SPIKE/scanner) + position_steward
+- Config: AW ON / **prod ON** (испытание на проде)
+- Лаб-симуляция: Buy WR 45.4% → 50.3% после блока часов 3/4/5/10/20
+- Тесты: test_long_quality_gate + hermes_briefing — 15 passed
+- Прод: `e17881f` затем panel-fix `564be82`
+
+## 18.08.2026 — оценка логов песочницы
+
+- AW active, прод masked. Сегодня ≈ +19 USDT; 16–18.08 плюс; 7д ещё −70 из‑за 14.08.
+- Trailing GARCH живой (storm/calm на MU/TUT/SPCX). Traceback нет. Код не меняли.
+
+## 15.08.2026 — Trailing GARCH (дистанция SL)
+
+- Модуль `prd_agent/positions/trailing_volatility_regime.py`: calm→уже, storm→шире trail distance
+- Config `positions.trailing_volatility_regime`: AW ON / prod OFF
+- Hook: `distance_factor` в `position_steward.manage` (рядом с adaptive_trailing)
+- Маркер: `Trailing GARCH`; startup `log_trailing_garch_startup`
+- Тесты: test_trailing_volatility_regime + sizing + adaptive + tp_progress + manual BE — green
+- Бэктест demo: manage_better=true, delta≈+6.3%
+- Деплой: только AGENT-WORLD
+
+## 15.08.2026 — AIAI.BY provider на AGENT-WORLD
+
+- llm_gateway: provider `aiai` (OpenAI-compatible `https://api.aiai.by/v1/chat/completions`)
+- Ключ: `AIAI_API_KEY` / `AIAI_BY_API_KEY` из .env; секция `aiai:` в deploy yaml
+- AW: `ai.provider: aiai`, model `gemini-2.0-flash`; prod остаётся `openrouter`
+- Тесты: `test_llm_gateway_aiai.py` + deepseek — 11 passed; бэктест N/A (только LLM gateway)
+- Деплой: только AGENT-WORLD; ключ пользователь вставляет сам
+
+## 15.08.2026 — пункты 8/9/10 (2026-08-15 15:06 МСК)
+
+- CloseWatchdog: age reliable (биржа/prev); unreliable age≈0 не fast-loss; min_loss_usdt_for_streak/bad=0.15
+- manual_sl_guard: AW enabled:true / prod enabled:false; маркер Manual SL guard; trailing/BE+ остаются
+- Daily report: --fetch-ssh + цифры PnL; отчёты report_2026-08-14.md (−93.76 AW) и report_2026-08-15.md
+- Тесты: test_close_watchdog + test_manual_sl_guard + test_sl_tp_guard + test_manual_trailing_be_backtest — green
+- Прод masked — деплой только AGENT-WORLD
+
+## 11.08.2026 — revert SL/TP manual-safe
+
+- Revert tip 8f940c → 2612d55 на 11.08.26-PRD-BOT-ALL; зеркало на AGENT-WORLD
+- Убрано: manage_sl_tp_manual, MANUAL SAFE skip SL/TP manage, test_manual_sl_tp_no_overwrite.py
+- Восстановлено: trailing/BE+ на всех сделках как до сегодняшнего патча (~09–10.08)
+- Тесты: py_compile steward+bybit; test_tp_progress_exit + test_sl_tp_guard — 17 passed
+- Деплой: оба сервера после push
 
 ## 10.08.2026 — DeepSeek + архив Chat_10_08_26
 
@@ -177,6 +236,11 @@
 - Правка: prior trend + hold 300s + пороги −3.5%/0.8%; тесты test_trade_companion.py.
 
 
-## 30.08.2026
-- AW: откат SPIKE + max_positions=8 к профилю 22.08 (после анализа прибыльных окон).
 
+
+## 2026-09-12
+- Cleanup: redacted API keys/tokens in .cursor/chats/archive and README.md; deleted BOT_DUMP*.txt; updated .gitignore.
+- Fixed pytest collection: backend/tests/conftest.py adds legacy/ to sys.path and ignores tests referencing removed modules.
+- Updated deploy/config.agent_world_sandbox.yaml: manual_auto_close=true, auto_close_manual=true, seed_blocked_utc_hours includes 17.
+- Pushed cleanup to 11.09.26-PRD-BOT-ALL and 11.09.26-AGENT-WORLD; pushed config fix to AGENT-WORLD.
+- Deploy to 207.154.238.178 blocked: SSH port 22 connection timed out from local environment.

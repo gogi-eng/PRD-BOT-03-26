@@ -1,8 +1,31 @@
-## 26.08.2026 — ужесточение фильтров только на AGENT-WORLD
+## 20.08.2026 — когда открывать лонг (Buy)
 
-- Пользователь: «на песочнице чуть ужесточи фильтры, много сделок» — явное одобрение.
-- Решение: умеренно поднять пороги SPIKE/scanner/TG conf и чуть снизить soft overrides; max_positions 8→6.
-- Не отключать каналы A+B, polling, панель; не включать hedge; прод не менять.
+- Пользователь: изучить длинные сделки / бэктесты / SL TP trailing → новая стратегия.
+- Данные: skipped_backtest Buy плохие часы UTC+3 {3,4,5,10,20} WR 22.5%; зелёные WR 54.5%.
+- Решение: жёсткий `long_quality_gate` + профиль `long_swing_exit` только Buy; шорты не трогаем.
+- Soft hour_green/red сделаны **по стороне** (раньше 14/16 были red для всех — вред для лонга).
+- Сначала AGENT-WORLD; прод enabled:false до soak 3–5 дней.
+
+## 15.08.2026 — GARCH регулирует трейлинг-SL
+
+- ТЗ: в спокойствии поджимать прибыль ближе, в шторме дать воздух (шире distance).
+- Безопасный вариант: множители к уже существующему `distance_factor` (не переписывать trailing).
+- AW сначала ON; прод OFF до проверки. Общий код → обе ветки дня; деплой только AW.
+
+## 15.08.2026 — AIAI.BY вместо DeepSeek на песочнице
+
+- Пользователь оплатил API на aiai.by; DeepSeek ранее дал 402 (нулевой баланс).
+- Решение: тот же OpenAI-compatible HTTP client, base_url `https://api.aiai.by/v1`, ключ только в .env.
+- Включить `ai.provider: aiai` только на AGENT-WORLD; прод masked → openrouter, без деплоя.
+- Не просить ключ в чат; после деплоя smoke «ключ отсутствует» ок до ручной вставки.
+
+## 11.08.2026 — откат manage_sl_tp_manual (как ~09.08)
+
+- Пользователь: «верни назад как было: для всех сделок»; недоволен самостоятельной правкой.
+- Откат коммитов 8f940c (PRD) / e283f9b (AW): убраны manage_sl_tp_manual: false, skip trailing/BE+ для manual, sync-overwrite SL/TP из биржи, отказ clear SL/TP в bybit_client, тест no_overwrite.
+- Снова: steward двигает SL/TP (trailing/BE+/adaptive) для **всех** позиций, включая подхваченные; pply_to_manual: true.
+- Остаётся без отката: manual_auto_close: false / Companion не закрывает manual time-stop (hotfix 08.08).
+- Правило: **код не менять без явного «да/делай»**.
 
 ## 10.08.2026 — прямой DeepSeek рядом с OpenRouter
 
