@@ -352,6 +352,7 @@ positions:
     funding_reserve_hours: 24
     funding_rate_cap: 0.001
 
+  manual_auto_close: true
 manual_management:
   set_exchange_levels_on_adopt: false
   manual_trailing_activation_atr: 2.2
@@ -534,6 +535,10 @@ supervisor_v4:
     - 11
     - 12
     - 13
+    - 14
+    - 15
+    - 16
+    - 17
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry + ny_open_block)
     - 0
@@ -819,3 +824,7 @@ whale_news:
     - https://feeds.bbci.co.uk/news/world/rss.xml
     - https://feeds.bbci.co.uk/news/business/rss.xml
     - https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en-US&gl=US&ceid=US:en
+
+
+trade_companion:
+  auto_close_manual: true
