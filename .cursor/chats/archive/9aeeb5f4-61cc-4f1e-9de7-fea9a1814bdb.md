@@ -1317,8 +1317,8 @@ flowchart LR
 В `.env` на сервере, например:
 
 ```env
-BYBIT_API_KEY=...          # как сейчас (бот / UTA)
-BYBIT_API_SECRET=...
+BYBIT_API_KEY=<REDACTED>          # как сейчас (бот / UTA)
+BYBIT_API_SECRET=<REDACTED>
 
 BYBIT_MIRROR_SOURCE_KEY=...
 BYBIT_MIRROR_SOURCE_SECRET=...
