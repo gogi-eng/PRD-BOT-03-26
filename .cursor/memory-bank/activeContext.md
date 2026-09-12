@@ -47,3 +47,9 @@
 | IP | 207.154.238.178 |
 | Прод | /root/PRD-BOT-ALL |
 | Песочница | /root/AGENT-WORLD |
+
+
+### 2026-09-12
+Current focus: deploy AGENT-WORLD sandbox to 207.154.238.178 is blocked by SSH timeout.
+Next step: retry deployment from a host with network access to the server, or run the deploy commands manually on the server.
+Recent fixes pushed: secret cleanup, pytest collection, AGENT-WORLD deploy config alignment.
