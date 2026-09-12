@@ -47,3 +47,9 @@ PROJECT_DUMP.txt
 Thumbs.db
 .idea/
 .vscode/*.log
+
+# BOT dumps may contain secrets
+BOT_DUMP*.txt
+
+# Chat archives may contain secrets
+.cursor/chats/archive/
