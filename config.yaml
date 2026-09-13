@@ -264,6 +264,13 @@ profit_lock:
   cooldown_sec: 3600
   skip_manual_positions: true
 positions:
+  sl_tp_guard:
+    enabled: true
+    interval_sec: 60
+    include_manual: true
+    default_sl_pct: 0.5
+    default_tp_pct: 1.0
+    min_rr: 2.0
   adopt_manual: true
   session_boundary_close:
     enabled: false
@@ -291,7 +298,7 @@ positions:
   exit_management:
     enabled: true
     time_stop_enabled: true
-    time_stop_minutes: 120
+    time_stop_minutes: 240
     time_stop_min_atr_progress: 0.25
     close_on_time_stop: true
     early_breakeven_enabled: false

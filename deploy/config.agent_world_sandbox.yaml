@@ -505,7 +505,7 @@ positions:
   exit_management:
     enabled: true
     time_stop_enabled: true
-    time_stop_minutes: 120
+    time_stop_minutes: 240
     time_stop_min_atr_progress: 0.25
     close_on_time_stop: true
     early_breakeven_enabled: false
