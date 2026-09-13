@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+import logging
 
 from dataclasses import dataclass
 
@@ -21,6 +21,8 @@ from telegram_agent.scanner_impulse_metrics import (
     impulse_metrics_pass_filters,
 
 )
+
+LOG = logging.getLogger("telegram_agent.pump_dump_spike_scan")
 
 
 
@@ -126,6 +128,12 @@ class SpikeScanConfig:
     htf_allow_against_at_sr: bool = True
     htf_allow_against_on_breakout: bool = True
     htf_sr_breakout_lookback_bars: int = 3
+
+    # Guard: ne vhodit protiv silnogo nedavnego impulsa (N svechej, M %%).
+
+    recent_opposite_impulse_bars: int = 8
+
+    recent_opposite_impulse_pct: float = 3.0
 
     @classmethod
 
@@ -244,6 +252,10 @@ class SpikeScanConfig:
             htf_sr_breakout_lookback_bars=max(
                 1, min(12, int(raw.get("htf_sr_breakout_lookback_bars", 3) or 3))
             ),
+            recent_opposite_impulse_bars=max(
+                1, int(raw.get("recent_opposite_impulse_bars", 8) or 8)
+            ),
+            recent_opposite_impulse_pct=float(raw.get("recent_opposite_impulse_pct", 3.0) or 3.0),
 
         )
 
@@ -578,6 +590,88 @@ def compute_spike_score(
 
 
 
+
+
+
+def _closes_from_klines(klines):
+
+    out = []
+
+    for row in klines:
+
+        c = _sf(row.get("close"))
+
+        if c > 0:
+
+            out.append(c)
+
+    return out
+
+
+
+def recent_opposite_impulse_pct(side, klines, bars):
+
+    """Silnyj impuls PROTIV storony signala za poslednie N svechej (%%)."""
+
+    closes = _closes_from_klines(klines)
+
+    bars = max(1, int(bars or 1))
+
+    if len(closes) < bars + 1:
+
+        return 0.0
+
+    base = closes[-1 - bars]
+
+    if base <= 0:
+
+        return 0.0
+
+    side_u = str(side or "").strip().upper()
+
+    if side_u == "SELL":
+
+        hi = max(closes[-bars:])
+
+        if hi <= 0:
+
+            return 0.0
+
+        return (hi / base - 1.0) * 100.0
+
+    if side_u == "BUY":
+
+        lo = min(closes[-bars:])
+
+        if lo <= 0:
+
+            return 0.0
+
+        return (lo / base - 1.0) * 100.0
+
+    return 0.0
+
+
+
+def is_counter_trend_impulse(scenario, klines, bars, threshold_pct):
+
+    """True esli nedavno byl impuls >= threshold_pct protiv napravlenija signala."""
+
+    side = "BUY" if str(scenario or "").upper() == "PUMP" else "SELL"
+
+    pct = recent_opposite_impulse_pct(side, klines, bars)
+
+    if threshold_pct <= 0:
+
+        return False, pct
+
+    if side == "SELL":
+
+        return pct >= threshold_pct, pct
+
+    return pct <= -threshold_pct, pct
+
+
 def analyze_spike_setup(
 
     *,
@@ -625,6 +719,36 @@ def analyze_spike_setup(
     else:
 
         return None
+
+
+
+    # Guard: ne otkryvat SPIKE protiv silnogo nedavnego impulsa.
+
+    if cfg.recent_opposite_impulse_bars > 0 and cfg.recent_opposite_impulse_pct > 0:
+
+        blocked, opp_pct = is_counter_trend_impulse(
+
+            scenario, klines, cfg.recent_opposite_impulse_bars, cfg.recent_opposite_impulse_pct
+
+        )
+
+        if blocked:
+
+            LOG.debug(
+
+                "Spike setup %s %s skipped: opposite impulse %.2f%% in last %d bars",
+
+                symbol,
+
+                scenario,
+
+                opp_pct,
+
+                cfg.recent_opposite_impulse_bars,
+
+            )
+
+            return None
 
 
 

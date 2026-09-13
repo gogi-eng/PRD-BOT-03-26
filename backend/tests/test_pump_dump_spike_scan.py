@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+
+import pytest
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -349,3 +351,115 @@ def test_spike_run_loop_decoupled_from_market_scanner():
     }
     assert unified_should_run_spike_scan(cfg_signal) is False
     assert signal_agent_should_run_spike_scan(cfg_signal) is True
+
+
+def test_recent_opposite_impulse_pct():
+
+    from telegram_agent.pump_dump_spike_scan import recent_opposite_impulse_pct
+
+    # SELL signal: recent strong pump 100 -> 106 (+6%%)
+
+    klines = [{"open": 100.0, "close": 100.0 + i, "high": 100.5 + i, "low": 99.5 + i, "volume": 100.0} for i in range(9)]
+
+    assert recent_opposite_impulse_pct("SELL", klines, bars=8) == pytest.approx(8.0, abs=0.01)
+
+    # BUY signal: recent strong dump 106 -> 98 (-7.55%%)
+
+    klines2 = [{"open": 106.0 - i, "close": 106.0 - i, "high": 106.5 - i, "low": 105.5 - i, "volume": 100.0} for i in range(9)]
+
+    assert recent_opposite_impulse_pct("BUY", klines2, bars=8) == pytest.approx(-7.55, abs=0.01)
+
+
+
+def test_analyze_spike_skips_dump_against_recent_pump():
+
+    """FIX 13.09: ne vhodit short posle silnogo pumpa v poslednie N svechej."""
+
+    cfg = SpikeScanConfig(
+
+        enabled=True,
+
+        min_move_pct=3.0,
+
+        min_volume_ratio=1.0,
+
+        recent_opposite_impulse_bars=8,
+
+        recent_opposite_impulse_pct=5.0,
+
+    )
+
+    # 8 svechej pumpa 100 -> 106 (+6%%)
+
+    pump = [_k(100.0 + i, 100.0 + i, 200.0) for i in range(8)]
+
+    # poslednij candle - dump do 104 (-1.9%% ot 106) - trigger na short po min_move_pct NE dolzhen byt,
+
+    # no dazhe esli est, my propuskaem iz-za nedavnego protiv impulsa.
+
+    impulse = _k(106.0, 103.0, 220.0)  # -2.8%%
+
+    klines = pump + [impulse]
+
+    row = analyze_spike_setup(symbol="FILUSDT", klines=klines, turnover_24h=12_000_000, cfg=cfg)
+
+    assert row is None
+
+
+
+def test_analyze_spike_allows_dump_without_recent_pump():
+
+    cfg = SpikeScanConfig(
+
+        enabled=True,
+
+        min_move_pct=3.0,
+
+        min_volume_ratio=1.0,
+
+        recent_opposite_impulse_bars=8,
+
+        recent_opposite_impulse_pct=5.0,
+
+    )
+
+    base = [_k(100.0, 100.1, 80.0) for _ in range(8)]
+
+    impulse = _k(103.4, 100.0, 220.0)  # -3.4%%
+
+    klines = base + [impulse]
+
+    row = analyze_spike_setup(symbol="SOLUSDT", klines=klines, turnover_24h=12_000_000, cfg=cfg)
+
+    assert row is not None
+
+    assert row["scenario"] == "DUMP"
+
+
+
+def test_spike_scan_config_reads_opposite_impulse_keys():
+
+    cfg = {
+
+        "market_scanner": {
+
+            "spike_scalp": {
+
+                "enabled": True,
+
+                "recent_opposite_impulse_bars": 10,
+
+                "recent_opposite_impulse_pct": 4.5,
+
+            }
+
+        }
+
+    }
+
+    sc = SpikeScanConfig.from_cfg(cfg)
+
+    assert sc.recent_opposite_impulse_bars == 10
+
+    assert sc.recent_opposite_impulse_pct == pytest.approx(4.5)
+

@@ -481,6 +481,12 @@ entry:
   trained_model_blend: 0.15
   trained_model_weights_path: transformer_weights.pt
 
+  impulse_guard_enabled: True
+  counter_trend_impulse_reject_pct: 3.0
+  impulse_lookback_candles: 8
+  require_fvg_pullback_on_impulse: True
+  fvg_min_pullback_pct: 0.15
+  fvg_max_distance_pct: 1.0
 adaptive_regime_presets:
   enabled: true
   switch_interval_sec: 900
@@ -636,6 +642,34 @@ market_scanner:
     use_dynamic_leverage: true
     max_positions_bypass_min_score: 88
     extra_position_slots: 2
+    # FIX 13.09: vhod tolko po FVG-reteste, bez FVG - propusk.
+    pullback_entry:
+      enabled: true
+      wait_timeout_sec: 300
+      min_retrace_pct: 0.18
+      require_fvg: true
+      enter_immediate_if_no_fvg: false
+      enter_immediate_if_book_confirms: false
+      multi_tf_intervals: ["1", "5", "15"]
+      orderbook_depth: 50
+      direction_guard_ratio: 1.3
+      min_fvg_pct: 0.12
+      impulse_extend_pct: 0.25
+      absorption_ratio: 1.2
+      synthetic_retrace_pct: 0.20
+      watchlist_max: 12
+    # FIX 13.09: strogo po chasovomu trendu + net protiv impulsa.
+    require_htf_trend_align: true
+    htf_trend_intervals: ["60"]
+    htf_allow_neutral: false
+    htf_kline_limit: 80
+    htf_sr_context_enabled: false
+    htf_sr_near_pct: 0.35
+    htf_allow_against_at_sr: false
+    htf_allow_against_on_breakout: false
+    htf_sr_breakout_lookback_bars: 3
+    recent_opposite_impulse_bars: 12
+    recent_opposite_impulse_pct: 5.0
   scanner_reversal_exit:
     enabled: true
     alert_telegram: true
