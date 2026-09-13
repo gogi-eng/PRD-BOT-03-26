@@ -1,6 +1,8 @@
 """Zone entry bridge: зоны, BOS, ретест, forced_side EntryEngine."""
 from __future__ import annotations
 
+import asyncio
+
 from prd_agent.entry.entry_engine_bridge import (
     EntryEngineBridge,
     compute_zone_entry_price,
@@ -135,12 +137,12 @@ def test_bridge_plan_levels_returns_structural_sl_tp():
         entry=0,
         reason="test",
     )
-    plan = bridge.plan_levels(
+    plan = asyncio.get_event_loop().run_until_complete(bridge.plan_levels(
         sig,
         klines=_klines_trend_up(),
         htf_klines=_klines_trend_up(60, 99.0),
         market_price=float(_klines_trend_up()[-1]["close"]),
-    )
+    ))
     assert plan.ok
     assert plan.entry > 0
     assert plan.stop_loss > 0

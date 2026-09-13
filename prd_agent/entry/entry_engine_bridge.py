@@ -24,6 +24,7 @@ from core.config import BotConfig
 from engine.entry_engine import EntryEngine, EntrySignal
 from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.signals.types import UnifiedSignal
+from prd_agent.entry.spike_pullback_gate import find_latest_fvg
 
 logger = logging.getLogger("prd_agent.entry.bridge")
 
@@ -54,6 +55,70 @@ _HARD_ZONE_FALLBACK_GUARDS = (
     "volume_guard",
 )
 
+
+
+
+
+def _normalize_side_bridge(side: str) -> str:
+    return "BUY" if _is_buy(side) else "SELL"
+
+
+def _check_impulse_and_fvg_pullback(
+    side: str,
+    klines: List[Dict],
+    cfg: Dict[str, Any],
+    price: float,
+) -> str:
+    """
+    Блокировка входа против сильного импульса без FVG-пулбэка.
+    LONG: цена упала > counter_trend_impulse_reject_pct за N свечей.
+    SHORT: цена выросла > counter_trend_impulse_reject_pct за N свечей.
+    Если импульс есть и включен require_fvg_pullback_on_impulse — пропускаем,
+    только если рядом есть FVG-зона в направлении сделки.
+    """
+    ec = _entry_cfg(cfg)
+    if not bool(ec.get("impulse_guard_enabled", False)):
+        return ""
+
+    lookback = max(2, int(ec.get("impulse_lookback_candles", 8) or 8))
+    threshold = float(ec.get("counter_trend_impulse_reject_pct", 3.0) or 3.0)
+    require_fvg = bool(ec.get("require_fvg_pullback_on_impulse", False))
+    fvg_min_pct = float(ec.get("fvg_min_pullback_pct", 0.15) or 0.15)
+    fvg_max_dist = float(ec.get("fvg_max_distance_pct", 1.0) or 1.0)
+
+    if len(klines) < lookback + 1 or price <= 0:
+        return ""
+    closes = [float(k.get("close", 0) or 0) for k in klines if float(k.get("close", 0) or 0) > 0]
+    if len(closes) < lookback + 1:
+        return ""
+    base = closes[-lookback - 1]
+    last = closes[-1]
+    if base <= 0:
+        return ""
+    move_pct = (last - base) / base * 100.0
+    side_u = _normalize_side_bridge(side)
+
+    impulse = False
+    if side_u == "BUY" and move_pct <= -threshold:
+        impulse = True
+    elif side_u == "SELL" and move_pct >= threshold:
+        impulse = True
+    if not impulse:
+        return ""
+
+    if not require_fvg:
+        return f"impulse_guard (price moved {move_pct:+.2f}% in {lookback} candles, no pullback)"
+
+    zl, zh, fvg_reason = find_latest_fvg(klines, side_u, fvg_min_pct)
+    if zl > 0 and zh > zl and fvg_reason:
+        mid = (zl + zh) / 2.0
+        dist_pct = abs(price - mid) / price * 100.0
+        if side_u == "BUY" and zh < price and dist_pct <= fvg_max_dist:
+            return ""
+        if side_u == "SELL" and zl > price and dist_pct <= fvg_max_dist:
+            return ""
+
+    return f"impulse_guard (price moved {move_pct:+.2f}% in {lookback} candles, no FVG pullback)"
 
 def should_block_zone_entry_fallback(reject_reason: str) -> bool:
     """True = нельзя открывать по zone fallback после отказа движка.
@@ -494,6 +559,13 @@ class EntryEngineBridge:
         atr_v = atr_from_klines(klines)
         if atr_v <= 0:
             atr_v = price * 0.008
+
+        impulse_block = _check_impulse_and_fvg_pullback(sig.side, klines, self.cfg, price)
+        if impulse_block:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, impulse_block)
+            return ZoneEntryPlan(
+                0, 0, 0, ok=False, block_reason=f"zone_entry: {impulse_block}"
+            )
 
         orderflow, liq, ob_meta, ob_block = await self._resolve_market_microstructure(
             sig, exchange=exchange, current_price=price
