@@ -13,6 +13,8 @@ class ExitManagementConfig:
     time_stop_minutes: float = 120.0
     time_stop_min_atr_progress: float = 0.25
     close_on_time_stop: bool = True
+    hard_max_loss_pct: float = 0.0
+    close_on_hard_max_loss: bool = True
     early_breakeven_enabled: bool = True
     early_breakeven_atr_mult: float = 0.45
     early_breakeven_pct: float = 0.18
@@ -32,6 +34,8 @@ class ExitManagementConfig:
             time_stop_minutes=float(raw.get("time_stop_minutes", 120) or 120),
             time_stop_min_atr_progress=float(raw.get("time_stop_min_atr_progress", 0.25) or 0.25),
             close_on_time_stop=bool(raw.get("close_on_time_stop", True)),
+            hard_max_loss_pct=float(raw.get("hard_max_loss_pct", 0) or 0),
+            close_on_hard_max_loss=bool(raw.get("close_on_hard_max_loss", True)),
             early_breakeven_enabled=bool(raw.get("early_breakeven_enabled", True)),
             early_breakeven_atr_mult=float(raw.get("early_breakeven_atr_mult", 0.45) or 0.45),
             early_breakeven_pct=float(raw.get("early_breakeven_pct", 0.18) or 0.18),
@@ -113,7 +117,7 @@ def evaluate_exit_actions(
 ) -> Tuple[Optional[str], str]:
     """
     Возвращает (action, reason):
-    action in {None, "close_time_stop", "close_late_retrace"}
+    action in {None, "close_time_stop", "close_hard_max_loss", "close_late_retrace"}
     """
     if not cfg.enabled or entry <= 0 or price <= 0:
         return None, ""
@@ -121,6 +125,14 @@ def evaluate_exit_actions(
     p_pct = profit_pct(side, entry, price)
     prog_atr = progress_in_atr(side, entry, price, atr)
     age = age_minutes(opened_at_iso, now)
+
+    if cfg.hard_max_loss_pct > 0 and p_pct <= -cfg.hard_max_loss_pct:
+        if cfg.close_on_hard_max_loss:
+            return (
+                "close_hard_max_loss",
+                f"hard max loss {p_pct:.2f}% <= -{cfg.hard_max_loss_pct}%",
+            )
+        return None, "hard_max_loss_would"
 
     if cfg.time_stop_enabled and age >= cfg.time_stop_minutes:
         if prog_atr < cfg.time_stop_min_atr_progress:

@@ -647,7 +647,7 @@ class PositionSteward:
             if action and action.startswith("close_"):
                 closed_msg = await self._try_close_position(exchange, pos, action_reason)
                 if closed_msg:
-                    if self.notify_trailing or action == "close_time_stop":
+                    if self.notify_trailing or action in ("close_time_stop", "close_hard_max_loss"):
                         notes.append(closed_msg)
                     self._log_note_close(pos, action, action_reason)
                     self._bot_levels.pop(sym, None)

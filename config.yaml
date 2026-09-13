@@ -301,6 +301,8 @@ positions:
     time_stop_minutes: 240
     time_stop_min_atr_progress: 0.25
     close_on_time_stop: true
+    hard_max_loss_pct: 0.8
+    close_on_hard_max_loss: true
     early_breakeven_enabled: false
     early_breakeven_atr_mult: 1.2
     early_breakeven_pct: 0.9
