@@ -118,6 +118,9 @@ trading:
     - 11
     - 12
     - 13
+    - 16
+    - 17
+    - 18
   # Коридор S↔R: на проде ВЫКЛ до проверки на AGENT-WORLD
   zone_corridor_play:
     enabled: false
@@ -399,7 +402,7 @@ positions:
   # Прод masked: OFF до явного включения. На AW — ON.
   # Отличие от откатанного manage_sl_tp_manual: только ставит SL, trailing/BE+ не трогает.
   manual_sl_guard:
-    enabled: false
+    enabled: true
     default_sl_pct: 1.0
     interval_sec: 30
     once_per_position: true
@@ -746,6 +749,9 @@ supervisor_v4:
     - 11
     - 12
     - 13
+    - 16
+    - 17
+    - 18
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry + ny_open_block)
     - 0
@@ -756,7 +762,6 @@ supervisor_v4:
     - 10
     - 14
     - 15
-    - 16
     - 19
     - 20
     - 21

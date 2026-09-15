@@ -124,6 +124,9 @@ trading:
     - 11
     - 12
     - 13
+    - 16
+    - 17
+    - 18
   # Коридор S↔R: отскок или пробой+подтверждение (песочница)
   zone_corridor_play:
     enabled: true
@@ -794,6 +797,9 @@ supervisor_v4:
     - 11
     - 12
     - 13
+    - 16
+    - 17
+    - 18
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry + ny_open_block)
     - 0
@@ -804,7 +810,6 @@ supervisor_v4:
     - 10
     - 14
     - 15
-    - 16
     - 19
     - 20
     - 21
