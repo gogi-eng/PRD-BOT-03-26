@@ -104,6 +104,15 @@ def compute_fallback_levels(
         )
         if ok:
             sl, tp = new_sl, new_tp
+
+    # Дополнительная защита от «перевёрнутого» TP для SELL:
+    # если после всех расчётов TP оказался выше entry — сбрасываем до безопасного уровня.
+    if not is_buy and tp > e:
+        tp = e * (1.0 - default_tp_pct / 100.0)
+    # Для BUY: TP ниже entry — тоже сброс.
+    if is_buy and tp < e:
+        tp = e * (1.0 + default_tp_pct / 100.0)
+
     return sl, tp
 
 

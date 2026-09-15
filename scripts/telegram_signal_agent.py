@@ -3991,12 +3991,17 @@ class TelegramSignalAgent:
         telegram_send(token, chat_id, text, max_retries=1)
 
     @contextmanager
-    def _market_scan_cross_process_lock(self, label: str = "Market scan") -> Iterator[bool]:
+    def _market_scan_cross_process_lock(
+        self,
+        label: str = "Market scan",
+        *,
+        lock_filename: str = ".market_scan.lock",
+    ) -> Iterator[bool]:
         """Один проход сканера на все процессы (tg_agent + unified bot)."""
         if fcntl is None:
             yield True
             return
-        lock_path = self.repo_dir / "reports" / "telegram_signals" / ".market_scan.lock"
+        lock_path = self.repo_dir / "reports" / "telegram_signals" / lock_filename
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(lock_path, "w", encoding="utf-8")
         acquired = False
@@ -4434,7 +4439,10 @@ class TelegramSignalAgent:
     async def run_spike_scan_once(self) -> list[MarketSetup]:
         if not self.spike_scalp_enabled:
             return []
-        with self._market_scan_cross_process_lock(label="Spike scan") as acquired:
+        with self._market_scan_cross_process_lock(
+            label="Spike scan",
+            lock_filename=".spike_scan.lock",
+        ) as acquired:
             if not acquired:
                 return []
             return await self._run_spike_scan_once_locked()

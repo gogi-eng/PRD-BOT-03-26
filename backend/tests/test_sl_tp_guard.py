@@ -80,6 +80,41 @@ def test_compute_fallback_defaults_pct():
     assert abs(tp - 99.0) < 1e-9
 
 
+def test_compute_fallback_sell_tp_above_entry_is_corrected():
+    """Регресс ARKUSDT: для SELL TP не должен быть выше entry."""
+    sl, tp = compute_fallback_levels(
+        side="Sell",
+        entry=0.15958,
+        bot_sl=0.0,
+        bot_tp=0.1741,  # «перевёрнутый» TP выше entry
+        default_sl_pct=0.5,
+        default_tp_pct=1.0,
+        min_rr=2.0,
+    )
+    # SL должен быть выше entry
+    assert sl > 0.15958
+    # TP должен быть ниже entry (не выше)
+    assert tp < 0.15958
+    # и не равен исходному «перевёрнутому» значению
+    assert abs(tp - 0.1741) > 1e-9
+
+
+def test_compute_fallback_buy_tp_below_entry_is_corrected():
+    """Для BUY TP не должен быть ниже entry."""
+    sl, tp = compute_fallback_levels(
+        side="Buy",
+        entry=100.0,
+        bot_sl=0.0,
+        bot_tp=95.0,  # «перевёрнутый» TP ниже entry
+        default_sl_pct=0.5,
+        default_tp_pct=1.0,
+        min_rr=2.0,
+    )
+    assert sl < 100.0
+    assert tp > 100.0
+    assert abs(tp - 95.0) > 1e-9
+
+
 def test_should_guard_origin_manual_flag():
     assert should_guard_origin("bot", False) is True
     assert should_guard_origin("manual", False) is False
