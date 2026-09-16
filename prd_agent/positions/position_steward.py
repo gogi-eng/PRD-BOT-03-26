@@ -49,6 +49,7 @@ from prd_agent.positions.garch_tp_peak_retrace import (
 from prd_agent.positions.trailing_volatility_regime import (
     TrailingVolatilityRegimeConfig,
     apply_trailing_garch_to_distance_factor,
+    compute_trailing_garch_distance_factor,
     regime_distance_mult,
     should_apply_trailing_volatility_regime,
 )
@@ -605,10 +606,10 @@ class PositionSteward:
             profile = self._profile_for(pos)
 
             garch_regime = "normal"
-            if self._trailing_garch_cfg.enabled:
+            if self._trailing_garch.enabled:
                 _gm, garch_regime, _gn = compute_trailing_garch_distance_factor(
                     klines=klines or [],
-                    trail_cfg=self._trailing_garch_cfg,
+                    trail_cfg=self._trailing_garch,
                     root_cfg=self.cfg,
                 )
 
