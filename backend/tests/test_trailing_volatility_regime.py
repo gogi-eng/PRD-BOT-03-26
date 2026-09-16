@@ -164,3 +164,64 @@ def test_log_returns_used_by_garch_path() -> None:
     """Smoke: ряд доходностей для calm не пустой."""
     rets = log_returns(_synthetic_closes(100))
     assert len(rets) >= 50
+
+
+def test_position_steward_manage_garch_tp_path_no_trailing_garch_cfg_typo(
+    tmp_path,
+) -> None:
+    """Регресс 16.09.26 AW: _trailing_garch_cfg → AttributeError при open>0."""
+    import asyncio
+
+    from prd_agent.positions.position_steward import PositionSteward
+
+    closes = [100.0 + i * 0.05 for i in range(120)]
+    klines = [{"close": c} for c in closes]
+
+    class _Ex:
+        _client = None
+
+        async def get_klines(self, *args, **kwargs):
+            return klines
+
+    cfg = {
+        "_root": str(tmp_path),
+        "positions": {
+            "trailing_enabled": True,
+            "adopt_manual": True,
+            "manual_auto_close": False,
+            "trailing_volatility_regime": {
+                "enabled": True,
+                "advisory_only": False,
+                "reuse_sizing_cfg": True,
+            },
+            "garch_tp_peak_retrace": {
+                "enabled": True,
+                "min_tp_progress_pct": 90.0,
+            },
+            "exit_management": {"enabled": False},
+            "tp_progress_exit": {"enabled": False},
+            "sl_tp_guard": {"enabled": False},
+            "manual_sl_guard": {"enabled": False},
+        },
+        "trade_companion": {"enabled": False},
+    }
+    steward = PositionSteward(cfg)
+    assert hasattr(steward, "_trailing_garch")
+    assert steward._trailing_garch.enabled
+    assert not hasattr(steward, "_trailing_garch_cfg")
+
+    positions = [
+        {
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "size": 0.01,
+            "avgPrice": 100.0,
+            "markPrice": 101.0,
+            "stopLoss": 99.0,
+            "takeProfit": 110.0,
+            "positionIdx": 0,
+            "liqPrice": 90.0,
+        }
+    ]
+    notes = asyncio.run(steward.manage(_Ex(), positions))
+    assert isinstance(notes, list)
