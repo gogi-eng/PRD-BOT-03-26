@@ -72,6 +72,46 @@ def test_manual_reset_blocks_reconcile_until_next_trading_day(tmp_path, monkeypa
     assert g.day_stats.net_pnl_usdt == -40.0
 
 
+def test_daily_loss_pct_skipped_when_balance_below_min(tmp_path, monkeypatch):
+    """Малый субаккаунт: −$8 при ~$22 не должен давать −39% блок (только USDT-лимит)."""
+    monkeypatch.chdir(tmp_path)
+    g = RiskGuard(
+        {
+            "timezone_offset": 3,
+            "risk": {
+                "max_daily_loss_pct": 5.0,
+                "max_daily_loss_usdt": 10.0,
+                "daily_loss_pct_min_balance_usdt": 50.0,
+            },
+        },
+        initial_balance=22.0,
+    )
+    g.day_start_balance = 22.0
+    g.day_stats.net_pnl_usdt = -8.71
+    g._recalc_day_pnl_pct(22.0)
+    assert g.day_stats.net_pnl_pct < -30.0
+    assert not g._daily_loss_exceeded()
+
+
+def test_daily_loss_usdt_still_blocks_small_balance(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    g = RiskGuard(
+        {
+            "timezone_offset": 3,
+            "risk": {
+                "max_daily_loss_pct": 5.0,
+                "max_daily_loss_usdt": 10.0,
+                "daily_loss_pct_min_balance_usdt": 50.0,
+            },
+        },
+        initial_balance=22.0,
+    )
+    g.day_start_balance = 22.0
+    g.day_stats.net_pnl_usdt = -11.0
+    g._recalc_day_pnl_pct(22.0)
+    assert g._daily_loss_exceeded()
+
+
 def test_order_ok_log_format_includes_qty():
     """Формат Order OK: 7 плейсхолдеров и qty не пропущен (регресс TypeError)."""
     fmt = "Order OK %s %s qty=%.6f lev=%dx (req %dx) conf=%.0f%% id=%s"
