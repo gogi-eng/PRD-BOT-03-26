@@ -91,6 +91,8 @@ trading:
     idle_sec: 120
     idle_after_quiet_min: 60
   max_positions: 8
+  # Ручные adopt не занимают слоты бота (лаборатория AW)
+  count_manual_toward_max_positions: false
   dynamic_leverage:
     enabled: true
     min: 10
@@ -117,16 +119,11 @@ trading:
     - DUSKUSDT
   block_entry_utc_hours:
     # МЕСТНОЕ UTC+3. Вечер NY — ny_open_block (DST: лето 16–18, зима 17–19 МСК)
+    # 11–18 сняты 18.09.26 — лаборатория AW нужна активность днём
     - 3
     - 6
     - 7
     - 8
-    - 11
-    - 12
-    - 13
-    - 16
-    - 17
-    - 18
   # Коридор S↔R: отскок или пробой+подтверждение (песочница)
   zone_corridor_play:
     enabled: true
@@ -237,6 +234,8 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 10
+  # Малый субаккаунт: −$8 при ~$22 ≠ −39%; ниже $50 — только лимит USDT
+  daily_loss_pct_min_balance_usdt: 50
   max_trades_per_day: 50
   # Файл на сервере: touch data/kill_switch/STOP_TRADING — стоп новых входов
   kill_switch_file: data/kill_switch/STOP_TRADING
@@ -702,8 +701,8 @@ entry:
   volatility_floor_atr_pct: 0.06
   require_4h_trend: false
   strict_htf_mode: true
-  # Hermes 04.07: orderflow — главный блокер входов; тест 1.20 только песочница
-  min_orderflow_imbalance: 1.20
+  # Hermes 04.07: orderflow; 18.09.26 смягчено 1.20→1.08 только AW (лаборатория)
+  min_orderflow_imbalance: 1.08
   max_spread_pct: 0.12
   min_smc_score: 0.60
   ema_guard_min_diff_pct: 0.30
@@ -794,12 +793,6 @@ supervisor_v4:
     - 6
     - 7
     - 8
-    - 11
-    - 12
-    - 13
-    - 16
-    - 17
-    - 18
   preferred_utc_hours:
     # местное UTC+3 — разрешённые часы DEFENSIVE (все кроме block_entry + ny_open_block)
     - 0
@@ -808,15 +801,21 @@ supervisor_v4:
     - 5
     - 9
     - 10
+    - 11
+    - 12
+    - 13
     - 14
     - 15
+    - 16
+    - 17
+    - 18
     - 19
     - 20
     - 21
     - 22
     - 23
   panic_consecutive_losses: 3
-  panic_minutes: 90
+  panic_minutes: 30
   defensive_day_loss_usdt: -15
   skipped_backtest_interval_hours: 3.5
   skipped_signal_backtest:
@@ -978,8 +977,9 @@ telegram_signal_agent:
   market_scanner_top_n: 3
   market_scanner_max_symbols: 60
   control_panel_enabled: false
-  # Не перетирать кнопки панели unified bot значениями из yaml при каждом save/callback
+  # Не перетирать channel_auto_execute; SPIKE/scanner exec — из yaml (18.09.26)
   runtime_controls_sync_yaml: false
+  runtime_controls_sync_market_scanner: true
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl
   # Отдельный файл сессии AW (не делить с /root/PRD-BOT-ALL)
