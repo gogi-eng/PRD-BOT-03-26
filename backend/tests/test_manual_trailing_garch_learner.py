@@ -66,3 +66,16 @@ def test_manual_sl_move_recorded(tmp_path: Path) -> None:
     summary = learner.telegram_rules_summary()
     assert "GARCH" in summary
     assert "calm" in summary
+    assert "ВКЛ" in summary
+    assert "отчёт" in summary.lower() or "отчёт" in summary
+
+
+def test_telegram_rules_summary_shows_disabled(tmp_path: Path) -> None:
+    cfg = {
+        "_root": str(tmp_path),
+        "manual_trailing_garch_learning": {"enabled": False},
+    }
+    learner = ManualTrailingGarchLearner(cfg, tmp_path / "data")
+    summary = learner.telegram_rules_summary()
+    assert "ВЫКЛ" in summary
+    assert "отчёт" in summary.lower() or "Это отчёт" in summary
