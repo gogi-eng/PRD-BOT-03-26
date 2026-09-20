@@ -1,26 +1,25 @@
 # Active Context
 
-**Дата фокуса:** 26.08.2026 (UTC+3)
-**Прод:** **active** · ветка **`26.08.26-PRD-BOT-ALL`** · GARCH sizing + Trailing GARCH **ON**
-**Песочница:** **active** · hash **`61b2e19`** · ветка **`26.08.26-AGENT-WORLD`**
+**Дата фокуса:** 20.09.2026 (UTC+3)
 
-## GARCH на проде (одобрено 26.08)
+## Сегодня (одобрено): отчёты AW — CSV неделя + сводка «По дням»
 
-- Пользователь: включить **нынешний** GARCH на проде, **без** модернизации 5–10x TF.
-- Config prod: `volatility_regime_sizing.enabled: true`, `positions.trailing_volatility_regime.enabled: true` (как AW).
-- Код не меняли — только флаги + тест assert prod ON.
-- Маркеры: `Volatility regime`, `Trailing GARCH`.
-- Откат: ветка `06.08.26-PRD-BOT-ALL`.
+1. **📥 CSV неделя** — кнопка Telegram рядом с «По дням»; файл из `trade_history.jsonl` за 7 дней → `data/exports/` + sendDocument.
+2. **📅 По дням** — блок «Сводка периода»: лучший/худший день + серия убыточных дней подряд (streak).
+3. Тесты: `backend/tests/test_daily_pnl_and_lab_reports.py` — **8 passed**; бэктест N/A (отчётность).
+4. Ветки: `20.09.26-AGENT-WORLD` + cherry-pick `20.09.26-PRD-BOT-ALL`.
+5. Деплой: **только AGENT-WORLD** (прод не трогать без отдельного «да»).
 
-## Срочный фикс (вечер 26.08) — positionIdx / без хеджа
+## Жёсткое правило агента (16.09.2026)
 
-- Счёт AW → Merged Single; код `force_one_way_mode` / `positionIdx=0`.
-- Лог-маркер: `Bybit force_one_way_mode: ok=True mode=one_way`.
+**Тестировать все предлагаемые изменения** — до «готово»/push: `py_compile` + pytest + бэктест + отчёт в чат.
+Файл: `.cursor/rules/test-backtest-before-deploy.mdc` (alwaysApply).
 
-## Важно (A+B 26.08) — на месте
+## Предыдущий фокус (15–19.09)
 
-- **A)** Дневные ветки 26.08 на оба инстанса.
-- **B)** На AGENT-WORLD чтение TG-каналов — **не откатывали**.
+- SL/TP guard SELL, manual_sl_guard prod, SPIKE lock, часы 16–18 МСК.
+- GARCH на проде (config flags).
+- Суточные отчёты 18–19.09: прод ≈ +0,11; AW ≈ +6,57 (хрупкий плюс AKE).
 
 ## ОТКАТ
 
@@ -31,15 +30,6 @@
 
 Не удалять rollback-ветки/теги.
 
-## Маркеры
-
-| Что | Маркер |
-|-----|--------|
-| GARCH sizing | `Volatility regime` |
-| Trailing GARCH | `Trailing GARCH` |
-| One-way | `Bybit force_one_way_mode: ok=True mode=one_way` |
-| AW каналы | `Got difference for channel` / `TG_AGENT] started` |
-
 ## Сервер
 
 | Параметр | Значение |
@@ -47,9 +37,3 @@
 | IP | 207.154.238.178 |
 | Прод | /root/PRD-BOT-ALL |
 | Песочница | /root/AGENT-WORLD |
-
-
-### 2026-09-12
-Current focus: deploy AGENT-WORLD sandbox to 207.154.238.178 is blocked by SSH timeout.
-Next step: retry deployment from a host with network access to the server, or run the deploy commands manually on the server.
-Recent fixes pushed: secret cleanup, pytest collection, AGENT-WORLD deploy config alignment.
