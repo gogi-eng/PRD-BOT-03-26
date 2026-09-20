@@ -100,6 +100,11 @@ class ControlBot:
                     InlineKeyboardButton("🧪 Лаборатория", callback_data="act:skipped_lab"),
                 ],
                 [
+                    InlineKeyboardButton(
+                        "📥 CSV неделя", callback_data="act:trades_csv"
+                    ),
+                ],
+                [
                     InlineKeyboardButton("📐 GARCH правила", callback_data="act:garch_rules"),
                 ],
                 [
@@ -183,6 +188,25 @@ class ControlBot:
         except Exception as exc:
             logger.warning("TG edit_message: %s", exc)
 
+    async def _send_csv_document(self, query, path, caption: str) -> None:
+        """Отправка CSV файлом (sendDocument) в тот же чат, что и кнопка."""
+        if not self._app_ready() or not self.app or not query.message:
+            logger.warning("TG sendDocument пропущен: нет app/message")
+            return
+        try:
+            with open(path, "rb") as fh:
+                await query.message.reply_document(
+                    document=fh,
+                    filename=path.name,
+                    caption=(caption or "")[:1024],
+                    parse_mode="HTML",
+                    reply_markup=self._main_keyboard(),
+                )
+        except (NetworkError, TimedOut) as exc:
+            logger.warning("TG sendDocument (сеть): %s", exc)
+        except Exception as exc:
+            logger.warning("TG sendDocument: %s", exc)
+
     async def on_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if not query or not query.from_user or not self._allowed(query.from_user.id):
@@ -259,6 +283,17 @@ class ControlBot:
                 text = await self.orch.get_ta_scan_report(force=True)
                 await self._safe_edit(query, text, html=True)
                 return
+            if action == "trades_csv":
+                await query.answer("📥 CSV…")
+                await self._safe_edit(
+                    query,
+                    "⏳ <b>CSV неделя</b>\n\nСобираю сделки из журнала…",
+                    html=True,
+                )
+                path, caption = self.orch.export_trades_week_csv()
+                await self._safe_edit(query, caption, html=True)
+                await self._send_csv_document(query, path, caption)
+                return
             await query.answer()
             text = await self._handle_action(action)
             html_reply = (
@@ -319,6 +354,9 @@ class ControlBot:
             return self.orch.get_portfolio_quality_report()
         if action == "daily_pnl":
             return self.orch.get_daily_pnl_report()
+        if action == "trades_csv":
+            _path, caption = self.orch.export_trades_week_csv()
+            return caption
         if action == "skipped_lab":
             return self.orch.get_skipped_lab_report()
         if action == "garch_rules":
