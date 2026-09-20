@@ -262,7 +262,28 @@ class ManualTrailingGarchLearner:
         return blended, f"learned blend w={w:.2f} n={n}"
 
     def telegram_rules_summary(self) -> str:
-        lines = ["<b>📐 GARCH — ваши правила трейлинга</b>", ""]
+        learn_on = bool(self.cfg.enabled)
+        lines = [
+            "<b>📐 GARCH — ваши правила трейлинга</b>",
+            "",
+            "<i>Это отчёт (не переключатель ВКЛ/ВЫКЛ). "
+            "Включение — в config: manual_trailing_garch_learning.</i>",
+            "",
+            f"Обучение по ручным SL: <b>{'ВКЛ' if learn_on else 'ВЫКЛ'}</b>",
+        ]
+        if not learn_on:
+            lines.append(
+                "<i>В live config нет блока или enabled: false — "
+                "бот не записывает ваши переносы стопа.</i>"
+            )
+            lines.append("")
+        else:
+            lines.append(
+                f"Авто-применение learned mult: "
+                f"<code>{'да' if self.cfg.auto_apply_learned_mult else 'нет'}</code> | "
+                f"min samples/режим: <code>{self.cfg.min_samples_per_regime}</code>"
+            )
+            lines.append("")
         for key in ("calm", "normal", "storm"):
             st = self._regimes[key]
             eff, src = self.effective_regime_mult(key)
@@ -274,7 +295,14 @@ class ManualTrailingGarchLearner:
         lines.append("")
         lines.append(format_telegram_tp_retrace_summary(GarchTpPeakRetraceConfig.from_cfg(self.root_cfg)))
         lines.append("")
-        lines.append(
-            "<i>Бот учится, когда вы двигаете SL на Bybit вручную при включённом GARCH.</i>"
-        )
+        if learn_on:
+            lines.append(
+                "<i>Бот учится, когда вы двигаете SL на Bybit вручную "
+                "(при выключенном авто-трейлинге или origin=manual).</i>"
+            )
+        else:
+            lines.append(
+                "<i>Чтобы включить: enabled: true в manual_trailing_garch_learning "
+                "+ деплой config, затем /panel → эта кнопка снова.</i>"
+            )
         return "\n".join(lines)
