@@ -3,6 +3,8 @@
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -20,6 +22,22 @@ from prd_agent.positions.bot_position_registry import (
     resolve_closed_origin,
     source_implies_bot,
     symbols_from_telegram_audit,
+)
+
+# Колонки CSV «выгрузить неделю» (закрытые сделки).
+_TRADES_CSV_FIELDS = (
+    "ts",
+    "local_day",
+    "symbol",
+    "side",
+    "pnl",
+    "reason",
+    "source",
+    "origin",
+    "entry",
+    "exit_price",
+    "qty",
+    "order_id",
 )
 
 
@@ -273,6 +291,59 @@ def _split_rows_by_origin(
     return bot_rows, manual_rows
 
 
+def compute_daily_pnl_extremes(
+    day_rows: List[Tuple[str, List[Dict[str, Any]]]],
+    *,
+    exclude_manual: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Лучший/худший день и макс. серия убыточных календарных дней подряд."""
+    daily: List[Tuple[str, float, int]] = []
+    for day_label, rows in day_rows:
+        view = (
+            [r for r in rows if _trade_origin_label(r) != "manual"]
+            if exclude_manual
+            else rows
+        )
+        if not view:
+            continue
+        summary = summarize_trades(view)
+        daily.append((day_label, float(summary["total_pnl"]), int(summary["n"])))
+    if not daily:
+        return None
+
+    best_label, best_pnl, _ = max(daily, key=lambda x: x[1])
+    worst_label, worst_pnl, _ = min(daily, key=lambda x: x[1])
+
+    ordered = sorted(daily, key=lambda x: datetime.strptime(x[0], "%d.%m.%Y"))
+    max_streak = 0
+    cur_streak = 0
+    prev_date: Optional[datetime] = None
+    for label, pnl, _n in ordered:
+        day_dt = datetime.strptime(label, "%d.%m.%Y")
+        if pnl >= 0:
+            cur_streak = 0
+        else:
+            if (
+                prev_date is not None
+                and cur_streak > 0
+                and (day_dt - prev_date).days == 1
+            ):
+                cur_streak += 1
+            else:
+                cur_streak = 1
+            if cur_streak > max_streak:
+                max_streak = cur_streak
+        prev_date = day_dt
+
+    return {
+        "best_day": best_label,
+        "best_pnl": best_pnl,
+        "worst_day": worst_label,
+        "worst_pnl": worst_pnl,
+        "max_loss_streak": int(max_streak),
+    }
+
+
 def format_daily_pnl_telegram(
     day_rows: List[Tuple[str, List[Dict[str, Any]]]],
     *,
@@ -340,6 +411,37 @@ def format_daily_pnl_telegram(
     else:
         label = "Итого (бот)" if exclude_manual else "Итого"
         lines.append(f"<b>{label}:</b> {total_all:+.2f} USDT за {n_all} сделок")
+
+    extremes = compute_daily_pnl_extremes(day_rows, exclude_manual=exclude_manual)
+    if extremes:
+        lines.append("")
+        lines.append("<b>Сводка периода</b>")
+        lines.append(
+            f"📈 Лучший день: <b>{extremes['best_day']}</b> "
+            f"({extremes['best_pnl']:+.2f} USDT)"
+        )
+        lines.append(
+            f"📉 Худший день: <b>{extremes['worst_day']}</b> "
+            f"({extremes['worst_pnl']:+.2f} USDT)"
+        )
+        streak = int(extremes["max_loss_streak"])
+        if streak > 0:
+            n100 = streak % 100
+            n10 = streak % 10
+            if 11 <= n100 <= 14:
+                word = "дней"
+            elif n10 == 1:
+                word = "день"
+            elif 2 <= n10 <= 4:
+                word = "дня"
+            else:
+                word = "дней"
+            lines.append(
+                f"🔴 Серия минусов подряд: <b>{streak}</b> {word}"
+            )
+        else:
+            lines.append("🔴 Серия минусов подряд: <b>0</b> (убыточных дней не было)")
+
     lines.append(
         "<i>Аналог Freqtrade /daily — по календарным дням местного времени.</i>"
     )
@@ -366,4 +468,108 @@ def build_daily_pnl_report(
         timezone_offset=timezone_offset,
         split_origin=split_origin,
         exclude_manual=exclude_manual,
+    )
+
+
+def build_trades_csv_text(
+    journal_path: Path,
+    days: int = 7,
+    *,
+    timezone_offset: int = 3,
+) -> Tuple[str, Dict[str, Any]]:
+    """CSV закрытых сделок за N дней + краткая сводка."""
+    d = max(1, int(days))
+    rows = load_closed_trades(journal_path, hours=float(d * 24))
+    rows_sorted = sorted(
+        rows,
+        key=lambda r: str(r.get("ts", "") or ""),
+    )
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(_TRADES_CSV_FIELDS), extrasaction="ignore")
+    writer.writeheader()
+    for row in rows_sorted:
+        ts = _parse_ts(str(row.get("ts", "")))
+        local_day = _local_day_key(ts, timezone_offset) if ts else ""
+        writer.writerow(
+            {
+                "ts": str(row.get("ts", "") or ""),
+                "local_day": local_day,
+                "symbol": str(row.get("symbol", "") or ""),
+                "side": str(row.get("side", "") or ""),
+                "pnl": float(row.get("pnl", 0) or 0),
+                "reason": str(row.get("reason", "") or ""),
+                "source": str(row.get("source", "") or ""),
+                "origin": str(row.get("origin", "") or ""),
+                "entry": row.get("entry", ""),
+                "exit_price": row.get("exit_price", ""),
+                "qty": row.get("qty", ""),
+                "order_id": str(row.get("order_id", "") or ""),
+            }
+        )
+    summary = summarize_trades(rows_sorted)
+    summary["days"] = d
+    summary["timezone_offset"] = int(timezone_offset)
+    return buf.getvalue(), summary
+
+
+def export_trades_csv(
+    journal_path: Path,
+    export_dir: Path,
+    days: int = 7,
+    *,
+    timezone_offset: int = 3,
+) -> Tuple[Path, str]:
+    """
+    Сохраняет CSV в export_dir и возвращает (путь, HTML-подпись для Telegram).
+    """
+    csv_text, summary = build_trades_csv_text(
+        journal_path, days=days, timezone_offset=timezone_offset
+    )
+    export_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    d = max(1, int(days))
+    out_path = export_dir / f"trades_{d}d_{stamp}.csv"
+    out_path.write_text(csv_text, encoding="utf-8")
+
+    tz = int(timezone_offset)
+    tz_label = f"UTC+{tz}" if tz >= 0 else f"UTC{tz}"
+    n = int(summary.get("n", 0))
+    if n == 0:
+        caption = (
+            f"<b>📥 CSV за {d} дн. ({tz_label})</b>\n\n"
+            "Закрытых сделок в журнале нет.\n"
+            f"<i>Файл: {out_path.name}</i>"
+        )
+    else:
+        caption = (
+            f"<b>📥 CSV за {d} дн. ({tz_label})</b>\n\n"
+            f"Сделок: <b>{n}</b> | Win {summary['wins']} / Loss {summary['losses']}\n"
+            f"Winrate: <b>{summary['winrate']:.1f}%</b>\n"
+            f"PnL: <b>{summary['total_pnl']:+.2f}</b> USDT\n"
+            f"<i>Файл: {out_path.name}</i>"
+        )
+    return out_path, caption
+
+
+def format_trades_csv_telegram_caption(
+    summary: Dict[str, Any],
+    *,
+    filename: str = "",
+) -> str:
+    """Краткая подпись к CSV без записи на диск (для тестов / превью)."""
+    d = int(summary.get("days", 7))
+    tz = int(summary.get("timezone_offset", 3))
+    tz_label = f"UTC+{tz}" if tz >= 0 else f"UTC{tz}"
+    n = int(summary.get("n", 0))
+    name_line = f"\n<i>Файл: {filename}</i>" if filename else ""
+    if n == 0:
+        return (
+            f"<b>📥 CSV за {d} дн. ({tz_label})</b>\n\n"
+            f"Закрытых сделок в журнале нет.{name_line}"
+        )
+    return (
+        f"<b>📥 CSV за {d} дн. ({tz_label})</b>\n\n"
+        f"Сделок: <b>{n}</b> | Win {summary['wins']} / Loss {summary['losses']}\n"
+        f"Winrate: <b>{summary['winrate']:.1f}%</b>\n"
+        f"PnL: <b>{summary['total_pnl']:+.2f}</b> USDT{name_line}"
     )

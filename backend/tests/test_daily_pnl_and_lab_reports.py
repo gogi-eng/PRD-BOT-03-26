@@ -1,11 +1,18 @@
 """Отчёты Telegram: 📅 По дням и 🧪 Лаборатория."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from prd_agent.analysis.trade_analytics import build_daily_pnl_report
+from prd_agent.analysis.trade_analytics import (
+    build_daily_pnl_report,
+    build_trades_csv_text,
+    compute_daily_pnl_extremes,
+    export_trades_csv,
+)
 from prd_agent.supervisor.skipped_signal_backtest import SkippedSignalBacktester
 
 
@@ -49,6 +56,10 @@ def test_daily_pnl_groups_by_local_day(tmp_path: Path) -> None:
     assert "Итого всё:" in text
     assert "Итого бот:" in text
     assert "Итого ручные:" in text
+    assert "Сводка периода" in text
+    assert "Лучший день:" in text
+    assert "Худший день:" in text
+    assert "Серия минусов подряд:" in text
 
 
 def test_daily_pnl_splits_bot_and_manual(tmp_path: Path) -> None:
@@ -113,6 +124,96 @@ def test_daily_pnl_exclude_manual(tmp_path: Path) -> None:
     assert "+5.00 USDT" in text
     assert "Итого (бот):" in text
     assert "-2.00" not in text
+
+
+def test_daily_extremes_best_worst_and_loss_streak() -> None:
+    day_rows = [
+        ("20.09.2026", [{"pnl": 3.0, "origin": "bot"}]),
+        ("19.09.2026", [{"pnl": -1.0, "origin": "bot"}]),
+        ("18.09.2026", [{"pnl": -2.0, "origin": "bot"}]),
+        ("17.09.2026", [{"pnl": -0.5, "origin": "bot"}]),
+        ("16.09.2026", [{"pnl": 1.0, "origin": "bot"}]),
+        ("15.09.2026", [{"pnl": -4.0, "origin": "bot"}]),
+    ]
+    ext = compute_daily_pnl_extremes(day_rows)
+    assert ext is not None
+    assert ext["best_day"] == "20.09.2026"
+    assert ext["best_pnl"] == 3.0
+    assert ext["worst_day"] == "15.09.2026"
+    assert ext["worst_pnl"] == -4.0
+    # 17–19.09 подряд минус → streak 3; одиночный 15.09 не длиннее
+    assert ext["max_loss_streak"] == 3
+
+
+def test_daily_extremes_streak_breaks_on_gap() -> None:
+    day_rows = [
+        ("20.09.2026", [{"pnl": -1.0}]),
+        ("18.09.2026", [{"pnl": -2.0}]),  # пропуск 19.09 — серия рвётся
+    ]
+    ext = compute_daily_pnl_extremes(day_rows)
+    assert ext is not None
+    assert ext["max_loss_streak"] == 1
+
+
+def test_trades_csv_week_rows_and_header(tmp_path: Path) -> None:
+    journal = tmp_path / "data" / "trades" / "trade_history.jsonl"
+    _write_journal(
+        journal,
+        [
+            {
+                "event": "closed",
+                "ts": _iso_hours_ago(5),
+                "pnl": 1.25,
+                "symbol": "BTCUSDT",
+                "side": "Buy",
+                "reason": "tp",
+                "source": "SPIKE",
+                "origin": "bot",
+                "entry": 100.0,
+                "exit_price": 101.0,
+                "qty": 0.01,
+                "order_id": "oid1",
+            },
+            {
+                "event": "entered",
+                "ts": _iso_hours_ago(6),
+                "symbol": "ETHUSDT",
+                "origin": "bot",
+            },
+            {
+                "event": "closed",
+                "ts": _iso_hours_ago(50),
+                "pnl": -0.5,
+                "symbol": "ETHUSDT",
+                "side": "Sell",
+                "reason": "sl",
+                "source": "TA",
+                "origin": "manual",
+            },
+        ],
+    )
+    csv_text, summary = build_trades_csv_text(journal, days=7, timezone_offset=3)
+    assert summary["n"] == 2
+    assert abs(summary["total_pnl"] - 0.75) < 1e-9
+    reader = csv.DictReader(io.StringIO(csv_text))
+    assert reader.fieldnames is not None
+    assert "symbol" in reader.fieldnames
+    assert "local_day" in reader.fieldnames
+    assert "pnl" in reader.fieldnames
+    rows = list(reader)
+    assert len(rows) == 2
+    symbols = {r["symbol"] for r in rows}
+    assert symbols == {"BTCUSDT", "ETHUSDT"}
+
+    export_dir = tmp_path / "data" / "exports"
+    path, caption = export_trades_csv(
+        journal, export_dir, days=7, timezone_offset=3
+    )
+    assert path.exists()
+    assert path.suffix == ".csv"
+    assert "📥 CSV за 7 дн." in caption
+    assert "+0.75" in caption
+    assert path.read_text(encoding="utf-8").startswith("ts,local_day,symbol")
 
 
 def test_skipped_lab_report_empty(tmp_path: Path) -> None:

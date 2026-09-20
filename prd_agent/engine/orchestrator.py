@@ -22,6 +22,7 @@ from prd_agent.analysis.trade_analytics import (
     build_daily_pnl_report,
     build_portfolio_quality_report,
     build_report as build_trade_stats_report,
+    export_trades_csv,
     load_closed_trades,
     summarize_trades,
 )
@@ -1982,6 +1983,18 @@ class UnifiedOrchestrator:
             timezone_offset=tz,
             split_origin=self._daily_pnl_split_origin,
             exclude_manual=self._daily_pnl_exclude_manual,
+        )
+
+    def export_trades_week_csv(self, days: Optional[int] = None) -> Tuple[Path, str]:
+        """CSV закрытых сделок за N дней → data/exports/ + подпись для Telegram."""
+        d = int(days if days is not None else self._daily_pnl_days)
+        tz = int(self.cfg.get("timezone_offset", 3))
+        export_dir = self.data_dir / "exports"
+        return export_trades_csv(
+            self.trade_journal.path,
+            export_dir,
+            days=d,
+            timezone_offset=tz,
         )
 
     def get_skipped_lab_report(self, hours: Optional[float] = None) -> str:
