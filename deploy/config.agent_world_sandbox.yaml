@@ -289,6 +289,17 @@ volatility_regime_sizing:
     calm: 1.25
     normal: 1.0
     storm: 0.50
+
+# TimesFM 2.5: калибровка 5 сигналов × 80% → фильтр входа по символу (песочница)
+timesfm_gate:
+  enabled: true
+  calibration_samples: 5
+  min_accuracy: 0.8
+  horizon: 12
+  context_len: 512
+  kline_interval: "15"
+  model_id: google/timesfm-2.5-200m-pytorch
+  direction_eps_pct: 0.02
   clamp_min: 0.35
   clamp_max: 1.50
   skip_fast_sources: false

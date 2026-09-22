@@ -66,6 +66,7 @@ from prd_agent.market.market_scanner_bridge import (
     unified_should_run_spike_scan,
 )
 from prd_agent.ops.bot_manager import BotManagerAgent
+from prd_agent.integrations.timesfm_gate import TimesFMGate
 from prd_agent.ops.runtime_controls import (
     effective_trailing_enabled,
     is_signal_only_active,
@@ -195,6 +196,7 @@ class UnifiedOrchestrator:
         _ze = cfg.get("zone_entry", {}) if isinstance(cfg.get("zone_entry"), dict) else {}
         self._zone_kline_interval = str(_ze.get("kline_interval", "15"))
         self.rule_weight_tracker = RuleWeightTracker(self.data_dir, cfg)
+        self.timesfm_gate = TimesFMGate(cfg, self.data_dir)
         self._apply_sr_zones_config()
         self._apply_open_position_policy()
 
@@ -312,6 +314,7 @@ class UnifiedOrchestrator:
         self.trade_companion.apply_config(self.cfg)
         self.trade_lifecycle.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
+        self.timesfm_gate = TimesFMGate(self.cfg, self.data_dir)
         self.derivatives_guard = DerivativesEntryGuard(self.cfg)
         self.macro_ai = MacroAI(self.cfg)
         an = self.cfg.get("analytics", {})
@@ -1214,6 +1217,10 @@ class UnifiedOrchestrator:
             recent_trades=int(recent_sum.get("n", 0)),
         )
         await self.supervisor.run_skipped_backtests_if_due(self.ledger, self.exchange)
+        try:
+            await self.timesfm_gate.resolve_pending(self.exchange)
+        except Exception as exc:
+            logger.warning("TimesFM resolve_pending: %s", exc)
         self.rule_weight_tracker.refresh_if_due(self.trade_journal.path, force=False)
 
         open_by_sym = self._positions_by_symbol(positions)
@@ -1269,6 +1276,12 @@ class UnifiedOrchestrator:
                 sig,
                 status=SignalStatus.RECEIVED,
             )
+            try:
+                await self.timesfm_gate.register_signal(
+                    self.exchange, sig.symbol, sig.side, source=sig.source
+                )
+            except Exception as exc:
+                logger.warning("TimesFM register_signal: %s", exc)
             self._signal_cooldown.mark_handled(sym, sig.side)
             plan_entry, plan_sl, plan_tp, plan_block, zone_meta = await self._plan_order_levels(sig)
             if plan_block:
@@ -1375,6 +1388,17 @@ class UnifiedOrchestrator:
             reason = "runtime: пауза всех входов (Telegram)"
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            return
+
+        tfm_ok, tfm_reason = await self.timesfm_gate.check_entry(
+            self.exchange, sig.symbol, sig.side
+        )
+        if not tfm_ok:
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, tfm_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", tfm_reason)
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, tfm_reason)
+            if not self._is_silent_skip(tfm_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, tfm_reason)
             return
 
         cb = self.exchange.api_circuit_snapshot()
@@ -2004,6 +2028,14 @@ class UnifiedOrchestrator:
 
     def get_manual_trailing_garch_report(self) -> str:
         return self.position_steward.get_manual_trailing_garch_summary()
+
+    def toggle_timesfm(self) -> str:
+        new_on = self.timesfm_gate.toggle_global()
+        title = "TimesFM включён" if new_on else "TimesFM выключен"
+        return self.timesfm_gate.build_telegram_report(header=title)
+
+    def get_timesfm_report(self) -> str:
+        return self.timesfm_gate.build_telegram_report(header="TimesFM 2.5")
 
     def get_hermes_briefing(self) -> str:
         hermes = self.cfg.get("hermes", {}) if isinstance(self.cfg.get("hermes"), dict) else {}
