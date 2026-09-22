@@ -242,6 +242,17 @@ volatility_regime_sizing:
   skip_fast_sources: false
   apply_to_sources: []
 
+# TimesFM 2.5 — только после лаборатории; на проде выключено
+timesfm_gate:
+  enabled: false
+  calibration_samples: 5
+  min_accuracy: 0.8
+  horizon: 12
+  context_len: 512
+  kline_interval: "15"
+  model_id: google/timesfm-2.5-200m-pytorch
+  direction_eps_pct: 0.02
+
 # Wallet Flow Agent (v1): код есть, на проде выкл. до soak на AGENT-WORLD.
 # API-ключи только в .env (не в yaml).
 wallet_tracker:

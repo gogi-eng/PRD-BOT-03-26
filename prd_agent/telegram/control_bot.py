@@ -61,6 +61,21 @@ class ControlBot:
             "🖐 Ручные: ВЫКЛ", callback_data="act:adopt_manual_on"
         )
 
+    def _timesfm_button(self) -> InlineKeyboardButton:
+        gate = self.orch.timesfm_gate
+        if not gate.feature_enabled():
+            return InlineKeyboardButton(
+                "📈 TimesFM: config OFF", callback_data="act:timesfm_status"
+            )
+        on = gate.get_global_enabled()
+        if on:
+            return InlineKeyboardButton(
+                "📈 TimesFM: ВЫКЛ", callback_data="act:toggle_timesfm"
+            )
+        return InlineKeyboardButton(
+            "📈 TimesFM: ВКЛ", callback_data="act:toggle_timesfm"
+        )
+
     def _runtime_button_labels(self) -> tuple[str, str, str, str]:
         rtc = load_runtime_controls(self.orch.root)
         ch = "ВКЛ" if rtc.get("channel_auto_execute") else "ВЫКЛ"
@@ -125,6 +140,9 @@ class ControlBot:
                 ],
                 [
                     InlineKeyboardButton("📡 Bybit AI", callback_data="act:bybit_monitor"),
+                ],
+                [
+                    self._timesfm_button(),
                 ],
                 [
                     self._trailing_button(),
@@ -230,6 +248,8 @@ class ControlBot:
             "preset_conservative",
             "preset_normal",
             "preset_aggressive",
+            "toggle_timesfm",
+            "timesfm_status",
         }
         try:
             if action == "bot_manager":
@@ -266,6 +286,15 @@ class ControlBot:
                     html=True,
                 )
                 text = await self.orch.get_bybit_monitor_report()
+                await self._safe_edit(query, text, html=True)
+                return
+            if action in ("toggle_timesfm", "timesfm_status"):
+                if action == "toggle_timesfm":
+                    await query.answer("TimesFM")
+                    text = self.orch.toggle_timesfm()
+                else:
+                    await query.answer("TimesFM")
+                    text = self.orch.get_timesfm_report()
                 await self._safe_edit(query, text, html=True)
                 return
             if action == "ta_scan":
@@ -387,6 +416,10 @@ class ControlBot:
             return self.orch.set_adopt_manual(True)
         if action == "bot_manager":
             return await self.orch.get_bot_manager_review()
+        if action == "toggle_timesfm":
+            return self.orch.toggle_timesfm()
+        if action == "timesfm_status":
+            return self.orch.get_timesfm_report()
         if action == "toggle_channel":
             toggle_runtime_flag(self.orch.root, "channel_auto_execute")
             return runtime_controls_status_text(self.orch.root)

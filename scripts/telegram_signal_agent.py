@@ -236,6 +236,7 @@ from prd_agent.risk.volatility_regime_sizing import (  # noqa: E402
     read_volatility_regime_cfg,
     volatility_regime_enabled,
 )
+from prd_agent.integrations.timesfm_gate import TimesFMGate  # noqa: E402
 
 
 @dataclass
@@ -1321,6 +1322,9 @@ class TelegramSignalAgent:
             self._save_state()
         self.risk_pipeline = RiskPipeline.from_agent_cfg(self.agent_cfg.get("risk_guards"))
         self.exec_limiter = ExecutionLimiter.from_agent_cfg(self.state, self.agent_cfg.get("execution_limits"))
+        self.data_dir = repo_dir / "data"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.timesfm_gate = TimesFMGate(self.cfg, self.data_dir)
         log_volatility_regime_startup(self.cfg, LOG)
         _ab_raw = self.agent_cfg.get("channel_auto_block", {})
         self.channel_auto_block_cfg = channel_auto_block_from_cfg(_ab_raw if isinstance(_ab_raw, dict) else None)
@@ -2193,6 +2197,16 @@ class TelegramSignalAgent:
         with open(self.signals_jsonl, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    async def _timesfm_resolve_pending(self) -> None:
+        if not self.timesfm_gate.feature_enabled():
+            return
+        try:
+            await self._ensure_execution()
+            assert self.bybit is not None
+            await self.timesfm_gate.resolve_pending(self.bybit)
+        except Exception as exc:
+            LOG.warning("TimesFM resolve_pending: %s", exc)
+
     async def _ensure_execution(self) -> None:
         if self.execution is not None:
             self._sync_execution_dry_run()
@@ -3060,6 +3074,36 @@ class TelegramSignalAgent:
             self._post_signal_analytics(sig)
             self._append_signal(sig, review, "scanner_blocked", None)
             self._notify_market_scanner_execution(signal=sig, action="scanner_blocked", review=review, result=None)
+            return
+
+        try:
+            await self._ensure_execution()
+            if self.bybit is not None:
+                await self.timesfm_gate.register_signal(
+                    self.bybit, sig.symbol, side, source=sig.source
+                )
+        except Exception as exc:
+            LOG.warning("TimesFM register_signal: %s", exc)
+
+        if self.bybit is not None:
+            tfm_ok, tfm_reason = await self.timesfm_gate.check_entry(
+                self.bybit, sig.symbol, side
+            )
+        else:
+            tfm_ok, tfm_reason = True, ""
+        if not tfm_ok:
+            review = {
+                "approve": False,
+                "confidence": sig.confidence,
+                "reason": tfm_reason,
+                "effective_min_ai": "—",
+            }
+            self._post_signal_analytics(sig)
+            self._append_signal(sig, review, "scanner_blocked", None)
+            self._notify_market_scanner_execution(
+                signal=sig, action="scanner_blocked", review=review, result=None
+            )
+            LOG.info("Market scanner exec skipped TimesFM: %s (%s)", setup.symbol, tfm_reason)
             return
 
         result: dict[str, Any] | None = None
@@ -4453,6 +4497,7 @@ class TelegramSignalAgent:
     async def _run_spike_scan_once_locked(self) -> list[MarketSetup]:
         await self._ensure_execution()
         assert self.bybit is not None
+        await self._timesfm_resolve_pending()
         await self._evaluate_spike_pullback_watchlist()
         valid_symbols = await self._get_valid_symbols()
         tickers = await self.bybit.get_tickers()
@@ -4663,6 +4708,7 @@ class TelegramSignalAgent:
         self._reload_market_scanner_notified_from_disk()
         await self._ensure_execution()
         assert self.bybit is not None
+        await self._timesfm_resolve_pending()
         await self._evaluate_pending_market_setups()
         await self._evaluate_bos_watchlist()
         valid_symbols = await self._get_valid_symbols()
