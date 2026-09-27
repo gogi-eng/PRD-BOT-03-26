@@ -1,3 +1,21 @@
+## 27.09.2026 — закладки + план 2 недели (AW)
+
+- Пользователь: сохранить ссылки (Bybit MCP, awesome-finance-mcp, awesome-trading-agents, TimesFM 3.0, FreqAI RL, Forven) + план MCP read-only и 3 эксперимента на песочнице.
+- Решение: `researchBookmarks.md` + секция в `progress.md`; live MCP только read (user-bybit без ордеров); prod не трогаем до явного «да» после отчёта 11.10.
+
+## 22.09.2026 — воскресный ритуал TimesFM
+
+- Пользователь: «при включении в воскресенье — полный прогноз работы TimesFM».
+- Решение: recurring задача агента (не cron): каждое воскресенье UTC+3, если TimesFM ON — отчёт по gate_state, логам, lab-скрипту; без правок кода без «да».
+- Первый срок: 28.09.2026 после деплоя `f16cac9` на AGENT-WORLD.
+
+## 16.09.2026 — тестировать все предлагаемые изменения (правило агента)
+
+- Пользователь: «тестировать все изменения — твоё правило, запиши».
+- Регресс на AW: push без теста `PositionSteward.manage()` → `_trailing_garch_cfg` AttributeError при open>0.
+- Решение: усилить `test-backtest-before-deploy.mdc` (alwaysApply); отчёт в чат до «готово»; тест на реальный путь правки; регресс `test_position_steward_manage_garch_tp_path_no_trailing_garch_cfg_typo`.
+- Синхрон: `.vscode/.cursor/rules/`, `AGENT-WORLD/.cursor/rules/`, `USER-RULES-SNIPPET.txt`.
+
 ## 20.08.2026 — когда открывать лонг (Buy)
 
 - Пользователь: изучить длинные сделки / бэктесты / SL TP trailing → новая стратегия.

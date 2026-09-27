@@ -1,6 +1,11 @@
 # Active Context
 
-**Дата фокуса:** 22.09.2026 (UTC+3)
+**Дата фокуса:** 27.09.2026 (UTC+3)
+
+## План 2 недели + закладки (27.09.2026)
+
+- **Закладки агента:** `.cursor/memory-bank/researchBookmarks.md` (Bybit MCP, awesome lists, TimesFM 3.0, FreqAI RL, Forven).
+- **План AW-only 27.09–11.10:** `progress.md` — MCP read-only + 3 эксперимента (TimesFM soak, multi-symbol lab, skipped lab vs TimesFM). **Prod не трогаем.**
 
 ## Сегодня: TimesFM gate (калибровка + фильтр по символу)
 
@@ -9,6 +14,19 @@
 3. Кнопка Telegram: **📈 TimesFM: ВКЛ/ВЫКЛ** (`act:toggle_timesfm`).
 4. Config: AW sandbox `timesfm_gate.enabled: true`, прод `false`. State: `data/timesfm/gate_state.json`.
 5. Тесты: `test_timesfm_gate.py` + `test_timesfm_bybit_compare.py` — **18 passed**. Бэктест N/A (фильтр ML, не SL/TP).
+
+## ЗАДАЧА АГЕНТА (запрос пользователя 22.09.2026)
+
+**Каждое воскресенье (UTC+3), если TimesFM включён** (`timesfm_gate.enabled: true` и/или глобально ВКЛ в Telegram / `gate_state.json`) — **сделать полный прогноз/разбор работы TimesFM** без ожидания напоминания.
+
+Чеклист воскресного отчёта:
+1. `data/timesfm/gate_state.json` — по символам: калибровка, accuracy, `trading_enabled`.
+2. Логи AW: `journalctl -u trading_bot_agent_world` + `telegram_signal_agent_world` — `TimesFM calib|resolved|TRADING ON|block|pass`.
+3. Лаб-скрипт по топ-символам: `bash scripts/run_timesfm_experiment_server.sh SYMBOL 50` (BTC, ETH, SOL + активные из логов).
+4. Сводка: где фильтр помог бы / где мешал; рекомендация — оставить ВКЛ, ослабить порог, или ВЫКЛ по символу.
+5. Краткий отчёт пользователю на русском; **код/config не менять без «да»**.
+
+Первый контроль: **воскресенье 28.09.2026** (после деплоя gate `f16cac9`).
 
 ## Ранее: кнопка «📐 GARCH правила» в Telegram
 

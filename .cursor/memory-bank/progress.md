@@ -1,3 +1,57 @@
+## План 27.09–11.10.2026 (AW only, prod не трогаем)
+
+**Запрос пользователя 27.09.2026.** Закладки: `researchBookmarks.md`.
+
+### Неделя 1 (27.09 – 03.10): MCP read-only + деплой gate
+
+| День | MCP / инфра | Действие |
+|------|-------------|----------|
+| 27–28.09 | **user-bybit** (уже есть) | Только read: `getTickers`, `getMarketKline`, `getPositionInfo`, `getClosedPnl` — **без** `createOrder`/`amendOrder` |
+| 27–28.09 | **Bybit Official MCP** (опц.) | Cursor: `npx bybit-official-trading-server` **без** API key → 22 market tools; не дублировать live execution |
+| 28.09 | **user-uncoded** | `search_backtests` / `symbol_summary` по BTC/ETH/SOL — сравнить с нашим skipped lab |
+| 28.09 | AW сервер | Деплой `f16cac9`, `timesfm_gate.enabled: true`, pip `timesfm[torch]==2.0.2`, firewall SSH |
+| 29.09–03.10 | Telegram AW | **📈 TimesFM: ВКЛ** глобально; наблюдение `gate_state.json` + логи |
+
+**Эксперимент 1 (27.09–03.10): TimesFM gate soak**
+- Цель: 5+ resolved samples на 2–3 символа (BTC, SOL, активный из логов).
+- Метрики: accuracy, `trading_enabled`, сколько `TimesFM block` vs `pass`.
+- Критерий успеха: ≥1 символ прошёл 80% → фильтр ON; отчёт в воскресенье 28.09 и 05.10.
+- **Prod: не менять.**
+
+### Неделя 2 (04.10 – 11.10): лаборатория + skipped lab
+
+| День | MCP | Действие |
+|------|-----|----------|
+| 04–05.10 | **user-trader-dev** | `quick_backtest` / read-only — идеи RR/SL, **не** live API |
+| 06–08.10 | AW shell | Lab: `run_timesfm_experiment_server.sh` × 4 символа |
+
+**Эксперимент 2 (04–08.10): TimesFM lab multi-symbol**
+- Символы: **BTC, SOL** (база) + **HYPE, SOXL** (активные из логов AW).
+- По 50 сигналов, horizon 12×15m; сравнить TFM↔signal и TFM↔fact.
+- Решение: на каких символах gate имеет смысл, на каких выключить навсегда.
+- **Prod: не менять.**
+
+**Эксперимент 3 (08–11.10): Skipped lab vs TimesFM blocks**
+- Кнопки **🧪 Лаборатория** + **📅 По дням** на AW; `supervisor_v4.skipped_signal_backtest.auto_tune_filters: true` (уже в yaml AW).
+- Сопоставить: пропуски supervisor vs блоки TimesFM — режут прибыль или спасают?
+- MCP **user-uncoded** `compare_strategy_vs_buyhold` — sanity check (read-only).
+- Итог 11.10: таблица «оставить / ослабить порог / ВЫКЛ TimesFM по символу» — **ждём «да»** на код.
+
+### Запреты плана
+
+- Нет push/deploy **PRD-BOT-ALL** prod config.
+- Нет второго процесса на prod Telegram token.
+- Нет замены `bybit_client` на MCP для live ордеров.
+- Forven / FreqAI RL — **только чтение docs**, не миграция.
+
+---
+
+## ОТКРЫТО — воскресный TimesFM review (с 28.09.2026)
+
+- **Задача пользователя (22.09.2026):** каждое воскресенье при включённом TimesFM — полный прогноз/разбор работы (state + логи + lab compare + рекомендация).
+- Условие: `timesfm_gate.enabled` и/или global ON в Telegram.
+- Код: gate `f16cac9`, state `data/timesfm/gate_state.json`, кнопка `act:toggle_timesfm`.
+
 ## 26.08.2026 — GARCH ON на проде (без модернизации 5-10x)
 
 - Одобрение: включить нынешний GARCH на проде как на AW
