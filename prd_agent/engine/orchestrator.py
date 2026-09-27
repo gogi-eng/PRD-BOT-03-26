@@ -1837,6 +1837,67 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason2)
             return
 
+        # --- 1H-trend gate: BUY против медвежьего 1H запрещён; SELL против бычьего 1H запрещён ---
+        _side_u = str(getattr(sig, "side", "") or "").upper()
+        if _side_u in ("BUY", "SELL", "LONG", "SHORT"):
+            _lq = self.cfg.get("trading", {})
+            _lq2 = _lq.get("long_quality_gate", {}) if isinstance(_lq, dict) else {}
+            _src = str(sig.source or "").upper()
+            if bool(_lq2.get("require_1h_trend_align", False)) and "SPIKE" not in _src and "SCANNER" not in _src:
+                try:
+                    _h1 = await self.exchange.get_klines(sig.symbol, interval="60", limit=80) or []
+                    _cl = [float(k.get("close") or 0) for k in _h1]
+                    if len(_cl) >= 60:
+                        def _ema(vals, n):
+                            k = 2.0 / (n + 1.0)
+                            e = vals[0]
+                            for v in vals[1:]:
+                                e = v * k + e * (1 - k)
+                            return e
+                        _f = _ema(_cl, 21)
+                        _s = _ema(_cl, 55)
+                        _bear = _f < _s
+                        _bull = _f > _s
+                        _bad = (_side_u in ("BUY","LONG") and _bear) or (_side_u in ("SELL","SHORT") and _bull)
+                        if _bad:
+                            _reason = ("long_1h: 1H-тренд вниз - лонг против тренда" if _side_u in ("BUY","LONG")
+                                       else "short_1h: 1H-тренд вверх - шорт против тренда")
+                            logger.info("Skip %s %s: %s", sig.symbol, sig.side, _reason)
+                            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, _reason)
+                            self.supervisor.note_signal_outcome(ledger_id, "skipped", _reason)
+                            if not self._is_silent_skip(_reason):
+                                await self.notifier.signal_skipped(sig.symbol, sig.side, _reason)
+                            return
+                except Exception as _exc:
+                    logger.warning("1h trend gate skip %s: %s", sig.symbol, _exc)
+
+        # --- (B)(C) SHORT range gate: не шортить на дне; шорт только у верха диапазона ---
+        if _side_u in ("SELL", "SHORT"):
+            _lq = self.cfg.get("trading", {})
+            _lq2 = _lq.get("long_quality_gate", {}) if isinstance(_lq, dict) else {}
+            _src = str(sig.source or "").upper()
+            if bool(_lq2.get("short_range_gate", False)) and "SPIKE" not in _src and "SCANNER" not in _src:
+                try:
+                    _kl = klines_entry or []
+                    if len(_kl) >= 20:
+                        _hs = [float(k.get("high") or 0) for k in _kl[-20:]]
+                        _ls = [float(k.get("low") or 0) for k in _kl[-20:]]
+                        _hi = max(_hs); _lo = min(_ls)
+                        _p = float(eff_entry or 0)
+                        if _hi > _lo and _p > 0:
+                            _pos = (_p - _lo) / (_hi - _lo)  # 0=дно, 1=верх
+                            _min_pos = float(_lq2.get("short_min_range_pos", 0.5))
+                            if _pos < _min_pos:
+                                _reason = f"short_range_gate: цена у дна диапазона (pos={_pos:.2f}<{_min_pos:.2f}) - шорт поздно"
+                                logger.info("Skip %s %s: %s", sig.symbol, sig.side, _reason)
+                                self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, _reason)
+                                self.supervisor.note_signal_outcome(ledger_id, "skipped", _reason)
+                                if not self._is_silent_skip(_reason):
+                                    await self.notifier.signal_skipped(sig.symbol, sig.side, _reason)
+                                return
+                except Exception as _exc:
+                    logger.warning("short_range_gate %s: %s", sig.symbol, _exc)
+
         if is_signal_only_active(self.cfg, self.root):
             reason = (
                 f"signal_only: {sig.symbol} {sig.side} entry≈{eff_entry:.6g} "
