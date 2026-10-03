@@ -72,6 +72,51 @@ def test_defensive_only_preferred_hours(tmp_path: Path) -> None:
     assert "DEFENSIVE" in reason
 
 
+def test_preferred_hour_stays_open_when_learned(tmp_path: Path) -> None:
+    """Час из preferred_utc_hours обучение не закрывает. Список yaml и чужой час — закрывает."""
+    cfg = _cfg(tmp_path)
+    cfg["timezone_offset"] = 3
+    cfg["trading"]["block_entry_utc_hours"] = []
+    cfg["supervisor_v4"]["seed_blocked_utc_hours"] = [3]
+    cfg["supervisor_v4"]["preferred_utc_hours"] = [12]
+    cfg["supervisor_v4"]["max_hour_loss_usdt"] = -12
+    cfg["supervisor_v4"]["max_hour_wr_pct"] = 35
+    cfg["supervisor_v4"]["max_symbol_loss_usdt"] = -100
+    data_dir = tmp_path / "data"
+    journal = data_dir / "trades" / "trade_history.jsonl"
+    journal.parent.mkdir(parents=True)
+    rows = []
+    for hour, symbol in ((9, "ADAUSDT"), (12, "DOTUSDT")):
+        ts = datetime(2026, 10, 2, hour, 15, tzinfo=timezone.utc).isoformat()
+        for _ in range(4):
+            rows.append(
+                json.dumps(
+                    {
+                        "event": "closed",
+                        "ts": ts,
+                        "symbol": symbol,
+                        "pnl": -4.0,
+                    }
+                )
+            )
+    journal.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    imp = SelfImprover(cfg, tmp_path)
+    sup = SupervisorV4(cfg, data_dir, imp)
+    sup.tick_meta()
+    # UTC 9 + 3 = местный 12, этот час в preferred
+    ok, reason = sup.can_enter("ADAUSDT", utc_hour=9)
+    assert ok, reason
+    assert 12 not in sup.blocked_hours()
+    # UTC 12 + 3 = местный 15, его в preferred нет
+    ok, reason = sup.can_enter("DOTUSDT", utc_hour=12)
+    assert not ok
+    assert "15" in reason
+    # Список из yaml (местный 3) остаётся закрытым, даже если он когда-то был в preferred
+    ok, reason = sup.can_enter("ADAUSDT", utc_hour=0)
+    assert not ok
+    assert "3" in reason
+
+
 def test_learns_bad_symbol_from_journal(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     journal = data_dir / "trades" / "trade_history.jsonl"

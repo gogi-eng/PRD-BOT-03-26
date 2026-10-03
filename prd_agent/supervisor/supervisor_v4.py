@@ -279,6 +279,8 @@ class SupervisorV4:
             pnl = float(row.get("pnl_usdt", row.get("pnl", 0)) or 0)
             wr = float(row.get("win_rate", row.get("wr", 100)) or 100)
             n = int(row.get("trades", row.get("n", 0)) or 0)
+            if h in self._preferred_hours:
+                continue
             if (
                 n >= self.min_trades_for_block
                 and pnl <= self.max_hour_loss_usdt
@@ -319,6 +321,8 @@ class SupervisorV4:
                 continue
             total = sum(pnls)
             wr = sum(1 for p in pnls if p > 0) / n * 100
+            if hour in self._preferred_hours:
+                continue
             if total <= self.max_hour_loss_usdt and wr <= self.max_hour_wr_pct:
                 learned_hours.add(hour)
         self._meta.learned_bad_symbols = learned_syms
@@ -540,7 +544,10 @@ class SupervisorV4:
 
     def blocked_hours(self) -> Set[int]:
         self._refresh_ny_block_hours_if_needed()
-        return self._seed_blocked_hours | self._meta.learned_bad_hours
+        # Час из preferred_utc_hours оператор явно оставил открытым.
+        # Обучение не закрывает его снова. Список из yaml и блок NY остаются.
+        learned = set(self._meta.learned_bad_hours) - set(self._preferred_hours)
+        return self._seed_blocked_hours | learned
 
     def can_enter(self, symbol: str = "", utc_hour: Optional[int] = None) -> Tuple[bool, str]:
         if not self.enabled:

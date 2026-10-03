@@ -423,7 +423,17 @@ class BybitClient:
                 return lst[0]
         return None
 
-    async def get_orderbook(self, symbol: str, limit: int = 50) -> Dict:
+    async def get_orderbook(
+        self,
+        symbol: str,
+        limit: int = 50,
+        *,
+        lazy: bool = False,
+        signal_passed_cheap_filters: bool = True,
+    ) -> Dict:
+        # Аргументы адаптера. Сырой клиент их не отбрасывает: иначе SPIKE-проверка
+        # стакана падает TypeError и защита «не гнаться за импульсом» молчит.
+        del lazy, signal_passed_cheap_filters
         sym = str(symbol or "").upper()
         cached = self._orderbook_from_cache(sym, limit)
         if cached:
@@ -442,7 +452,15 @@ class BybitClient:
             }
         return {"bids": [], "asks": [], "ts": 0, "source": "rest"}
 
-    async def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Dict]:
+    async def get_recent_trades(
+        self,
+        symbol: str,
+        limit: int = 100,
+        *,
+        lazy: bool = False,
+        signal_passed_cheap_filters: bool = True,
+    ) -> List[Dict]:
+        del lazy, signal_passed_cheap_filters
         result = await self._request("GET", "/v5/market/recent-trade", {"category": self.category, "symbol": symbol, "limit": limit})
         if result and result.get("list"):
             trades = []
