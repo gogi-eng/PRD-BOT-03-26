@@ -1,6 +1,23 @@
 # Active Context
 
-**Дата фокуса:** 22.09.2026 (UTC+3)
+**Дата фокуса:** 03.10.2026 (UTC+3)
+
+## Разбор логов AW 27.09–03.10 и фикс 03.10
+
+Снимок: песочница, 37 закрытий, **−28.93 USDT**. Худшие: BTW, US, ENA. Плюс держит MOVR.
+
+Фикс (пользователь сказал «да», пуш в ветки дня, **деплой не делал**):
+
+1. `BybitClient.get_orderbook` / `get_recent_trades` принимают `lazy` — иначе проверка стакана перед погоней за SPIKE падала и молчала (669 раз в логе).
+2. Час из `preferred_utc_hours` обучение супервизора больше не закрывает снова. На песочнице это **12 и 13**. Часы **16–18** остаются: это блок открытия Нью-Йорка, не обучение. Чёрный список ETH/SOL/SOXL не трогал.
+3. Тесты: `test_supervisor_v4.py` + `test_bybit_orderbook_lazy_kwargs.py` — 8 passed. Бэктест N/A (не SL/TP).
+
+SSH на 207.154.238.178 — timeout. Деплой AW — только после команды пользователя.
+
+## План 2 недели + закладки (27.09.2026)
+
+- **Закладки агента:** `.cursor/memory-bank/researchBookmarks.md` (Bybit MCP, awesome lists, TimesFM 3.0, FreqAI RL, Forven).
+- **План AW-only 27.09–11.10:** `progress.md` — MCP read-only + 3 эксперимента (TimesFM soak, multi-symbol lab, skipped lab vs TimesFM). **Prod не трогаем.**
 
 ## Сегодня: TimesFM gate (калибровка + фильтр по символу)
 
