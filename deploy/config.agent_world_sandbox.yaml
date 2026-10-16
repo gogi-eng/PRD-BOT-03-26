@@ -113,10 +113,7 @@ trading:
   symbols:
     - BTCUSDT
     - ETHUSDT
-  symbol_blacklist:
-    - ATUSDT
-    - CLOUSDT
-    - DUSKUSDT
+  symbol_blacklist: []
   block_entry_utc_hours:
     # МЕСТНОЕ UTC+3. Вечер NY — ny_open_block (DST: лето 16–18, зима 17–19 МСК)
     # 11–18 сняты 18.09.26 — лаборатория AW нужна активность днём
@@ -796,10 +793,7 @@ supervisor_v4:
   virtual_trades_enabled: true
   virtual_max_open: 40
   virtual_max_age_hours: 72
-  seed_blocked_symbols:
-    - ATUSDT
-    - CLOUSDT
-    - DUSKUSDT
+  seed_blocked_symbols: []
   seed_blocked_utc_hours:
     # МЕСТНОЕ UTC+3 (Москва), НЕ UTC; синхрон с block_entry_utc_hours
     - 3
@@ -830,9 +824,9 @@ supervisor_v4:
   panic_consecutive_losses: 3
   panic_minutes: 30
   defensive_day_loss_usdt: -15
-  # 27.09.26: 3+ минуса по символу и сумма ≤ −$0.40 → supervisor блокирует вход (ETH churn)
+  # 16.10.2026: чёрный список монет выключен. Раньше −0.40 USDT за 3 сделки банил ETH, ZEC, HYPE.
   min_trades_for_block: 3
-  max_symbol_loss_usdt: -0.40
+  max_symbol_loss_usdt: -1000000
   skipped_backtest_interval_hours: 3.5
   skipped_signal_backtest:
     enabled: true
