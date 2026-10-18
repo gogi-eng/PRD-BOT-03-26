@@ -105,6 +105,7 @@ class TrackedPosition:
 class PositionSteward:
     def __init__(self, cfg: Dict[str, Any]):
         self._tracked: Dict[str, TrackedPosition] = {}
+        self._close_reasons: Dict[str, str] = {}
         self._bot_symbols: set[str] = set()
         self._pump_dump_symbols: set[str] = set()
         self._bot_levels: Dict[str, Dict[str, float]] = {}
@@ -391,7 +392,18 @@ class PositionSteward:
             return None
         return new_sl
 
+    def remember_close_reason(self, symbol: str, reason: str) -> None:
+        """Запомнить, почему сопровождающий закрыл позицию. Журнал прочитает это с биржи."""
+        sym = str(symbol or "").upper()
+        text = str(reason or "").strip()
+        if sym and text:
+            self._close_reasons[sym] = text[:200]
+
+    def pop_close_reason(self, symbol: str) -> str:
+        return self._close_reasons.pop(str(symbol or "").upper(), "")
+
     def _log_note_close(self, pos: TrackedPosition, action: str, reason: str) -> None:
+        self.remember_close_reason(pos.symbol, reason or action)
         logger.info(
             "EXIT %s %s action=%s reason=%s peak=%.2f%% age=%.0fm",
             pos.symbol,

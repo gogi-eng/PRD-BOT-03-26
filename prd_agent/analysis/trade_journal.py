@@ -13,6 +13,19 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("prd_agent.trades")
 
 
+def close_reason_from_context(
+    exit_context: Optional[Dict[str, Any]],
+    *,
+    fallback: str = "",
+) -> str:
+    """Причина из сопровождения позиции. Пустая строка — причины нет."""
+    if isinstance(exit_context, dict):
+        named = str(exit_context.get("close_reason") or "").strip()
+        if named and named != "exchange_closed":
+            return named[:200]
+    return str(fallback or "").strip()[:200]
+
+
 class TradeJournal:
     """Запись входов/выходов в data/trades/trade_history.jsonl."""
 
@@ -181,8 +194,13 @@ class TradeJournal:
         *,
         origin: str = "bot",
         exit_context: Optional[Dict[str, Any]] = None,
+        reason: str = "",
     ) -> None:
-        """Строка closed-pnl Bybit API."""
+        """Строка closed-pnl Bybit API.
+
+        Если сопровождающий назвал причину, пишем её.
+        Иначе остаётся exchange_closed — биржа закрыла сама.
+        """
         sym = str(row.get("symbol", "")).upper()
         pnl = float(row.get("closedPnl", 0) or 0)
         oid = str(row.get("orderId", "") or "")
@@ -191,10 +209,11 @@ class TradeJournal:
         entry = float(row.get("avgEntryPrice", 0) or 0)
         exit_p = float(row.get("avgExitPrice", 0) or 0)
         qty = float(row.get("qty", 0) or 0)
+        named = close_reason_from_context(exit_context, fallback=reason)
         self.log_closed(
             symbol=sym,
             pnl=pnl,
-            reason="exchange_closed",
+            reason=named or "exchange_closed",
             side=side,
             order_id=oid,
             entry=entry,

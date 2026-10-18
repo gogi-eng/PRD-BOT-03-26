@@ -2447,6 +2447,29 @@ class TelegramSignalAgent:
         )
         if result.get("success"):
             try:
+                from prd_agent.analysis.trade_journal import TradeJournal
+
+                TradeJournal(self.data_dir, self.cfg).log_entered(
+                    symbol=str(signal.symbol),
+                    side=str(signal.side),
+                    source=str(signal.source or "telegram_signal"),
+                    qty=float(qty),
+                    entry=float(price or 0),
+                    order_id=str(result.get("orderId") or ""),
+                    stop_loss=float(signal.stop_loss or 0),
+                    take_profit=float(signal.take_profit or 0),
+                    confidence=float(signal.confidence or 0),
+                    leverage=int(leverage),
+                    origin="bot",
+                    entry_context={
+                        "path": "telegram_signal_agent",
+                        "size_reason": str(size_reason or ""),
+                        "notional": round(float(notional or 0), 4),
+                    },
+                )
+            except Exception as exc:
+                LOG.warning("trade journal entry: %s", exc)
+            try:
                 from prd_agent.positions.bot_position_registry import register_bot_open
 
                 is_spike = str(signal.source or "").upper() == "SPIKE_SCANNER"

@@ -804,18 +804,20 @@ class UnifiedOrchestrator:
                 bot_symbols=bot_symbols,
             )
             pending = self.trade_journal.peek_pending(sym, side=side, order_id=oid)
+            steward_reason = self.position_steward.pop_close_reason(sym)
             exit_ctx = self.trade_lifecycle.pop_exit_context(
                 sym,
                 side,
                 exit_price=exit_p,
                 pnl_usdt=pnl,
-                reason="exchange_closed",
+                reason=steward_reason or "exchange_closed",
                 pending=pending,
             )
             self.trade_journal.record_closed_from_exchange(
                 r,
                 origin=origin,
                 exit_context=exit_ctx,
+                reason=steward_reason,
             )
         self.rule_weight_tracker.refresh_if_due(journal_path, force=False)
 
