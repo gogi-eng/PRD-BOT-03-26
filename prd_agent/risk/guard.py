@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from prd_agent.risk.kill_switch import kill_switch_active
+from prd_agent.risk.market_sessions import session_window
 from prd_agent.time_hours import read_timezone_offset
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class RiskGuard:
         self.max_consecutive_losses = int(r.get("max_consecutive_losses", 4))
         self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", 5.0))
         self.max_daily_loss_usdt = float(r.get("max_daily_loss_usdt", 100.0))
-        # 0 = не ограничивать. 2 = после двух убытков по монете до конца торгового дня не входить.
+        # 0 = не ограничивать. 2 = после двух убытков по монете до конца текущей сессии не входить.
         self.max_symbol_losses_per_day = int(r.get("max_symbol_losses_per_day", 2))
         # Ниже этого баланса %‑лимит не применяем (малый субаккаунт: −$8 ≠ −39%).
         self.daily_loss_pct_min_balance_usdt = float(
@@ -65,7 +66,7 @@ class RiskGuard:
             self.cooldown_after_stop_sec = int(
                 float(r.get("cooldown_after_stop_hours", 2)) * 3600
             )
-        # Дневной лимит: до полуночи UTC, а не «пауза 2–3 ч и снова стоп»
+        # Лимит убытка держится до конца текущей сессии, а не «пауза 2–3 ч и снова стоп».
         self.daily_loss_blocks_until_next_day = bool(
             r.get("daily_loss_blocks_until_next_day", True)
         )
@@ -122,6 +123,26 @@ class RiskGuard:
         local = datetime.now(timezone.utc) + timedelta(hours=tz_off)
         d = local.date()
         return datetime(d.year, d.month, d.day, tzinfo=timezone.utc) - timedelta(hours=tz_off)
+
+    def _session(self):
+        tz_off = int(read_timezone_offset(self._cfg) or 3)
+        return session_window(datetime.now(timezone.utc), tz_off)
+
+    def _loss_window_start_utc(self) -> datetime:
+        """Начало текущей сессии. Убытки раньше этого часа в стоп не входят."""
+        return self._session().start_utc
+
+    def _session_block_text(self) -> str:
+        window = self._session()
+        mins = max(
+            0,
+            int((window.end_utc - datetime.now(timezone.utc)).total_seconds() / 60),
+        )
+        hours, minutes = divmod(mins, 60)
+        return (
+            f"До конца сессии {window.name} ({window.end_hhmm} МСК) "
+            f"через {hours}ч {minutes}м"
+        )
 
     def _next_trading_day_midnight_utc(self) -> datetime:
         tz_off = int(read_timezone_offset(self._cfg) or 3)
@@ -290,7 +311,7 @@ class RiskGuard:
                 )
                 self._manual_reset_skip_logged_day = day
             return
-        start = self._trading_day_start_utc()
+        start = self._loss_window_start_utc()
         start_ms = int(start.timestamp() * 1000)
         total = 0.0
         wins = 0
@@ -334,9 +355,10 @@ class RiskGuard:
         n = int(self._symbol_losses_today.get(sym, 0))
         if n < cap:
             return ""
+        window = self._session()
         return (
-            f"{sym}: уже {n} убыточных закрытий сегодня (лимит {cap}) — "
-            "до завтра эту монету не берём"
+            f"{sym}: уже {n} убыточных закрытий в сессии {window.name} (лимит {cap}) — "
+            f"до {window.end_hhmm} МСК эту монету не берём"
         )
 
     def fast_path_block(self, symbol: str) -> Tuple[bool, str]:
@@ -411,30 +433,23 @@ class RiskGuard:
 
         if self._daily_loss_exceeded():
             if self.daily_loss_blocks_until_next_day:
-                mins = self._minutes_until_utc_reset()
-                h, m = divmod(mins, 60)
                 return (
                     False,
-                    f"{self._daily_loss_reason()}. Новый день UTC через {h}ч {m}м",
+                    f"{self._daily_loss_reason()}. {self._session_block_text()}",
                 )
             if self.status != GuardStatus.STOPPED:
                 self._trigger_stop(self._daily_loss_reason(), StopKind.DAILY_LOSS)
 
         if self.stop_kind == StopKind.DAILY_LOSS and self.daily_loss_blocks_until_next_day:
-            mins = self._minutes_until_utc_reset()
-            h, m = divmod(mins, 60)
             return (
                 False,
-                f"{self.stop_reason or self._daily_loss_reason()}. "
-                f"Сброс в 00:00 UTC через {h}ч {m}м",
+                f"{self.stop_reason or self._daily_loss_reason()}. {self._session_block_text()}",
             )
 
         if self.status == GuardStatus.STOPPED and self.auto_stop_time:
             if self.stop_kind in (StopKind.DAILY_LOSS, StopKind.TRADE_LIMIT):
                 if self.daily_loss_blocks_until_next_day and self.stop_kind == StopKind.DAILY_LOSS:
-                    mins = self._minutes_until_utc_reset()
-                    h, m = divmod(mins, 60)
-                    return False, f"Дневной стоп. Сброс в 00:00 UTC через {h}ч {m}м"
+                    return False, f"Дневной стоп. {self._session_block_text()}"
                 if self.stop_kind == StopKind.TRADE_LIMIT and self.day_stats.date == self._trading_day():
                     mins = self._minutes_until_utc_reset()
                     h, m = divmod(mins, 60)

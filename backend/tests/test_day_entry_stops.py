@@ -1,4 +1,4 @@
-"""Дневной стоп и два убытка по монете — для обычного входа и охотника за скачками."""
+"""Стоп по убытку сессии и два убытка по монете — обычный вход и охотник."""
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +6,22 @@ from datetime import datetime, timedelta, timezone
 
 from prd_agent.risk.fast_entry_guard import fast_entry_block_reason
 from prd_agent.risk.guard import RiskGuard
+from prd_agent.risk.market_sessions import SessionWindow, session_window
+
+
+def _pin_open_session(monkeypatch) -> None:
+    """Окно шире, чем возраст тестовых сделок, чтобы проверка не зависела от часов."""
+    now = datetime.now(timezone.utc)
+    window = SessionWindow(
+        start_utc=now - timedelta(hours=6),
+        end_utc=now + timedelta(hours=6),
+        name="тест",
+        end_hhmm="23:59",
+    )
+    monkeypatch.setattr(
+        "prd_agent.risk.guard.session_window",
+        lambda *_args, **_kwargs: window,
+    )
 
 
 def _cfg() -> dict:
@@ -29,6 +45,7 @@ def _row(symbol: str, pnl: float, *, age_sec: int = 120) -> dict:
 
 def _guard(tmp_path, monkeypatch) -> RiskGuard:
     monkeypatch.chdir(tmp_path)
+    _pin_open_session(monkeypatch)
     return RiskGuard(_cfg(), initial_balance=80.0)
 
 
@@ -96,6 +113,7 @@ def test_yesterday_loss_does_not_count(tmp_path, monkeypatch):
 
 def test_fast_entry_block_reason_uses_exchange_rows(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _pin_open_session(monkeypatch)
 
     class _Bybit:
         async def get_closed_pnl_page(self, **_kwargs):
@@ -115,8 +133,58 @@ def test_fast_entry_block_reason_uses_exchange_rows(tmp_path, monkeypatch):
     assert "ERAUSDT" in reason
 
 
+def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    now = datetime.now(timezone.utc)
+    window = SessionWindow(
+        start_utc=now - timedelta(minutes=10),
+        end_utc=now + timedelta(hours=2),
+        name="Нью-Йорк",
+        end_hhmm="01:00",
+    )
+    monkeypatch.setattr(
+        "prd_agent.risk.guard.session_window",
+        lambda *_args, **_kwargs: window,
+    )
+    g = RiskGuard(_cfg(), initial_balance=80.0)
+    g.reconcile_from_closed_rows(
+        [
+            _row("PHAUSDT", -11.0, age_sec=30 * 60),
+            _row("JCTUSDT", -2.0, age_sec=40 * 60),
+            _row("JCTUSDT", -2.0, age_sec=50 * 60),
+        ],
+        balance=80.0,
+    )
+    ok, reason = g.fast_path_block("JCTUSDT")
+    assert ok, reason
+    ok_any, reason_any = g.can_trade("SOLUSDT")
+    assert ok_any, reason_any
+
+
+def test_session_windows_match_moscow_table():
+    # 20:51 МСК 20.10.2026 = 17:51 UTC → сессия Нью-Йорка до 01:00
+    now = datetime(2026, 10, 20, 17, 51, tzinfo=timezone.utc)
+    window = session_window(now, 3)
+    assert window.name == "Нью-Йорк"
+    assert window.end_hhmm == "01:00"
+    assert window.start_utc == datetime(2026, 10, 20, 17, 0, tzinfo=timezone.utc)
+    assert window.end_utc == datetime(2026, 10, 20, 22, 0, tzinfo=timezone.utc)
+
+    # 14:00 МСК = 11:00 UTC → Европа до 19:00
+    europe = session_window(datetime(2026, 10, 20, 11, 0, tzinfo=timezone.utc), 3)
+    assert europe.name == "Европа"
+    assert europe.end_hhmm == "19:00"
+    assert europe.start_utc == datetime(2026, 10, 20, 9, 0, tzinfo=timezone.utc)
+
+    # 00:30 МСК 21.10 = 21:30 UTC 20.10 → всё ещё Нью-Йорк до 01:00
+    late = session_window(datetime(2026, 10, 20, 21, 30, tzinfo=timezone.utc), 3)
+    assert late.name == "Нью-Йорк"
+    assert late.start_utc == datetime(2026, 10, 20, 17, 0, tzinfo=timezone.utc)
+
+
 def test_fast_entry_allows_fresh_symbol(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    _pin_open_session(monkeypatch)
 
     class _Bybit:
         async def get_closed_pnl_page(self, **_kwargs):

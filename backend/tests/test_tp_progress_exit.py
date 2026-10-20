@@ -110,3 +110,30 @@ def test_be_blocked_until_profit_from_entry():
     assert res.progress_pct >= 45.0
     assert res.suggested_sl is None
     assert res.phase == "none"
+
+
+def test_lock_one_and_half_percent_is_further_than_one():
+    """Замок 1.5% ставит стоп дальше от входа, чем прежний 1.0%."""
+    def _sl(lock: float) -> float:
+        cfg = TpProgressExitConfig(
+            enabled=True,
+            breakeven_at_profit_pct=1.0,
+            sr_trail_enabled=False,
+            be_fee_buffer_pct=0.30,
+            be_lock_extra_pct=lock,
+        )
+        res = evaluate_tp_progress_exit(
+            cfg=cfg,
+            side="Buy",
+            entry=100.0,
+            price=103.0,
+            take_profit=110.0,
+            current_sl=98.0,
+            klines=[],
+            atr=1.0,
+        )
+        assert res.suggested_sl is not None
+        return float(res.suggested_sl)
+
+    assert _sl(1.5) > _sl(1.0)
+    assert _sl(1.5) >= 101.80
