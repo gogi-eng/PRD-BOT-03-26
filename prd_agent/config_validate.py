@@ -81,6 +81,7 @@ class _RiskSection(BaseModel):
     max_consecutive_losses: int = Field(ge=1, le=20)
     max_daily_loss_pct: float = Field(ge=0.5, le=50.0)
     max_daily_loss_usdt: float = Field(default=50, ge=1)
+    max_symbol_losses_per_day: int = Field(default=2, ge=0, le=20)
     max_trades_per_day: int = Field(default=38, ge=1, le=200)
 
 
