@@ -237,3 +237,12 @@ def test_no_close_shallow_loss_until_deeper_threshold():
         position_age_sec=600,
     )
     assert decision is None
+
+
+def test_weakness_breakeven_sits_further_than_fees():
+    """0.35% от входа съедали комиссия и проскальзывание — замок 0.80%."""
+    cfg = TradeCompanionConfig.from_cfg({"trade_companion": {"enabled": True}})
+    assert cfg.tighten_sl_to_breakeven_pct == 0.80
+    entry = 100.0
+    candidate = entry * (1.0 + cfg.tighten_sl_to_breakeven_pct / 100.0)
+    assert candidate >= 100.80

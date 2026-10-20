@@ -72,6 +72,8 @@ trade_companion:
   close_reversal_min_hold_sec: 300
   close_reversal_prior_shift_bars: 5
   tighten_sl_on_weakness: true
+  # Стоп при ослаблении — не у самого входа: 0.35% съедали комиссия и проскальзывание
+  tighten_sl_to_breakeven_pct: 0.80
 
 # Подробная статистика по каждой сделке (MFE/MAE, стакан, exit_context)
 trade_lifecycle:
@@ -191,7 +193,7 @@ trading:
       breakeven_at_profit_pct: 1.2
       sr_trail_at_profit_pct: 2.0
       be_fee_buffer_pct: 0.30
-      be_lock_extra_pct: 0.40
+      be_lock_extra_pct: 0.90
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1
@@ -234,7 +236,7 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 10
-  # После двух убытков по одной монете за день — не входить в неё до завтра
+  # После двух убытков по одной монете в текущей сессии — не входить до её конца
   max_symbol_losses_per_day: 2
   # Малый субаккаунт: −$8 при ~$22 ≠ −39%; ниже $50 — только лимит USDT
   daily_loss_pct_min_balance_usdt: 50
@@ -535,8 +537,8 @@ positions:
     breakeven_at_profit_pct: 1.0
     sr_trail_at_profit_pct: 1.5
     be_fee_buffer_pct: 0.30
-    # Как на проде: SL в BE дальше от входа — замок прибыли после комиссий
-    be_lock_extra_pct: 1.0
+    # Замок дальше входа: 1.5% плюс комиссия, чтобы стоп не закрывал в минус
+    be_lock_extra_pct: 1.5
     sr_trail_enabled: true
     sr_sl_buffer_atr: 0.22
     sr_level_index: 1
@@ -555,7 +557,7 @@ positions:
       breakeven_at_profit_pct: 1.0
       sr_trail_at_profit_pct: 1.5
       be_fee_buffer_pct: 0.30
-      be_lock_extra_pct: 1.0
+      be_lock_extra_pct: 1.5
       sr_trail_enabled: true
       sr_sl_buffer_atr: 0.22
       sr_level_index: 1

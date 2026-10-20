@@ -160,7 +160,7 @@ class TradeCompanionConfig:
 
     tighten_sl_on_weakness: bool = True
     tighten_sl_min_profit_pct: float = 1.2
-    tighten_sl_to_breakeven_pct: float = 0.35
+    tighten_sl_to_breakeven_pct: float = 0.80
 
     @classmethod
     def from_cfg(cls, cfg: Dict[str, Any]) -> TradeCompanionConfig:
@@ -192,7 +192,7 @@ class TradeCompanionConfig:
             close_reversal_prior_shift_bars=int(raw.get("close_reversal_prior_shift_bars", 5) or 5),
             tighten_sl_on_weakness=bool(raw.get("tighten_sl_on_weakness", True)),
             tighten_sl_min_profit_pct=float(raw.get("tighten_sl_min_profit_pct", 1.2) or 1.2),
-            tighten_sl_to_breakeven_pct=float(raw.get("tighten_sl_to_breakeven_pct", 0.35) or 0.35),
+            tighten_sl_to_breakeven_pct=float(raw.get("tighten_sl_to_breakeven_pct", 0.80) or 0.80),
         )
 
 
