@@ -234,6 +234,8 @@ risk:
   max_consecutive_losses: 4
   max_daily_loss_pct: 5.0
   max_daily_loss_usdt: 10
+  # После двух убытков по одной монете за день — не входить в неё до завтра
+  max_symbol_losses_per_day: 2
   # Малый субаккаунт: −$8 при ~$22 ≠ −39%; ниже $50 — только лимит USDT
   daily_loss_pct_min_balance_usdt: 50
   max_trades_per_day: 50

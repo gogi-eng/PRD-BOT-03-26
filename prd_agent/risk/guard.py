@@ -48,6 +48,8 @@ class RiskGuard:
         self.max_consecutive_losses = int(r.get("max_consecutive_losses", 4))
         self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", 5.0))
         self.max_daily_loss_usdt = float(r.get("max_daily_loss_usdt", 100.0))
+        # 0 = не ограничивать. 2 = после двух убытков по монете до конца торгового дня не входить.
+        self.max_symbol_losses_per_day = int(r.get("max_symbol_losses_per_day", 2))
         # Ниже этого баланса %‑лимит не применяем (малый субаккаунт: −$8 ≠ −39%).
         self.daily_loss_pct_min_balance_usdt = float(
             r.get("daily_loss_pct_min_balance_usdt", 0) or 0
@@ -81,6 +83,7 @@ class RiskGuard:
         self.last_loss_time: Optional[datetime] = None
         self.auto_stop_time: Optional[datetime] = None
         self._consecutive_losses = 0
+        self._symbol_losses_today: Dict[str, int] = {}
         self._notify: Optional[Callable[[str], None]] = None
         self.open_positions_count = 0
         # MANUAL_DAILY_LOSS_RESET_V1: после кнопки «Сбросить убыток»
@@ -167,6 +170,7 @@ class RiskGuard:
         prev_pct = float(self.day_stats.net_pnl_pct)
         self.day_stats.net_pnl_usdt = 0.0
         self.day_stats.net_pnl_pct = 0.0
+        self._symbol_losses_today = {}
         if self.stop_kind == StopKind.DAILY_LOSS:
             self.status = GuardStatus.ACTIVE
             self.stop_reason = ""
@@ -229,6 +233,7 @@ class RiskGuard:
                 self.day_start_balance = 0.0
             self.day_stats = DayStats(date=today)
             self._consecutive_losses = 0
+            self._symbol_losses_today = {}
             self.last_loss_time = None
             if self.status in (GuardStatus.STOPPED,):
                 self.status = GuardStatus.ACTIVE
@@ -290,6 +295,7 @@ class RiskGuard:
         total = 0.0
         wins = 0
         losses = 0
+        by_symbol: Dict[str, int] = {}
         for r in rows:
             ts = int(r.get("updatedTime") or r.get("createdTime") or 0)
             if ts and ts < start_ms:
@@ -300,6 +306,10 @@ class RiskGuard:
                 wins += 1
             else:
                 losses += 1
+                sym = str(r.get("symbol") or "").upper()
+                if sym:
+                    by_symbol[sym] = by_symbol.get(sym, 0) + 1
+        self._symbol_losses_today = by_symbol
         s = self.day_stats
         s.net_pnl_usdt = total
         s.wins = wins
@@ -315,6 +325,35 @@ class RiskGuard:
         if self.max_daily_loss_usdt > 0 and s.net_pnl_usdt <= -self.max_daily_loss_usdt:
             return f"Дневной лимит убытка ${abs(s.net_pnl_usdt):.2f} (лимит ${self.max_daily_loss_usdt:.0f})"
         return f"Дневной лимит убытка {abs(s.net_pnl_pct):.1f}% (лимит {self.max_daily_loss_pct:.0f}%)"
+
+    def _symbol_loss_reason(self, symbol: str) -> str:
+        cap = int(self.max_symbol_losses_per_day or 0)
+        sym = str(symbol or "").upper()
+        if cap <= 0 or not sym:
+            return ""
+        n = int(self._symbol_losses_today.get(sym, 0))
+        if n < cap:
+            return ""
+        return (
+            f"{sym}: уже {n} убыточных закрытий сегодня (лимит {cap}) — "
+            "до завтра эту монету не берём"
+        )
+
+    def fast_path_block(self, symbol: str) -> Tuple[bool, str]:
+        """Охотник за скачками: только дневной стоп и лимит убытков по монете.
+
+        Не смотрит число открытых позиций и паузу после одного убытка —
+        эти проверки остаются у обычного входа.
+        """
+        self._ensure_today()
+        if self._manual_daily_loss_reset_active():
+            return True, ""
+        if self._daily_loss_exceeded():
+            return False, self._daily_loss_reason()
+        reason = self._symbol_loss_reason(symbol)
+        if reason:
+            return False, reason
+        return True, ""
 
     def record_trade(self, pnl: float) -> None:
         self._ensure_today()
@@ -411,6 +450,10 @@ class RiskGuard:
             self.stop_kind = StopKind.NONE
             self.auto_stop_time = None
             self._consecutive_losses = 0
+
+        sym_reason = self._symbol_loss_reason(symbol)
+        if sym_reason:
+            return False, sym_reason
 
         if self.last_loss_time:
             elapsed = (datetime.now(timezone.utc) - self.last_loss_time).total_seconds()

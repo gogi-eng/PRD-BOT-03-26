@@ -65,6 +65,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from prd_agent.risk.fast_entry_guard import fast_entry_block_reason
 from prd_agent.risk.signal_notional import plan_signal_notional
 
 _TG_LOGGING_CONFIGURED = False
@@ -2367,6 +2368,15 @@ class TelegramSignalAgent:
     async def _execute(self, signal: TelegramSignal) -> dict[str, Any]:
         await self._ensure_execution()
         assert self.bybit is not None and self.execution is not None
+        day_block = await fast_entry_block_reason(
+            self.bybit,
+            self.cfg,
+            str(signal.symbol),
+            store_dir=self.repo_dir / "data" / "risk_checks",
+        )
+        if day_block:
+            LOG.info("Дневной стоп %s %s: %s", signal.symbol, signal.side, day_block)
+            return {"success": False, "orderId": "", "error": day_block}
         cap = int(self.auto_execute_max_open_positions or 0)
         if cap > 0:
             open_positions = await self.bybit.get_positions()
