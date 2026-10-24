@@ -17,6 +17,7 @@ from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_
 from prd_agent.analysis.wallet_flow_agent import WalletFlowAgent
 from prd_agent.analysis.global_analyzer import GlobalAnalyzer
 from prd_agent.analysis.macro_ai import MacroAI
+from prd_agent.market.liquidity_alerts import liquidity_alerts_enabled, run_liquidity_alert_loop
 from prd_agent.analysis.signal_ledger import LedgerEntry, SignalLedger, SignalStatus
 from prd_agent.analysis.trade_analytics import (
     build_daily_pnl_report,
@@ -175,6 +176,7 @@ class UnifiedOrchestrator:
         self._bot_manager_task: Optional[asyncio.Task] = None
         self._bybit_monitor_task: Optional[asyncio.Task] = None
         self._wallet_tracker_task: Optional[asyncio.Task] = None
+        self._liquidity_alert_task: Optional[asyncio.Task] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -631,6 +633,16 @@ class UnifiedOrchestrator:
                 "Wallet tracker advisory: цикл опроса, интервал %.0f сек",
                 self.wallet_tracker.poll_interval_sec,
             )
+        if liquidity_alerts_enabled(self.cfg):
+            self._liquidity_alert_task = asyncio.create_task(
+                run_liquidity_alert_loop(
+                    self.exchange,
+                    self.notifier,
+                    lambda: self.symbols,
+                    self.cfg,
+                    lambda: self._running,
+                )
+            )
         if self.trade_companion.enabled:
             logger.info("TRADE COMPANION: сопровождение открытых сделок включено")
         if self.trade_lifecycle.enabled:
@@ -661,6 +673,9 @@ class UnifiedOrchestrator:
         if self._wallet_tracker_task is not None:
             self._wallet_tracker_task.cancel()
             self._wallet_tracker_task = None
+        if self._liquidity_alert_task is not None:
+            self._liquidity_alert_task.cancel()
+            self._liquidity_alert_task = None
 
     async def close(self) -> None:
         self.stop()
