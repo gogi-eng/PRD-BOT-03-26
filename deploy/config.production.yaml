@@ -35,6 +35,19 @@ bot_manager:
   notify_telegram: true
   log_tail_lines: 35
 
+# Крупная заявка и волна ликвидаций. На проде выключено: бот прода не торгует.
+liquidity_alerts:
+  enabled: false
+  interval_sec: 60
+  max_symbols: 8
+  min_wall_usd: 25000
+  wall_multiple: 5
+  wall_persist_sec: 45
+  min_liq_usd: 20000
+  liq_window_sec: 180
+  notify_cooldown_sec: 1800
+  orderbook_depth: 50
+
 # Read-only обзор позиций/графиков → кнопка «📡 Bybit AI» в Telegram-панели
 bybit_monitor:
   enabled: true

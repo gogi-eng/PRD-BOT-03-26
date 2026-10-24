@@ -38,6 +38,20 @@ bot_manager:
   notify_telegram: true
   log_tail_lines: 35
 
+# Крупная заявка в стакане и волна чужих ликвидаций — только сообщение в Telegram.
+# Новую сделку из-за этого бот не открывает.
+liquidity_alerts:
+  enabled: true
+  interval_sec: 60
+  max_symbols: 8
+  min_wall_usd: 25000
+  wall_multiple: 5
+  wall_persist_sec: 45
+  min_liq_usd: 20000
+  liq_window_sec: 180
+  notify_cooldown_sec: 1800
+  orderbook_depth: 50
+
 # Read-only обзор позиций/графиков → кнопка «📡 Bybit AI» в Telegram-панели
 bybit_monitor:
   enabled: true
