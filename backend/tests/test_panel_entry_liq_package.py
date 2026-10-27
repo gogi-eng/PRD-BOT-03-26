@@ -94,3 +94,34 @@ def test_panel_help_contains_key_buttons():
     text = build_panel_help_text({"bot": {"signal_only": False}}, Path("."))
     assert "Лаборатория" in text
     assert "Signal-only" in text
+
+
+def test_liquidation_guard_does_not_close_before_valid_sl_at_high_leverage():
+    """При высоком плече (50x) и валидном SL выше liq_price не закрываем позицию раньше штатного SL."""
+    cfg = LiquidationGuardConfig(enabled=True, buffer_pct=0.85, skip_manual=False)
+    # entry=100, liq=98.5 (50x), штатный SL=98.9, текущая цена=99.1 (выше SL!)
+    hit, _ = evaluate_liquidation_stop(
+        side="Buy",
+        mark_price=99.1,
+        liq_price=98.5,
+        cfg=cfg,
+        origin="bot",
+        entry=100.0,
+        stop_loss=98.9,
+        leverage=50,
+    )
+    assert hit is False
+
+    # Если цена пробила штатный SL (98.9) и подошла к защитному уровню между SL и liq (<= 98.7) — экстренный выход
+    hit_after_sl, reason = evaluate_liquidation_stop(
+        side="Buy",
+        mark_price=98.65,
+        liq_price=98.5,
+        cfg=cfg,
+        origin="bot",
+        entry=100.0,
+        stop_loss=98.9,
+        leverage=50,
+    )
+    assert hit_after_sl is True
+    assert "liquidation_stop" in reason

@@ -30,7 +30,12 @@ from prd_agent.analysis.trade_analytics import (
 from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_lifecycle import TradeLifecycleTracker
 from prd_agent.analysis.trade_monitor import TradeMonitor
-from prd_agent.config import load_config
+from prd_agent.config import (
+    load_config,
+    load_runtime_overrides,
+    runtime_overrides_path,
+    save_runtime_overrides,
+)
 from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
 from prd_agent.engine.adaptive_loop import compute_loop_interval_sec
 from prd_agent.entry.derivatives_entry_guard import DerivativesEntryGuard
@@ -59,6 +64,8 @@ from prd_agent.risk.guard import GuardStatus, RiskGuard, StopKind
 from prd_agent.risk.rr_enforce import enforce_min_rr_levels, rr_ratio
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.market_scanner_bridge import (
+    close_scanner_agent,
+    get_or_create_scanner_agent,
     market_scanner_cfg,
     run_market_scan_once,
     run_spike_scan_once,
@@ -82,6 +89,7 @@ from prd_agent.positions.opposite_signal_policy import (
     should_skip_opposite_exit_for_spike_own,
 )
 from prd_agent.positions.scanner_reversal_sl import position_age_minutes
+from prd_agent.positions.portfolio_profit_lock import PortfolioProfitLock
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -130,6 +138,7 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
+        self.profit_lock = PortfolioProfitLock.from_cfg(cfg, self.exchange, self.notifier)
         self.trade_companion = TradeCompanionAgent(cfg)
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
@@ -177,6 +186,7 @@ class UnifiedOrchestrator:
         self._bybit_monitor_task: Optional[asyncio.Task] = None
         self._wallet_tracker_task: Optional[asyncio.Task] = None
         self._liquidity_alert_task: Optional[asyncio.Task] = None
+        self._scanner_agent: Optional[Any] = None
         self._silent_skip_prefixes = (
             "Пауза после стопа",
             "Кулдаун после убытка",
@@ -313,6 +323,7 @@ class UnifiedOrchestrator:
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
         self.position_steward.enabled = effective_trailing_enabled(self.cfg, self.root)
+        self.profit_lock.apply_config(self.cfg)
         self.trade_companion.apply_config(self.cfg)
         self.trade_lifecycle.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
@@ -447,19 +458,21 @@ class UnifiedOrchestrator:
         )
 
     def set_trailing_enabled(self, enabled: bool) -> str:
-        """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
+        """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в data/runtime_config_overrides.yaml."""
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        ov_path = runtime_overrides_path(path, cfg=self.cfg)
         if path.exists():
             backup = (
                 self.improver.sandbox_dir
                 / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
             )
-            shutil.copy2(path, backup)
-            with path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            data.setdefault("positions", {})["trailing_enabled"] = bool(enabled)
-            with path.open("w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            current_ov = load_runtime_overrides(ov_path)
+            if ov_path.exists():
+                shutil.copy2(ov_path, backup)
+            else:
+                save_runtime_overrides(backup, current_ov)
+            current_ov.setdefault("positions", {})["trailing_enabled"] = bool(enabled)
+            save_runtime_overrides(ov_path, current_ov)
             set_runtime_trailing_override(self.root, bool(enabled))
             self.reload_config()
             backup_note = f"Резервная копия: {backup.name}"
@@ -486,27 +499,29 @@ class UnifiedOrchestrator:
             guard.include_manual = bool(enabled)
 
     def set_adopt_manual(self, enabled: bool) -> str:
-        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в config.yaml."""
+        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в data/runtime_config_overrides.yaml."""
         enabled = bool(enabled)
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        ov_path = runtime_overrides_path(path, cfg=self.cfg)
         if path.exists():
             backup = (
                 self.improver.sandbox_dir
                 / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
             )
-            shutil.copy2(path, backup)
-            with path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            positions = data.setdefault("positions", {})
+            current_ov = load_runtime_overrides(ov_path)
+            if ov_path.exists():
+                shutil.copy2(ov_path, backup)
+            else:
+                save_runtime_overrides(backup, current_ov)
+            positions = current_ov.setdefault("positions", {})
             if not isinstance(positions, dict):
                 positions = {}
-                data["positions"] = positions
+                current_ov["positions"] = positions
             positions["adopt_manual"] = enabled
-            guard_block = positions.get("sl_tp_guard")
+            guard_block = positions.setdefault("sl_tp_guard", {})
             if isinstance(guard_block, dict):
                 guard_block["include_manual"] = enabled
-            with path.open("w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            save_runtime_overrides(ov_path, current_ov)
             self.reload_config()
             backup_note = f"Резервная копия: {backup.name}"
         else:
@@ -711,14 +726,28 @@ class UnifiedOrchestrator:
             self._wallet_tracker_task = None
         if self.bybit_monitor._read_exchange is not None:
             await self.bybit_monitor._read_exchange.close()
+        if self._scanner_agent is not None:
+            try:
+                await self._scanner_agent.close()
+            except Exception as exc:
+                logger.warning("scanner_agent close: %s", exc)
+            self._scanner_agent = None
+        await close_scanner_agent(self.root)
         await self.exchange.close()
+
+    def _get_scanner_agent(self) -> Optional[Any]:
+        if self._scanner_agent is None:
+            self._scanner_agent = get_or_create_scanner_agent(self.root)
+        return self._scanner_agent
 
     async def _market_scanner_loop(self) -> None:
         """Уведомления MARKET SCANNER в Telegram (PUMP/DUMP наблюдения)."""
         await asyncio.sleep(15)
         while self._running:
             try:
-                setups = await run_market_scan_once(self.root, self.cfg)
+                setups = await run_market_scan_once(
+                    self.root, self.cfg, agent=self._get_scanner_agent()
+                )
                 if setups:
                     logger.info("MARKET SCANNER: отправлено/найдено сетапов: %s", len(setups))
             except asyncio.CancelledError:
@@ -732,7 +761,9 @@ class UnifiedOrchestrator:
         await asyncio.sleep(25)
         while self._running:
             try:
-                setups = await run_spike_scan_once(self.root, self.cfg)
+                setups = await run_spike_scan_once(
+                    self.root, self.cfg, agent=self._get_scanner_agent()
+                )
                 if setups:
                     logger.info("SPIKE SCANNER: сетапов: %s", len(setups))
             except asyncio.CancelledError:
@@ -1026,7 +1057,7 @@ class UnifiedOrchestrator:
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
     ) -> Tuple[bool, str]:
         # Hermes bypass отключён — только обычный supervisor
-        return self.supervisor.can_enter(sig.symbol.upper())
+        return self.supervisor.can_enter(sig.symbol.upper(), atr_pct_frac=atr_pct_frac)
 
     def _build_soft_score_context(
         self, sig: UnifiedSignal, *, atr_pct_frac: float = 0.0
@@ -1110,8 +1141,9 @@ class UnifiedOrchestrator:
         status: SignalStatus,
         reason: str = "",
         entry_id: Optional[str] = None,
+        include_snapshot: bool = True,
     ) -> LedgerEntry:
-        snapshot = await self._light_snapshot_for_signal(sig)
+        snapshot = await self._light_snapshot_for_signal(sig) if include_snapshot else {}
         return self.ledger.record(
             symbol=sig.symbol,
             side=sig.side,
@@ -1219,6 +1251,12 @@ class UnifiedOrchestrator:
         balance_now = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance_now)
         self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)
+        if self.profit_lock.enabled and positions:
+            self.profit_lock.set_initial_balance(
+                self.risk.day_start_balance or balance_now
+            )
+            self.profit_lock.set_bot_symbols(self.position_steward._bot_symbols)
+            await self.profit_lock.check(positions)
         self._cycle_num += 1
         self.strategy_router.refresh()
         risk_snap = self.risk.snapshot()
@@ -1279,6 +1317,7 @@ class UnifiedOrchestrator:
                     sig,
                     status=SignalStatus.SKIPPED,
                     reason=meta_reason,
+                    include_snapshot=False,
                 )
                 logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
                 continue
@@ -1287,6 +1326,7 @@ class UnifiedOrchestrator:
                     sig,
                     status=SignalStatus.SKIPPED,
                     reason=block_reason,
+                    include_snapshot=False,
                 )
                 continue
             entry = await self._record_ledger_signal(
@@ -1299,7 +1339,6 @@ class UnifiedOrchestrator:
                 )
             except Exception as exc:
                 logger.warning("TimesFM register_signal: %s", exc)
-            self._signal_cooldown.mark_handled(sym, sig.side)
             plan_entry, plan_sl, plan_tp, plan_block, zone_meta = await self._plan_order_levels(sig)
             if plan_block:
                 self.ledger.update_status(entry.id, SignalStatus.SKIPPED, plan_block)
@@ -1384,6 +1423,7 @@ class UnifiedOrchestrator:
         zone_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         if await self._open_position_blocks_entry(sig):
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "position_open")
             self.supervisor.note_signal_outcome(ledger_id, "skipped", "position_open")
             return
         ok, reason = self.risk.can_trade(sig.symbol)
@@ -1669,49 +1709,6 @@ class UnifiedOrchestrator:
                 await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason)
             return
 
-        await self.notifier.signal_received(
-            sig.symbol,
-            sig.side,
-            sig.confidence,
-            sig.source,
-            f"{sig.reason} | {exec_plan.reason}"[:400],
-            raw=sig.raw,
-        )
-
-        lev_advice = self.supervisor.recommend_leverage(
-            sig, entry=entry, stop_loss=sl, take_profit=tp
-        )
-        leverage_requested = lev_advice.leverage
-        lev_apply = await self.exchange.apply_trade_leverage(
-            sig.symbol, leverage_requested
-        )
-        leverage = max(1, int(lev_apply.applied or lev_apply.target or leverage_requested))
-        if lev_apply.mismatch or leverage_requested != leverage:
-            logger.warning(
-                "Leverage %s %s: supervisor=%dx exchange=%dx (max_inst=%dx) %s",
-                sig.symbol,
-                sig.side,
-                leverage_requested,
-                leverage,
-                lev_apply.max_instrument,
-                lev_apply.error or "",
-            )
-        else:
-            logger.info(
-                "Leverage %s %s: %dx on exchange — %s",
-                sig.symbol,
-                sig.side,
-                leverage,
-                lev_advice.reason,
-            )
-        balance = await self.exchange.get_balance()
-        available = await self.exchange.get_available_balance()
-        eff_risk = self.supervisor.effective_risk_pct(self.risk_pct)
-        qty = self.risk.calculate_position_size(balance, eff_risk, eff_entry, sl, leverage)
-        if qty <= 0:
-            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
-            return
-
         entry_context: Dict[str, Any] = {}
         entry_candles: List[Dict[str, Any]] = []
         soft_size_mult = 1.0
@@ -1731,8 +1728,6 @@ class UnifiedOrchestrator:
                     "exec_order_type": order_type,
                     "exec_plan_reason": exec_plan.reason,
                     "min_rr_gate": min_rr,
-                    "leverage_requested": leverage_requested,
-                    "leverage_applied": leverage,
                 },
             )
             soft = compute_soft_score(
@@ -1763,6 +1758,60 @@ class UnifiedOrchestrator:
         except Exception as exc:
             logger.warning("entry_snapshot/soft_score failed %s: %s", sig.symbol, exc)
 
+        lev_advice = self.supervisor.recommend_leverage(
+            sig,
+            entry=eff_entry,
+            stop_loss=sl,
+            take_profit=tp,
+            entry_context=entry_context,
+        )
+        max_safe_lev = self.risk.max_safe_leverage_for_sl(eff_entry, sl)
+        leverage_requested = min(int(lev_advice.leverage), max_safe_lev)
+        if leverage_requested < int(lev_advice.leverage):
+            logger.info(
+                "Leverage %s %s capped by SL distance: advisor=%dx -> safe=%dx (entry=%.6g sl=%.6g)",
+                sig.symbol,
+                sig.side,
+                lev_advice.leverage,
+                leverage_requested,
+                eff_entry,
+                sl,
+            )
+        lev_apply = await self.exchange.apply_trade_leverage(
+            sig.symbol, leverage_requested
+        )
+        leverage = max(1, int(lev_apply.applied or lev_apply.target or leverage_requested))
+        leverage = min(leverage, max_safe_lev)
+        if isinstance(entry_context.get("filters"), dict):
+            entry_context["filters"]["leverage_requested"] = leverage_requested
+            entry_context["filters"]["leverage_applied"] = leverage
+        if lev_apply.mismatch or leverage_requested != leverage:
+            logger.warning(
+                "Leverage %s %s: supervisor=%dx exchange=%dx (max_inst=%dx) %s",
+                sig.symbol,
+                sig.side,
+                leverage_requested,
+                leverage,
+                lev_apply.max_instrument,
+                lev_apply.error or "",
+            )
+        else:
+            logger.info(
+                "Leverage %s %s: %dx on exchange — %s",
+                sig.symbol,
+                sig.side,
+                leverage,
+                lev_advice.reason,
+            )
+        balance = await self.exchange.get_balance()
+        available = await self.exchange.get_available_balance()
+        eff_risk = self.supervisor.effective_risk_pct(self.risk_pct)
+        qty = self.risk.calculate_position_size(balance, eff_risk, eff_entry, sl, leverage)
+        if qty <= 0:
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, "qty=0")
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", "qty=0")
+            return
+
         # Учитывать и boost (>1), и caution/weak cut (<1). Раньше cut игнорировался.
         if abs(soft_size_mult - 1.0) > 1e-9:
             qty = qty * soft_size_mult
@@ -1780,13 +1829,18 @@ class UnifiedOrchestrator:
                 reason = f"volatility_regime_storm: {vol_reg.reason}"
                 logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
                 self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+                self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
                 return
             if vol_reg.apply and vol_reg.size_mult > 0:
                 qty = qty * float(vol_reg.size_mult)
         except Exception as exc:
             logger.warning("volatility_regime_sizing failed %s: %s", sig.symbol, exc)
 
-        notional = (qty * entry) / max(leverage, 1)
+        if eff_entry > 0 and balance > 0:
+            max_notional = balance * 0.1 * max(1, int(leverage))
+            qty = min(qty, max_notional / eff_entry)
+
+        notional = (qty * eff_entry) / max(leverage, 1)
         min_margin = notional * 1.05
         if available < min_margin:
             reason = (
@@ -1795,6 +1849,7 @@ class UnifiedOrchestrator:
             )
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
             return
 
         qty, sl, tp, prep_err = await prepare_order(
@@ -1805,9 +1860,11 @@ class UnifiedOrchestrator:
             stop_loss=sl,
             take_profit=tp,
             limit_price=limit_price,
+            entry_price=eff_entry,
         )
         if prep_err:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", prep_err)
             if not self._is_silent_skip(prep_err):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
             return
@@ -1853,6 +1910,16 @@ class UnifiedOrchestrator:
             if not self._is_silent_skip(q_reason2):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, q_reason2)
             return
+
+        self._signal_cooldown.mark_handled(sig.symbol.upper(), sig.side)
+        await self.notifier.signal_received(
+            sig.symbol,
+            sig.side,
+            sig.confidence,
+            sig.source,
+            f"{sig.reason} | {exec_plan.reason}"[:400],
+            raw=sig.raw,
+        )
 
         if is_signal_only_active(self.cfg, self.root):
             reason = (
@@ -1936,13 +2003,16 @@ class UnifiedOrchestrator:
             err = str(result.get("error", "unknown"))
             logger.warning("Order FAIL %s %s: %s", sig.symbol, sig.side, err)
             if "110007" in err or "not enough" in err.lower():
+                margin_reason = "недостаточно маржи — позиция уже занята или баланс в сделках"
                 self.ledger.update_status(
                     ledger_id,
                     SignalStatus.SKIPPED,
-                    "недостаточно маржи — позиция уже занята или баланс в сделках",
+                    margin_reason,
                 )
+                self.supervisor.note_signal_outcome(ledger_id, "skipped", margin_reason)
                 return
             self.ledger.update_status(ledger_id, SignalStatus.REJECTED, err)
+            self.supervisor.note_signal_outcome(ledger_id, "rejected", err)
             await self.notifier.order_failed(sig.symbol, err)
 
     async def _bi_hourly_report(self, positions: List[Dict]) -> None:

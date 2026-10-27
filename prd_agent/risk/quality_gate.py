@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
 from prd_agent.signals.types import UnifiedSignal
 
 logger = logging.getLogger("prd_agent.quality")
@@ -70,6 +71,45 @@ class QualityGate:
                 return max(base, float(ta["min_rr"]))
         return base
 
+    def _min_confidence_for_signal(self, sig: UnifiedSignal) -> float:
+        """Синхронизированный порог уверенности по источнику сигнала."""
+        if is_pump_dump_signal(sig):
+            pd_cfg = (
+                self._cfg.get("pump_dump_trade", {})
+                if isinstance(self._cfg.get("pump_dump_trade"), dict)
+                else {}
+            )
+            if pd_cfg.get("min_confidence") is not None:
+                return float(pd_cfg["min_confidence"])
+            return min(self.min_confidence, 0.65)
+
+        src = (sig.source or "").lower()
+        raw = sig.raw if isinstance(sig.raw, dict) else {}
+        primary_src = str(raw.get("primary_source") or "").lower()
+        sig_cfg = self._cfg.get("signals", {}) if isinstance(self._cfg.get("signals"), dict) else {}
+        t_cfg = self._cfg.get("trading", {}) if isinstance(self._cfg.get("trading"), dict) else {}
+        ta_cfg = self._cfg.get("ta_scanner", {}) if isinstance(self._cfg.get("ta_scanner"), dict) else {}
+
+        if (
+            src in ("telegram", "agent_world")
+            or primary_src in ("telegram", "agent_world")
+            or is_agent_world_signal(sig)
+        ):
+            if sig_cfg.get("min_telegram_confidence") is not None:
+                return float(sig_cfg["min_telegram_confidence"])
+            if t_cfg.get("min_telegram_confidence") is not None:
+                return float(t_cfg["min_telegram_confidence"])
+            return min(self.min_confidence, 0.65)
+
+        if src == "ta_volatility" or primary_src == "ta_volatility":
+            if ta_cfg.get("min_confidence") is not None:
+                return float(ta_cfg["min_confidence"])
+            if t_cfg.get("min_own_agent_confidence") is not None:
+                return float(t_cfg["min_own_agent_confidence"])
+            return self.min_confidence
+
+        return self.min_confidence
+
     async def check(
         self,
         sig: UnifiedSignal,
@@ -84,9 +124,10 @@ class QualityGate:
         sym = sig.symbol.upper()
         if any(part in sym for part in self.meme_subs):
             return False, f"quality_gate: символ {sym} в blacklist (мем/низколиквид)"
-        if float(sig.confidence) < self.min_confidence:
+        req_conf = self._min_confidence_for_signal(sig)
+        if float(sig.confidence) < req_conf:
             return False, (
-                f"quality_gate: confidence {sig.confidence:.2f} < {self.min_confidence:.2f}"
+                f"quality_gate: confidence {sig.confidence:.2f} < {req_conf:.2f}"
             )
         if self.require_sl_tp and (sl <= 0 or tp <= 0):
             return False, "quality_gate: нет SL/TP"

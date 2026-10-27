@@ -1,9 +1,9 @@
-"""Загрузка config.yaml с подстановкой из .env (если есть)."""
+"""Загрузка config.yaml с наложением data/runtime_config_overrides.yaml и подстановкой из .env."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -11,6 +11,57 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None  # type: ignore
+
+RUNTIME_OVERRIDES_REL_PATH = Path("data") / "runtime_config_overrides.yaml"
+
+
+def deep_merge_config(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    """Глубокий merge словарей конфигурации (patch поверх base)."""
+    out = dict(base)
+    for key, val in (patch or {}).items():
+        if isinstance(val, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge_config(out[key], val)
+        else:
+            out[key] = val
+    return out
+
+
+def runtime_overrides_path(
+    root_or_cfg_path: Optional[Path] = None,
+    *,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> Path:
+    """Путь к файлу рантайм-оверлеев (data/runtime_config_overrides.yaml)."""
+    if isinstance(cfg, dict):
+        if cfg.get("_overrides_path"):
+            return Path(str(cfg["_overrides_path"]))
+        if cfg.get("_root"):
+            return Path(str(cfg["_root"])) / RUNTIME_OVERRIDES_REL_PATH
+        if cfg.get("_config_path"):
+            return Path(str(cfg["_config_path"])).parent / RUNTIME_OVERRIDES_REL_PATH
+    if root_or_cfg_path is not None:
+        p = Path(root_or_cfg_path)
+        base_dir = p.parent if p.suffix in (".yaml", ".yml") else p
+        return base_dir / RUNTIME_OVERRIDES_REL_PATH
+    root = Path(__file__).resolve().parent.parent
+    return root / RUNTIME_OVERRIDES_REL_PATH
+
+
+def load_runtime_overrides(path: Path) -> Dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f) or {}
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_runtime_overrides(path: Path, overrides: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(overrides or {}, f, allow_unicode=True, default_flow_style=False)
 
 
 def _apply_env_overlay(data: Dict[str, Any]) -> None:
@@ -49,13 +100,14 @@ def _apply_env_overlay(data: Dict[str, Any]) -> None:
 
 
 def load_config(path: Path | None = None, *, reload: bool = False) -> Dict[str, Any]:
-    root = Path(__file__).resolve().parent.parent
+    default_root = Path(__file__).resolve().parent.parent
+    cfg_path = Path(path) if path is not None else (default_root / "config.yaml")
+    root = cfg_path.parent if path is not None else default_root
     if load_dotenv:
         env_path = root / ".env"
         if env_path.exists():
             load_dotenv(env_path, override=False)
 
-    cfg_path = Path(path) if path is not None else (root / "config.yaml")
     if not cfg_path.exists():
         example = root / "config.example.yaml"
         raise FileNotFoundError(
@@ -63,7 +115,12 @@ def load_config(path: Path | None = None, *, reload: bool = False) -> Dict[str, 
         )
     with cfg_path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
+    ov_path = runtime_overrides_path(cfg_path)
+    overrides = load_runtime_overrides(ov_path)
+    if overrides:
+        data = deep_merge_config(data, overrides)
     _apply_env_overlay(data)
     data["_root"] = str(root)
     data["_config_path"] = str(cfg_path)
+    data["_overrides_path"] = str(ov_path)
     return data

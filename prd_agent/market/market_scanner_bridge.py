@@ -4,11 +4,51 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from prd_agent.market.scanner_core import (
+    execute_market_scan_once,
+    execute_spike_scan_once,
+)
 
 logger = logging.getLogger("prd_agent.market_scanner")
+
+_SCANNER_AGENTS: Dict[str, Any] = {}
+_SCANNER_LOCK = asyncio.Lock()
+
+
+def get_or_create_scanner_agent(repo: Path) -> Optional[Any]:
+    """Ленивый singleton TelegramSignalAgent для цикла сканера (без пересоздания каждые 90 с)."""
+    key = str(repo.resolve())
+    existing = _SCANNER_AGENTS.get(key)
+    if existing is not None:
+        return existing
+    try:
+        from scripts.telegram_signal_agent import TelegramSignalAgent
+    except ImportError as exc:
+        logger.warning("Market scanner: не импортируется telegram_signal_agent: %s", exc)
+        return None
+    agent = TelegramSignalAgent(repo.resolve())
+    _SCANNER_AGENTS[key] = agent
+    return agent
+
+
+async def close_scanner_agent(repo: Optional[Path] = None) -> None:
+    """Закрывает закешированный экземпляр(ы) TelegramSignalAgent при остановке оркестратора."""
+    if repo is not None:
+        keys = [str(repo.resolve())]
+    else:
+        keys = list(_SCANNER_AGENTS.keys())
+    for k in keys:
+        agent = _SCANNER_AGENTS.pop(k, None)
+        if agent is not None:
+            try:
+                await agent.close()
+            except Exception as exc:
+                logger.warning("Market scanner: agent.close(): %s", exc)
 
 
 def market_scanner_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -38,32 +78,28 @@ def unified_should_run_market_scan(cfg: Dict[str, Any]) -> bool:
     return bool(mc.get("enabled")) and bool(mc.get("run_loop_in_unified_bot", True))
 
 
-async def run_market_scan_once(repo: Path, cfg: Dict[str, Any] | None = None) -> List[Any]:
+async def run_market_scan_once(
+    repo: Path,
+    cfg: Dict[str, Any] | None = None,
+    *,
+    agent: Any | None = None,
+) -> List[Any]:
     """Один проход сканера → уведомления MARKET SCANNER в Telegram."""
     if cfg is not None and not unified_should_run_market_scan(cfg):
         return []
-    try:
-        from scripts.telegram_signal_agent import TelegramSignalAgent
-    except ImportError as exc:
-        logger.warning("Market scanner: не импортируется telegram_signal_agent: %s", exc)
-        return []
-
-    agent = TelegramSignalAgent(repo.resolve())
-    try:
-        if not agent.market_scanner_enabled:
+    async with _SCANNER_LOCK:
+        scanner_agent = agent if agent is not None else get_or_create_scanner_agent(repo)
+        if scanner_agent is None:
+            return []
+        if not scanner_agent.market_scanner_enabled:
             logger.debug("Market scanner: отключён в telegram_signal_agent.market_scanner_enabled")
             return []
-        if not agent.telegram_notify:
+        if not scanner_agent.telegram_notify:
             logger.warning(
                 "Market scanner: telegram_notify=false — уведомления в Telegram не отправятся"
             )
-        setups = await agent.run_market_scan_once()
+        setups = await execute_market_scan_once(scanner_agent)
         return setups or []
-    finally:
-        try:
-            await agent.close()
-        except Exception as exc:
-            logger.warning("Market scanner: agent.close(): %s", exc)
 
 
 def spike_scalp_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -101,24 +137,20 @@ def signal_agent_should_run_spike_scan(cfg: Dict[str, Any]) -> bool:
     return bool(sc.get("run_loop_in_signal_agent"))
 
 
-async def run_spike_scan_once(repo: Path, cfg: Dict[str, Any] | None = None) -> List[Any]:
+async def run_spike_scan_once(
+    repo: Path,
+    cfg: Dict[str, Any] | None = None,
+    *,
+    agent: Any | None = None,
+) -> List[Any]:
     """Быстрый проход: 15m импульс >= min_move_pct → скальп."""
     if cfg is not None and not unified_should_run_spike_scan(cfg):
         return []
-    try:
-        from scripts.telegram_signal_agent import TelegramSignalAgent
-    except ImportError as exc:
-        logger.warning("Spike scanner: не импортируется telegram_signal_agent: %s", exc)
-        return []
-
-    agent = TelegramSignalAgent(repo.resolve())
-    try:
-        if not agent.spike_scalp_enabled:
+    async with _SCANNER_LOCK:
+        scanner_agent = agent if agent is not None else get_or_create_scanner_agent(repo)
+        if scanner_agent is None:
             return []
-        setups = await agent.run_spike_scan_once()
+        if not scanner_agent.spike_scalp_enabled:
+            return []
+        setups = await execute_spike_scan_once(scanner_agent)
         return setups or []
-    finally:
-        try:
-            await agent.close()
-        except Exception as exc:
-            logger.warning("Spike scanner: agent.close(): %s", exc)

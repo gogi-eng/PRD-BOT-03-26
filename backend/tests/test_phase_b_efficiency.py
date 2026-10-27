@@ -47,20 +47,36 @@ def test_adaptive_loop_idle_when_quiet():
 
 
 def test_apply_risk_preset_writes_config(tmp_path: Path):
+    from prd_agent.config import load_config, runtime_overrides_path
+
     cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
+    original_yaml = (
+        "# comment preserved in read-only config.yaml\n"
         "trading:\n  min_signal_confidence: 0.85\n"
         "quality_gate:\n  min_rr_ratio: 2.0\n"
         "risk_presets:\n  aggressive:\n    trading:\n"
         "      min_signal_confidence: 0.80\n    quality_gate:\n"
-        "      min_rr_ratio: 1.8\n",
-        encoding="utf-8",
+        "      min_rr_ratio: 1.8\n"
     )
-    cfg = {"risk_presets": {"aggressive": {"trading": {"min_signal_confidence": 0.80}}}}
+    cfg_path.write_text(original_yaml, encoding="utf-8")
+    cfg = {
+        "risk_presets": {
+            "aggressive": {
+                "trading": {"min_signal_confidence": 0.80},
+                "quality_gate": {"min_rr_ratio": 1.8},
+            }
+        }
+    }
     changes, _backup = apply_risk_preset(cfg_path, cfg, "aggressive")
-    text = cfg_path.read_text(encoding="utf-8")
-    assert "min_signal_confidence: 0.8" in text
-    assert "min_rr_ratio: 1.8" in text
+    # config.yaml остаётся неизменным (read-only), а правки пишутся в data/runtime_config_overrides.yaml
+    assert cfg_path.read_text(encoding="utf-8") == original_yaml
+    ov_path = runtime_overrides_path(cfg_path)
+    ov_text = ov_path.read_text(encoding="utf-8")
+    assert "min_signal_confidence: 0.8" in ov_text
+    assert "min_rr_ratio: 1.8" in ov_text
+    loaded = load_config(cfg_path)
+    assert loaded["trading"]["min_signal_confidence"] == 0.80
+    assert loaded["quality_gate"]["min_rr_ratio"] == 1.8
     assert changes
 
 

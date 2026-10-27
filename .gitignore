@@ -25,6 +25,19 @@ build/
 # Logs and runtime
 *.log
 bot.log
+*.session
+*.session-journal
+.wt-prd
+.wt-world
+.wt-*/
+telegram_signal_agent_state.json
+bot_open_symbols.json
+bot_trade_log.jsonl
+gate_state.json
+risk_seen_closed.json
+risk_day_state.json
+manual_trailing_rules.json
+data/runtime_config_overrides.yaml
 
 # Model weights (large binaries)
 models/*.pkl

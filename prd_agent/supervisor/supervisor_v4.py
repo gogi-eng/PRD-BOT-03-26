@@ -97,6 +97,8 @@ class SupervisorV4:
         self.defensive_day_loss_usdt = float(sup.get("defensive_day_loss_usdt", -15.0))
         self.aggressive_min_wr_pct = float(sup.get("aggressive_min_wr_pct", 55.0))
         self.aggressive_min_trades = int(sup.get("aggressive_min_trades", 6))
+        self.max_atr_pct = float(sup.get("max_atr_pct", 0.0) or 0.0)
+        self.defensive_max_atr_pct = float(sup.get("defensive_max_atr_pct", 3.5) or 3.5)
 
         trading = cfg.get("trading", {}) if isinstance(cfg.get("trading"), dict) else {}
         seed_symbols = list(sup.get("seed_blocked_symbols") or [])
@@ -337,7 +339,8 @@ class SupervisorV4:
     def _set_mode(self, new_mode: SupervisorMode, reason: str) -> None:
         if new_mode == self._meta.mode:
             return
-        if self._mode_cooldown_active():
+        # Переход в защитный режим DEFENSIVE никогда не блокируется кулдауном
+        if new_mode != SupervisorMode.DEFENSIVE and self._mode_cooldown_active():
             logger.debug(
                 "SupervisorV4: mode %s→%s blocked by cooldown (%s)",
                 self._meta.mode.value,
@@ -509,6 +512,7 @@ class SupervisorV4:
         entry: float,
         stop_loss: float,
         take_profit: float,
+        entry_context: Optional[Dict[str, Any]] = None,
     ) -> LeverageAdvice:
         virtual_stats = self.virtual.stats(24) if self.virtual_enabled else {}
         return self.leverage_advisor.recommend_leverage(
@@ -517,6 +521,7 @@ class SupervisorV4:
             stop_loss=stop_loss,
             take_profit=take_profit,
             virtual_stats=virtual_stats,
+            entry_context=entry_context,
         )
 
     @property
@@ -549,60 +554,37 @@ class SupervisorV4:
         learned = set(self._meta.learned_bad_hours) - set(self._preferred_hours)
         return self._seed_blocked_hours | learned
 
-    def can_enter(self, symbol: str = "", utc_hour: Optional[int] = None) -> Tuple[bool, str]:
+    def can_enter(
+        self,
+        symbol: str = "",
+        utc_hour: Optional[int] = None,
+        *,
+        atr_pct_frac: float = 0.0,
+    ) -> Tuple[bool, str]:
         if not self.enabled:
             return True, ""
         sym = str(symbol or "").upper()
         utc_hour = utc_hour if utc_hour is not None else datetime.now(timezone.utc).hour
         check_hour = entry_check_hour(utc_hour, self._timezone_offset)
 
-        if self._meta.panic_until and datetime.now(timezone.utc) < self._meta.panic_until:
-            return False, "supervisor_v4: протокол восстановления после серии убытков"
-
-        if sym and sym in self.blocked_symbols():
-            return False, f"supervisor_v4: символ {sym} в чёрном списке"
-
-        if check_hour in self.blocked_hours():
-            if self._meta.mode != SupervisorMode.AGGRESSIVE or check_hour not in self._preferred_hours:
-                hour_label = format_blocked_hour_label(utc_hour, check_hour, self._timezone_offset)
-                return False, (
-                    f"supervisor_v4: {hour_label} заблокирован "
-                    f"(режим {self._meta.mode.value})"
-                )
-
-        if self._meta.mode == SupervisorMode.DEFENSIVE and check_hour not in self._preferred_hours:
-            pref_label = (
-                f"UTC+{self._timezone_offset} {sorted(self._preferred_hours)}"
-                if self._timezone_offset
-                else f"{sorted(self._preferred_hours)} UTC"
-            )
-            return False, (
-                f"supervisor_v4: DEFENSIVE — торговля только в часы {pref_label}"
-            )
-
-        # По умолчанию решаем, можно ли входить (default_ok/default_reason).
-        # Агенту разрешается менять решение только если по-умолчанию вход разрешён.
         default_ok = True
         default_reason = ""
-        # Важные отказы: panic и явный чёрный список — не даём агенту автоматически поднимать
         if self._meta.panic_until and datetime.now(timezone.utc) < self._meta.panic_until:
             default_ok = False
             default_reason = "supervisor_v4: протокол восстановления после серии убытков"
-
-        if sym and sym in self.blocked_symbols():
+        elif sym and sym in self.blocked_symbols():
             default_ok = False
             default_reason = f"supervisor_v4: символ {sym} в чёрном списке"
-
-        if check_hour in self.blocked_hours():
-            if self._meta.mode != SupervisorMode.AGGRESSIVE or check_hour not in self._preferred_hours:
-                hour_label = format_blocked_hour_label(utc_hour, check_hour, self._timezone_offset)
-                default_ok = False
-                default_reason = (
-                    f"supervisor_v4: {hour_label} заблокирован "
-                    f"(режим {self._meta.mode.value})"
-                )
-
-        if self._meta.mode == SupervisorMode.DEFENSIVE and check_hour not in self._preferred_hours:
+        elif check_hour in self.blocked_hours() and (
+            self._meta.mode != SupervisorMode.AGGRESSIVE or check_hour not in self._preferred_hours
+        ):
+            hour_label = format_blocked_hour_label(utc_hour, check_hour, self._timezone_offset)
+            default_ok = False
+            default_reason = (
+                f"supervisor_v4: {hour_label} заблокирован "
+                f"(режим {self._meta.mode.value})"
+            )
+        elif self._meta.mode == SupervisorMode.DEFENSIVE and check_hour not in self._preferred_hours:
             pref_label = (
                 f"UTC+{self._timezone_offset} {sorted(self._preferred_hours)}"
                 if self._timezone_offset
@@ -612,16 +594,30 @@ class SupervisorV4:
             default_reason = (
                 f"supervisor_v4: DEFENSIVE — торговля только в часы {pref_label}"
             )
+        elif atr_pct_frac > 0:
+            atr_pct = atr_pct_frac * 100.0 if atr_pct_frac < 1.0 else atr_pct_frac
+            if self.max_atr_pct > 0 and atr_pct > self.max_atr_pct:
+                default_ok = False
+                default_reason = (
+                    f"supervisor_v4: волатильность ATR {atr_pct:.2f}% > {self.max_atr_pct:.2f}%"
+                )
+            elif (
+                self._meta.mode == SupervisorMode.DEFENSIVE
+                and self.defensive_max_atr_pct > 0
+                and atr_pct > self.defensive_max_atr_pct
+            ):
+                default_ok = False
+                default_reason = (
+                    f"supervisor_v4: DEFENSIVE — экстремальная волатильность "
+                    f"ATR {atr_pct:.2f}% > {self.defensive_max_atr_pct:.2f}%"
+                )
 
-        # Если агент доступен, даём ему возможность изменить решение, но только в сторону ужесточения
-        # (если default_ok == True агент может вернуть False/причину). Если default_ok == False,
-        # агент может только уточнить причину, но не дать True (безопасность).
+        # Если агент доступен, даём ему возможность изменить решение только в сторону ужесточения
         if getattr(self, "correction_agent", None) and getattr(self.correction_agent, "enabled", False):
             try:
                 ok2, reason2 = self.correction_agent.on_can_enter(sym, default_ok, default_reason)
                 if default_ok:
                     return bool(ok2), reason2 or ""
-                # default denied — do not allow agent to lift a safety denial
                 return False, reason2 or default_reason
             except Exception:
                 logger.exception("CorrectionAgent on_can_enter failed")

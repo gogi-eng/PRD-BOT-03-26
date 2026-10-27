@@ -23,10 +23,25 @@ SOURCE_WEIGHT = {
     "own_multi_agent": 1.0,
     "ta_volatility": 0.92,
     "telegram": 0.95,
+    "agent_world": 0.95,
+    "mirror_pump_dump_agent": 0.95,
     "whale_liquidation": 0.85,
     "whale_oi": 0.75,
     "macro_news": 0.55,
     "coinugget_style": 0.78,
+}
+
+# Приоритет источников при выборе пакета уровней (entry, stop_loss, take_profit) и primary_source
+LEVEL_SOURCE_PRIORITY = {
+    "telegram": 100,
+    "agent_world": 95,
+    "mirror_pump_dump_agent": 95,
+    "ta_volatility": 80,
+    "own_multi_agent": 70,
+    "coinugget_style": 60,
+    "whale_liquidation": 30,
+    "whale_oi": 20,
+    "macro_news": 10,
 }
 
 
@@ -328,8 +343,71 @@ class SignalRouter:
             self._persist(sig)
         return out
 
+    def _source_min_conf(self, source: str) -> float:
+        src = str(source or "").lower()
+        if src in ("own_multi_agent", "ta_volatility", "coinugget_style"):
+            return self._min_own_conf
+        if src in ("telegram", "agent_world", "mirror_pump_dump_agent"):
+            return self._min_tg_conf
+        return self._min_conf
+
+    @staticmethod
+    def _pick_levels_and_primary_source(
+        group: List[UnifiedSignal],
+    ) -> tuple[float, float, float, str]:
+        """
+        Выбирает пакет уровней (entry, sl, tp) атомарно от сигнала с полной тройкой
+        (entry>0, sl>0, tp>0) и наивысшим приоритетом источника.
+        Голый entry без SL/TP (например от whale_news) не затирает уровни другого сигнала.
+        """
+        def _prio(sig: UnifiedSignal) -> tuple[int, float]:
+            src = str(sig.source or "").lower()
+            return (LEVEL_SOURCE_PRIORITY.get(src, 40), float(sig.confidence or 0.0))
+
+        full_triple = [
+            g
+            for g in group
+            if float(g.entry or 0) > 0
+            and float(g.stop_loss or 0) > 0
+            and float(g.take_profit or 0) > 0
+        ]
+        if full_triple:
+            best = max(full_triple, key=_prio)
+            return (
+                float(best.entry),
+                float(best.stop_loss),
+                float(best.take_profit),
+                str(best.source or ""),
+            )
+
+        best_src_sig = max(group, key=_prio)
+        primary_source = str(best_src_sig.source or "")
+
+        with_sl_or_tp = [
+            g
+            for g in group
+            if float(g.entry or 0) > 0
+            and (float(g.stop_loss or 0) > 0 or float(g.take_profit or 0) > 0)
+        ]
+        if with_sl_or_tp:
+            best = max(with_sl_or_tp, key=_prio)
+            return (
+                float(best.entry or 0),
+                float(best.stop_loss or 0),
+                float(best.take_profit or 0),
+                primary_source,
+            )
+
+        with_entry = [g for g in group if float(g.entry or 0) > 0]
+        entry = float(max(with_entry, key=_prio).entry) if with_entry else 0.0
+        with_sl = [g for g in group if float(g.stop_loss or 0) > 0]
+        sl = float(max(with_sl, key=_prio).stop_loss) if with_sl else 0.0
+        with_tp = [g for g in group if float(g.take_profit or 0) > 0]
+        tp = float(max(with_tp, key=_prio).take_profit) if with_tp else 0.0
+        return entry, sl, tp, primary_source
+
     def merge_and_rank(self, signals: List[UnifiedSignal]) -> List[UnifiedSignal]:
-        """Объединяет одинаковые symbol+side, усредняет confidence с весами."""
+        """Объединяет одинаковые symbol+side, усредняет confidence с весами без потери уровней."""
         buckets: Dict[tuple, List[UnifiedSignal]] = {}
         for s in signals:
             key = (s.symbol, s.side)
@@ -338,24 +416,25 @@ class SignalRouter:
         for (sym, side), group in buckets.items():
             w_sum = 0.0
             c_sum = 0.0
+            w_thresh_sum = 0.0
             sources: List[str] = []
             reasons: List[str] = []
-            entry = sl = tp = 0.0
+            merged_raw: Dict[str, Any] = {}
             for g in group:
                 w = SOURCE_WEIGHT.get(g.source, 0.5)
                 w_sum += w
                 c_sum += g.confidence * w
+                w_thresh_sum += self._source_min_conf(g.source) * w
                 sources.append(g.source)
                 if g.reason:
                     reasons.append(g.reason)
-                if g.entry > 0:
-                    entry = g.entry
-                if g.stop_loss > 0:
-                    sl = g.stop_loss
-                if g.take_profit > 0:
-                    tp = g.take_profit
+                if isinstance(g.raw, dict):
+                    for rk, rv in g.raw.items():
+                        if rk not in merged_raw and rv is not None:
+                            merged_raw[rk] = rv
             if w_sum <= 0:
                 continue
+            entry, sl, tp, primary_source = self._pick_levels_and_primary_source(group)
             conf = c_sum / w_sum
             ma_score = 0.0
             for g in group:
@@ -365,12 +444,24 @@ class SignalRouter:
                         ma_score = max(ma_score, abs(float(agg)))
             if sources and all(s in ("own_multi_agent", "ta_volatility") for s in sources):
                 min_need = self._min_own_conf
-            elif sources and all(s == "telegram" for s in sources):
+            elif sources and all(s in ("telegram", "agent_world", "mirror_pump_dump_agent") for s in sources):
                 min_need = self._min_tg_conf
             else:
-                min_need = self._min_conf
-            if conf < min_need:
+                # Порог гибрида не жёстче самого строгого из входящих источников;
+                # если каждый входящий сигнал прошёл свой порог, взвешенный порог сохраняет проход
+                strictest_in_group = max(self._source_min_conf(s) for s in sources)
+                weighted_thresh = w_thresh_sum / w_sum
+                min_need = min(strictest_in_group, weighted_thresh)
+            if conf + 1e-9 < min_need:
                 continue
+            merged_raw.update(
+                {
+                    "sources": sources,
+                    "primary_source": primary_source,
+                    "count": len(group),
+                    "multi_agent_score": ma_score,
+                }
+            )
             merged.append(
                 UnifiedSignal(
                     symbol=sym,
@@ -381,11 +472,7 @@ class SignalRouter:
                     stop_loss=sl,
                     take_profit=tp,
                     reason=" | ".join(reasons[:3]),
-                    raw={
-                        "sources": sources,
-                        "count": len(group),
-                        "multi_agent_score": ma_score,
-                    },
+                    raw=merged_raw,
                 )
             )
         merged.sort(key=lambda x: x.confidence, reverse=True)

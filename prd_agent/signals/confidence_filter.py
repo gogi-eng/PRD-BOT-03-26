@@ -76,12 +76,24 @@ def extract_multi_agent_score(sig: Union[UnifiedSignal, Dict[str, Any]]) -> floa
     return 0.0
 
 
+def load_min_ta_confidence(cfg: Dict[str, Any]) -> float:
+    ta_cfg = cfg.get("ta_scanner", {}) if isinstance(cfg.get("ta_scanner"), dict) else {}
+    t_cfg = cfg.get("trading", {}) if isinstance(cfg.get("trading"), dict) else {}
+    if ta_cfg.get("min_confidence") is not None:
+        return float(ta_cfg["min_confidence"])
+    if t_cfg.get("min_own_agent_confidence") is not None:
+        return float(t_cfg["min_own_agent_confidence"])
+    return load_min_analysis_confidence(cfg)
+
+
 def passes_emit_gate(sig: Union[UnifiedSignal, Dict[str, Any]], cfg: Dict[str, Any]) -> bool:
     """
     Telegram и вход в сделку:
-    - conf >= min_analysis_confidence (по умолчанию 90%), или
-    - own_multi_agent / hybrid с score >= min_multi_agent_score (0.4).
-  TA/telegram/whale — только по conf >= 90%.
+    - pump_dump: conf >= pump_dump_trade.min_confidence (0.65);
+    - telegram / agent_world (в т.ч. primary_source): conf >= min_telegram_confidence (0.65);
+    - ta_volatility (в т.ч. primary_source): conf >= ta_scanner.min_confidence / min_own_agent_confidence;
+    - own_multi_agent / hybrid с score > min_multi_agent_score (0.4);
+    - остальные: conf >= min_analysis_confidence.
     """
     if isinstance(sig, dict):
         conf = float(sig.get("confidence", 0) or 0)
@@ -97,6 +109,7 @@ def passes_emit_gate(sig: Union[UnifiedSignal, Dict[str, Any]], cfg: Dict[str, A
     else:
         conf = sig.confidence
         source = sig.source
+        raw = sig.raw if isinstance(sig.raw, dict) else {}
         probe = sig
 
     min_conf = load_min_analysis_confidence(cfg)
@@ -119,10 +132,24 @@ def passes_emit_gate(sig: Union[UnifiedSignal, Dict[str, Any]], cfg: Dict[str, A
             return True
 
     sig_cfg = cfg.get("signals", {}) if isinstance(cfg.get("signals"), dict) else {}
-    min_tg = float(sig_cfg.get("min_telegram_confidence", 0.65))
+    t_cfg = cfg.get("trading", {}) if isinstance(cfg.get("trading"), dict) else {}
+    min_tg = float(
+        sig_cfg.get("min_telegram_confidence", t_cfg.get("min_telegram_confidence", 0.65))
+    )
     src = source.lower()
-    if src in ("telegram", "agent_world") and meets_threshold(conf, min_tg):
-        return True
+    primary_src = str(raw.get("primary_source") or "").lower() if isinstance(raw, dict) else ""
+    sources_list = [
+        str(x).lower() for x in (raw.get("sources") or [])
+    ] if isinstance(raw, dict) and isinstance(raw.get("sources"), list) else []
+
+    if src in ("telegram", "agent_world") or primary_src in ("telegram", "agent_world"):
+        if meets_threshold(conf, min_tg):
+            return True
+
+    if src == "ta_volatility" or primary_src == "ta_volatility":
+        min_ta = load_min_ta_confidence(cfg)
+        if meets_threshold(conf, min_ta):
+            return True
 
     if meets_threshold(conf, min_conf):
         return True
@@ -130,10 +157,13 @@ def passes_emit_gate(sig: Union[UnifiedSignal, Dict[str, Any]], cfg: Dict[str, A
     if src == "own_multi_agent":
         return extract_multi_agent_score(probe) > min_score
     if src == "hybrid":
-        raw_h = probe.get("raw", {}) if isinstance(probe, dict) else probe.raw
-        sources = raw_h.get("sources", []) if isinstance(raw_h, dict) else []
-        if "own_multi_agent" in sources:
-            return extract_multi_agent_score(probe) > min_score
+        if "own_multi_agent" in sources_list:
+            if extract_multi_agent_score(probe) > min_score:
+                return True
+        if any(s in ("telegram", "agent_world") for s in sources_list) and meets_threshold(conf, min_tg):
+            return True
+        if "ta_volatility" in sources_list and meets_threshold(conf, load_min_ta_confidence(cfg)):
+            return True
     return False
 
 
