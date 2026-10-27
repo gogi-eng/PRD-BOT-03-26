@@ -1147,13 +1147,33 @@ class UnifiedOrchestrator:
                 await self.notifier.position_update(sym, side, upnl, size)
             self._last_upnl[sym] = upnl
 
+    def _count_open_for_max_positions(self, positions: list) -> int:
+        """Слоты max_positions: опционально без ручных (origin=manual)."""
+        t = self.cfg.get("trading", {}) if isinstance(self.cfg.get("trading"), dict) else {}
+        if bool(t.get("count_manual_toward_max_positions", True)):
+            return len(positions)
+        bot_syms = set(self.position_steward._bot_symbols)
+        tracked = self.position_steward._tracked
+        n = 0
+        for p in positions:
+            sym = str(p.get("symbol", "")).upper()
+            if not sym:
+                continue
+            if sym in bot_syms:
+                n += 1
+                continue
+            tr = tracked.get(sym)
+            if tr is not None and str(getattr(tr, "origin", "") or "").lower() == "bot":
+                n += 1
+        return n
+
     async def _cycle(self) -> None:
         self._light_snapshot_cache.clear()
         self.exchange.api_journal.begin_cycle(self._cycle_num + 1)
         await self._refresh_symbols_if_due()
         positions = await self.exchange.get_positions()
         await self._sync_orderbook_ws(positions)
-        self.risk.open_positions_count = len(positions)
+        self.risk.open_positions_count = self._count_open_for_max_positions(positions)
         await self._monitor_positions(positions)
         self.trade_lifecycle.update_mark_prices(
             positions,

@@ -48,6 +48,10 @@ class RiskGuard:
         self.max_consecutive_losses = int(r.get("max_consecutive_losses", 4))
         self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", 5.0))
         self.max_daily_loss_usdt = float(r.get("max_daily_loss_usdt", 100.0))
+        # Ниже этого баланса %‑лимит не применяем (малый субаккаунт: −$8 ≠ −39%).
+        self.daily_loss_pct_min_balance_usdt = float(
+            r.get("daily_loss_pct_min_balance_usdt", 0) or 0
+        )
         self.max_trades_per_day = int(r.get("max_trades_per_day", 20))
         self.max_positions = int(cfg.get("trading", {}).get("max_positions", 3))
         self.cooldown_after_loss_sec = int(r.get("cooldown_after_loss_sec", 300))
@@ -73,7 +77,7 @@ class RiskGuard:
         self.status = GuardStatus.ACTIVE
         self.stop_reason = ""
         self.stop_kind = StopKind.NONE
-        self.day_stats = DayStats(date=self._today_utc())
+        self.day_stats = DayStats(date=self._trading_day())
         self.last_loss_time: Optional[datetime] = None
         self.auto_stop_time: Optional[datetime] = None
         self._consecutive_losses = 0
@@ -108,6 +112,19 @@ class RiskGuard:
             tz = 3
         local = datetime.now(timezone.utc) + timedelta(hours=int(tz))
         return local.date()
+
+    def _trading_day_start_utc(self) -> datetime:
+        """Полночь торгового дня (timezone_offset) в UTC."""
+        tz_off = int(read_timezone_offset(self._cfg) or 3)
+        local = datetime.now(timezone.utc) + timedelta(hours=tz_off)
+        d = local.date()
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc) - timedelta(hours=tz_off)
+
+    def _next_trading_day_midnight_utc(self) -> datetime:
+        tz_off = int(read_timezone_offset(self._cfg) or 3)
+        local = datetime.now(timezone.utc) + timedelta(hours=tz_off)
+        nd = local.date() + timedelta(days=1)
+        return datetime(nd.year, nd.month, nd.day, tzinfo=timezone.utc) - timedelta(hours=tz_off)
 
     def _load_manual_daily_loss_reset(self) -> None:
         path = self._manual_reset_path()
@@ -202,7 +219,7 @@ class RiskGuard:
             self.day_stats.net_pnl_pct = 0.0
 
     def _ensure_today(self) -> None:
-        today = self._today_utc()
+        today = self._trading_day()
         if self.day_stats.date != today:
             if self._last_balance > 0:
                 self.day_start_balance = self._last_balance
@@ -229,6 +246,10 @@ class RiskGuard:
         if self.max_daily_loss_usdt > 0 and s.net_pnl_usdt <= -self.max_daily_loss_usdt:
             return True
         if self.max_daily_loss_pct > 0 and s.net_pnl_pct <= -self.max_daily_loss_pct:
+            base = self._pct_base()
+            min_bal = self.daily_loss_pct_min_balance_usdt
+            if min_bal > 0 and base > 0 and base < min_bal:
+                return False
             return True
         return False
 
@@ -264,8 +285,7 @@ class RiskGuard:
                 )
                 self._manual_reset_skip_logged_day = day
             return
-        today = self._today_utc()
-        start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+        start = self._trading_day_start_utc()
         start_ms = int(start.timestamp() * 1000)
         total = 0.0
         wins = 0
@@ -336,7 +356,7 @@ class RiskGuard:
                 self._notify(f"AUTO-STOP: {reason}")
 
     def _minutes_until_utc_reset(self) -> int:
-        delta = self._next_utc_midnight() - datetime.now(timezone.utc)
+        delta = self._next_trading_day_midnight_utc() - datetime.now(timezone.utc)
         return max(0, int(delta.total_seconds() / 60))
 
     def can_trade(self, symbol: str = "") -> Tuple[bool, str]:
@@ -376,7 +396,7 @@ class RiskGuard:
                     mins = self._minutes_until_utc_reset()
                     h, m = divmod(mins, 60)
                     return False, f"Дневной стоп. Сброс в 00:00 UTC через {h}ч {m}м"
-                if self.stop_kind == StopKind.TRADE_LIMIT and self.day_stats.date == self._today_utc():
+                if self.stop_kind == StopKind.TRADE_LIMIT and self.day_stats.date == self._trading_day():
                     mins = self._minutes_until_utc_reset()
                     h, m = divmod(mins, 60)
                     return False, f"Лимит сделок на сегодня. Сброс через {h}ч {m}м"

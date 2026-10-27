@@ -1429,12 +1429,15 @@ class TelegramSignalAgent:
         rtc = self._runtime_controls_dict()
         rtc.setdefault("pause_all_execution", False)
         sync_yaml = bool(self.agent_cfg.get("runtime_controls_sync_yaml", True))
+        sync_scanner = bool(self.agent_cfg.get("runtime_controls_sync_market_scanner", False))
         if sync_yaml:
             rtc["channel_auto_execute"] = bool(self.auto_execute)
             rtc["market_scanner_auto_execute"] = bool(self.market_scanner_auto_execute_default)
         else:
             rtc.setdefault("channel_auto_execute", bool(self.auto_execute))
             rtc.setdefault("market_scanner_auto_execute", bool(self.market_scanner_auto_execute_default))
+        if sync_scanner and not sync_yaml:
+            rtc["market_scanner_auto_execute"] = bool(self.market_scanner_auto_execute_default)
 
     def _effective_channel_auto_execute(self) -> bool:
         rtc = self._runtime_controls_dict()
