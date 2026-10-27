@@ -234,3 +234,61 @@ def validate_config_data(data: Dict[str, Any]) -> Tuple[bool, List[str]]:
     _num(errors, pos_sync, "alert_cooldown_sec", lo=60, hi=7200, path="position_sync")
 
     return len(errors) == 0, errors
+
+
+def validate_runtime_overrides(
+    overrides: Dict[str, Any],
+    base_data: Dict[str, Any] | None = None,
+) -> Tuple[bool, List[str]]:
+    """
+    Проверяет частичный оверлей data/runtime_config_overrides.yaml:
+    типы, диапазоны и отсутствие опечаток в секциях (а при наличии base_data — и полный merged конфиг).
+    """
+    errors: List[str] = []
+    if not isinstance(overrides, dict):
+        return False, ["runtime_config_overrides.yaml: корень должен быть объектом (mapping)"]
+    if not overrides:
+        return True, []
+
+    for section, block in overrides.items():
+        if str(section).startswith("_"):
+            continue
+        if isinstance(block, dict):
+            _check_typo_keys(errors, str(section), block)
+
+    trading = _section(overrides, "trading")
+    _num(errors, trading, "leverage", lo=1, hi=100, path="trading", integer=True)
+    _num(errors, trading, "loop_interval_sec", lo=15, hi=600, path="trading")
+    _num(errors, trading, "max_positions", lo=1, hi=20, path="trading", integer=True)
+    _num(errors, trading, "risk_pct_per_trade", lo=0.05, hi=5.0, path="trading")
+    _num(errors, trading, "min_signal_confidence", lo=0.0, hi=1.0, path="trading")
+
+    risk = _section(overrides, "risk")
+    _num(errors, risk, "max_consecutive_losses", lo=1, hi=20, path="risk", integer=True)
+    _num(errors, risk, "max_daily_loss_pct", lo=0.5, hi=50.0, path="risk")
+    _num(errors, risk, "max_daily_loss_usdt", lo=1, hi=1_000_000, path="risk")
+    _num(errors, risk, "cooldown_after_loss_sec", lo=0, hi=86400, path="risk")
+
+    qg = _section(overrides, "quality_gate")
+    if qg:
+        _validate_model(errors, "quality_gate", qg, _QualityGateSection)
+
+    signals = _section(overrides, "signals")
+    _num(errors, signals, "min_analysis_confidence", lo=0.0, hi=1.0, path="signals")
+    _num(errors, signals, "min_telegram_confidence", lo=0.0, hi=1.0, path="signals")
+
+    positions = _section(overrides, "positions")
+    if "trailing_enabled" in positions and not isinstance(positions.get("trailing_enabled"), bool):
+        errors.append("positions.trailing_enabled: ожидался bool")
+    if "adopt_manual" in positions and not isinstance(positions.get("adopt_manual"), bool):
+        errors.append("positions.adopt_manual: ожидался bool")
+
+    if isinstance(base_data, dict) and base_data and not errors:
+        from prd_agent.config import deep_merge_config
+
+        merged = deep_merge_config(base_data, overrides)
+        ok_m, errs_m = validate_config_data(merged)
+        if not ok_m:
+            errors.extend(errs_m)
+
+    return len(errors) == 0, errors

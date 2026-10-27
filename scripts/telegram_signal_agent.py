@@ -4534,70 +4534,14 @@ class TelegramSignalAgent:
             LOG.warning("Spike scanner notify skipped %s", setup.symbol)
 
     async def run_spike_scan_once(self) -> list[MarketSetup]:
-        if not self.spike_scalp_enabled:
-            return []
-        with self._market_scan_cross_process_lock(
-            label="Spike scan",
-            lock_filename=".spike_scan.lock",
-        ) as acquired:
-            if not acquired:
-                return []
-            return await self._run_spike_scan_once_locked()
+        from prd_agent.market.scanner_core import execute_spike_scan_once
+
+        return await execute_spike_scan_once(self)
 
     async def _run_spike_scan_once_locked(self) -> list[MarketSetup]:
-        await self._ensure_execution()
-        assert self.bybit is not None
-        await self._timesfm_resolve_pending()
-        await self._evaluate_spike_pullback_watchlist()
-        valid_symbols = await self._get_valid_symbols()
-        tickers = await self.bybit.get_tickers()
-        cfg = self._spike_scalp_cfg
-        candidates = []
-        for ticker in tickers:
-            symbol = str(ticker.get("symbol", "")).upper()
-            if (
-                not symbol.endswith("USDT")
-                or symbol not in valid_symbols
-                or symbol in self.market_scanner_blacklist
-                or not looks_like_trade_symbol(symbol)
-            ):
-                continue
-            turnover = self._ticker_turnover_usdt(ticker)
-            if turnover >= cfg.min_24h_volume_usdt:
-                candidates.append((turnover, ticker))
-        candidates.sort(key=lambda item: item[0], reverse=True)
+        from prd_agent.market.scanner_core import execute_spike_scan_locked
 
-        setups: list[MarketSetup] = []
-        for _, ticker in candidates[: max(1, cfg.max_symbols)]:
-            try:
-                setup = await self._analyze_spike_setup(ticker)
-                if setup is None:
-                    continue
-                setups.append(setup)
-            except Exception as exc:
-                LOG.warning("Spike scan failed for %s: %s", ticker.get("symbol"), exc)
-        setups.sort(key=lambda item: (item.score, item.range_pct), reverse=True)
-
-        notified = 0
-        for setup in setups[: max(1, self.spike_scalp_top_n)]:
-            if self._spike_scanner_on_cooldown(setup.symbol):
-                continue
-            self._mark_spike_scanner_notified(setup)
-            self._save_state()
-            self._notify_spike_setup(setup)
-            self._append_market_setup(setup)
-            notified += 1
-            await self._try_execute_market_setup(setup)
-        if setups:
-            self._save_state()
-        LOG.info(
-            "Spike scan done: candidates=%s setups=%s notified=%s spike_exec_eff=%s",
-            len(candidates),
-            len(setups),
-            notified,
-            self._effective_market_scanner_auto_execute() and self.spike_scalp_auto_execute,
-        )
-        return setups
+        return await execute_spike_scan_locked(self)
 
     def _append_market_setup(self, setup: MarketSetup) -> None:
         path = self.out_dir / "market_scanner.jsonl"
@@ -4666,169 +4610,19 @@ class TelegramSignalAgent:
             LOG.warning("Market scanner notification skipped: %s", setup.symbol)
 
     async def _evaluate_pending_market_setups(self) -> None:
-        if not self.market_scanner_learning_enabled:
-            return
-        pending = self.state.get("pending_market_setups", [])
-        if not isinstance(pending, list) or not pending:
-            return
-        await self._ensure_execution()
-        assert self.bybit is not None
-        now = utc_now()
-        keep: list[dict[str, Any]] = []
-        events = self.state.setdefault("market_scanner_learning_events", [])
-        if not isinstance(events, list):
-            events = []
-            self.state["market_scanner_learning_events"] = events
-        changed = False
+        from prd_agent.market.scanner_core import evaluate_pending_market_setups
 
-        for item in pending:
-            if not isinstance(item, dict):
-                changed = True
-                continue
-            setup = item.get("setup", {})
-            if not isinstance(setup, dict):
-                changed = True
-                continue
-            symbol = str(setup.get("symbol", "")).upper()
-            if not symbol:
-                changed = True
-                continue
-            valid_symbols = await self._get_valid_symbols()
-            if symbol not in valid_symbols:
-                LOG.info("Market learning skipped invalid symbol: %s", symbol)
-                changed = True
-                continue
-            try:
-                expires_at = datetime.fromisoformat(str(item.get("expires_at", "")))
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-            except Exception:
-                expires_at = now
-            try:
-                current_price = await self.bybit.get_price(symbol)
-            except Exception as exc:
-                LOG.warning("Market learning price check failed for %s: %s", symbol, exc)
-                keep.append(item)
-                continue
-            expired = now >= expires_at
-            outcome = self._market_setup_outcome(setup, current_price, expired)
-            if not outcome:
-                keep.append(item)
-                continue
-            event = {
-                "checked_at": now.isoformat(),
-                "id": item.get("id", ""),
-                "symbol": symbol,
-                "scenario": setup.get("scenario", ""),
-                "entry_price": setup.get("price"),
-                "current_price": current_price,
-                "target": setup.get("target"),
-                "invalidation": setup.get("invalidation"),
-                "score": setup.get("score"),
-                "range_pct": setup.get("range_pct"),
-                "atr_pct": setup.get("atr_pct"),
-                "volume_ratio": setup.get("volume_ratio"),
-                "outcome": outcome,
-                "filters": {
-                    "min_score_to_notify": self.market_scanner_min_score_to_notify,
-                    "min_volume_ratio": self.market_scanner_min_volume_ratio,
-                    "max_range_pct": self.market_scanner_max_range_pct,
-                    "max_atr_pct": self.market_scanner_max_atr_pct,
-                },
-            }
-            events.append(event)
-            self._append_market_scanner_event(event)
-            changed = True
-
-        if changed or len(keep) != len(pending):
-            self.state["pending_market_setups"] = keep[-max(1, self.market_scanner_learning_window * 3) :]
-            self.state["market_scanner_learning_events"] = events[-max(50, self.market_scanner_learning_window * 4) :]
-            self._recalculate_market_scanner_adaptive_filters()
-            self._save_state()
+        await evaluate_pending_market_setups(self)
 
     async def run_market_scan_once(self) -> list[MarketSetup]:
-        if not self.market_scanner_enabled:
-            return []
-        with self._market_scan_cross_process_lock() as acquired:
-            if not acquired:
-                return []
-            return await self._run_market_scan_once_locked()
+        from prd_agent.market.scanner_core import execute_market_scan_once
+
+        return await execute_market_scan_once(self)
 
     async def _run_market_scan_once_locked(self) -> list[MarketSetup]:
-        self._reload_market_scanner_notified_from_disk()
-        await self._ensure_execution()
-        assert self.bybit is not None
-        await self._timesfm_resolve_pending()
-        await self._evaluate_pending_market_setups()
-        await self._evaluate_bos_watchlist()
-        valid_symbols = await self._get_valid_symbols()
-        tickers = await self.bybit.get_tickers()
-        candidates = []
-        for ticker in tickers:
-            symbol = str(ticker.get("symbol", "")).upper()
-            if (
-                not symbol.endswith("USDT")
-                or symbol not in valid_symbols
-                or symbol in self.market_scanner_blacklist
-                or not looks_like_trade_symbol(symbol)
-            ):
-                continue
-            turnover = self._ticker_turnover_usdt(ticker)
-            if turnover >= self.market_scanner_min_24h_volume_usdt:
-                candidates.append((turnover, ticker))
-        candidates.sort(key=lambda item: item[0], reverse=True)
+        from prd_agent.market.scanner_core import execute_market_scan_locked
 
-        setups: list[MarketSetup] = []
-        for _, ticker in candidates[: max(1, self.market_scanner_max_symbols)]:
-            try:
-                setup = await self._analyze_market_setup(ticker)
-                if setup is None:
-                    continue
-                self._append_market_setup(setup)
-                setups.append(setup)
-            except Exception as exc:
-                LOG.warning("Market scan failed for %s: %s", ticker.get("symbol"), exc)
-        setups.sort(key=lambda item: item.score, reverse=True)
-
-        notified = 0
-        for setup in setups[: max(1, self.market_scanner_top_n)]:
-            if self._market_scanner_on_cooldown(setup.symbol, setup.scenario):
-                continue
-            self._mark_market_scanner_notified(setup)
-            self._save_state()
-            self._notify_market_setup(setup)
-            self._track_market_setup_for_learning(setup)
-            if self._should_add_to_bos_watchlist(setup):
-                self._add_to_bos_watchlist(setup)
-            notified += 1
-            await self._try_execute_market_setup(setup)
-        await self._check_scanner_reversals_against_open_positions(setups)
-        if setups or notified:
-            self._save_state()
-        if setups and notified == 0:
-            LOG.info(
-                "Market scan: %s сетапов, в Telegram 0 (cooldown %ss или уже видели)",
-                len(setups),
-                int(self.market_scanner_symbol_cooldown_sec),
-            )
-        LOG.info(
-            "Market scan done: candidates=%s setups=%s notified=%s "
-            "| active_thresholds score>=%s vol_ratio>=%.2f range%%<=%.2f atr%%<=%.2f "
-            "| learning_events=%s | scanner_exec_eff=%s pause_all=%s",
-            len(candidates),
-            len(setups),
-            notified,
-            int(self.market_scanner_min_score_to_notify),
-            float(self.market_scanner_min_volume_ratio),
-            float(self.market_scanner_max_range_pct),
-            float(self.market_scanner_max_atr_pct),
-            len(self.state.get("market_scanner_learning_events", []) or [])
-            if isinstance(self.state.get("market_scanner_learning_events"), list)
-            else 0,
-            self._effective_market_scanner_auto_execute(),
-            bool(self._runtime_controls_dict().get("pause_all_execution")),
-        )
-        return setups
+        return await execute_market_scan_locked(self)
 
     async def _market_scanner_loop(self) -> None:
         while True:

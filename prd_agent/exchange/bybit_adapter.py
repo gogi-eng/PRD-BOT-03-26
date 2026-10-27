@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,11 +11,15 @@ from typing import Any, Dict, List, Optional
 from prd_agent.exchange.api_cache import load_api_cache_settings
 from prd_agent.exchange.api_stats import ApiCallJournal
 
+logger = logging.getLogger("prd_agent.bybit_adapter")
+
 
 def _import_local_client(root: Path):
-    root_s = str(root.resolve())
-    if root_s not in sys.path:
-        sys.path.insert(0, root_s)
+    repo_root = Path(__file__).resolve().parents[2]
+    for candidate in (root.resolve(), repo_root):
+        cand_s = str(candidate)
+        if cand_s not in sys.path:
+            sys.path.insert(0, cand_s)
     try:
         from exchange.bybit_client import BybitClient  # type: ignore
 
@@ -27,44 +32,50 @@ class BybitAdapter:
     """Единая точка доступа к Bybit API."""
 
     def __init__(self, cfg: Dict[str, Any]):
-        b = cfg.get("bybit", {})
-        root = Path(cfg["_root"])
+        b = cfg.get("bybit", {}) if isinstance(cfg.get("bybit"), dict) else {}
+        root = Path(cfg.get("_root", "."))
+        require_prd = bool(b.get("require_prd_client", False))
         ClientCls = _import_local_client(root)
         self._use_prd = ClientCls is not None
+        if not self._use_prd and require_prd:
+            raise RuntimeError(
+                "exchange.bybit_client.BybitClient недоступен, а bybit.require_prd_client=true"
+            )
         if self._use_prd:
             self._client = ClientCls(
-                api_key=b["api_key"],
-                api_secret=b["api_secret"],
+                api_key=b.get("api_key", ""),
+                api_secret=b.get("api_secret", ""),
                 testnet=bool(b.get("testnet", False)),
                 category=b.get("category", "linear"),
             )
             ob_ws = b.get("orderbook_ws") or {}
-            if hasattr(self._client, "configure_orderbook_ws"):
-                self._client.configure_orderbook_ws(
-                    enabled=bool(ob_ws.get("enabled", True)),
-                    depth=int(ob_ws.get("depth", 50)),
-                    max_age_sec=float(ob_ws.get("max_age_sec", 5.0)),
-                )
+            self._client.configure_orderbook_ws(
+                enabled=bool(ob_ws.get("enabled", True)),
+                depth=int(ob_ws.get("depth", 50)),
+                max_age_sec=float(ob_ws.get("max_age_sec", 5.0)),
+            )
         else:
+            logger.warning(
+                "exchange.bybit_client.BybitClient не найден — запущен ограниченный SimpleBybitClient (без торговли)"
+            )
             from prd_agent.exchange.simple_bybit import SimpleBybitClient
 
             self._client = SimpleBybitClient(
-                api_key=b["api_key"],
-                api_secret=b["api_secret"],
+                api_key=b.get("api_key", ""),
+                api_secret=b.get("api_secret", ""),
                 testnet=bool(b.get("testnet", False)),
             )
         self.api_journal = ApiCallJournal()
         self._cache = load_api_cache_settings(cfg, journal=self.api_journal)
 
     async def close(self) -> None:
-        if hasattr(self._client, "close"):
-            await self._client.close()
+        await self._client.close()
 
     async def get_balance(self) -> float:
         return float(await self._client.get_balance())
 
     async def get_available_balance(self) -> float:
-        if hasattr(self._client, "get_available_balance"):
+        if self._use_prd:
             return float(await self._client.get_available_balance())
         return float(await self._client.get_balance())
 
@@ -78,14 +89,14 @@ class BybitAdapter:
         qty: Optional[float] = None,
         position_idx: int = 0,
     ) -> Dict:
-        if hasattr(self._client, "close_position"):
+        if self._use_prd:
             return await self._client.close_position(
                 symbol, side, qty=qty, position_idx=position_idx
             )
         return {"success": False, "orderId": "", "error": "close_position not supported"}
 
     async def has_open_position(self, symbol: str) -> bool:
-        if hasattr(self._client, "has_open_position"):
+        if self._use_prd:
             return bool(await self._client.has_open_position(symbol))
         rows = await self.get_positions(symbol)
         return len(rows) > 0
@@ -97,7 +108,7 @@ class BybitAdapter:
         )
 
     async def get_klines(self, symbol: str, interval: str = "15", limit: int = 200):
-        if not hasattr(self._client, "get_klines"):
+        if not self._use_prd:
             return []
         return await self._cache.get_klines(
             symbol,
@@ -107,16 +118,16 @@ class BybitAdapter:
         )
 
     async def get_tickers(self) -> List[Dict]:
-        if not hasattr(self._client, "get_tickers"):
+        if not self._use_prd:
             return []
         return await self._cache.get_tickers(lambda: self._client.get_tickers())
 
     async def set_liquidation_symbols(self, symbols: List[str]) -> None:
-        if hasattr(self._client, "set_liquidation_symbols"):
+        if self._use_prd:
             await self._client.set_liquidation_symbols(symbols)
 
     async def set_orderbook_symbols(self, symbols: List[str]) -> None:
-        if hasattr(self._client, "set_orderbook_symbols"):
+        if self._use_prd:
             await self._client.set_orderbook_symbols(symbols)
 
     async def get_orderbook(
@@ -129,7 +140,7 @@ class BybitAdapter:
     ) -> Dict:
         if lazy and not signal_passed_cheap_filters:
             return {}
-        if hasattr(self._client, "get_orderbook"):
+        if self._use_prd:
             return await self._client.get_orderbook(symbol, limit=limit)
         return {"bids": [], "asks": [], "ts": 0, "source": "none"}
 
@@ -143,34 +154,34 @@ class BybitAdapter:
     ) -> List[Dict]:
         if lazy and not signal_passed_cheap_filters:
             return []
-        if not hasattr(self._client, "get_recent_trades"):
+        if not self._use_prd:
             return []
         sym = str(symbol).upper()
         return list(await self._client.get_recent_trades(sym, limit=limit))
 
     async def get_recent_liquidations(self, symbol: str, limit: int = 20) -> List[Dict]:
-        if hasattr(self._client, "get_liquidation_events"):
+        if self._use_prd:
             return list(self._client.get_liquidation_events(symbol, limit=limit))
         return []
 
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
-        if hasattr(self._client, "get_funding_rate"):
+        if self._use_prd:
             return await self._client.get_funding_rate(symbol)
         return None
 
     async def get_open_interest_history(self, symbol: str, interval: str = "1h", limit: int = 25):
-        if hasattr(self._client, "get_open_interest_history"):
+        if self._use_prd:
             return await self._client.get_open_interest_history(symbol, interval=interval, limit=limit)
         return []
 
     async def get_long_short_ratio(self, symbol: str, period: str = "1h", limit: int = 10):
-        if hasattr(self._client, "get_long_short_ratio"):
+        if self._use_prd:
             return await self._client.get_long_short_ratio(symbol, period=period, limit=limit)
         return []
 
     async def ensure_one_way_mode(self) -> Dict:
         """Принудительно one-way на Bybit (без hedge)."""
-        if hasattr(self._client, "ensure_one_way_mode"):
+        if self._use_prd:
             return await self._client.ensure_one_way_mode()
         return {"ok": False, "mode": "unsupported", "ret_code": None, "ret_msg": "no client method"}
 

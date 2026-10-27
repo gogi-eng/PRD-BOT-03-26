@@ -9,6 +9,11 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from prd_agent.market.scanner_core import (
+    execute_market_scan_once,
+    execute_spike_scan_once,
+)
+
 logger = logging.getLogger("prd_agent.market_scanner")
 
 _SCANNER_AGENTS: Dict[str, Any] = {}
@@ -93,7 +98,7 @@ async def run_market_scan_once(
             logger.warning(
                 "Market scanner: telegram_notify=false — уведомления в Telegram не отправятся"
             )
-        setups = await scanner_agent.run_market_scan_once()
+        setups = await execute_market_scan_once(scanner_agent)
         return setups or []
 
 
@@ -147,5 +152,5 @@ async def run_spike_scan_once(
             return []
         if not scanner_agent.spike_scalp_enabled:
             return []
-        setups = await scanner_agent.run_spike_scan_once()
+        setups = await execute_spike_scan_once(scanner_agent)
         return setups or []

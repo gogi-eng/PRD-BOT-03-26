@@ -57,6 +57,18 @@ def main() -> int:
         for err in errors:
             print(f"  • {err}")
         return 1
+    from prd_agent.config import load_runtime_overrides, runtime_overrides_path
+    from prd_agent.config_validate import validate_runtime_overrides
+
+    ov_path = runtime_overrides_path(cfg_path)
+    if ov_path.is_file():
+        ov_data = load_runtime_overrides(ov_path)
+        ok_ov, ov_errors = validate_runtime_overrides(ov_data, base_data=data or {})
+        if not ok_ov:
+            print(f"ОШИБКА проверки параметров {ov_path}:")
+            for err in ov_errors:
+                print(f"  • {err}")
+            return 1
     print(f"OK: {cfg_path}")
     return 0
 

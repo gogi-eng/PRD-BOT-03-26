@@ -13,6 +13,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from prd_agent.config import (
+    deep_merge_config,
+    load_runtime_overrides,
+    runtime_overrides_path,
+    save_runtime_overrides,
+)
+
 # Разрешённые ключи для авто-подстройки (числа в пределах)
 LOW_RISK_TUNING = {
     ("trading", "min_signal_confidence"): (0.55, 0.85, 0.02),
@@ -54,6 +61,7 @@ class SelfImprover:
         self.git_auto_commit = bool(si.get("git_auto_commit", False))
         self.root = root
         self.config_path = root / "config.yaml"
+        self.overrides_path = runtime_overrides_path(self.config_path, cfg=cfg)
         self.log_path = root / "data" / "self_improvement_log.jsonl"
         self.pending_path = root / "data" / "pending_patches.json"
         self._on_reload = on_config_reload
@@ -226,11 +234,17 @@ class SelfImprover:
         lo, hi, step = LOW_RISK_TUNING[path_tuple]
         if not self.config_path.exists():
             return False
-        backup = self.sandbox_dir / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
-        shutil.copy2(self.config_path, backup)
         with self.config_path.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        current = float(self._get_nested(data, path_tuple))
+            base_data = yaml.safe_load(f) or {}
+        current_ov = load_runtime_overrides(self.overrides_path)
+        effective_data = deep_merge_config(base_data, current_ov)
+        try:
+            current = float(self._get_nested(effective_data, path_tuple))
+        except (KeyError, TypeError, ValueError):
+            try:
+                current = float(self._get_nested( self.cfg, path_tuple))
+            except (KeyError, TypeError, ValueError):
+                return False
         new_val = current + float(proposal.get("delta", 0))
         if path_tuple[1] == "max_consecutive_losses":
             new_val = int(round(new_val))
@@ -241,12 +255,15 @@ class SelfImprover:
         else:
             new_val = round(new_val, 3)
         new_val = max(lo, min(hi, new_val))
-        # Не переписывать весь config.yaml (safe_dump), если значение уже на полу/потолке.
         if new_val == current:
             return False
-        self._set_nested(data, path_tuple, new_val)
-        with self.config_path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+        backup = self.sandbox_dir / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
+        if self.overrides_path.exists():
+            shutil.copy2(self.overrides_path, backup)
+        else:
+            save_runtime_overrides(backup, current_ov)
+        self._set_nested(current_ov, path_tuple, new_val)
+        save_runtime_overrides(self.overrides_path, current_ov)
         self._log_change(
             {
                 "risk": "low",
@@ -262,7 +279,7 @@ class SelfImprover:
         if self.git_auto_commit and (self.root / ".git").exists():
             try:
                 subprocess.run(
-                    ["git", "add", str(self.config_path)],
+                    ["git", "add", str(self.overrides_path)],
                     cwd=self.root,
                     check=True,
                     capture_output=True,
@@ -395,12 +412,12 @@ class SelfImprover:
         if not backups:
             return None
         latest = backups[-1]
-        shutil.copy2(latest, self.config_path)
+        shutil.copy2(latest, self.overrides_path)
         self._log_change(
             {
                 "risk": "low",
                 "applied": True,
-                "summary": "Откат config.yaml из резервной копии",
+                "summary": "Откат runtime_config_overrides.yaml из резервной копии",
                 "justification": str(latest),
                 "rollback": True,
             }

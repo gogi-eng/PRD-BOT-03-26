@@ -30,7 +30,12 @@ from prd_agent.analysis.trade_analytics import (
 from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_lifecycle import TradeLifecycleTracker
 from prd_agent.analysis.trade_monitor import TradeMonitor
-from prd_agent.config import load_config
+from prd_agent.config import (
+    load_config,
+    load_runtime_overrides,
+    runtime_overrides_path,
+    save_runtime_overrides,
+)
 from prd_agent.config_presets import ALLOWED_PRESETS, apply_risk_preset
 from prd_agent.engine.adaptive_loop import compute_loop_interval_sec
 from prd_agent.entry.derivatives_entry_guard import DerivativesEntryGuard
@@ -84,6 +89,7 @@ from prd_agent.positions.opposite_signal_policy import (
     should_skip_opposite_exit_for_spike_own,
 )
 from prd_agent.positions.scanner_reversal_sl import position_age_minutes
+from prd_agent.positions.portfolio_profit_lock import PortfolioProfitLock
 from prd_agent.positions.position_steward import PositionSteward
 from prd_agent.positions.trade_companion import TradeCompanionAgent
 from prd_agent.positions.sr_sl_tp_adjust import adjust_sl_tp_with_sr_zones
@@ -132,6 +138,7 @@ class UnifiedOrchestrator:
         self.global_analyzer = GlobalAnalyzer(cfg, self.ledger, self.monitor)
         self.symbol_scanner = SymbolScanner(cfg)
         self.position_steward = PositionSteward(cfg)
+        self.profit_lock = PortfolioProfitLock.from_cfg(cfg, self.exchange, self.notifier)
         self.trade_companion = TradeCompanionAgent(cfg)
         self.quality_gate = QualityGate(cfg)
         self.derivatives_guard = DerivativesEntryGuard(cfg)
@@ -316,6 +323,7 @@ class UnifiedOrchestrator:
         # Не пересоздаём steward — иначе теряется _tracked и в Telegram снова «Подхвачена позиция».
         self.position_steward.apply_config(self.cfg)
         self.position_steward.enabled = effective_trailing_enabled(self.cfg, self.root)
+        self.profit_lock.apply_config(self.cfg)
         self.trade_companion.apply_config(self.cfg)
         self.trade_lifecycle.apply_config(self.cfg)
         self.quality_gate = QualityGate(self.cfg)
@@ -450,19 +458,21 @@ class UnifiedOrchestrator:
         )
 
     def set_trailing_enabled(self, enabled: bool) -> str:
-        """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в config.yaml."""
+        """Вкл/выкл трейлинг SL; сохраняет positions.trailing_enabled в data/runtime_config_overrides.yaml."""
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        ov_path = runtime_overrides_path(path, cfg=self.cfg)
         if path.exists():
             backup = (
                 self.improver.sandbox_dir
                 / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
             )
-            shutil.copy2(path, backup)
-            with path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            data.setdefault("positions", {})["trailing_enabled"] = bool(enabled)
-            with path.open("w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            current_ov = load_runtime_overrides(ov_path)
+            if ov_path.exists():
+                shutil.copy2(ov_path, backup)
+            else:
+                save_runtime_overrides(backup, current_ov)
+            current_ov.setdefault("positions", {})["trailing_enabled"] = bool(enabled)
+            save_runtime_overrides(ov_path, current_ov)
             set_runtime_trailing_override(self.root, bool(enabled))
             self.reload_config()
             backup_note = f"Резервная копия: {backup.name}"
@@ -489,27 +499,29 @@ class UnifiedOrchestrator:
             guard.include_manual = bool(enabled)
 
     def set_adopt_manual(self, enabled: bool) -> str:
-        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в config.yaml."""
+        """Вкл/выкл сопровождение ручных сделок; сохраняет positions.adopt_manual в data/runtime_config_overrides.yaml."""
         enabled = bool(enabled)
         path = Path(self.cfg.get("_config_path", self.root / "config.yaml"))
+        ov_path = runtime_overrides_path(path, cfg=self.cfg)
         if path.exists():
             backup = (
                 self.improver.sandbox_dir
                 / f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
             )
-            shutil.copy2(path, backup)
-            with path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            positions = data.setdefault("positions", {})
+            current_ov = load_runtime_overrides(ov_path)
+            if ov_path.exists():
+                shutil.copy2(ov_path, backup)
+            else:
+                save_runtime_overrides(backup, current_ov)
+            positions = current_ov.setdefault("positions", {})
             if not isinstance(positions, dict):
                 positions = {}
-                data["positions"] = positions
+                current_ov["positions"] = positions
             positions["adopt_manual"] = enabled
-            guard_block = positions.get("sl_tp_guard")
+            guard_block = positions.setdefault("sl_tp_guard", {})
             if isinstance(guard_block, dict):
                 guard_block["include_manual"] = enabled
-            with path.open("w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+            save_runtime_overrides(ov_path, current_ov)
             self.reload_config()
             backup_note = f"Резервная копия: {backup.name}"
         else:
@@ -1239,6 +1251,12 @@ class UnifiedOrchestrator:
         balance_now = await self.exchange.get_balance()
         self.risk.update_balance_reference(balance_now)
         self.risk.reconcile_from_closed_rows(closed_24h, balance=balance_now)
+        if self.profit_lock.enabled and positions:
+            self.profit_lock.set_initial_balance(
+                self.risk.day_start_balance or balance_now
+            )
+            self.profit_lock.set_bot_symbols(self.position_steward._bot_symbols)
+            await self.profit_lock.check(positions)
         self._cycle_num += 1
         self.strategy_router.refresh()
         risk_snap = self.risk.snapshot()

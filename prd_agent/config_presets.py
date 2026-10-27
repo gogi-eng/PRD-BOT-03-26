@@ -1,4 +1,4 @@
-"""Пресеты риска: консервативный / нормальный / агрессивный."""
+"""Пресеты риска: консервативный / нормальный / агрессивный (запись в runtime_config_overrides.yaml)."""
 from __future__ import annotations
 
 import shutil
@@ -8,17 +8,18 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 
+from prd_agent.config import (
+    deep_merge_config,
+    load_runtime_overrides,
+    runtime_overrides_path,
+    save_runtime_overrides,
+)
+
 ALLOWED_PRESETS = ("conservative", "normal", "aggressive")
 
 
 def _deep_merge(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(base)
-    for key, val in patch.items():
-        if isinstance(val, dict) and isinstance(out.get(key), dict):
-            out[key] = _deep_merge(out[key], val)
-        else:
-            out[key] = val
-    return out
+    return deep_merge_config(base, patch)
 
 
 def preset_patch(cfg: Dict[str, Any], name: str) -> Dict[str, Any]:
@@ -32,20 +33,26 @@ def preset_patch(cfg: Dict[str, Any], name: str) -> Dict[str, Any]:
 
 
 def apply_risk_preset(cfg_path: Path, cfg: Dict[str, Any], name: str) -> Tuple[List[str], str]:
-    """Записывает пресет в config.yaml. Возвращает (список изменений, путь backup)."""
+    """Записывает пресет в data/runtime_config_overrides.yaml (config.yaml остаётся read-only)."""
     if name not in ALLOWED_PRESETS:
         raise ValueError(f"Неизвестный пресет: {name}")
 
     patch = preset_patch(cfg, name)
-    with cfg_path.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    base_data: Dict[str, Any] = {}
+    if cfg_path.exists():
+        with cfg_path.open("r", encoding="utf-8") as f:
+            base_data = yaml.safe_load(f) or {}
 
-    before = yaml.safe_dump(data, allow_unicode=True)
-    merged = _deep_merge(data, patch)
-    after = yaml.safe_dump(merged, allow_unicode=True)
+    ov_path = runtime_overrides_path(cfg_path, cfg=cfg)
+    current_ov = load_runtime_overrides(ov_path)
+    effective_before = _deep_merge(base_data, current_ov)
+    effective_after = _deep_merge(effective_before, patch)
+
+    before_s = yaml.safe_dump(effective_before, allow_unicode=True)
+    after_s = yaml.safe_dump(effective_after, allow_unicode=True)
 
     changes: List[str] = []
-    if before != after:
+    if before_s != after_s:
         for section, values in patch.items():
             if isinstance(values, dict):
                 for k, v in values.items():
@@ -55,16 +62,16 @@ def apply_risk_preset(cfg_path: Path, cfg: Dict[str, Any], name: str) -> Tuple[L
         f"config_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.yaml"
     )
     backup.parent.mkdir(parents=True, exist_ok=True)
-    if cfg_path.exists():
-        shutil.copy2(cfg_path, backup)
-    with cfg_path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(merged, f, allow_unicode=True, default_flow_style=False)
+    if ov_path.exists():
+        shutil.copy2(ov_path, backup)
+    else:
+        save_runtime_overrides(backup, current_ov)
 
-    meta = merged.setdefault("risk_presets_meta", {})
+    merged_ov = _deep_merge(current_ov, patch)
+    meta = merged_ov.setdefault("risk_presets_meta", {})
     if isinstance(meta, dict):
         meta["active"] = name
         meta["applied_at"] = datetime.now(timezone.utc).isoformat()
-        with cfg_path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(merged, f, allow_unicode=True, default_flow_style=False)
+    save_runtime_overrides(ov_path, merged_ov)
 
     return changes, str(backup)
