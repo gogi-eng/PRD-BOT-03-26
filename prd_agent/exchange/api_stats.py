@@ -7,6 +7,26 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("prd_agent.api_stats")
 
 
+class ApiCallFanout:
+    """Один вызов REST пишется и в журнал прохода сканера, и в общий журнал цикла."""
+
+    def __init__(self, *journals: Optional["ApiCallJournal"]) -> None:
+        self._journals: List[ApiCallJournal] = []
+        for journal in journals:
+            self.add(journal)
+
+    def add(self, journal: Optional["ApiCallJournal"]) -> None:
+        if journal is None:
+            return
+        if any(existing is journal for existing in self._journals):
+            return
+        self._journals.append(journal)
+
+    def record(self, endpoint: str, *, cached: bool = False) -> None:
+        for journal in self._journals:
+            journal.record(endpoint, cached=cached)
+
+
 class ApiCallJournal:
     def __init__(self) -> None:
         self._cycle_num = 0

@@ -15,6 +15,32 @@ from typing import Any, List
 logger = logging.getLogger("prd_agent.market.scanner_core")
 
 
+def begin_scanner_rest_pass(agent: Any) -> None:
+    journal = getattr(agent, "_scanner_rest_journal", None)
+    if journal is None or not hasattr(journal, "begin_cycle"):
+        return
+    n = int(getattr(agent, "_scanner_rest_pass_num", 0) or 0) + 1
+    try:
+        agent._scanner_rest_pass_num = n
+    except Exception:
+        pass
+    journal.begin_cycle(n)
+
+
+def end_scanner_rest_pass(agent: Any) -> None:
+    journal = getattr(agent, "_scanner_rest_journal", None)
+    if journal is None or not hasattr(journal, "end_cycle"):
+        logger.info("REST сканера за проход: 0 (-)")
+        return
+    snap = journal.end_cycle()
+    by_ep = snap.get("by_endpoint") if isinstance(snap, dict) else {}
+    if not isinstance(by_ep, dict):
+        by_ep = {}
+    parts = ", ".join(f"{k}={v}" for k, v in sorted(by_ep.items()))
+    calls = int(snap.get("calls") or 0) if isinstance(snap, dict) else 0
+    logger.info("REST сканера за проход: %d (%s)", calls, parts or "-")
+
+
 def looks_like_usdt_trade_symbol(symbol: str) -> bool:
     sym = str(symbol or "").upper()
     if not sym.endswith("USDT") or len(sym) < 6:
@@ -45,6 +71,14 @@ async def execute_spike_scan_locked(agent: Any) -> List[Any]:
     """Внутренний цикл SPIKE SCANNER (под межпроцессным локом)."""
     await agent._ensure_execution()
     assert agent.bybit is not None
+    begin_scanner_rest_pass(agent)
+    try:
+        return await _execute_spike_scan_body(agent)
+    finally:
+        end_scanner_rest_pass(agent)
+
+
+async def _execute_spike_scan_body(agent: Any) -> List[Any]:
     await agent._timesfm_resolve_pending()
     await agent._evaluate_spike_pullback_watchlist()
     valid_symbols = await agent._get_valid_symbols()
@@ -201,6 +235,14 @@ async def execute_market_scan_locked(agent: Any) -> List[Any]:
     agent._reload_market_scanner_notified_from_disk()
     await agent._ensure_execution()
     assert agent.bybit is not None
+    begin_scanner_rest_pass(agent)
+    try:
+        return await _execute_market_scan_body(agent)
+    finally:
+        end_scanner_rest_pass(agent)
+
+
+async def _execute_market_scan_body(agent: Any) -> List[Any]:
     await agent._timesfm_resolve_pending()
     await agent._evaluate_pending_market_setups()
     await agent._evaluate_bos_watchlist()

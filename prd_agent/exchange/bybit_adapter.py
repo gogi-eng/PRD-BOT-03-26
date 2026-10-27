@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from analysis.funding_filter import ticker_derivatives
 from prd_agent.exchange.api_cache import load_api_cache_settings
 from prd_agent.exchange.api_stats import ApiCallJournal
 
@@ -67,6 +68,13 @@ class BybitAdapter:
             )
         self.api_journal = ApiCallJournal()
         self._cache = load_api_cache_settings(cfg, journal=self.api_journal)
+        if self._use_prd:
+            # Каждый REST (путь метода) пишет сам клиент. Кеш считает только попадания.
+            self._client.api_journal = self.api_journal
+            self._cache.count_misses = False
+            self._client.tickers_ttl_sec = float(self._cache.tickers_ttl_sec)
+            root = Path(cfg.get("_root", "."))
+            self._client._liquidation_log_path = root / "data" / "liquidations.jsonl"
 
     async def close(self) -> None:
         await self._client.close()
@@ -130,6 +138,15 @@ class BybitAdapter:
         if self._use_prd:
             await self._client.set_orderbook_symbols(symbols)
 
+    def peek_orderbook(self, symbol: str, limit: int = 50) -> Optional[Dict]:
+        """Свежая книга WebSocket. Нет книги — None, без запроса стакана."""
+        if not self._use_prd:
+            return None
+        peek = getattr(self._client, "peek_orderbook", None)
+        if not callable(peek):
+            return None
+        return peek(symbol, limit)
+
     async def get_orderbook(
         self,
         symbol: str,
@@ -165,9 +182,20 @@ class BybitAdapter:
         return []
 
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
-        if self._use_prd:
-            return await self._client.get_funding_rate(symbol)
-        return None
+        if not self._use_prd:
+            return None
+        rows = self._cache.peek_tickers()
+        if rows is None:
+            fresh = self._client.fresh_tickers() if hasattr(self._client, "fresh_tickers") else None
+            if fresh is not None:
+                rows = fresh
+            else:
+                rows = await self.get_tickers()
+        sym = str(symbol or "").upper()
+        for row in rows or []:
+            if str(row.get("symbol", "")).upper() == sym:
+                return ticker_derivatives(row)
+        return await self._client.get_funding_rate(symbol)
 
     async def get_open_interest_history(self, symbol: str, interval: str = "1h", limit: int = 25):
         if self._use_prd:

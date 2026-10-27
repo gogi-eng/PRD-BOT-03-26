@@ -5,9 +5,48 @@ Funding Rate Filter — фильтр на основе funding rate и OI.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 
 logger = logging.getLogger("analysis.funding_filter")
+
+
+def oi_contracts(row: Mapping) -> float:
+    """Контракты одной стороны: singleOpenInterest, иначе старое openInterest."""
+    if not isinstance(row, Mapping):
+        return 0.0
+    raw = row.get("singleOpenInterest")
+    if raw not in (None, ""):
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(row.get("openInterest") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def ticker_derivatives(row: Mapping) -> Dict[str, float]:
+    """Funding и OI из строки get_tickers. С 11.06.2026 OI — одна сторона."""
+
+    def _f(key: str, default: float = 0.0) -> float:
+        if not isinstance(row, Mapping):
+            return default
+        val = row.get(key)
+        if val in (None, ""):
+            return default
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
+    return {
+        "funding_rate": _f("fundingRate"),
+        "open_interest": oi_contracts(row),
+        "open_interest_value": _f("singleOpenInterestValue"),
+        "bid1": _f("bid1Price"),
+        "ask1": _f("ask1Price"),
+    }
 
 
 class FundingSignal:
@@ -53,19 +92,22 @@ class FundingFilter:
         signal = FundingSignal()
 
         try:
-            # Получаем funding из тикера
+            # Funding и текущий OI — из уже скачанного списка тикеров, если он свежий.
             ticker_data = await client.get_funding_rate(symbol)
             if ticker_data:
-                signal.funding_rate = ticker_data["funding_rate"]
-                signal.open_interest = ticker_data["open_interest"]
+                signal.funding_rate = float(ticker_data.get("funding_rate", 0) or 0)
+                signal.open_interest = float(ticker_data.get("open_interest", 0) or 0)
 
-            # Получаем историю OI
-            oi_history = await client.get_open_interest_history(symbol)
-            if len(oi_history) >= 2:
-                current_oi = float(oi_history[0].get("openInterest", 0))
-                old_oi = float(oi_history[-1].get("openInterest", 0))
-                if old_oi > 0:
-                    signal.oi_change_pct = (current_oi - old_oi) / old_oi
+            # История OI — отдельный HTTP. Только когда по тикеру уже крайний funding.
+            if abs(signal.funding_rate) >= self.EXTREME_THRESHOLD and hasattr(
+                client, "get_open_interest_history"
+            ):
+                oi_history = await client.get_open_interest_history(symbol)
+                if len(oi_history) >= 2:
+                    current_oi = oi_contracts(oi_history[0])
+                    old_oi = oi_contracts(oi_history[-1])
+                    if old_oi > 0:
+                        signal.oi_change_pct = (current_oi - old_oi) / old_oi
 
         except Exception as exc:
             logger.warning("[FUNDING] Error %s: %s", symbol, exc)

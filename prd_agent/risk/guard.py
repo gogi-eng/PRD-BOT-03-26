@@ -49,7 +49,7 @@ class RiskGuard:
         self.max_consecutive_losses = int(r.get("max_consecutive_losses", 4))
         self.max_daily_loss_pct = float(r.get("max_daily_loss_pct", 5.0))
         self.max_daily_loss_usdt = float(r.get("max_daily_loss_usdt", 100.0))
-        # 0 = не ограничивать. 2 = после двух убытков по монете до конца текущей сессии не входить.
+        # 0 = не ограничивать. 2 = после двух убытков по монете до конца торгового дня не входить.
         self.max_symbol_losses_per_day = int(r.get("max_symbol_losses_per_day", 2))
         # Ниже этого баланса %‑лимит не применяем (малый субаккаунт: −$8 ≠ −39%).
         self.daily_loss_pct_min_balance_usdt = float(
@@ -372,9 +372,8 @@ class RiskGuard:
     ) -> None:
         """
         Сверка дневного PnL с Bybit (источник правды для отчётов и лимита).
-        Дневной PnL (net_pnl_usdt, wins, losses, trades) считается строго с начала
-        торгового дня (_trading_day_start_utc), а счётчик убытков по монете
-        (_symbol_losses_today) — с начала текущей сессии (_loss_window_start_utc).
+        Дневной PnL и счётчик убытков по монете считаются с начала одного
+        торгового дня (_trading_day_start_utc), а не с границы сессии.
         """
         self._ensure_today()
         if self._manual_daily_loss_reset_active():
@@ -388,8 +387,6 @@ class RiskGuard:
             return
         day_start = self._trading_day_start_utc()
         day_start_ms = int(day_start.timestamp() * 1000)
-        session_start = self._loss_window_start_utc()
-        session_start_ms = int(session_start.timestamp() * 1000)
         total = 0.0
         wins = 0
         losses = 0
@@ -398,17 +395,15 @@ class RiskGuard:
             ts = int(r.get("updatedTime") or r.get("createdTime") or 0)
             pnl = float(r.get("closedPnl", 0) or 0)
             in_day = not ts or ts >= day_start_ms
-            in_session = not ts or ts >= session_start_ms
             if in_day:
                 total += pnl
                 if pnl >= 0:
                     wins += 1
                 else:
                     losses += 1
-            if in_session and pnl < 0:
-                sym = str(r.get("symbol") or "").upper()
-                if sym:
-                    by_symbol[sym] = by_symbol.get(sym, 0) + 1
+                    sym = str(r.get("symbol") or "").upper()
+                    if sym:
+                        by_symbol[sym] = by_symbol.get(sym, 0) + 1
         self._symbol_losses_today = by_symbol
         if balance > 0:
             self.update_balance_reference(balance)
@@ -444,10 +439,9 @@ class RiskGuard:
         n = int(self._symbol_losses_today.get(sym, 0))
         if n < cap:
             return ""
-        window = self._session()
         return (
-            f"{sym}: уже {n} убыточных закрытий в сессии {window.name} (лимит {cap}) — "
-            f"до {window.end_hhmm} МСК эту монету не берём"
+            f"{sym}: уже {n} убыточных закрытий за торговый день (лимит {cap}) — "
+            f"до конца дня эту монету не берём"
         )
 
     def fast_path_block(self, symbol: str) -> Tuple[bool, str]:

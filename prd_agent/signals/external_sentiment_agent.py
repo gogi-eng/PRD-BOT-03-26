@@ -40,13 +40,36 @@ class ExternalSentimentAgent:
         self.cache_sec = float(block.get("cache_sec", 900))
         self._cache: Optional[_CacheEntry] = None
 
+    def _bars_for_sentiment(
+        self, sym: str, klines_15m: Optional[Dict[str, list]]
+    ) -> Optional[list]:
+        """Хвост уже скачанных 15m. None — в словаре нет этой монеты, тогда отдельный запрос."""
+        if self.cg_interval != "15" or klines_15m is None:
+            return None
+        key = str(sym or "").upper()
+        if key not in klines_15m:
+            return None
+        rows = list(klines_15m.get(key) or [])
+        limit = int(self.cg_klines_limit or 0)
+        if limit > 0 and len(rows) > limit:
+            return rows[-limit:]
+        return rows
+
     async def _coinugget_style_signals(
-        self, exchange, symbols: List[str]
+        self,
+        exchange,
+        symbols: List[str],
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
     ) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         scan = symbols[: self.cg_max_symbols]
         for sym in scan:
-            klines = await exchange.get_klines(sym, interval=self.cg_interval, limit=self.cg_klines_limit)
+            klines = self._bars_for_sentiment(sym, klines_15m)
+            if klines is None:
+                klines = await exchange.get_klines(
+                    sym, interval=self.cg_interval, limit=self.cg_klines_limit
+                )
             if not klines:
                 continue
             df = klines_to_df(klines)
@@ -92,7 +115,13 @@ class ExternalSentimentAgent:
             )
         return out
 
-    async def collect(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
+    async def collect(
+        self,
+        exchange,
+        symbols: List[str],
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
+    ) -> List[UnifiedSignal]:
         if not self.enabled:
             return []
         now = time.time()
@@ -102,7 +131,11 @@ class ExternalSentimentAgent:
         out: List[UnifiedSignal] = []
         if self.cg_enabled:
             try:
-                out.extend(await self._coinugget_style_signals(exchange, symbols))
+                out.extend(
+                    await self._coinugget_style_signals(
+                        exchange, symbols, klines_15m=klines_15m
+                    )
+                )
             except Exception as exc:
                 logger.warning("coinugget_style: %s", exc)
 

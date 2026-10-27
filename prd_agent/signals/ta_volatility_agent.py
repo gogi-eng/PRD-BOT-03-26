@@ -3,7 +3,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from prd_agent.analysis.volatility_ta import VolatilityTAEngine
 from prd_agent.signals.types import UnifiedSignal
@@ -20,8 +20,8 @@ class TAVolatilityAgent:
     def last_volatile_symbols(self) -> List[str]:
         return list(self._last_scan)
 
-    async def collect(self, exchange) -> List[UnifiedSignal]:
-        results, volatile = await self.engine.collect_signals(exchange)
+    async def collect(self, exchange, *, klines_15m: Optional[Dict[str, list]] = None) -> List[UnifiedSignal]:
+        results, volatile = await self.engine.collect_signals(exchange, klines_15m=klines_15m)
         self._last_scan = [v.symbol for v in volatile]
         out: List[UnifiedSignal] = []
         for r in results:

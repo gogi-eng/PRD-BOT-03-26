@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from analysis.funding_filter import oi_contracts, ticker_derivatives
 from telegram_agent.world_feed import fetch_rss_items
 
 
@@ -26,6 +27,10 @@ class WhaleNewsAgent:
         self.rss_urls: List[str] = list(wn.get("rss_urls", []))
         self.liq_usd_threshold = float(wn.get("liquidation_usd_threshold", 500_000))
         self.oi_change_pct = float(wn.get("oi_change_pct_threshold", 3.0))
+        guard = cfg.get("derivatives_entry_guard", {})
+        if not isinstance(guard, dict):
+            guard = {}
+        self.extreme_funding = float(guard.get("extreme_funding_threshold", 0.001))
         self.bull_kw = [k.lower() for k in wn.get("news_keywords_bull", [])]
         self.bear_kw = [k.lower() for k in wn.get("news_keywords_bear", [])]
         self._seen_news: set[str] = set()
@@ -73,10 +78,25 @@ class WhaleNewsAgent:
             )
         return out
 
+    async def _ticker_map(self, exchange) -> Dict[str, Dict[str, Any]]:
+        if not hasattr(exchange, "get_tickers"):
+            return {}
+        try:
+            rows = await exchange.get_tickers()
+        except Exception:
+            return {}
+        out: Dict[str, Dict[str, Any]] = {}
+        for row in rows or []:
+            if isinstance(row, dict):
+                sym = str(row.get("symbol", "")).upper()
+                if sym:
+                    out[sym] = row
+        return out
+
     async def scan_whales(self, exchange, symbols: List[str]) -> List[MacroSignal]:
         out: List[MacroSignal] = []
-        if hasattr(exchange, "set_liquidation_symbols"):
-            await exchange.set_liquidation_symbols(symbols)
+        # Подписку allLiquidation держит оркестратор. Короткий список здесь рвал сокет.
+        tickers = await self._ticker_map(exchange)
         for sym in symbols:
             liqs = await exchange.get_recent_liquidations(sym, limit=30)
             buy_liq = 0.0
@@ -111,11 +131,18 @@ class WhaleNewsAgent:
                 )
             )
 
+            row = tickers.get(str(sym).upper())
+            deriv = ticker_derivatives(row) if row else None
+            # Историю OI не качаем на каждый символ: только крайний funding в уже скачанном тикере.
+            if deriv is None or abs(float(deriv["funding_rate"])) < self.extreme_funding:
+                continue
+            if not hasattr(exchange, "get_open_interest_history"):
+                continue
             oi_hist = await exchange.get_open_interest_history(sym, interval="1h", limit=5)
             if len(oi_hist) >= 2:
                 try:
-                    o0 = float(oi_hist[0].get("openInterest", 0))
-                    o1 = float(oi_hist[-1].get("openInterest", 0))
+                    o0 = oi_contracts(oi_hist[0])
+                    o1 = oi_contracts(oi_hist[-1])
                     if o1 > 0:
                         chg = (o0 - o1) / o1 * 100
                         if abs(chg) >= self.oi_change_pct:

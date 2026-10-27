@@ -30,6 +30,39 @@ def test_reset_daily_loss_clears_pnl_and_block():
     assert g._manual_daily_loss_reset_active()
 
 
+def test_manual_reset_clears_symbol_loss_lock(tmp_path, monkeypatch):
+    """Кнопка сброса дневного лимита снимает и замок убытков по монете."""
+    monkeypatch.chdir(tmp_path)
+    g = RiskGuard(
+        {
+            "timezone_offset": 3,
+            "risk": {
+                "max_daily_loss_usdt": 100,
+                "max_symbol_losses_per_day": 2,
+                "daily_loss_blocks_until_next_day": True,
+            },
+        },
+        initial_balance=100.0,
+    )
+    now_ms = str(int(__import__("time").time() * 1000))
+    rows = [
+        {"symbol": "JCTUSDT", "closedPnl": "-1", "updatedTime": now_ms},
+        {"symbol": "JCTUSDT", "closedPnl": "-1", "updatedTime": now_ms},
+    ]
+    g.reconcile_from_closed_rows(rows, balance=100.0)
+    blocked, reason = g.can_trade("JCTUSDT")
+    assert not blocked
+    assert "JCTUSDT" in reason
+
+    msg = g.reset_daily_loss_counter()
+    assert "сброшен" in msg.lower()
+    ok, why = g.can_trade("JCTUSDT")
+    assert ok, why
+    g.reconcile_from_closed_rows(rows, balance=100.0)
+    ok_after, why_after = g.can_trade("JCTUSDT")
+    assert ok_after, why_after
+
+
 def test_manual_reset_blocks_reconcile_until_next_trading_day(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     g = RiskGuard(
