@@ -1415,11 +1415,28 @@ class TelegramSignalAgent:
         return {"seen": []}
 
     def _save_state(self) -> None:
-        seen = list(dict.fromkeys(self.state.get("seen", [])))[-5000:]
-        self.state["seen"] = seen
-        self._cleanup_signal_fingerprints()
-        with open(self.state_path, "w", encoding="utf-8") as handle:
-            json.dump(self.state, handle, ensure_ascii=False, indent=2)
+        from prd_agent.ops.runtime_controls import PANEL_RTC_KEYS, _STATE_FILE_LOCK
+
+        with _STATE_FILE_LOCK:
+            seen = list(dict.fromkeys(self.state.get("seen", [])))[-5000:]
+            self.state["seen"] = seen
+            self._cleanup_signal_fingerprints()
+            if self.state_path.exists():
+                try:
+                    with open(self.state_path, "r", encoding="utf-8") as handle:
+                        disk_state = json.load(handle)
+                    if isinstance(disk_state, dict):
+                        disk_rtc = disk_state.get("agent_runtime_controls")
+                        if isinstance(disk_rtc, dict):
+                            cur_rtc = self.state.setdefault("agent_runtime_controls", {})
+                            if isinstance(cur_rtc, dict):
+                                for k in PANEL_RTC_KEYS:
+                                    if k in disk_rtc:
+                                        cur_rtc[k] = disk_rtc[k]
+                except Exception:
+                    pass
+            with open(self.state_path, "w", encoding="utf-8") as handle:
+                json.dump(self.state, handle, ensure_ascii=False, indent=2)
 
     def _runtime_controls_dict(self) -> dict[str, Any]:
         node = self.state.get("agent_runtime_controls")

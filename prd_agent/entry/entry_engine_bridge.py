@@ -255,10 +255,13 @@ def should_apply_zone_entry(sig: UnifiedSignal, cfg: Dict[str, Any]) -> bool:
     if is_pump_dump_signal(sig) or is_agent_world_signal(sig):
         return False
     src = str(sig.source or "").lower()
+    raw = sig.raw if isinstance(sig.raw, dict) else {}
+    primary_src = str(raw.get("primary_source") or "").lower()
     skip_with_levels = ze.get("skip_sources_with_levels") or ["telegram", "tg", "mirror_pump_dump"]
     if isinstance(skip_with_levels, list):
         for tag in skip_with_levels:
-            if str(tag).lower() in src and float(sig.entry or 0) > 0:
+            tag_l = str(tag).lower()
+            if (tag_l in src or (primary_src and tag_l in primary_src)) and float(sig.entry or 0) > 0:
                 return False
     return src in _sources_for_zone_entry(cfg)
 

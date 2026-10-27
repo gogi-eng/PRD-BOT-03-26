@@ -86,8 +86,9 @@ def test_preferred_hour_stays_open_when_learned(tmp_path: Path) -> None:
     journal = data_dir / "trades" / "trade_history.jsonl"
     journal.parent.mkdir(parents=True)
     rows = []
+    base_day = (datetime.now(timezone.utc) - timedelta(days=1)).date()
     for hour, symbol in ((9, "ADAUSDT"), (12, "DOTUSDT")):
-        ts = datetime(2026, 10, 2, hour, 15, tzinfo=timezone.utc).isoformat()
+        ts = datetime(base_day.year, base_day.month, base_day.day, hour, 15, tzinfo=timezone.utc).isoformat()
         for _ in range(4):
             rows.append(
                 json.dumps(
