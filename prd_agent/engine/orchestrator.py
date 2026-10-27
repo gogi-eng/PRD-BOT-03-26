@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import yaml
 
+from analysis.orderflow_analyzer import ws_book_entry_block
 from prd_agent.analysis.bybit_monitor import BybitMonitorAgent
 from prd_agent.analysis.entry_snapshot import build_entry_snapshot, build_light_signal_snapshot
 from prd_agent.analysis.wallet_flow_agent import WalletFlowAgent
@@ -572,9 +573,7 @@ class UnifiedOrchestrator:
         self.symbols = await self.symbol_scanner.scan(self.exchange)
         self._last_symbol_scan_at = now
 
-    async def _sync_orderbook_ws(self, positions: List[Dict]) -> None:
-        if not hasattr(self.exchange, "set_orderbook_symbols"):
-            return
+    def _ws_watch_symbols(self, positions: List[Dict]) -> List[str]:
         open_syms = [
             str(p.get("symbol", "") or "").upper()
             for p in positions
@@ -587,7 +586,28 @@ class UnifiedOrchestrator:
             if s and s not in seen:
                 seen.add(s)
                 merged.append(s)
-        await self.exchange.set_orderbook_symbols(merged[:30])
+        return merged[:30]
+
+    async def _sync_orderbook_ws(self, positions: List[Dict]) -> None:
+        if not hasattr(self.exchange, "set_orderbook_symbols"):
+            return
+        await self.exchange.set_orderbook_symbols(self._ws_watch_symbols(positions))
+
+    async def _sync_liquidation_ws(self, positions: List[Dict]) -> None:
+        """Один список allLiquidation: монеты цикла и открытые позиции."""
+        if not hasattr(self.exchange, "set_liquidation_symbols"):
+            return
+        await self.exchange.set_liquidation_symbols(self._ws_watch_symbols(positions))
+
+    def _attach_scanner_rest_journal(self) -> None:
+        """Учёт REST сканера в общем журнале. Сессию оркестратора сканер не закрывает."""
+        agent = self._get_scanner_agent()
+        if agent is None:
+            return
+        attach = getattr(agent, "attach_rest_journal", None)
+        journal = getattr(self.exchange, "api_journal", None)
+        if callable(attach) and journal is not None:
+            attach(journal)
 
     async def start(self) -> None:
         if self._running:
@@ -745,6 +765,7 @@ class UnifiedOrchestrator:
         await asyncio.sleep(15)
         while self._running:
             try:
+                self._attach_scanner_rest_journal()
                 setups = await run_market_scan_once(
                     self.root, self.cfg, agent=self._get_scanner_agent()
                 )
@@ -761,6 +782,7 @@ class UnifiedOrchestrator:
         await asyncio.sleep(25)
         while self._running:
             try:
+                self._attach_scanner_rest_journal()
                 setups = await run_spike_scan_once(
                     self.root, self.cfg, agent=self._get_scanner_agent()
                 )
@@ -1226,6 +1248,7 @@ class UnifiedOrchestrator:
         await self._refresh_symbols_if_due()
         positions = await self.exchange.get_positions()
         await self._sync_orderbook_ws(positions)
+        await self._sync_liquidation_ws(positions)
         self.risk.open_positions_count = self._count_open_for_max_positions(positions)
         await self._monitor_positions(positions)
         self.trade_lifecycle.update_mark_prices(
@@ -1850,6 +1873,15 @@ class UnifiedOrchestrator:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            return
+
+        book_reason = ws_book_entry_block(self.exchange, sig.symbol, sig.side, self.cfg)
+        if book_reason:
+            logger.info("Skip %s %s: %s", sig.symbol, sig.side, book_reason)
+            self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, book_reason)
+            self.supervisor.note_signal_outcome(ledger_id, "skipped", book_reason)
+            if not self._is_silent_skip(book_reason):
+                await self.notifier.signal_skipped(sig.symbol, sig.side, book_reason)
             return
 
         qty, sl, tp, prep_err = await prepare_order(

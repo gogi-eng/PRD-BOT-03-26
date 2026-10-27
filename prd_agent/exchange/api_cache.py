@@ -24,6 +24,8 @@ class ExchangeApiCache:
     ):
         self.enabled = bool(enabled)
         self._journal = journal
+        # False, когда сам клиент пишет каждый REST в журнал: иначе цена/свечи считаются дважды.
+        self.count_misses = True
         self.price_ttl_sec = max(1.0, float(price_ttl_sec))
         self.klines_ttl_sec = max(5.0, float(klines_ttl_sec))
         self.tickers_ttl_sec = max(5.0, float(tickers_ttl_sec))
@@ -32,8 +34,27 @@ class ExchangeApiCache:
         self._lock = asyncio.Lock()
 
     def _record(self, endpoint: str, *, cached: bool) -> None:
+        if not cached and not self.count_misses:
+            return
         if self._journal is not None:
             self._journal.record(endpoint, cached=cached)
+
+    def peek(self, key: str, ttl_sec: float) -> Optional[Any]:
+        """Значение из кеша, если оно моложе TTL. Без HTTP."""
+        if not self.enabled:
+            return None
+        hit = self._entries.get(key)
+        if not hit:
+            return None
+        if (time.monotonic() - hit[0]) >= float(ttl_sec):
+            return None
+        return hit[1]
+
+    def peek_tickers(self) -> Optional[list]:
+        rows = self.peek("tickers:all", self.tickers_ttl_sec)
+        if rows is None:
+            return None
+        return list(rows)
 
     async def _cached(
         self,

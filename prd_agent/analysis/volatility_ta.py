@@ -245,15 +245,28 @@ class VolatilityTAEngine:
         )
 
     async def analyze_symbol(
-        self, exchange, vol: VolatileSymbol
+        self,
+        exchange,
+        vol: VolatileSymbol,
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
     ) -> Optional[TASignalResult]:
-        klines = await exchange.get_klines(
-            vol.symbol, interval=self.interval, limit=self.kline_limit
-        )
-        df = klines_to_df(klines)
+        rows = None
+        sym = str(vol.symbol or "").upper()
+        if str(self.interval) == "15" and klines_15m is not None and sym in klines_15m:
+            rows = list(klines_15m.get(sym) or [])
+            if self.kline_limit > 0 and len(rows) > self.kline_limit:
+                rows = rows[-self.kline_limit :]
+        if rows is None:
+            rows = await exchange.get_klines(
+                vol.symbol, interval=self.interval, limit=self.kline_limit
+            )
+        df = klines_to_df(rows)
         return self.analyze_df(vol.symbol, df, change_24h_pct=vol.change_24h_pct)
 
-    async def collect_signals(self, exchange) -> Tuple[List[TASignalResult], List[VolatileSymbol]]:
+    async def collect_signals(
+        self, exchange, *, klines_15m: Optional[Dict[str, list]] = None
+    ) -> Tuple[List[TASignalResult], List[VolatileSymbol]]:
         if not self.enabled:
             return [], []
         volatile = await self.scan_volatile(exchange)
@@ -262,7 +275,7 @@ class VolatilityTAEngine:
         async def _one(vol: VolatileSymbol) -> Optional[TASignalResult]:
             async with sem:
                 try:
-                    return await self.analyze_symbol(exchange, vol)
+                    return await self.analyze_symbol(exchange, vol, klines_15m=klines_15m)
                 except Exception as exc:
                     logger.warning("TA %s: %s", vol.symbol, exc)
                     return None

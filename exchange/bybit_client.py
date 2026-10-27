@@ -7,11 +7,15 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 import aiohttp
+
+from analysis.funding_filter import ticker_derivatives
 
 try:
     from exchange.circuit_breaker import ApiCircuitBreaker
@@ -19,6 +23,64 @@ except ImportError:
     from circuit_breaker import ApiCircuitBreaker  # type: ignore
 
 logger = logging.getLogger("prd_agent.bybit")
+
+_LIQUIDATION_LOG_MAX_BYTES = 8 * 1024 * 1024
+
+
+class _RateGate:
+    """Общая пауза между REST. Сессия aiohttp у каждого клиента своя."""
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.last_public = 0.0
+        self.last_private = 0.0
+
+
+_SHARED_RATE_GATE = _RateGate()
+
+
+def limit_reset_sleep_sec(
+    headers: Any,
+    *,
+    ret_code: int,
+    now_ms: int,
+    fallback_sec: float,
+    max_sec: float = 120.0,
+) -> float:
+    """На retCode 10006 спать до X-Bapi-Limit-Reset-Timestamp, как в pybit 5.15."""
+    if int(ret_code) != 10006:
+        return float(fallback_sec)
+    raw = None
+    getter = getattr(headers, "get", None)
+    if callable(getter):
+        raw = getter("X-Bapi-Limit-Reset-Timestamp")
+        if raw in (None, ""):
+            raw = getter("x-bapi-limit-reset-timestamp")
+    if raw in (None, ""):
+        return float(fallback_sec)
+    try:
+        reset_ms = int(float(raw))
+    except (TypeError, ValueError):
+        return float(fallback_sec)
+    delay = (reset_ms - int(now_ms)) / 1000.0
+    if delay <= 0:
+        return float(fallback_sec)
+    return min(delay, float(max_sec))
+
+
+def merge_liquidation_symbols(current: Tuple[str, ...], incoming: List[str], *, cap: int = 30) -> Tuple[str, ...]:
+    """Старые символы остаются. Новый список только добавляет, пока не набран потолок."""
+    merged: List[str] = []
+    seen = set()
+    for raw in list(current) + list(incoming or []):
+        sym = str(raw or "").upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        merged.append(sym)
+        if len(merged) >= cap:
+            break
+    return tuple(sorted(merged))
 
 
 def _apply_orderbook_levels(side_map: Dict[str, str], updates: List[List[str]]) -> None:
@@ -50,7 +112,17 @@ class BybitClient:
     WS_PUBLIC_URL = "wss://stream.bybit.com/v5/public/linear"
     WS_TESTNET_URL = "wss://stream-testnet.bybit.com/v5/public/linear"
 
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = False, category: str = "linear"):
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        testnet: bool = False,
+        category: str = "linear",
+        *,
+        share_rate_gate: bool = True,
+        liquidation_log_path: Optional[str] = None,
+        liquidation_log_max_bytes: int = _LIQUIDATION_LOG_MAX_BYTES,
+    ):
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = self.TESTNET_URL if testnet else self.BASE_URL
@@ -61,15 +133,21 @@ class BybitClient:
         self._liq_task: Optional[asyncio.Task] = None
         self._liq_symbols: Tuple[str, ...] = ()
         self._liquidation_cache: Dict[str, List[Dict]] = {}
+        self._liquidation_log_path = Path(liquidation_log_path) if liquidation_log_path else Path("data") / "liquidations.jsonl"
+        self._liquidation_log_max_bytes = max(1, int(liquidation_log_max_bytes))
+        self._liquidation_log_lock = threading.Lock()
+        self._share_rate_gate = bool(share_rate_gate)
+        self._own_rate_gate = _RateGate()
+        self.api_journal: Any = None
+        self._tickers_snapshot: List[Dict] = []
+        self._tickers_snapshot_at = 0.0
+        self.tickers_ttl_sec = 30.0
         self._ob_task: Optional[asyncio.Task] = None
         self._ob_symbols: Tuple[str, ...] = ()
         self._ob_depth: int = 50
         self._ob_enabled: bool = True
         self._ob_max_age_sec: float = 5.0
         self._ob_books: Dict[str, Dict[str, Any]] = {}
-        self._request_lock = asyncio.Lock()
-        self._last_public_request_at = 0.0
-        self._last_private_request_at = 0.0
         self.public_min_interval = 0.22
         self.private_min_interval = 0.35
         self.last_rate_limit_at_monotonic = 0.0
@@ -77,19 +155,41 @@ class BybitClient:
         self._retryable_http = frozenset({429, 500, 502, 503, 504})
         self._retryable_ret = frozenset({10006, 10016, 10018})
 
+    def _rate_gate(self) -> _RateGate:
+        if self._share_rate_gate:
+            return _SHARED_RATE_GATE
+        return self._own_rate_gate
+
     async def _respect_rate_limit(self, is_private: bool):
-        async with self._request_lock:
+        gate = self._rate_gate()
+        async with gate.lock:
             now = time.monotonic()
             min_interval = self.private_min_interval if is_private else self.public_min_interval
-            last_at = self._last_private_request_at if is_private else self._last_public_request_at
+            last_at = gate.last_private if is_private else gate.last_public
             wait_for = min_interval - (now - last_at)
             if wait_for > 0:
                 await asyncio.sleep(wait_for)
             updated = time.monotonic()
             if is_private:
-                self._last_private_request_at = updated
+                gate.last_private = updated
             else:
-                self._last_public_request_at = updated
+                gate.last_public = updated
+
+    async def _backoff_shared(self, seconds: float) -> None:
+        """Отодвигает общий лимитер, чтобы второй клиент не долбил API в ту же паузу."""
+        delay = max(0.0, float(seconds))
+        gate = self._rate_gate()
+        async with gate.lock:
+            horizon = time.monotonic() + delay
+            gate.last_public = max(gate.last_public, horizon)
+            gate.last_private = max(gate.last_private, horizon)
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    def _record_rest(self, endpoint: str) -> None:
+        journal = self.api_journal
+        if journal is not None and hasattr(journal, "record"):
+            journal.record(str(endpoint or "unknown"), cached=False)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -125,8 +225,9 @@ class BybitClient:
         self._liq_symbols = ()
 
     async def set_liquidation_symbols(self, symbols: List[str]):
-        normalized = tuple(sorted(set(symbols[:30])))
-        if normalized == self._liq_symbols:
+        """Добавляет символы к уже открытой подписке. Короткий список сокет не рвёт."""
+        normalized = merge_liquidation_symbols(self._liq_symbols, list(symbols or []))
+        if set(normalized) <= set(self._liq_symbols):
             return
         await self.stop_liquidation_stream()
         if not normalized:
@@ -159,16 +260,56 @@ class BybitClient:
         symbol = payload.get("s")
         if not symbol:
             return
+        price = float(payload.get("p", 0.0) or 0.0)
+        size = float(payload.get("v", 0.0) or 0.0)
+        side = payload.get("S", "")
+        ts = int(payload.get("T", int(time.time() * 1000)) or 0)
         event = {
-            "price": float(payload.get("p", 0.0)),
-            "size": float(payload.get("v", 0.0)),
-            "side": payload.get("S", ""),
-            "timestamp": int(payload.get("T", int(time.time() * 1000))),
+            "price": price,
+            "size": size,
+            "side": side,
+            "timestamp": ts,
         }
         bucket = self._liquidation_cache.setdefault(symbol, [])
         bucket.append(event)
         if len(bucket) > 400:
             del bucket[:-400]
+        # Журнал только для разбора. Из этой строки ордер не ставится.
+        self._append_liquidation_journal(
+            {
+                "symbol": str(symbol),
+                "S": side,
+                "v": size,
+                "p": price,
+                "T": ts,
+                "notional": price * size,
+            }
+        )
+
+    def _rotate_liquidation_log(self, path: Path) -> None:
+        try:
+            if not path.is_file():
+                return
+            if path.stat().st_size < self._liquidation_log_max_bytes:
+                return
+            backup = path.with_name(path.name + ".1")
+            if backup.exists():
+                backup.unlink()
+            path.replace(backup)
+        except OSError as exc:
+            logger.warning("liquidation journal rotate: %s", exc)
+
+    def _append_liquidation_journal(self, row: Dict[str, Any]) -> None:
+        path = self._liquidation_log_path
+        try:
+            line = json.dumps(row, ensure_ascii=False) + "\n"
+            with self._liquidation_log_lock:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self._rotate_liquidation_log(path)
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(line)
+        except OSError as exc:
+            logger.warning("liquidation journal: %s", exc)
 
     def get_liquidation_events(self, symbol: str, max_age_sec: int = 3600, limit: int = 250) -> List[Dict]:
         now_ms = int(time.time() * 1000)
@@ -246,6 +387,10 @@ class BybitClient:
             "source": "ws",
         }
 
+    def peek_orderbook(self, symbol: str, limit: int = 50) -> Optional[Dict[str, Any]]:
+        """Только свежая книга WebSocket. Если её нет — None, без REST."""
+        return self._orderbook_from_cache(str(symbol or "").upper(), limit)
+
     async def _orderbook_worker(self, symbols: List[str]):
         depth = self._ob_depth
         args = [f"orderbook.{depth}.{symbol}" for symbol in symbols]
@@ -291,6 +436,19 @@ class BybitClient:
             text = await response.text()
             return {"_error": "Non-JSON", "_raw": text[:200]}
 
+    def _note_exchange_response(self, endpoint: str, response: Any) -> Optional[str]:
+        self._record_rest(endpoint)
+        headers = getattr(response, "headers", None)
+        getter = getattr(headers, "get", None)
+        if not callable(getter):
+            return None
+        raw = getter("X-Bapi-Limit-Reset-Timestamp")
+        if raw in (None, ""):
+            raw = getter("x-bapi-limit-reset-timestamp")
+        if raw in (None, ""):
+            return None
+        return str(raw)
+
     async def _request(self, method: str, endpoint: str, params: Optional[Dict] = None, private: bool = False, signed: bool = False, retries: int = 4, return_full: bool = False) -> Optional[Dict]:
         is_private = private or signed
         if self.circuit_breaker.is_open():
@@ -304,6 +462,7 @@ class BybitClient:
         url = f"{self.base_url}{endpoint}"
 
         for attempt in range(retries):
+            reset_header: Optional[str] = None
             try:
                 await self._respect_rate_limit(is_private)
                 if method == "GET":
@@ -318,6 +477,7 @@ class BybitClient:
                     async with session.get(
                         full_url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)
                     ) as response:
+                        reset_header = self._note_exchange_response(endpoint, response)
                         if response.status in self._retryable_http and attempt < retries - 1:
                             self.circuit_breaker.record_failure()
                             wait = 2 ** (attempt + 1)
@@ -334,6 +494,7 @@ class BybitClient:
                     async with session.post(
                         url, headers=headers, data=body, timeout=aiohttp.ClientTimeout(total=20)
                     ) as response:
+                        reset_header = self._note_exchange_response(endpoint, response)
                         if response.status in self._retryable_http and attempt < retries - 1:
                             self.circuit_breaker.record_failure()
                             wait = 2 ** (attempt + 1)
@@ -348,6 +509,21 @@ class BybitClient:
                 if data.get("_error") and "_code" not in data:
                     self.circuit_breaker.record_failure()
                     return data
+
+                ret_code_early = data.get("retCode")
+                if ret_code_early == 10006 and attempt < retries - 1:
+                    self.circuit_breaker.record_failure()
+                    self.last_rate_limit_at_monotonic = time.monotonic()
+                    fallback = float(2 ** (attempt + 1))
+                    wait = limit_reset_sleep_sec(
+                        {"X-Bapi-Limit-Reset-Timestamp": reset_header} if reset_header else {},
+                        ret_code=10006,
+                        now_ms=int(time.time() * 1000),
+                        fallback_sec=fallback,
+                    )
+                    print(f"[BYBIT] retCode 10006, retry in {wait}s ({attempt + 1}/{retries})")
+                    await self._backoff_shared(wait)
+                    continue
 
                 if return_full:
                     if data.get("retCode") == 0:
@@ -367,9 +543,15 @@ class BybitClient:
                 if ret_code in self._retryable_ret and attempt < retries - 1:
                     self.circuit_breaker.record_failure()
                     self.last_rate_limit_at_monotonic = time.monotonic()
-                    wait = 2 ** (attempt + 1)
+                    fallback = float(2 ** (attempt + 1))
+                    wait = limit_reset_sleep_sec(
+                        {"X-Bapi-Limit-Reset-Timestamp": reset_header} if reset_header else {},
+                        ret_code=int(ret_code),
+                        now_ms=int(time.time() * 1000),
+                        fallback_sec=fallback,
+                    )
                     print(f"[BYBIT] retCode {ret_code}, retry in {wait}s ({attempt + 1}/{retries})")
-                    await asyncio.sleep(wait)
+                    await self._backoff_shared(wait)
                     continue
                 self.circuit_breaker.record_failure()
                 return {"_error": error_msg, "_code": ret_code}
@@ -406,10 +588,24 @@ class BybitClient:
             return klines
         return []
 
+    def fresh_tickers(self) -> Optional[List[Dict]]:
+        """Последний полный список тикеров, если он моложе TTL. Без HTTP."""
+        if not self._tickers_snapshot:
+            return None
+        age = time.monotonic() - self._tickers_snapshot_at
+        if age > float(self.tickers_ttl_sec):
+            return None
+        return list(self._tickers_snapshot)
+
+    def _remember_tickers(self, rows: List[Dict]) -> None:
+        self._tickers_snapshot = list(rows)
+        self._tickers_snapshot_at = time.monotonic()
+
     async def get_tickers(self) -> List[Dict]:
         result = await self._request("GET", "/v5/market/tickers", {"category": self.category})
         if result and result.get("list"):
-            return result["list"]
+            self._remember_tickers(result["list"])
+            return list(self._tickers_snapshot)
         return []
 
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
@@ -936,17 +1132,24 @@ class BybitClient:
         next_cursor = str(result.get("nextPageCursor") or "")
         return rows, next_cursor
 
+    def _funding_from_rows(self, symbol: str, rows: List[Dict]) -> Optional[Dict]:
+        sym = str(symbol or "").upper()
+        for row in rows:
+            if str(row.get("symbol", "")).upper() == sym:
+                return ticker_derivatives(row)
+        return None
+
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
-        """Получить текущий funding rate из тикера."""
+        """Funding и OI одной стороны. Свежий get_tickers() не дёргает HTTP ещё раз."""
+        cached = self.fresh_tickers()
+        if cached:
+            found = self._funding_from_rows(symbol, cached)
+            if found is not None:
+                return found
         result = await self._request("GET", "/v5/market/tickers", {"category": self.category, "symbol": symbol})
         if result and result.get("list"):
             ticker = result["list"][0]
-            return {
-                "funding_rate": float(ticker.get("fundingRate", 0)),
-                "open_interest": float(ticker.get("openInterest", 0)),
-                "bid1": float(ticker.get("bid1Price", 0) or 0),
-                "ask1": float(ticker.get("ask1Price", 0) or 0),
-            }
+            return ticker_derivatives(ticker)
         return None
 
     async def get_open_interest_history(self, symbol: str, interval: str = "1h", limit: int = 25) -> List[Dict]:

@@ -133,8 +133,8 @@ def test_fast_entry_block_reason_uses_exchange_rows(tmp_path, monkeypatch):
     assert "ERAUSDT" in reason
 
 
-def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
-    """Убытки по монете из прошлой сессии не блокируют монету, но дневной лимит убытка держится весь день."""
+def test_symbol_losses_hold_across_session_inside_trading_day(tmp_path, monkeypatch):
+    """Два убытка по монете утром держат замок и после смены сессии, до конца торгового дня."""
     monkeypatch.chdir(tmp_path)
     now = datetime.now(timezone.utc)
     window = SessionWindow(
@@ -148,7 +148,7 @@ def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
         lambda *_args, **_kwargs: window,
     )
     g = RiskGuard(_cfg(), initial_balance=80.0)
-    # 2 убытка по JCTUSDT были в прошлой сессии (-$4 суммарно < дневного лимита -$10)
+    # 2 убытка по JCTUSDT были в прошлой сессии того же дня (-$4 < дневного лимита -$10)
     g.reconcile_from_closed_rows(
         [
             _row("JCTUSDT", -2.0, age_sec=40 * 60),
@@ -157,7 +157,9 @@ def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
         balance=80.0,
     )
     ok, reason = g.fast_path_block("JCTUSDT")
-    assert ok, reason
+    assert not ok
+    assert "JCTUSDT" in reason
+    assert "торговый день" in reason
     ok_any, reason_any = g.can_trade("SOLUSDT")
     assert ok_any, reason_any
 

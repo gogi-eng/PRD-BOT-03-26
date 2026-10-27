@@ -373,8 +373,8 @@ async def run_liquidity_alert_loop(
                 if sym and sym not in seen:
                     seen.add(sym)
                     symbols.append(sym)
-            if symbols and hasattr(exchange, "set_liquidation_symbols"):
-                await exchange.set_liquidation_symbols(symbols)
+            # Список allLiquidation собирает оркестратор. Здесь свой короткий список
+            # закрывал бы сокет и обнулял ленту.
             books: Dict[str, Mapping[str, Any]] = {}
             events: List[Dict[str, Any]] = []
             for sym in symbols:

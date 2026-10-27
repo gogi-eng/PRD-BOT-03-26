@@ -165,6 +165,7 @@ TG_MARKET_SCANNER_LEARNING_FOOTER = (
 
 from engine.execution_engine import ExecutionEngine  # noqa: E402
 from exchange.bybit_client import BybitClient  # noqa: E402
+from prd_agent.exchange.api_stats import ApiCallFanout, ApiCallJournal  # noqa: E402
 from telegram_agent.channel_auto_block import (  # noqa: E402
     STATE_BLOCKS,
     from_agent_cfg as channel_auto_block_from_cfg,
@@ -2225,6 +2226,13 @@ class TelegramSignalAgent:
         except Exception as exc:
             LOG.warning("TimesFM resolve_pending: %s", exc)
 
+    def attach_rest_journal(self, journal: Any) -> None:
+        """Общий учёт REST с оркестратором. HTTP-сессию оркестратора не берём."""
+        self._shared_rest_journal = journal
+        fanout = getattr(self, "_scanner_rest_fanout", None)
+        if fanout is not None:
+            fanout.add(journal)
+
     async def _ensure_execution(self) -> None:
         if self.execution is not None:
             self._sync_execution_dry_run()
@@ -2239,6 +2247,13 @@ class TelegramSignalAgent:
             testnet=bool(get_cfg(self.cfg, "bybit", "testnet", False)),
             category=str(get_cfg(self.cfg, "bybit", "category", "linear")),
         )
+        # Свой клиент и своя сессия: close() сканера не закрывает сессию оркестратора.
+        # Пауза между REST общая (share_rate_gate), учёт — в журнал прохода и, если
+        # оркестратор его передал, в общий ApiCallJournal.
+        self._scanner_rest_journal = getattr(self, "_scanner_rest_journal", None) or ApiCallJournal()
+        fanout = ApiCallFanout(self._scanner_rest_journal, getattr(self, "_shared_rest_journal", None))
+        self._scanner_rest_fanout = fanout
+        self.bybit.api_journal = fanout
         # Без хеджа: one-way на субаккаунте (иначе 10001 position idx not match).
         if bool(get_cfg(self.cfg, "bybit", "force_one_way_mode", True)):
             try:

@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -114,6 +115,58 @@ class SignalRouter:
         with self._queue_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(sig.to_dict(), ensure_ascii=False) + "\n")
 
+    def _sentiment_wants_fresh_klines(self) -> bool:
+        agent = self._external_sentiment
+        if agent is None or not agent.enabled or not agent.cg_enabled:
+            return False
+        cache = agent._cache
+        if cache is not None and (time.time() - cache.ts) < agent.cache_sec:
+            return False
+        return True
+
+    def _zone_klines_needed(self) -> bool:
+        """4h качаем отдельно, только если зона реально включена для живого источника."""
+        probes: List[str] = []
+        if self._multi_agent is not None and bool(
+            (self.cfg.get("signals") or {}).get("own_agents_enabled", True)
+        ):
+            probes.append("own_multi_agent")
+        if self._ta_vol is not None:
+            probes.append("ta_volatility")
+        if self._external_sentiment is not None:
+            probes.append("coinugget_style")
+        for src in probes:
+            if should_apply_zone_entry(
+                UnifiedSignal(symbol="BTCUSDT", side="Buy", confidence=0.5, source=src),
+                self.cfg,
+            ):
+                return True
+        return False
+
+    async def _prefetch_interval(
+        self, exchange, symbols: List[str], interval: str, limit: int
+    ) -> Dict[str, list]:
+        uniq: List[str] = []
+        seen = set()
+        for raw in symbols:
+            sym = str(raw or "").upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                uniq.append(sym)
+
+        async def _one(sym: str) -> tuple[str, list]:
+            try:
+                rows = await exchange.get_klines(sym, interval=interval, limit=limit)
+                return sym, list(rows or [])
+            except Exception as exc:
+                logger.warning("prefetch klines %s %s: %s", sym, interval, exc)
+                return sym, []
+
+        if not uniq:
+            return {}
+        pairs = await asyncio.gather(*[_one(sym) for sym in uniq])
+        return {sym: rows for sym, rows in pairs}
+
     async def _fetch_klines_pair(
         self, exchange, sym: str, interval: str = "15", htf_interval: str = "240"
     ) -> tuple[str, list, list]:
@@ -123,7 +176,14 @@ class SignalRouter:
         )
         return sym, list(klines or []), list(htf or [])
 
-    async def collect_own_signals(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
+    async def collect_own_signals(
+        self,
+        exchange,
+        symbols: List[str],
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
+        klines_4h: Optional[Dict[str, list]] = None,
+    ) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         if not self._multi_agent:
             return out
@@ -132,18 +192,42 @@ class SignalRouter:
             UnifiedSignal(symbol="", side="Buy", confidence=0.5, source="own_multi_agent"),
             self.cfg,
         )
-        # Параллельно: 15m для всех символов; 4h только если zone_entry активен глобально.
-        if zone_on:
-            pairs = await asyncio.gather(
-                *[self._fetch_klines_pair(exchange, sym) for sym in symbols],
-                return_exceptions=True,
+        pairs: List[Any] = []
+        if klines_15m is not None:
+            for sym in symbols:
+                sym_u = str(sym or "").upper()
+                if sym_u in klines_15m:
+                    klines = list(klines_15m.get(sym_u) or [])
+                else:
+                    try:
+                        klines = list(await exchange.get_klines(sym_u, interval="15", limit=120) or [])
+                    except Exception as exc:
+                        pairs.append(exc)
+                        continue
+                htf: list = []
+                if zone_on:
+                    if klines_4h is not None and sym_u in klines_4h:
+                        htf = list(klines_4h.get(sym_u) or [])
+                    else:
+                        try:
+                            htf = list(await exchange.get_klines(sym_u, interval="240", limit=120) or [])
+                        except Exception as exc:
+                            logger.warning("own 4h %s: %s", sym_u, exc)
+                            htf = []
+                pairs.append((sym_u, klines, htf))
+        elif zone_on:
+            # Параллельно: 15m для всех символов; 4h только если zone_entry активен глобально.
+            pairs = list(
+                await asyncio.gather(
+                    *[self._fetch_klines_pair(exchange, sym) for sym in symbols],
+                    return_exceptions=True,
+                )
             )
         else:
             raw = await asyncio.gather(
                 *[exchange.get_klines(sym, interval="15", limit=120) for sym in symbols],
                 return_exceptions=True,
             )
-            pairs = []
             for sym, klines in zip(symbols, raw):
                 if isinstance(klines, Exception):
                     pairs.append(klines)
@@ -237,20 +321,40 @@ class SignalRouter:
         return out
 
     async def _enrich_with_zone(
-        self, exchange, sig: UnifiedSignal
+        self,
+        exchange,
+        sig: UnifiedSignal,
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
+        klines_4h: Optional[Dict[str, list]] = None,
     ) -> UnifiedSignal:
         if not should_apply_zone_entry(sig, self.cfg):
             return sig
-        sym, klines, htf = await self._fetch_klines_pair(exchange, sig.symbol)
+        sym = str(sig.symbol or "").upper()
+        klines = list(klines_15m[sym]) if klines_15m is not None and sym in klines_15m else None
+        htf = list(klines_4h[sym]) if klines_4h is not None and sym in klines_4h else None
+        if klines is None and htf is None:
+            _sym, klines, htf = await self._fetch_klines_pair(exchange, sym)
+        elif klines is None:
+            klines = list(await exchange.get_klines(sym, interval="15", limit=120) or [])
+        elif htf is None:
+            htf = list(await exchange.get_klines(sym, interval="240", limit=120) or [])
         return await self._zone_entry.enrich_signal(
-            sig, exchange=exchange, klines=klines or [], htf_klines=htf
+            sig, exchange=exchange, klines=klines or [], htf_klines=htf or []
         )
 
-    async def collect_ta_volatility(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
+    async def collect_ta_volatility(
+        self,
+        exchange,
+        symbols: List[str],
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
+        klines_4h: Optional[Dict[str, list]] = None,
+    ) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         if not self._ta_vol:
             return out
-        candidates = await self._ta_vol.collect(exchange)
+        candidates = await self._ta_vol.collect(exchange, klines_15m=klines_15m)
         enrich_tasks = []
         kept: List[UnifiedSignal] = []
         for sig in candidates:
@@ -258,7 +362,11 @@ class SignalRouter:
                 continue
             kept.append(sig)
             if should_apply_zone_entry(sig, self.cfg):
-                enrich_tasks.append(self._enrich_with_zone(exchange, sig))
+                enrich_tasks.append(
+                    self._enrich_with_zone(
+                        exchange, sig, klines_15m=klines_15m, klines_4h=klines_4h
+                    )
+                )
             else:
                 enrich_tasks.append(None)
         enriched: List[UnifiedSignal] = []
@@ -284,11 +392,20 @@ class SignalRouter:
             self._persist(sig)
         return out
 
-    async def collect_external_sentiment(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
+    async def collect_external_sentiment(
+        self,
+        exchange,
+        symbols: List[str],
+        *,
+        klines_15m: Optional[Dict[str, list]] = None,
+        klines_4h: Optional[Dict[str, list]] = None,
+    ) -> List[UnifiedSignal]:
         out: List[UnifiedSignal] = []
         if not self._external_sentiment:
             return out
-        candidates = await self._external_sentiment.collect(exchange, symbols)
+        candidates = await self._external_sentiment.collect(
+            exchange, symbols, klines_15m=klines_15m
+        )
         enrich_tasks = []
         kept: List[UnifiedSignal] = []
         for sig in candidates:
@@ -296,7 +413,11 @@ class SignalRouter:
                 continue
             kept.append(sig)
             if should_apply_zone_entry(sig, self.cfg):
-                enrich_tasks.append(self._enrich_with_zone(exchange, sig))
+                enrich_tasks.append(
+                    self._enrich_with_zone(
+                        exchange, sig, klines_15m=klines_15m, klines_4h=klines_4h
+                    )
+                )
             else:
                 enrich_tasks.append(None)
         enriched: List[UnifiedSignal] = []
@@ -480,11 +601,48 @@ class SignalRouter:
 
     async def collect_all(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         tg = self.collect_telegram_signals()
+        symbols_u: List[str] = []
+        seen = set()
+        for raw in symbols:
+            sym = str(raw or "").upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                symbols_u.append(sym)
+        want_15 = (
+            self._multi_agent is not None
+            or self._ta_vol is not None
+            or self._sentiment_wants_fresh_klines()
+        )
+        klines_15m: Optional[Dict[str, list]] = None
+        klines_4h: Optional[Dict[str, list]] = None
+        if want_15:
+            prefetch_syms = list(symbols_u)
+            if self._ta_vol is not None:
+                try:
+                    volatile = await self._ta_vol.engine.scan_volatile(exchange)
+                except Exception as exc:
+                    logger.warning("collect_all ta universe: %s", exc)
+                    volatile = []
+                for vol in volatile:
+                    sym = str(getattr(vol, "symbol", "") or "").upper()
+                    if sym and sym not in seen:
+                        seen.add(sym)
+                        prefetch_syms.append(sym)
+            # Одна свеча 15m/120 на монету. Сентимент читает хвост 60 из этого набора.
+            klines_15m = await self._prefetch_interval(exchange, prefetch_syms, "15", 120)
+            if self._zone_klines_needed():
+                klines_4h = await self._prefetch_interval(exchange, prefetch_syms, "240", 120)
         gathered = await asyncio.gather(
-            self.collect_own_signals(exchange, symbols),
-            self.collect_ta_volatility(exchange, symbols),
-            self.collect_whale_news(exchange, symbols),
-            self.collect_external_sentiment(exchange, symbols),
+            self.collect_own_signals(
+                exchange, symbols_u, klines_15m=klines_15m, klines_4h=klines_4h
+            ),
+            self.collect_ta_volatility(
+                exchange, symbols_u, klines_15m=klines_15m, klines_4h=klines_4h
+            ),
+            self.collect_whale_news(exchange, symbols_u),
+            self.collect_external_sentiment(
+                exchange, symbols_u, klines_15m=klines_15m, klines_4h=klines_4h
+            ),
             return_exceptions=True,
         )
         own: List[UnifiedSignal] = []

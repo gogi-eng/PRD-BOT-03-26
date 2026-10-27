@@ -2,8 +2,11 @@
 """Orderflow analysis for orderbook and recent trades."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("analysis.orderflow")
 
 
 @dataclass
@@ -110,3 +113,125 @@ class OrderflowAnalyzer:
             dominant_side=dominant_side,
             normalized_imbalance=round(weighted_imb, 4),
         )
+
+
+def _level_price_size(level: Any) -> tuple[float, float]:
+    if not isinstance(level, (list, tuple)) or len(level) < 2:
+        return 0.0, 0.0
+    try:
+        return float(level[0]), float(level[1])
+    except (TypeError, ValueError):
+        return 0.0, 0.0
+
+
+def narrow_band_book(orderbook: Dict, *, band_bps: float = 20.0) -> Optional[Dict[str, float]]:
+    """USD бидов и асков в узкой полосе от середины и спред в процентах."""
+    if not isinstance(orderbook, dict):
+        return None
+    bids = list(orderbook.get("bids") or [])
+    asks = list(orderbook.get("asks") or [])
+    if not bids or not asks:
+        return None
+    best_bid, _bid_sz = _level_price_size(bids[0])
+    best_ask, _ask_sz = _level_price_size(asks[0])
+    if best_bid <= 0 or best_ask <= 0:
+        return None
+    mid = (best_bid + best_ask) / 2.0
+    if mid <= 0:
+        return None
+    spread_pct = (best_ask - best_bid) / mid * 100.0
+    band = max(0.0, float(band_bps)) / 10000.0
+    lo = mid * (1.0 - band)
+    hi = mid * (1.0 + band)
+
+    def _usd(levels: List) -> float:
+        total = 0.0
+        for level in levels:
+            price, size = _level_price_size(level)
+            if price <= 0 or size <= 0:
+                continue
+            if price < lo or price > hi:
+                continue
+            total += price * size
+        return total
+
+    bid_usd = _usd(bids)
+    ask_usd = _usd(asks)
+    denom = bid_usd + ask_usd
+    imbalance = (bid_usd - ask_usd) / denom if denom > 0 else 0.0
+    return {
+        "bid_usd": bid_usd,
+        "ask_usd": ask_usd,
+        "imbalance": imbalance,
+        "spread_pct": spread_pct,
+        "mid": mid,
+    }
+
+
+def book_gate_settings(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    raw: Dict[str, Any] = {}
+    if isinstance(cfg, dict):
+        block = cfg.get("orderbook_imbalance_gate")
+        if isinstance(block, dict):
+            raw = block
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "band_bps": float(raw.get("band_bps", 20.0)),
+        "skew_min": float(raw.get("skew_min", 0.55)),
+        "max_spread_pct": float(raw.get("max_spread_pct", 0.35)),
+    }
+
+
+def book_entry_block_reason(
+    orderbook: Optional[Dict],
+    side: str,
+    *,
+    band_bps: float = 20.0,
+    skew_min: float = 0.55,
+    max_spread_pct: float = 0.35,
+) -> str:
+    """Пустая строка — вход по стакану не режем.
+
+    Почти ровная книга проходит. Запрет только при явном перекосе против
+    стороны сигнала или при широком спреде. Пустой стакан — не запрет.
+    """
+    if not orderbook:
+        return ""
+    snap = narrow_band_book(orderbook, band_bps=band_bps)
+    if snap is None:
+        return ""
+    spread = float(snap["spread_pct"])
+    if max_spread_pct > 0 and spread > max_spread_pct + 1e-9:
+        return f"стакан: спред {spread:.3f}% шире {max_spread_pct:.3f}%"
+    imb = float(snap["imbalance"])
+    skew = abs(float(skew_min))
+    is_buy = str(side or "").upper() in ("BUY", "LONG")
+    if is_buy and imb <= -skew:
+        return f"стакан против Buy: перекос {imb:.2f} (порог -{skew:.2f})"
+    if (not is_buy) and imb >= skew:
+        return f"стакан против Sell: перекос {imb:.2f} (порог {skew:.2f})"
+    return ""
+
+
+def ws_book_entry_block(exchange: Any, symbol: str, side: str, cfg: Optional[Dict[str, Any]] = None) -> str:
+    """Запрет входа только по книге WebSocket. Без книги проверку пропускаем, REST не зовём."""
+    gate = book_gate_settings(cfg)
+    if not gate["enabled"]:
+        return ""
+    peek = getattr(exchange, "peek_orderbook", None)
+    if not callable(peek):
+        return ""
+    try:
+        book = peek(symbol)
+    except Exception as exc:
+        logger.warning("peek orderbook %s: %s", symbol, exc)
+        return ""
+    if not book:
+        return ""
+    return book_entry_block_reason(
+        book,
+        side,
+        band_bps=float(gate["band_bps"]),
+        skew_min=float(gate["skew_min"]),
+        max_spread_pct=float(gate["max_spread_pct"]),
+    )
