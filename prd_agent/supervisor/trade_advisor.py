@@ -101,6 +101,12 @@ class TradeAdvisor:
         abs_imb = abs(self._f(md.get("normalized_imbalance", 0.0)))
         regime = str(md.get("regime", "unknown")).lower()
         htf_4h_trend = self._i(md.get("htf_4h_trend", 0))
+        if htf_4h_trend == 0 and md.get("htf_trend") is not None:
+            htf_lbl = str(md.get("htf_trend") or "").lower()
+            if htf_lbl in ("bullish", "up", "1", "trend_up"):
+                htf_4h_trend = 1
+            elif htf_lbl in ("bearish", "down", "-1", "trend_down"):
+                htf_4h_trend = -1
         entry_zone = str(md.get("entry_zone", "no_zone")).lower()
         side_u = side.upper()
         countertrend = (side_u == "BUY" and htf_4h_trend < 0) or (
@@ -130,12 +136,17 @@ class TradeAdvisor:
         stop_loss: float,
         take_profit: float,
         virtual_stats: Optional[Dict[str, Any]] = None,
+        entry_context: Optional[Dict[str, Any]] = None,
     ) -> LeverageAdvice:
         if not self.enabled:
             lev = self._lev.fallback_leverage
             return LeverageAdvice(lev, 1.0, "advisor_disabled", {"mode": "disabled"})
 
         md = dict(sig.raw or {})
+        if isinstance(entry_context, dict):
+            for k, v in entry_context.items():
+                if v is not None:
+                    md[k] = v
         rr = self._rr_ratio(entry, stop_loss, take_profit, sig.side)
         if rr <= 0 and sig.stop_loss and sig.take_profit and sig.entry:
             rr = self._rr_ratio(sig.entry, sig.stop_loss, sig.take_profit, sig.side)

@@ -5,8 +5,14 @@ Runtime-флаги telegram_signal_agent (agent_runtime_controls в state JSON).
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, Tuple
+
+
+_STATE_FILE_LOCK = threading.RLock()
 
 
 def state_path(root: Path) -> Path:
@@ -68,19 +74,33 @@ def effective_trailing_enabled(cfg: Dict[str, Any], root: Path) -> bool:
 
 def save_runtime_controls(root: Path, rtc: Dict[str, Any]) -> None:
     path = state_path(root)
-    data: Dict[str, Any] = {}
-    if path.exists():
+    with _STATE_FILE_LOCK:
+        data: Dict[str, Any] = {}
+        if path.exists():
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                if isinstance(loaded, dict):
+                    data = loaded
+            except Exception:
+                pass
+        data["agent_runtime_controls"] = dict(rtc)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".rtc_", suffix=".json", dir=str(path.parent)
+        )
         try:
-            with path.open("r", encoding="utf-8") as handle:
-                loaded = json.load(handle)
-            if isinstance(loaded, dict):
-                data = loaded
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_name, path)
         except Exception:
-            pass
-    data["agent_runtime_controls"] = dict(rtc)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, ensure_ascii=False, indent=2)
+            if os.path.exists(tmp_name):
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+            with path.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
 
 
 def toggle_runtime_flag(root: Path, key: str) -> Tuple[bool, Dict[str, Any]]:

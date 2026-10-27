@@ -39,9 +39,15 @@ class EntryGuard:
             return 0.0
         return abs(market_price - plan_entry) / plan_entry
 
-    def _is_telegram_source(self, source: str) -> bool:
+    def _is_telegram_source(self, source: str, sig: Optional[UnifiedSignal] = None) -> bool:
         src = (source or "").lower()
-        return any(tag in src for tag in self.telegram_sources) or src.startswith("tg")
+        if any(tag in src for tag in self.telegram_sources) or src.startswith("tg"):
+            return True
+        if sig is not None and isinstance(sig.raw, dict):
+            prim = str(sig.raw.get("primary_source") or "").lower()
+            if prim and (any(tag in prim for tag in self.telegram_sources) or prim.startswith("tg")):
+                return True
+        return False
 
     def _has_signal_levels(self, sig: UnifiedSignal) -> bool:
         return (
@@ -75,7 +81,7 @@ class EntryGuard:
                 drift_pct=drift,
             )
 
-        is_tg = self._is_telegram_source(sig.source)
+        is_tg = self._is_telegram_source(sig.source, sig)
         if (
             is_tg
             and self.telegram_limit_entry
