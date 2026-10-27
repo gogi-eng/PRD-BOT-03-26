@@ -92,6 +92,10 @@ class RiskGuard:
         self._manual_daily_loss_reset_day: Optional[date] = None
         self._manual_reset_skip_logged_day: Optional[date] = None
         self._load_manual_daily_loss_reset()
+        self._load_day_state()
+        if self.day_start_balance <= 0 and self.initial_balance > 0:
+            self.day_start_balance = float(self.initial_balance)
+            self._save_day_state()
 
     @staticmethod
     def _today_utc() -> date:
@@ -107,7 +111,67 @@ class RiskGuard:
         self._notify = cb
 
     def _manual_reset_path(self) -> Path:
+        root = self._cfg.get("_root")
+        if root:
+            return Path(str(root)) / "data" / "risk_daily_loss_manual_reset.json"
         return Path("data") / "risk_daily_loss_manual_reset.json"
+
+    def _day_state_persistence_enabled(self) -> bool:
+        r = self._cfg.get("risk", {}) if isinstance(self._cfg.get("risk"), dict) else {}
+        if "persist_day_state" in r:
+            return bool(r.get("persist_day_state"))
+        if "_root" in self._cfg or "day_state_path" in r:
+            return True
+        repo_root = Path(__file__).resolve().parents[2]
+        return Path.cwd().resolve() != repo_root
+
+    def _day_state_path(self) -> Path:
+        r = self._cfg.get("risk", {}) if isinstance(self._cfg.get("risk"), dict) else {}
+        custom = r.get("day_state_path")
+        if custom:
+            return Path(str(custom))
+        root = self._cfg.get("_root")
+        if root:
+            return Path(str(root)) / "data" / "risk_day_state.json"
+        return Path("data") / "risk_day_state.json"
+
+    def _load_day_state(self) -> None:
+        if not self._day_state_persistence_enabled():
+            return
+        path = self._day_state_path()
+        try:
+            if not path.is_file():
+                return
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return
+            ds = str(raw.get("date") or "")[:10]
+            saved_day = date.fromisoformat(ds) if ds else None
+            saved_bal = float(raw.get("day_start_balance", 0) or 0)
+            if saved_day == self._trading_day() and saved_bal > 0:
+                self.day_start_balance = saved_bal
+        except Exception:
+            pass
+
+    def _save_day_state(self) -> None:
+        if not self._day_state_persistence_enabled():
+            return
+        if self.day_start_balance <= 0:
+            return
+        path = self._day_state_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "date": self.day_stats.date.isoformat(),
+                "day_start_balance": round(float(self.day_start_balance), 6),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     def _trading_day(self) -> date:
         """Торговый день по timezone_offset (по умолчанию UTC+3), иначе UTC+3."""
@@ -225,6 +289,7 @@ class RiskGuard:
         self._ensure_today()
         if self.day_start_balance <= 0:
             self.day_start_balance = bal
+            self._save_day_state()
 
     def _pct_base(self, balance: float = 0.0) -> float:
         if self.day_start_balance > 0:
@@ -261,6 +326,7 @@ class RiskGuard:
                 self.stop_reason = ""
                 self.stop_kind = StopKind.NONE
                 self.auto_stop_time = None
+            self._save_day_state()
 
     def _daily_loss_exceeded(self) -> bool:
         if self._manual_daily_loss_reset_active():
@@ -279,8 +345,8 @@ class RiskGuard:
             return True
         return False
 
-    def _maybe_clear_daily_loss_stop(self) -> None:
-        """Снять устаревший дневной стоп, если PnL уже восстановился (ручная торговля и т.д.)."""
+    def _maybe_clear_daily_loss_stop(self, *, has_exchange_recovery: bool = False) -> None:
+        """Снять устаревший дневной стоп, если PnL за торговый день реально восстановился."""
         if self._daily_loss_exceeded():
             return
         if self.stop_kind != StopKind.DAILY_LOSS and self.status == GuardStatus.ACTIVE:
@@ -289,6 +355,13 @@ class RiskGuard:
             self.status == GuardStatus.STOPPED
             and "дневн" in (self.stop_reason or "").lower()
         ):
+            if (
+                self.daily_loss_blocks_until_next_day
+                and self.day_stats.date == self._trading_day()
+                and not self._manual_daily_loss_reset_active()
+                and not has_exchange_recovery
+            ):
+                return
             self.status = GuardStatus.ACTIVE
             self.stop_reason = ""
             self.stop_kind = StopKind.NONE
@@ -299,7 +372,9 @@ class RiskGuard:
     ) -> None:
         """
         Сверка дневного PnL с Bybit (источник правды для отчётов и лимита).
-        Иначе внутренний счётчик мог остаться на −6% при +91 USDT на бирже.
+        Дневной PnL (net_pnl_usdt, wins, losses, trades) считается строго с начала
+        торгового дня (_trading_day_start_utc), а счётчик убытков по монете
+        (_symbol_losses_today) — с начала текущей сессии (_loss_window_start_utc).
         """
         self._ensure_today()
         if self._manual_daily_loss_reset_active():
@@ -311,35 +386,49 @@ class RiskGuard:
                 )
                 self._manual_reset_skip_logged_day = day
             return
-        start = self._loss_window_start_utc()
-        start_ms = int(start.timestamp() * 1000)
+        day_start = self._trading_day_start_utc()
+        day_start_ms = int(day_start.timestamp() * 1000)
+        session_start = self._loss_window_start_utc()
+        session_start_ms = int(session_start.timestamp() * 1000)
         total = 0.0
         wins = 0
         losses = 0
         by_symbol: Dict[str, int] = {}
         for r in rows:
             ts = int(r.get("updatedTime") or r.get("createdTime") or 0)
-            if ts and ts < start_ms:
-                continue
             pnl = float(r.get("closedPnl", 0) or 0)
-            total += pnl
-            if pnl >= 0:
-                wins += 1
-            else:
-                losses += 1
+            in_day = not ts or ts >= day_start_ms
+            in_session = not ts or ts >= session_start_ms
+            if in_day:
+                total += pnl
+                if pnl >= 0:
+                    wins += 1
+                else:
+                    losses += 1
+            if in_session and pnl < 0:
                 sym = str(r.get("symbol") or "").upper()
                 if sym:
                     by_symbol[sym] = by_symbol.get(sym, 0) + 1
         self._symbol_losses_today = by_symbol
+        if balance > 0:
+            self.update_balance_reference(balance)
         s = self.day_stats
+        day_trades = wins + losses
+        if day_trades == 0 and (
+            self.stop_kind == StopKind.DAILY_LOSS or s.trades > 0
+        ):
+            self._recalc_day_pnl_pct(balance)
+            return
         s.net_pnl_usdt = total
         s.wins = wins
         s.losses = losses
-        s.trades = wins + losses
-        if balance > 0:
-            self.update_balance_reference(balance)
+        s.trades = day_trades
         self._recalc_day_pnl_pct(balance)
-        self._maybe_clear_daily_loss_stop()
+        if self._daily_loss_exceeded():
+            if self.status != GuardStatus.STOPPED:
+                self._trigger_stop(self._daily_loss_reason(), StopKind.DAILY_LOSS)
+        else:
+            self._maybe_clear_daily_loss_stop(has_exchange_recovery=(wins > 0))
 
     def _daily_loss_reason(self) -> str:
         s = self.day_stats
@@ -394,7 +483,7 @@ class RiskGuard:
             self.last_loss_time = datetime.now(timezone.utc)
         # pnl == 0 (безубыток): не win и не loss для серии — счётчик подряд не трогаем
         self._check_auto_stop()
-        self._maybe_clear_daily_loss_stop()
+        self._maybe_clear_daily_loss_stop(has_exchange_recovery=(pnl > 0))
 
     def _check_auto_stop(self) -> None:
         if self._consecutive_losses >= self.max_consecutive_losses:
@@ -432,13 +521,13 @@ class RiskGuard:
             return False, f"EMERGENCY: {self.stop_reason}"
 
         if self._daily_loss_exceeded():
+            if self.status != GuardStatus.STOPPED:
+                self._trigger_stop(self._daily_loss_reason(), StopKind.DAILY_LOSS)
             if self.daily_loss_blocks_until_next_day:
                 return (
                     False,
                     f"{self._daily_loss_reason()}. {self._session_block_text()}",
                 )
-            if self.status != GuardStatus.STOPPED:
-                self._trigger_stop(self._daily_loss_reason(), StopKind.DAILY_LOSS)
 
         if self.stop_kind == StopKind.DAILY_LOSS and self.daily_loss_blocks_until_next_day:
             return (
@@ -483,6 +572,22 @@ class RiskGuard:
 
         return True, ""
 
+    @staticmethod
+    def max_safe_leverage_for_sl(
+        entry: float,
+        stop_loss: float,
+        *,
+        mmr: float = 0.005,
+        safety_factor: float = 0.65,
+    ) -> int:
+        """Макс. безопасное плечо по ширине SL, чтобы ликвидация не наступала раньше стопа."""
+        if entry <= 0 or stop_loss <= 0:
+            return 1
+        sl_dist_pct = abs(entry - stop_loss) / entry
+        if sl_dist_pct <= 0:
+            return 100
+        return max(1, int(safety_factor / max(sl_dist_pct + mmr, mmr)))
+
     def calculate_position_size(
         self, balance: float, risk_pct: float, entry: float, stop_loss: float, leverage: int
     ) -> float:
@@ -494,7 +599,8 @@ class RiskGuard:
         if distance <= 0:
             return 0.0
         qty = risk_amount / distance
-        max_notional = balance * 0.1 * leverage
+        safe_lev = min(max(1, int(leverage or 1)), self.max_safe_leverage_for_sl(entry, stop_loss))
+        max_notional = balance * 0.1 * safe_lev
         max_qty = max_notional / entry
         return min(qty, max_qty)
 
