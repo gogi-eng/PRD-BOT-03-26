@@ -74,6 +74,7 @@ from prd_agent.positions.session_boundary_close import (
 from prd_agent.positions.sync_guard import PositionSyncGuard
 from prd_agent.positions.sl_tp_guard import SlTpExchangeGuard, SlTpGuardConfig
 from prd_agent.positions.manual_sl_guard import ManualSlGuard, ManualSlGuardConfig
+from prd_agent.exchange.order_prep import round_price
 from prd_agent.signals.pump_dump_mode import TrailingProfile
 
 logger = logging.getLogger("prd_agent.positions")
@@ -116,6 +117,7 @@ class PositionSteward:
         self._sl_tp_guard = SlTpExchangeGuard()
         self._manual_sl_guard = ManualSlGuard()
         self._session_flush_done: set[str] = set()
+        self._price_step_cache: Dict[str, float] = {}
         self._manual_trailing_learner = ManualTrailingGarchLearner(cfg, self._data_dir)
         self.apply_config(cfg)
         self._load_bot_registry()
@@ -651,12 +653,16 @@ class PositionSteward:
                     continue
 
             liq_price = float(row.get("liqPrice") or 0)
+            pos_lev = int(float(row.get("leverage") or 0) or 0)
             liq_hit, liq_reason = evaluate_liquidation_stop(
                 side=pos.side,
                 mark_price=price,
                 liq_price=liq_price,
                 cfg=self._liq_guard,
                 origin=pos.origin,
+                entry=pos.entry,
+                stop_loss=pos.stop_loss or ex_sl,
+                leverage=pos_lev,
             )
             if liq_hit:
                 closed_msg = await self._try_close_position(exchange, pos, liq_reason)
@@ -850,10 +856,34 @@ class PositionSteward:
                     )
                     new_sl = clamped
 
-            if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) / max(pos.last_sl_sent, 1e-9) < 0.0003:
-                continue
-            client = exchange._client
+            client = getattr(exchange, "_client", None) or exchange
             if not hasattr(client, "update_stop_loss"):
+                continue
+            price_step = self._price_step_cache.get(sym, 0.0)
+            if price_step <= 0 and hasattr(client, "get_instrument_info"):
+                try:
+                    inst = await client.get_instrument_info(sym)
+                    if isinstance(inst, dict):
+                        price_step = float(inst.get("price_step", 0.0) or 0.0)
+                        if price_step > 0:
+                            self._price_step_cache[sym] = price_step
+                except Exception as exc:
+                    logger.debug("steward get_instrument_info(%s): %s", sym, exc)
+
+            if price_step > 0:
+                new_sl = round_price(new_sl, price_step, side=pos.side)
+                if pos.side == "Buy" and new_sl >= price:
+                    continue
+                if pos.side != "Buy" and new_sl <= price:
+                    continue
+                if pos.stop_loss > 0:
+                    if pos.side == "Buy" and new_sl < pos.stop_loss - 1e-12:
+                        continue
+                    if pos.side != "Buy" and new_sl > pos.stop_loss + 1e-12:
+                        continue
+
+            min_sl_delta = max(price_step, pos.last_sl_sent * 0.0003)
+            if pos.last_sl_sent > 0 and abs(new_sl - pos.last_sl_sent) < min_sl_delta:
                 continue
             res = await client.update_stop_loss(sym, new_sl, position_idx=pos.position_idx)
             if res.get("success"):

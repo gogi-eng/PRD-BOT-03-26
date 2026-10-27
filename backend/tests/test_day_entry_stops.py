@@ -134,6 +134,7 @@ def test_fast_entry_block_reason_uses_exchange_rows(tmp_path, monkeypatch):
 
 
 def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
+    """Убытки по монете из прошлой сессии не блокируют монету, но дневной лимит убытка держится весь день."""
     monkeypatch.chdir(tmp_path)
     now = datetime.now(timezone.utc)
     window = SessionWindow(
@@ -147,9 +148,9 @@ def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
         lambda *_args, **_kwargs: window,
     )
     g = RiskGuard(_cfg(), initial_balance=80.0)
+    # 2 убытка по JCTUSDT были в прошлой сессии (-$4 суммарно < дневного лимита -$10)
     g.reconcile_from_closed_rows(
         [
-            _row("PHAUSDT", -11.0, age_sec=30 * 60),
             _row("JCTUSDT", -2.0, age_sec=40 * 60),
             _row("JCTUSDT", -2.0, age_sec=50 * 60),
         ],
@@ -159,6 +160,53 @@ def test_loss_before_this_session_does_not_block(tmp_path, monkeypatch):
     assert ok, reason
     ok_any, reason_any = g.can_trade("SOLUSDT")
     assert ok_any, reason_any
+
+
+def test_daily_loss_persists_across_intraday_session_boundary(tmp_path, monkeypatch):
+    """Дневной лимит убытка (-$11 при лимите $10) НЕ сбрасывается при смене внутридневной сессии."""
+    monkeypatch.chdir(tmp_path)
+    now = datetime.now(timezone.utc)
+    window = SessionWindow(
+        start_utc=now - timedelta(minutes=10),
+        end_utc=now + timedelta(hours=2),
+        name="Европа",
+        end_hhmm="19:00",
+    )
+    monkeypatch.setattr(
+        "prd_agent.risk.guard.session_window",
+        lambda *_args, **_kwargs: window,
+    )
+    g = RiskGuard(_cfg(), initial_balance=80.0)
+    # Убыток -$11 случился 30 минут назад (в предыдущей сессии того же торгового дня)
+    g.reconcile_from_closed_rows(
+        [
+            _row("PHAUSDT", -11.0, age_sec=30 * 60),
+        ],
+        balance=80.0,
+    )
+    assert g.day_stats.net_pnl_usdt == -11.0
+    ok_fast, reason_fast = g.fast_path_block("SOLUSDT")
+    assert not ok_fast
+    assert "10" in reason_fast
+    ok_trade, reason_trade = g.can_trade("SOLUSDT")
+    assert not ok_trade
+    assert "10" in reason_trade
+
+
+def test_day_start_balance_persisted_across_restart(tmp_path, monkeypatch):
+    """Рестарт бота посреди дня не перезаписывает day_start_balance просевшим балансом."""
+    monkeypatch.chdir(tmp_path)
+    _pin_open_session(monkeypatch)
+    g1 = RiskGuard(_cfg(), initial_balance=0.0)
+    g1.update_balance_reference(100.0)
+    assert g1.day_start_balance == 100.0
+
+    # Симулируем рестарт бота после просадки до 82 USDT в тот же торговый день
+    g2 = RiskGuard(_cfg(), initial_balance=0.0)
+    g2.update_balance_reference(82.0)
+    assert g2.day_start_balance == 100.0
+    g2.record_trade(-5.0)
+    assert g2.day_stats.net_pnl_pct == -5.0
 
 
 def test_session_windows_match_moscow_table():

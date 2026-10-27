@@ -480,10 +480,12 @@ class BybitClient:
         result = await self._request("GET", "/v5/market/instruments-info", {"category": self.category, "symbol": symbol})
         if result and result.get("list"):
             inst = result["list"][0]
+            lot = inst.get("lotSizeFilter", {}) or {}
             return {
-                "min_qty": float(inst.get("lotSizeFilter", {}).get("minOrderQty", 1)),
-                "qty_step": float(inst.get("lotSizeFilter", {}).get("qtyStep", 1)),
+                "min_qty": float(lot.get("minOrderQty", 1)),
+                "qty_step": float(lot.get("qtyStep", 1)),
                 "price_step": float(inst.get("priceFilter", {}).get("tickSize", 0.0001)),
+                "min_notional": float(lot.get("minNotionalValue", 5.0) or 5.0),
             }
         return None
 

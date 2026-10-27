@@ -1679,13 +1679,25 @@ class UnifiedOrchestrator:
         )
 
         lev_advice = self.supervisor.recommend_leverage(
-            sig, entry=entry, stop_loss=sl, take_profit=tp
+            sig, entry=eff_entry, stop_loss=sl, take_profit=tp
         )
-        leverage_requested = lev_advice.leverage
+        max_safe_lev = self.risk.max_safe_leverage_for_sl(eff_entry, sl)
+        leverage_requested = min(int(lev_advice.leverage), max_safe_lev)
+        if leverage_requested < int(lev_advice.leverage):
+            logger.info(
+                "Leverage %s %s capped by SL distance: advisor=%dx -> safe=%dx (entry=%.6g sl=%.6g)",
+                sig.symbol,
+                sig.side,
+                lev_advice.leverage,
+                leverage_requested,
+                eff_entry,
+                sl,
+            )
         lev_apply = await self.exchange.apply_trade_leverage(
             sig.symbol, leverage_requested
         )
         leverage = max(1, int(lev_apply.applied or lev_apply.target or leverage_requested))
+        leverage = min(leverage, max_safe_lev)
         if lev_apply.mismatch or leverage_requested != leverage:
             logger.warning(
                 "Leverage %s %s: supervisor=%dx exchange=%dx (max_inst=%dx) %s",
@@ -1786,7 +1798,11 @@ class UnifiedOrchestrator:
         except Exception as exc:
             logger.warning("volatility_regime_sizing failed %s: %s", sig.symbol, exc)
 
-        notional = (qty * entry) / max(leverage, 1)
+        if eff_entry > 0 and balance > 0:
+            max_notional = balance * 0.1 * max(1, int(leverage))
+            qty = min(qty, max_notional / eff_entry)
+
+        notional = (qty * eff_entry) / max(leverage, 1)
         min_margin = notional * 1.05
         if available < min_margin:
             reason = (
@@ -1805,6 +1821,7 @@ class UnifiedOrchestrator:
             stop_loss=sl,
             take_profit=tp,
             limit_price=limit_price,
+            entry_price=eff_entry,
         )
         if prep_err:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
