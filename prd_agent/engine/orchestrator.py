@@ -64,6 +64,10 @@ from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import GuardStatus, RiskGuard, StopKind
 from prd_agent.risk.rr_enforce import enforce_min_rr_levels, rr_ratio
 from prd_agent.risk.quality_gate import QualityGate
+from prd_agent.market.scanner_learning import (
+    is_scanner_trade_source,
+    resolve_scanner_close_source,
+)
 from prd_agent.market.market_scanner_bridge import (
     close_scanner_agent,
     get_or_create_scanner_agent,
@@ -887,7 +891,60 @@ class UnifiedOrchestrator:
                 exit_context=exit_ctx,
                 reason=steward_reason,
             )
+            self._record_closed_scanner_trade_for_learning(
+                r,
+                pending,
+                symbol=sym,
+                side=side,
+                order_id=oid,
+                pnl=pnl,
+                exit_price=exit_p,
+            )
         self.rule_weight_tracker.refresh_if_due(journal_path, force=False)
+
+    def _record_closed_scanner_trade_for_learning(
+        self,
+        row: Dict[str, Any],
+        pending: Optional[Dict[str, Any]],
+        *,
+        symbol: str,
+        side: str,
+        order_id: str,
+        pnl: float,
+        exit_price: float,
+    ) -> None:
+        """Закрытие MARKET/SPIKE SCANNER дописывает урок. Ошибка урока не ломает синхронизацию PnL."""
+        try:
+            source, meta = resolve_scanner_close_source(
+                pending,
+                self.trade_journal.path,
+                self.root / "data",
+                symbol,
+                order_id,
+            )
+            if not is_scanner_trade_source(source):
+                return
+            agent = self._get_scanner_agent()
+            if agent is None or not hasattr(agent, "record_closed_scanner_trade"):
+                return
+            entry_side = str(meta.get("side") or side or "")
+            entry_price = float(meta.get("entry") or row.get("avgEntryPrice") or 0)
+            score = meta.get("confidence", meta.get("score", 0))
+            agent.record_closed_scanner_trade(
+                source=source,
+                symbol=symbol,
+                pnl=float(pnl),
+                order_id=str(order_id or row.get("orderId") or ""),
+                side=entry_side,
+                entry_price=entry_price,
+                exit_price=float(exit_price or 0),
+                score=float(score or 0),
+                range_pct=float(meta.get("range_pct") or 0),
+                atr_pct=float(meta.get("atr_pct") or 0),
+                volume_ratio=float(meta.get("volume_ratio") or 0),
+            )
+        except Exception as exc:
+            logger.warning("Scanner learning close: %s", exc)
 
     @staticmethod
     def _dedupe_signals_for_report(signals: List[Dict], *, limit: int = 8) -> List[Dict]:

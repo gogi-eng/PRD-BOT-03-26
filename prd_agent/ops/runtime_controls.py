@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
+from prd_agent.market.scanner_learning import state_file_lock
 
 _STATE_FILE_LOCK = threading.RLock()
 
@@ -75,32 +76,37 @@ def effective_trailing_enabled(cfg: Dict[str, Any], root: Path) -> bool:
 def save_runtime_controls(root: Path, rtc: Dict[str, Any]) -> None:
     path = state_path(root)
     with _STATE_FILE_LOCK:
-        data: Dict[str, Any] = {}
-        if path.exists():
-            try:
-                with path.open("r", encoding="utf-8") as handle:
-                    loaded = json.load(handle)
-                if isinstance(loaded, dict):
-                    data = loaded
-            except Exception:
-                pass
-        data["agent_runtime_controls"] = dict(rtc)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            prefix=".rtc_", suffix=".json", dir=str(path.parent)
-        )
+        with state_file_lock(path):
+            _save_runtime_controls_unlocked(path, rtc)
+
+
+def _save_runtime_controls_unlocked(path: Path, rtc: Dict[str, Any]) -> None:
+    data: Dict[str, Any] = {}
+    if path.exists():
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
-            os.replace(tmp_name, path)
+            with path.open("r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            if isinstance(loaded, dict):
+                data = loaded
         except Exception:
-            if os.path.exists(tmp_name):
-                try:
-                    os.unlink(tmp_name)
-                except OSError:
-                    pass
-            with path.open("w", encoding="utf-8") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
+            pass
+    data["agent_runtime_controls"] = dict(rtc)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=".rtc_", suffix=".json", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+        os.replace(tmp_name, path)
+    except Exception:
+        if os.path.exists(tmp_name):
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
 
 
 def toggle_runtime_flag(root: Path, key: str) -> Tuple[bool, Dict[str, Any]]:

@@ -65,6 +65,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from prd_agent.market.scanner_learning import (
+    is_scanner_trade_source,
+    learning_events_cap,
+    merge_learning_events,
+    prefer_newer_filters,
+    propose_adaptive_filters,
+    record_closed_trade_lesson,
+    state_file_lock,
+)
 from prd_agent.risk.fast_entry_guard import fast_entry_block_reason
 from prd_agent.risk.signal_notional import plan_signal_notional
 
@@ -1331,6 +1340,13 @@ class TelegramSignalAgent:
         self.signals_jsonl = self.out_dir / "signals.jsonl"
         self.state = self._load_state()
         self._ensure_runtime_controls_defaults()
+        # Пороги из yaml. Адаптив ниже может их ужесточить, базовые нужны, чтобы уйти из stricter.
+        self._market_scanner_filter_baseline = {
+            "min_score_to_notify": int(self.market_scanner_min_score_to_notify),
+            "min_volume_ratio": float(self.market_scanner_min_volume_ratio),
+            "max_range_pct": float(self.market_scanner_max_range_pct),
+            "max_atr_pct": float(self.market_scanner_max_atr_pct),
+        }
         state_changed = self._restore_market_scanner_learning_events_from_file()
         self._apply_market_scanner_adaptive_filters()
         if self._recalculate_market_scanner_adaptive_filters():
@@ -1434,25 +1450,37 @@ class TelegramSignalAgent:
         from prd_agent.ops.runtime_controls import PANEL_RTC_KEYS, _STATE_FILE_LOCK
 
         with _STATE_FILE_LOCK:
-            seen = list(dict.fromkeys(self.state.get("seen", [])))[-5000:]
-            self.state["seen"] = seen
-            self._cleanup_signal_fingerprints()
-            if self.state_path.exists():
-                try:
-                    with open(self.state_path, "r", encoding="utf-8") as handle:
-                        disk_state = json.load(handle)
-                    if isinstance(disk_state, dict):
-                        disk_rtc = disk_state.get("agent_runtime_controls")
-                        if isinstance(disk_rtc, dict):
-                            cur_rtc = self.state.setdefault("agent_runtime_controls", {})
-                            if isinstance(cur_rtc, dict):
-                                for k in PANEL_RTC_KEYS:
-                                    if k in disk_rtc:
-                                        cur_rtc[k] = disk_rtc[k]
-                except Exception:
-                    pass
-            with open(self.state_path, "w", encoding="utf-8") as handle:
-                json.dump(self.state, handle, ensure_ascii=False, indent=2)
+            with state_file_lock(self.state_path):
+                seen = list(dict.fromkeys(self.state.get("seen", [])))[-5000:]
+                self.state["seen"] = seen
+                self._cleanup_signal_fingerprints()
+                if self.state_path.exists():
+                    try:
+                        with open(self.state_path, "r", encoding="utf-8") as handle:
+                            disk_state = json.load(handle)
+                        if isinstance(disk_state, dict):
+                            disk_rtc = disk_state.get("agent_runtime_controls")
+                            if isinstance(disk_rtc, dict):
+                                cur_rtc = self.state.setdefault("agent_runtime_controls", {})
+                                if isinstance(cur_rtc, dict):
+                                    for k in PANEL_RTC_KEYS:
+                                        if k in disk_rtc:
+                                            cur_rtc[k] = disk_rtc[k]
+                            cap = learning_events_cap(int(self.market_scanner_learning_window))
+                            self.state["market_scanner_learning_events"] = merge_learning_events(
+                                self.state.get("market_scanner_learning_events"),
+                                disk_state.get("market_scanner_learning_events"),
+                                cap,
+                            )
+                            self.state["market_scanner_adaptive_filters"] = prefer_newer_filters(
+                                self.state.get("market_scanner_adaptive_filters"),
+                                disk_state.get("market_scanner_adaptive_filters"),
+                            )
+                    except Exception:
+                        pass
+                self.state_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.state_path, "w", encoding="utf-8") as handle:
+                    json.dump(self.state, handle, ensure_ascii=False, indent=2)
 
     def _runtime_controls_dict(self) -> dict[str, Any]:
         node = self.state.get("agent_runtime_controls")
@@ -4012,91 +4040,136 @@ class TelegramSignalAgent:
                 return "loss"
         return "neutral" if expired else ""
 
-    def _recalculate_market_scanner_adaptive_filters(self) -> bool:
-        events = self.state.get("market_scanner_learning_events", [])
-        if not isinstance(events, list):
-            self.state["market_scanner_learning_events"] = []
-            return False
-        window = [item for item in events[-max(1, self.market_scanner_learning_window) :] if isinstance(item, dict)]
-        decided = [item for item in window if item.get("outcome") in {"win", "loss"}]
-        if len(decided) < self.market_scanner_learning_min_events:
-            return False
+    def _scanner_filter_bounds(self) -> dict[str, float]:
+        return {
+            "score_floor": float(self.market_scanner_min_score_floor),
+            "score_ceiling": float(self.market_scanner_min_score_ceiling),
+            "vol_floor": float(self.market_scanner_min_volume_ratio_floor),
+            "vol_ceiling": float(self.market_scanner_min_volume_ratio_ceiling),
+            "range_floor": float(self.market_scanner_max_range_pct_floor),
+            "range_ceiling": float(self.market_scanner_max_range_pct_ceiling),
+            "atr_floor": float(self.market_scanner_max_atr_pct_floor),
+            "atr_ceiling": float(self.market_scanner_max_atr_pct_ceiling),
+        }
 
-        wins = sum(1 for item in decided if item.get("outcome") == "win")
-        losses = sum(1 for item in decided if item.get("outcome") == "loss")
-        winrate = wins / max(1, wins + losses)
-        window_signature = "|".join(
-            str(
-                item.get("id")
-                or f"{item.get('checked_at')}:{item.get('symbol')}:{item.get('scenario')}:{item.get('outcome')}"
-            )
-            for item in decided
-        )
-        current_filters = self.state.get("market_scanner_adaptive_filters", {})
-        if isinstance(current_filters, dict) and current_filters.get("learning_window_signature") == window_signature:
+    def _scanner_filter_baseline(self) -> dict[str, float]:
+        raw = getattr(self, "_market_scanner_filter_baseline", None)
+        if isinstance(raw, dict) and raw:
+            return {
+                "min_score_to_notify": float(raw.get("min_score_to_notify") or 0),
+                "min_volume_ratio": float(raw.get("min_volume_ratio") or 0),
+                "max_range_pct": float(raw.get("max_range_pct") or 0),
+                "max_atr_pct": float(raw.get("max_atr_pct") or 0),
+            }
+        return {
+            "min_score_to_notify": float(self.market_scanner_min_score_to_notify),
+            "min_volume_ratio": float(self.market_scanner_min_volume_ratio),
+            "max_range_pct": float(self.market_scanner_max_range_pct),
+            "max_atr_pct": float(self.market_scanner_max_atr_pct),
+        }
+
+    def record_closed_scanner_trade(
+        self,
+        *,
+        source: str,
+        symbol: str,
+        pnl: float,
+        order_id: str = "",
+        side: str = "",
+        entry_price: float = 0.0,
+        exit_price: float = 0.0,
+        score: float = 0.0,
+        range_pct: float = 0.0,
+        atr_pct: float = 0.0,
+        volume_ratio: float = 0.0,
+    ) -> bool:
+        """Закрытая сделка MARKET/SPIKE SCANNER дописывает урок. Старые уроки остаются."""
+        if not self.market_scanner_learning_enabled:
             return False
+        if not is_scanner_trade_source(source):
+            return False
+        if not isinstance(self.state, dict):
+            self.state = {}
+        event, proposed = record_closed_trade_lesson(
+            self.state,
+            source=source,
+            symbol=symbol,
+            pnl=float(pnl),
+            order_id=order_id,
+            side=side,
+            entry_price=float(entry_price or 0),
+            exit_price=float(exit_price or 0),
+            score=float(score or 0),
+            range_pct=float(range_pct or 0),
+            atr_pct=float(atr_pct or 0),
+            volume_ratio=float(volume_ratio or 0),
+            filters={
+                "min_score_to_notify": self.market_scanner_min_score_to_notify,
+                "min_volume_ratio": self.market_scanner_min_volume_ratio,
+                "max_range_pct": self.market_scanner_max_range_pct,
+                "max_atr_pct": self.market_scanner_max_atr_pct,
+            },
+            learning_window=int(self.market_scanner_learning_window),
+            min_events=int(self.market_scanner_learning_min_events),
+            baseline=self._scanner_filter_baseline(),
+            bounds=self._scanner_filter_bounds(),
+            updated_at=utc_now().isoformat(),
+        )
+        if event is None:
+            return False
+        if proposed is not None:
+            self._apply_proposed_scanner_filters(proposed)
+        try:
+            self._append_market_scanner_event(event)
+        except Exception as exc:
+            LOG.warning("Scanner learning jsonl: %s", exc)
+        self._save_state()
+        LOG.info(
+            "Scanner learning: closed %s %s pnl=%s outcome=%s events=%s",
+            str(source).upper(),
+            str(symbol).upper(),
+            pnl,
+            event.get("outcome"),
+            len(self.state.get("market_scanner_learning_events") or []),
+        )
+        return True
+
+    def _apply_proposed_scanner_filters(self, proposed: dict[str, Any]) -> None:
         old = {
             "min_score_to_notify": self.market_scanner_min_score_to_notify,
             "min_volume_ratio": self.market_scanner_min_volume_ratio,
             "max_range_pct": self.market_scanner_max_range_pct,
             "max_atr_pct": self.market_scanner_max_atr_pct,
         }
-        new = dict(old)
+        stored = self.state.get("market_scanner_adaptive_filters", {})
+        self.state["market_scanner_adaptive_filters"] = proposed
+        self.market_scanner_min_score_to_notify = int(proposed["min_score_to_notify"])
+        self.market_scanner_min_volume_ratio = float(proposed["min_volume_ratio"])
+        self.market_scanner_max_range_pct = float(proposed["max_range_pct"])
+        self.market_scanner_max_atr_pct = float(proposed["max_atr_pct"])
+        previous_mode = str(stored.get("mode") or "") if isinstance(stored, dict) else ""
+        mode_changed = previous_mode != str(proposed.get("mode") or "")
+        numbers_changed = any(str(old.get(key)) != str(proposed.get(key)) for key in old)
+        if mode_changed or numbers_changed:
+            self._notify_market_scanner_learning_update(old, proposed)
 
-        if winrate < 0.40 and losses >= 3:
-            new["min_score_to_notify"] = min(self.market_scanner_min_score_ceiling, int(old["min_score_to_notify"]) + 3)
-            new["min_volume_ratio"] = self._clamp_float(
-                float(old["min_volume_ratio"]) + 0.10,
-                self.market_scanner_min_volume_ratio_floor,
-                self.market_scanner_min_volume_ratio_ceiling,
-            )
-            new["max_range_pct"] = self._clamp_float(
-                float(old["max_range_pct"]) - 0.25,
-                self.market_scanner_max_range_pct_floor,
-                self.market_scanner_max_range_pct_ceiling,
-            )
-            new["max_atr_pct"] = self._clamp_float(
-                float(old["max_atr_pct"]) - 0.04,
-                self.market_scanner_max_atr_pct_floor,
-                self.market_scanner_max_atr_pct_ceiling,
-            )
-            mode = "stricter"
-        elif winrate > 0.62 and wins >= 4:
-            new["min_score_to_notify"] = max(self.market_scanner_min_score_floor, int(old["min_score_to_notify"]) - 1)
-            new["min_volume_ratio"] = self._clamp_float(
-                float(old["min_volume_ratio"]) - 0.03,
-                self.market_scanner_min_volume_ratio_floor,
-                self.market_scanner_min_volume_ratio_ceiling,
-            )
-            new["max_range_pct"] = self._clamp_float(
-                float(old["max_range_pct"]) + 0.10,
-                self.market_scanner_max_range_pct_floor,
-                self.market_scanner_max_range_pct_ceiling,
-            )
-            mode = "softer"
-        else:
+    def _recalculate_market_scanner_adaptive_filters(self) -> bool:
+        events = self.state.get("market_scanner_learning_events", [])
+        if not isinstance(events, list):
+            self.state["market_scanner_learning_events"] = []
             return False
-
-        changed = any(str(old.get(key)) != str(new.get(key)) for key in new)
-        if not changed:
-            return False
-        new.update(
-            {
-                "updated_at": utc_now().isoformat(),
-                "mode": mode,
-                "sample": len(decided),
-                "wins": wins,
-                "losses": losses,
-                "winrate": round(winrate, 4),
-                "learning_window_signature": window_signature,
-            }
+        new = propose_adaptive_filters(
+            events=events,
+            learning_window=int(self.market_scanner_learning_window),
+            min_events=int(self.market_scanner_learning_min_events),
+            baseline=self._scanner_filter_baseline(),
+            current_filters=self.state.get("market_scanner_adaptive_filters", {}),
+            bounds=self._scanner_filter_bounds(),
+            updated_at=utc_now().isoformat(),
         )
-        self.state["market_scanner_adaptive_filters"] = new
-        self.market_scanner_min_score_to_notify = int(new["min_score_to_notify"])
-        self.market_scanner_min_volume_ratio = float(new["min_volume_ratio"])
-        self.market_scanner_max_range_pct = float(new["max_range_pct"])
-        self.market_scanner_max_atr_pct = float(new["max_atr_pct"])
-        self._notify_market_scanner_learning_update(old, new)
+        if new is None:
+            return False
+        self._apply_proposed_scanner_filters(new)
         return True
 
     def _notify_market_scanner_learning_update(self, old: dict[str, Any], new: dict[str, Any]) -> None:
