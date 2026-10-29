@@ -283,6 +283,8 @@ feedback_loop:
 telegram_signal_agent:
   enabled: true
   auto_execute: false
+  # false = не искать сделки в постах каналов. Слушатель при этом может работать.
+  channel_trade_search: false
   control_panel_enabled: false
   inbox_jsonl_enabled: true
   inbox_jsonl: reports/telegram_signals/signals_inbox.jsonl

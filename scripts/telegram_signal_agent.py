@@ -1058,6 +1058,18 @@ def openrouter_world_extract(
     }
 
 
+def channel_trade_search_enabled(agent_cfg: Any) -> bool:
+    """Искать ли торговые сетапы в постах Telegram-каналов.
+
+    Ключ: ``telegram_signal_agent.channel_trade_search``.
+    Нет ключа или false — слушатель постов может работать, разбор сделок не идёт.
+    Это не ``channel_auto_execute`` и не ``auto_execute``: те только про ордер.
+    """
+    if not isinstance(agent_cfg, dict):
+        return False
+    return bool(agent_cfg.get("channel_trade_search", False))
+
+
 class TelegramSignalAgent:
     def __init__(self, repo_dir: Path):
         self.repo_dir = repo_dir
@@ -1070,6 +1082,9 @@ class TelegramSignalAgent:
             self.agent_cfg = {}
         self.enabled = bool(self.agent_cfg.get("enabled", True))
         self.auto_execute = bool(self.agent_cfg.get("auto_execute", False))
+        # Поиск сетапов в постах каналов. Нет ключа = выключено.
+        # Не путать с channel_auto_execute: тот только ставит ордер после разбора.
+        self.channel_trade_search = channel_trade_search_enabled(self.agent_cfg)
         self.telegram_notify = bool(self.agent_cfg.get("telegram_notify", True))
         self.allowed_chats = list(self.agent_cfg.get("allowed_chats", []) or [])
         _ign_raw = list(self.agent_cfg.get("ignored_chats", []) or [])
@@ -3386,6 +3401,10 @@ class TelegramSignalAgent:
             self._mark_seen(source, message_id)
             return
         self._touch_channel_activity(source, message_dt, had_signal=False)
+        if not self.channel_trade_search:
+            # Пост учтён. Текст, OCR и AI не разбираем — сетап из канала не ищем.
+            self._mark_seen(source, message_id)
+            return
         if self.channel_auto_block_cfg.enabled and channel_is_blocked(self.state, normalize_chat_name(source)):
             LOG.info("Skip auto-blocked source: %r", source)
             self._mark_seen(source, message_id)
@@ -4672,39 +4691,45 @@ class TelegramSignalAgent:
         await self._evaluate_pending_excursions()
         await self._drain_world_queue()
         await self.run_market_scan_once()
-        client = await self._telegram_client()
-        async with client:
-            dialogs = self.allowed_chats or []
-            if not dialogs:
-                skipped = 0
-                async for dialog in client.iter_dialogs():
-                    if not getattr(dialog, "is_channel", False):
+        if not self.channel_trade_search:
+            LOG.info(
+                "channel_trade_search=false: разовый обход каналов пропущен, "
+                "историю постов не разбираем"
+            )
+        else:
+            client = await self._telegram_client()
+            async with client:
+                dialogs = self.allowed_chats or []
+                if not dialogs:
+                    skipped = 0
+                    async for dialog in client.iter_dialogs():
+                        if not getattr(dialog, "is_channel", False):
+                            continue
+                        ent = dialog.entity
+                        if self._is_ignored_source(self._chat_source_label(ent)):
+                            skipped += 1
+                            continue
+                        dialogs.append(ent)
+                        if len(dialogs) >= self.max_chats_once:
+                            break
+                    if skipped:
+                        LOG.info("run_once: пропущено ignored каналов=%s, сканируем=%s", skipped, len(dialogs))
+                for chat in dialogs:
+                    if self._is_ignored_source(self._chat_source_label(chat)):
                         continue
-                    ent = dialog.entity
-                    if self._is_ignored_source(self._chat_source_label(ent)):
-                        skipped += 1
-                        continue
-                    dialogs.append(ent)
-                    if len(dialogs) >= self.max_chats_once:
-                        break
-                if skipped:
-                    LOG.info("run_once: пропущено ignored каналов=%s, сканируем=%s", skipped, len(dialogs))
-            for chat in dialogs:
-                if self._is_ignored_source(self._chat_source_label(chat)):
-                    continue
-                async for msg in client.iter_messages(chat, limit=limit):
-                    text = getattr(msg, "message", "") or ""
-                    source = str(getattr(getattr(msg, "chat", None), "title", "") or getattr(chat, "username", "") or chat)
-                    await self.process_message(
-                        source,
-                        int(msg.id),
-                        msg.date,
-                        text,
-                        telethon_client=client,
-                        telethon_message=msg,
-                    )
-                if self.scan_delay_sec > 0:
-                    await asyncio.sleep(self.scan_delay_sec)
+                    async for msg in client.iter_messages(chat, limit=limit):
+                        text = getattr(msg, "message", "") or ""
+                        source = str(getattr(getattr(msg, "chat", None), "title", "") or getattr(chat, "username", "") or chat)
+                        await self.process_message(
+                            source,
+                            int(msg.id),
+                            msg.date,
+                            text,
+                            telethon_client=client,
+                            telethon_message=msg,
+                        )
+                    if self.scan_delay_sec > 0:
+                        await asyncio.sleep(self.scan_delay_sec)
         await self._evaluate_pending_signal_reviews()
         await self._evaluate_pending_excursions()
         await self._drain_world_queue()
@@ -4849,10 +4874,12 @@ class TelegramSignalAgent:
                     else:
                         filt_tag = f"peer_ids:{len(allowed_peer_ids)}"
                     LOG.info(
-                        "started: ch_yaml=%s ch_eff=%s scan_yaml_default=%s scan_eff=%s market_scan_loop=%s "
+                        "started: ch_yaml=%s ch_eff=%s channel_trade_search=%s scan_yaml_default=%s scan_eff=%s "
+                        "market_scan_loop=%s "
                         "(interval_sec=%s) agent_world=%s control_panel=%s allowed_chats_filter=%s",
                         self.auto_execute,
                         self._effective_channel_auto_execute(),
+                        self.channel_trade_search,
                         bool(self.market_scanner_auto_execute_default),
                         self._effective_market_scanner_auto_execute(),
                         self.market_scanner_enabled,
@@ -4865,6 +4892,12 @@ class TelegramSignalAgent:
                         ),
                         filt_tag,
                     )
+                    if not self.channel_trade_search:
+                        LOG.info(
+                            "channel_trade_search=false: слушатель каналов работает, "
+                            "поиск сделок в постах выключен "
+                            "(ключ telegram_signal_agent.channel_trade_search)"
+                        )
                     if self.channel_rating_enabled or self.signal_excursion_cfg.enabled:
                         rating_task = asyncio.create_task(self._rating_monitor_loop())
                     if self.channel_daily_report_enabled:

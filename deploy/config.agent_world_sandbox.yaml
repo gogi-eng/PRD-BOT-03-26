@@ -984,6 +984,9 @@ market_scanner:
 telegram_signal_agent:
   enabled: true
   auto_execute: true
+  # Поиск сетапов в постах каналов выключен. Слушатель Telethon остаётся.
+  # Нет ключа в живом config тоже значит выключено. Ордера каналов — channel_auto_execute.
+  channel_trade_search: false
   auto_execute_max_open_positions: 6
   # Фаза 1 (SPIKE+own): 45% баланса на SPIKE (×1.5 от прежних 30%), иначе own не хватает маржи.
   # Было 80 при spike-only — вернуть после отключения own или при одном источнике.
