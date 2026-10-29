@@ -22,6 +22,11 @@ try:
 except ImportError:
     from circuit_breaker import ApiCircuitBreaker  # type: ignore
 
+try:
+    from exchange.liquidation_followup import LiquidationFollowupJournal, close_at, positive_price
+except ImportError:
+    from liquidation_followup import LiquidationFollowupJournal, close_at, positive_price  # type: ignore
+
 logger = logging.getLogger("prd_agent.bybit")
 
 _LIQUIDATION_LOG_MAX_BYTES = 8 * 1024 * 1024
@@ -136,6 +141,8 @@ class BybitClient:
         self._liquidation_log_path = Path(liquidation_log_path) if liquidation_log_path else Path("data") / "liquidations.jsonl"
         self._liquidation_log_max_bytes = max(1, int(liquidation_log_max_bytes))
         self._liquidation_log_lock = threading.Lock()
+        self._liquidation_followups: Optional[LiquidationFollowupJournal] = None
+        self._followup_task: Optional[asyncio.Task] = None
         self._share_rate_gate = bool(share_rate_gate)
         self._own_rate_gate = _RateGate()
         self.api_journal: Any = None
@@ -199,6 +206,7 @@ class BybitClient:
     async def close(self):
         await self.stop_liquidation_stream()
         await self.stop_orderbook_stream()
+        await self._stop_followup_worker()
         if self._session and not self._session.closed:
             await self._session.close()
 
@@ -226,6 +234,7 @@ class BybitClient:
 
     async def set_liquidation_symbols(self, symbols: List[str]):
         """Добавляет символы к уже открытой подписке. Короткий список сокет не рвёт."""
+        self._ensure_followup_worker()
         normalized = merge_liquidation_symbols(self._liq_symbols, list(symbols or []))
         if set(normalized) <= set(self._liq_symbols):
             return
@@ -275,16 +284,16 @@ class BybitClient:
         if len(bucket) > 400:
             del bucket[:-400]
         # Журнал только для разбора. Из этой строки ордер не ставится.
-        self._append_liquidation_journal(
-            {
-                "symbol": str(symbol),
-                "S": side,
-                "v": size,
-                "p": price,
-                "T": ts,
-                "notional": price * size,
-            }
-        )
+        journal_row = {
+            "symbol": str(symbol),
+            "S": side,
+            "v": size,
+            "p": price,
+            "T": ts,
+            "notional": price * size,
+        }
+        self._append_liquidation_journal(journal_row)
+        self._note_large_liquidation_followup(journal_row)
 
     def _rotate_liquidation_log(self, path: Path) -> None:
         try:
@@ -310,6 +319,189 @@ class BybitClient:
                     handle.write(line)
         except OSError as exc:
             logger.warning("liquidation journal: %s", exc)
+
+    def _followups(self) -> LiquidationFollowupJournal:
+        journal = self._liquidation_followups
+        if journal is None:
+            journal = LiquidationFollowupJournal.beside(self._liquidation_log_path)
+            self._liquidation_followups = journal
+        return journal
+
+    def _note_large_liquidation_followup(self, row: Dict[str, Any]) -> None:
+        """Крупная печать уходит в отдельный разбор цены. Ордер отсюда не ставится."""
+        try:
+            opened = self._followups().note_print(row)
+        except Exception as exc:
+            logger.warning("liquidation follow-up: %s", exc)
+            return
+        if opened:
+            self._ensure_followup_worker()
+
+    def _ensure_followup_worker(self) -> None:
+        task = self._followup_task
+        if task is not None and not task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        try:
+            pending = self._followups().has_pending()
+        except Exception as exc:
+            logger.warning("liquidation follow-up: %s", exc)
+            return
+        if not pending:
+            return
+        self._followup_task = loop.create_task(self._followup_worker())
+
+    async def _stop_followup_worker(self) -> None:
+        task = self._followup_task
+        self._followup_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _followup_worker(self) -> None:
+        """Дописывает цену через 1, 5 и 15 минут. Новых сделок не открывает."""
+        try:
+            while True:
+                try:
+                    journal = self._followups()
+                    now_ms = int(time.time() * 1000)
+                    if journal.due_slots(now_ms):
+                        await self._fill_due_followups()
+                    now_ms = int(time.time() * 1000)
+                    if not journal.has_pending():
+                        await asyncio.sleep(30.0)
+                        continue
+                    wait = journal.seconds_until_next(now_ms)
+                    if wait is None:
+                        await asyncio.sleep(30.0)
+                        continue
+                    if journal.due_slots(now_ms):
+                        wait = 15.0
+                    await asyncio.sleep(min(max(float(wait), 1.0), 30.0))
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("liquidation follow-up")
+                    await asyncio.sleep(15.0)
+        except asyncio.CancelledError:
+            raise
+
+    def _recent_ticker_rows(self, max_age_sec: float = 5.0) -> Optional[List[Dict]]:
+        if not self._tickers_snapshot:
+            return None
+        age = time.monotonic() - self._tickers_snapshot_at
+        if age > float(max_age_sec):
+            return None
+        return list(self._tickers_snapshot)
+
+    async def _followup_last_prices(self, symbols: List[str]) -> Dict[str, float]:
+        wanted: List[str] = []
+        seen = set()
+        for raw in symbols:
+            sym = str(raw or "").upper()
+            if not sym or sym in seen:
+                continue
+            seen.add(sym)
+            wanted.append(sym)
+        found: Dict[str, float] = {}
+        rows = self._recent_ticker_rows()
+        if rows is None:
+            try:
+                rows = await self.get_tickers()
+            except Exception as exc:
+                logger.warning("liquidation follow-up tickers: %s", exc)
+                rows = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            sym = str(row.get("symbol", "") or "").upper()
+            if sym not in seen:
+                continue
+            price = positive_price(row.get("lastPrice"))
+            if price is not None:
+                found[sym] = price
+        for sym in wanted:
+            if sym in found:
+                continue
+            try:
+                price = positive_price(await self.get_price(sym))
+            except Exception as exc:
+                logger.warning("liquidation follow-up price %s: %s", sym, exc)
+                price = None
+            if price is not None:
+                found[sym] = price
+        return found
+
+    async def _followup_minute_closes(self, symbol: str, limit: int) -> Optional[List[Tuple[int, float]]]:
+        try:
+            rows = await self.get_klines(symbol, interval="1", limit=limit)
+        except Exception as exc:
+            logger.warning("liquidation follow-up kline %s: %s", symbol, exc)
+            return None
+        candles: List[Tuple[int, float]] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                start = int(row.get("timestamp") or 0)
+            except (TypeError, ValueError):
+                continue
+            close = positive_price(row.get("close"))
+            if start > 0 and close is not None:
+                candles.append((start, close))
+        return candles
+
+    async def _fill_due_followups(self, now_ms: Optional[int] = None) -> None:
+        journal = self._followups()
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
+        slots = journal.due_slots(now_ms)
+        if not slots:
+            return
+        live_symbols = [str(slot["symbol"]) for slot in slots if not slot["late"]]
+        prices: Dict[str, float] = {}
+        if live_symbols:
+            prices = await self._followup_last_prices(live_symbols)
+        late_due: Dict[str, int] = {}
+        for slot in slots:
+            if not slot["late"]:
+                continue
+            sym = str(slot["symbol"])
+            due = int(slot["due_ms"])
+            previous = late_due.get(sym)
+            if previous is None or due < previous:
+                late_due[sym] = due
+        candles_by_symbol: Dict[str, Optional[List[Tuple[int, float]]]] = {}
+        for sym, due in late_due.items():
+            span = max(0, now_ms - due)
+            limit = min(1000, max(20, span // 60_000 + 3))
+            candles_by_symbol[sym] = await self._followup_minute_closes(sym, limit)
+        for slot in slots:
+            sym = str(slot["symbol"])
+            key = str(slot["key"])
+            record_id = str(slot["id"])
+            if slot["late"]:
+                candles = candles_by_symbol.get(sym)
+                if candles is None:
+                    journal.note_late_miss(record_id, key)
+                    continue
+                price = close_at(candles, int(slot["due_ms"]))
+                if price is None:
+                    journal.note_late_miss(record_id, key)
+                    continue
+                journal.fill(record_id, key, price, now_ms, source="kline_1m")
+                continue
+            price = prices.get(sym)
+            if price is None:
+                continue
+            journal.fill(record_id, key, price, now_ms, source="last")
 
     def get_liquidation_events(self, symbol: str, max_age_sec: int = 3600, limit: int = 250) -> List[Dict]:
         now_ms = int(time.time() * 1000)
