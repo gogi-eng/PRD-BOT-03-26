@@ -648,6 +648,9 @@ market_scanner:
 telegram_signal_agent:
   enabled: false
   auto_execute: false
+  # Поиск сетапов в постах каналов. false = слушаем посты, сделки в каналах не ищем.
+  # Ордер из канала — отдельно: auto_execute и channel_auto_execute в стейте.
+  channel_trade_search: false
   auto_execute_max_open_positions: 6
   # SPIKE/scanner: номинал = 80% баланса Bybit
   max_notional_balance_pct: 80
