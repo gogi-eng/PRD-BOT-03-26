@@ -112,7 +112,7 @@ trading:
   dynamic_leverage:
     enabled: true
     min: 10
-    max: 15
+    max: 25
     min_confidence: 0.68
     max_confidence: 0.95
   min_signal_confidence: 0.85
