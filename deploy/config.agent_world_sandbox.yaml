@@ -40,11 +40,13 @@ bot_manager:
 
 # Крупная заявка в стакане и волна чужих ликвидаций — только сообщение в Telegram.
 # Новую сделку из-за этого бот не открывает.
+# Стена: не меньше 10000 USDT и не меньше 2% видимого стакана (bids+asks).
 liquidity_alerts:
   enabled: true
   interval_sec: 60
   max_symbols: 8
-  min_wall_usd: 25000
+  min_wall_usd: 10000
+  min_wall_book_frac: 0.02
   wall_multiple: 5
   wall_persist_sec: 45
   min_liq_usd: 20000
