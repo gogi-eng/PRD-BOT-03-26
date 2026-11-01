@@ -74,6 +74,7 @@ from prd_agent.market.scanner_learning import (
     record_closed_trade_lesson,
     state_file_lock,
 )
+from prd_agent.analysis.reject_journal import MIN_NOTIONAL_USDT, RejectJournal
 from prd_agent.risk.fast_entry_guard import fast_entry_block_reason
 from prd_agent.risk.signal_notional import plan_signal_notional
 
@@ -1358,6 +1359,7 @@ class TelegramSignalAgent:
         self.data_dir = repo_dir / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.timesfm_gate = TimesFMGate(self.cfg, self.data_dir)
+        self.reject_journal = RejectJournal.in_data_dir(self.data_dir)
         log_volatility_regime_startup(self.cfg, LOG)
         _ab_raw = self.agent_cfg.get("channel_auto_block", {})
         self.channel_auto_block_cfg = channel_auto_block_from_cfg(_ab_raw if isinstance(_ab_raw, dict) else None)
@@ -2230,7 +2232,72 @@ class TelegramSignalAgent:
         with open(self.inbox_jsonl, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    def _journal_blocked_entry(
+        self,
+        signal: TelegramSignal,
+        reason: str,
+        *,
+        mark_price: float = 0.0,
+        intended_size: float = 0.0,
+        source: str = "",
+    ) -> None:
+        price = float(mark_price or 0.0)
+        if price <= 0:
+            try:
+                price = float(signal.entry or 0.0)
+            except (TypeError, ValueError):
+                price = 0.0
+        journal = getattr(self, "reject_journal", None)
+        if journal is None:
+            return
+        try:
+            journal.maybe_record(
+                symbol=str(signal.symbol or ""),
+                reason=reason,
+                mark_price=price,
+                intended_size=intended_size,
+                side=str(signal.side or ""),
+                source=source,
+            )
+        except Exception as exc:
+            LOG.warning("reject journal %s: %s", signal.symbol, exc)
+
+    def _maybe_journal_blocked_signal(
+        self,
+        signal: TelegramSignal,
+        review: dict[str, Any],
+        action: str,
+        result: dict[str, Any] | None,
+    ) -> None:
+        action_name = str(action or "")
+        reason = str((review or {}).get("reason") or "")
+        intended = 0.0
+        if isinstance(result, dict) and result:
+            err = str(result.get("error") or "")
+            if err:
+                reason = err
+            try:
+                intended = float(result.get("intended_size") or result.get("qty") or 0.0)
+            except (TypeError, ValueError):
+                intended = 0.0
+        hinted = ""
+        if action_name in {"scanner_blocked", "scanner_blocked_rr"}:
+            hinted = "scanner"
+        elif action_name in {"scanner_execute_failed", "execute_failed"}:
+            hinted = ""
+        else:
+            return
+        if not reason:
+            return
+        self._journal_blocked_entry(
+            signal,
+            reason,
+            intended_size=intended,
+            source=hinted,
+        )
+
     def _append_signal(self, signal: TelegramSignal, review: dict[str, Any], action: str, result: dict[str, Any] | None) -> None:
+        self._maybe_journal_blocked_signal(signal, review, action, result)
         if not self.audit_jsonl_enabled:
             return
         audit: dict[str, Any] = {
@@ -2520,6 +2587,18 @@ class TelegramSignalAgent:
         qty = notional / price if price > 0 else 0.0
         if qty <= 0:
             raise RuntimeError("Calculated qty <= 0")
+        if price > 0 and float(notional) + 1e-9 < MIN_NOTIONAL_USDT:
+            err = (
+                f"Номинал ордера {float(notional):.2f} USDT ниже минимума Bybit "
+                f"{MIN_NOTIONAL_USDT:.2f} USDT (retCode=110094)"
+            )
+            LOG.info("Skip %s %s: %s", signal.symbol, signal.side, err)
+            return {
+                "success": False,
+                "orderId": "",
+                "error": err,
+                "intended_size": qty,
+            }
         result = await self.execution.execute_entry(
             symbol=signal.symbol,
             side=signal.side,

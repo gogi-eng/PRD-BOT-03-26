@@ -28,6 +28,7 @@ from prd_agent.analysis.trade_analytics import (
     load_closed_trades,
     summarize_trades,
 )
+from prd_agent.analysis.reject_journal import RejectJournal
 from prd_agent.analysis.trade_journal import TradeJournal
 from prd_agent.analysis.trade_lifecycle import TradeLifecycleTracker
 from prd_agent.analysis.trade_monitor import TradeMonitor
@@ -130,6 +131,7 @@ class UnifiedOrchestrator:
         self.ledger = SignalLedger(self.data_dir / "ledger")
         self.monitor = TradeMonitor(self.data_dir / "trades")
         self.trade_journal = TradeJournal(self.data_dir, cfg)
+        self.reject_journal = RejectJournal.in_data_dir(self.data_dir)
         self.trade_lifecycle = TradeLifecycleTracker(self.data_dir, cfg)
         self._min_analysis_conf = load_min_analysis_confidence(cfg)
         self._signal_cooldown = PerSymbolSignalCooldown(
@@ -1242,6 +1244,33 @@ class UnifiedOrchestrator:
         r = reason or ""
         return any(r.startswith(p) or p in r for p in self._silent_skip_prefixes)
 
+    def _journal_blocked_entry(
+        self,
+        sig: UnifiedSignal,
+        reason: str,
+        *,
+        mark_price: float = 0.0,
+        intended_size: float = 0.0,
+        source: str = "",
+    ) -> None:
+        price = float(mark_price or 0.0)
+        if price <= 0:
+            try:
+                price = float(sig.entry or 0.0)
+            except (TypeError, ValueError):
+                price = 0.0
+        try:
+            self.reject_journal.maybe_record(
+                symbol=sig.symbol,
+                reason=reason,
+                mark_price=price,
+                intended_size=intended_size,
+                side=str(sig.side or ""),
+                source=source,
+            )
+        except Exception as exc:
+            logger.warning("reject journal %s: %s", sig.symbol, exc)
+
     async def build_status_table(
         self, *, positions: Optional[List[Dict]] = None, block_reason: str = ""
     ) -> str:
@@ -1399,6 +1428,7 @@ class UnifiedOrchestrator:
                     reason=meta_reason,
                     include_snapshot=False,
                 )
+                self._journal_blocked_entry(sig, meta_reason, source="supervisor_v4")
                 logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
                 continue
             if not can_trade:
@@ -1408,6 +1438,7 @@ class UnifiedOrchestrator:
                     reason=block_reason,
                     include_snapshot=False,
                 )
+                self._journal_blocked_entry(sig, block_reason, source="risk_guard")
                 continue
             entry = await self._record_ledger_signal(
                 sig,
@@ -1511,6 +1542,7 @@ class UnifiedOrchestrator:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", reason)
+            self._journal_blocked_entry(sig, reason, source="risk_guard")
             if not self._is_silent_skip(reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, reason)
             return
@@ -1533,6 +1565,9 @@ class UnifiedOrchestrator:
         if not tfm_ok:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, tfm_reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", tfm_reason)
+            self._journal_blocked_entry(
+                sig, tfm_reason, mark_price=float(plan_entry or 0), source="timesfm"
+            )
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, tfm_reason)
             if not self._is_silent_skip(tfm_reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, tfm_reason)
@@ -1663,6 +1698,9 @@ class UnifiedOrchestrator:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, meta_reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, meta_reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", meta_reason)
+            self._journal_blocked_entry(
+                sig, meta_reason, mark_price=float(eff_entry or 0), source="supervisor_v4"
+            )
             if not self._is_silent_skip(meta_reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, meta_reason)
             return
@@ -1937,10 +1975,18 @@ class UnifiedOrchestrator:
             logger.info("Skip %s %s: %s", sig.symbol, sig.side, book_reason)
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, book_reason)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", book_reason)
+            self._journal_blocked_entry(
+                sig,
+                book_reason,
+                mark_price=float(eff_entry or 0),
+                intended_size=float(qty or 0),
+                source="orderbook",
+            )
             if not self._is_silent_skip(book_reason):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, book_reason)
             return
 
+        intended_qty = float(qty or 0)
         qty, sl, tp, prep_err = await prepare_order(
             self.exchange._client,
             symbol=sig.symbol,
@@ -1954,6 +2000,13 @@ class UnifiedOrchestrator:
         if prep_err:
             self.ledger.update_status(ledger_id, SignalStatus.SKIPPED, prep_err)
             self.supervisor.note_signal_outcome(ledger_id, "skipped", prep_err)
+            self._journal_blocked_entry(
+                sig,
+                prep_err,
+                mark_price=float(eff_entry or 0),
+                intended_size=intended_qty,
+                source="notional" if "110094" in prep_err else "",
+            )
             if not self._is_silent_skip(prep_err):
                 await self.notifier.signal_skipped(sig.symbol, sig.side, prep_err)
             return
