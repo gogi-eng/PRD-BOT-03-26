@@ -1,4 +1,10 @@
-"""Крупные заявки в стакане и волны ликвидаций: только сообщение, без ордера."""
+"""Крупные заявки в стакане и волны ликвидаций: только сообщение, без ордера.
+
+Стену пишем только если номинал не меньше MIN_WALL_USDT и доля не меньше
+DEFAULT_MIN_WALL_BOOK_FRAC от видимого стакана (сумма bids+asks в том срезе,
+который уже скачали). Мелкие биды вроде 2–3 тысяч USDT не трекаем.
+Ордер из стены не ставится. Биржевой трейлинг по полю activePrice не подключаем.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +18,8 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 logger = logging.getLogger("prd_agent.liquidity_alerts")
 
 FEE_ROUNDTRIP_PCT = 0.11
+MIN_WALL_USDT = 10_000.0
+DEFAULT_MIN_WALL_BOOK_FRAC = 0.02
 
 
 @dataclass(frozen=True)
@@ -19,7 +27,8 @@ class AlertSettings:
     enabled: bool = False
     interval_sec: float = 60.0
     max_symbols: int = 8
-    min_wall_usd: float = 25000.0
+    min_wall_usd: float = MIN_WALL_USDT
+    min_wall_book_frac: float = DEFAULT_MIN_WALL_BOOK_FRAC
     wall_multiple: float = 5.0
     wall_persist_sec: float = 45.0
     min_liq_usd: float = 20000.0
@@ -78,7 +87,10 @@ def read_settings(cfg: Mapping[str, Any]) -> AlertSettings:
         enabled=bool(block.get("enabled", False)),
         interval_sec=_num("interval_sec", 60.0, 20.0, 600.0),
         max_symbols=int(_num("max_symbols", 8, 1, 24)),
-        min_wall_usd=_num("min_wall_usd", 25000.0, 1000.0, 50_000_000.0),
+        min_wall_usd=_num("min_wall_usd", MIN_WALL_USDT, MIN_WALL_USDT, 50_000_000.0),
+        min_wall_book_frac=_num(
+            "min_wall_book_frac", DEFAULT_MIN_WALL_BOOK_FRAC, 0.01, 0.50
+        ),
         wall_multiple=_num("wall_multiple", 5.0, 2.0, 50.0),
         wall_persist_sec=_num("wall_persist_sec", 45.0, 0.0, 600.0),
         min_liq_usd=_num("min_liq_usd", 20000.0, 1000.0, 50_000_000.0),
@@ -90,6 +102,20 @@ def read_settings(cfg: Mapping[str, Any]) -> AlertSettings:
 
 def liquidity_alerts_enabled(cfg: Mapping[str, Any]) -> bool:
     return read_settings(cfg).enabled
+
+
+def is_significant_wall(usd: Any, book_usd: Any, settings: AlertSettings) -> bool:
+    """Крупная стена: и не меньше min_wall_usd, и не меньше доли видимого стакана."""
+    try:
+        wall = float(usd)
+        book = float(book_usd)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(wall) or not math.isfinite(book):
+        return False
+    if wall < settings.min_wall_usd or book <= 0:
+        return False
+    return wall >= book * settings.min_wall_book_frac
 
 
 def _levels(raw: Any) -> List[Tuple[float, float]]:
@@ -169,8 +195,12 @@ def collect_alerts(
         sym = str(symbol or "").upper()
         if not sym or not isinstance(book, Mapping):
             continue
-        for side_name, raw in (("bid", book.get("bids")), ("ask", book.get("asks"))):
-            levels = _levels(raw)
+        bid_levels = _levels(book.get("bids"))
+        ask_levels = _levels(book.get("asks"))
+        book_usd = sum(price * size for price, size in bid_levels) + sum(
+            price * size for price, size in ask_levels
+        )
+        for side_name, levels in (("bid", bid_levels), ("ask", ask_levels)):
             if not levels:
                 continue
             avg = sum(size for _, size in levels) / len(levels)
@@ -183,7 +213,7 @@ def collect_alerts(
                 if size < threshold:
                     continue
                 usd = price * size
-                if usd >= settings.min_wall_usd and usd > best_usd:
+                if is_significant_wall(usd, book_usd, settings) and usd > best_usd:
                     best_usd = usd
                     best_price = price
             if best_usd <= 0:
@@ -358,8 +388,9 @@ async def run_liquidity_alert_loop(
     log = log or logger
     settings = read_settings(cfg)
     log.info(
-        "Liquidity alerts: только Telegram, без входа. стена от %.0f USDT, ликвидации от %.0f USDT",
+        "Liquidity alerts: только Telegram, без входа. стена от %.0f USDT и от %.0f%% видимого стакана, ликвидации от %.0f USDT",
         settings.min_wall_usd,
+        settings.min_wall_book_frac * 100.0,
         settings.min_liq_usd,
     )
     await asyncio.sleep(20)
