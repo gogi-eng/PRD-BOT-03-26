@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from exchange.bybit_fees import BybitFeeConfig, apply_fees_to_pnl_pct
+from prd_agent.signals.ttl import fingerprint_from_row
 
 logger = logging.getLogger("prd_agent.supervisor.skipped_bt")
 
@@ -35,6 +36,7 @@ class SkippedBacktestResult:
     pnl_pct_net: float = 0.0
     fee_pct_round_trip: float = 0.0
     candles_used: int = 0
+    fingerprint: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -164,11 +166,16 @@ class SkippedSignalBacktester:
         self.store_dir = store_dir / "skipped_backtest"
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self.results_path = self.store_dir / "results.jsonl"
-        self._done_ids: Set[str] = self._load_done_ids()
+        self._done_ids: Set[str] = set()
+        self._done_fingerprints: Set[str] = set()
+        self._load_done_ids()
 
     def _load_done_ids(self) -> Set[str]:
         ids: Set[str] = set()
+        fingerprints: Set[str] = set()
         if not self.results_path.exists():
+            self._done_ids = ids
+            self._done_fingerprints = fingerprints
             return ids
         for line in self.results_path.read_text(encoding="utf-8").splitlines():
             try:
@@ -176,14 +183,21 @@ class SkippedSignalBacktester:
                 lid = str(row.get("ledger_id", "") or "")
                 if lid:
                     ids.add(lid)
+                fp = str(row.get("fingerprint") or fingerprint_from_row(row) or "")
+                if fp:
+                    fingerprints.add(fp)
             except json.JSONDecodeError:
                 pass
+        self._done_ids = ids
+        self._done_fingerprints = fingerprints
         return ids
 
     def _append_result(self, result: SkippedBacktestResult) -> None:
         with self.results_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(result.to_dict(), ensure_ascii=False) + "\n")
         self._done_ids.add(result.ledger_id)
+        if result.fingerprint:
+            self._done_fingerprints.add(result.fingerprint)
 
     def _pick_candidates(self, ledger_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
@@ -195,6 +209,12 @@ class SkippedSignalBacktester:
                 continue
             lid = str(row.get("id", "") or "")
             if not lid or lid in self._done_ids:
+                continue
+            raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
+            if raw.get("synthetic") or raw.get("missing_bar") or raw.get("upstreamStub"):
+                continue
+            fp = fingerprint_from_row(row)
+            if fp and fp in self._done_fingerprints:
                 continue
             try:
                 ts = datetime.fromisoformat(
@@ -475,6 +495,7 @@ class SkippedSignalBacktester:
                 symbol=sym,
                 side=str(row.get("side", "")),
                 source=str(row.get("source", "")),
+                fingerprint=fingerprint_from_row(row),
                 skip_reason=str(row.get("reason", ""))[:200],
                 entry=entry,
                 stop_loss=sl,

@@ -60,13 +60,14 @@ from prd_agent.risk.volatility_regime_sizing import (
     log_volatility_regime_startup,
 )
 from prd_agent.signals.pump_dump_mode import is_agent_world_signal, is_pump_dump_signal
+from prd_agent.signals.ttl import filter_live_signals
 from prd_agent.reporting.bi_hourly import BiHourlyReporter
 from prd_agent.risk.closed_pnl_dedup import ClosedPnlDedup
 from prd_agent.risk.guard import GuardStatus, RiskGuard, StopKind
 from prd_agent.risk.rr_enforce import enforce_min_rr_levels, rr_ratio
 from prd_agent.risk.quality_gate import QualityGate
 from prd_agent.market.scanner_learning import (
-    is_scanner_trade_source,
+    is_verified_closed_lesson,
     resolve_scanner_close_source,
 )
 from prd_agent.market.market_scanner_bridge import (
@@ -924,7 +925,7 @@ class UnifiedOrchestrator:
                 symbol,
                 order_id,
             )
-            if not is_scanner_trade_source(source):
+            if not is_verified_closed_lesson(source=source, order_id=order_id):
                 return
             agent = self._get_scanner_agent()
             if agent is None or not hasattr(agent, "record_closed_scanner_trade"):
@@ -1395,6 +1396,7 @@ class UnifiedOrchestrator:
             await self._notify_risk_block_once(block_reason, positions)
 
         all_signals = await self.signals.collect_all(self.exchange, self.symbols)
+        all_signals = filter_live_signals(all_signals)
         if all_signals:
             all_signals = sorted(
                 all_signals,

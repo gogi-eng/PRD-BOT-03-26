@@ -22,6 +22,24 @@ except ImportError:  # pragma: no cover — Windows
 from prd_agent.positions.bot_position_registry import load_registry
 
 SCANNER_TRADE_SOURCES = frozenset({"MARKET_SCANNER", "SPIKE_SCANNER"})
+VERIFIED_LESSON_KIND = "closed_trade"
+
+
+def is_verified_closed_lesson(
+    *,
+    source: Any,
+    order_id: str = "",
+    kind: str = VERIFIED_LESSON_KIND,
+    synthetic: Any = False,
+) -> bool:
+    """Урок только после реального закрытия MARKET/SPIKE SCANNER, не из отказа/синтетики."""
+    if not is_scanner_trade_source(source):
+        return False
+    if str(kind or VERIFIED_LESSON_KIND).strip().lower() != VERIFIED_LESSON_KIND:
+        return False
+    if synthetic is True or str(synthetic).lower() in {"1", "true", "yes"}:
+        return False
+    return True
 
 
 @contextmanager
@@ -135,7 +153,7 @@ def append_closed_scanner_learning_event(
     cap: int = 50,
 ) -> Optional[dict[str, Any]]:
     """Добавляет урок по закрытой сделке сканера. Чужой источник — ничего не пишет."""
-    if not is_scanner_trade_source(source):
+    if not is_verified_closed_lesson(source=source, order_id=order_id, kind=VERIFIED_LESSON_KIND):
         return None
     sym = str(symbol or "").upper().strip()
     if not sym:
@@ -179,7 +197,13 @@ def append_closed_scanner_learning_event(
 def decided_window(events: Any, learning_window: int) -> list[dict[str, Any]]:
     rows = _as_event_list(events)
     window = rows[-max(1, int(learning_window)) :]
-    return [item for item in window if item.get("outcome") in {"win", "loss"}]
+    return [
+        item
+        for item in window
+        if item.get("outcome") in {"win", "loss"}
+        and str(item.get("kind") or VERIFIED_LESSON_KIND) == VERIFIED_LESSON_KIND
+        and not item.get("synthetic")
+    ]
 
 
 def window_signature(decided: list[dict[str, Any]]) -> str:

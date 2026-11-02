@@ -25,10 +25,36 @@ class GuardStatus(Enum):
 
 
 class StopKind(Enum):
+    """Именованные стоп-краны. Дневные виды живут до полуночи МСК, не до смены сессии."""
+
     NONE = "none"
     CONSECUTIVE = "consecutive"
     DAILY_LOSS = "daily_loss"
     TRADE_LIMIT = "trade_limit"
+    SYMBOL_LOSS = "symbol_loss"
+    CONCENTRATION = "concentration"
+
+
+# Эти краны не снимаются сменой сессии 01:00/09:00/12:00/19:00/20:00 МСК.
+DAY_LOCKED_STOP_KINDS = frozenset(
+    {
+        StopKind.DAILY_LOSS,
+        StopKind.SYMBOL_LOSS,
+        StopKind.TRADE_LIMIT,
+        StopKind.CONCENTRATION,
+    }
+)
+
+
+def named_stop_reason(kind: StopKind, detail: str) -> str:
+    """Стабильная метка причины: [daily_loss] … — для журнала отказов и логов."""
+    if kind is StopKind.NONE:
+        return str(detail or "").strip()
+    text = str(detail or "").strip()
+    tag = f"[{kind.value}]"
+    if text.startswith(tag):
+        return text
+    return f"{tag} {text}".strip()
 
 
 @dataclass
@@ -193,19 +219,20 @@ class RiskGuard:
         return session_window(datetime.now(timezone.utc), tz_off)
 
     def _loss_window_start_utc(self) -> datetime:
-        """Начало текущей сессии. Убытки раньше этого часа в стоп не входят."""
-        return self._session().start_utc
+        """Начало торгового дня МСК. Сессии 01:00/09:00/12:00/19:00/20:00 окно не двигают."""
+        return self._trading_day_start_utc()
 
     def _session_block_text(self) -> str:
+        """Имя текущей сессии — справочно. Дневной стоп от этого окна не зависит."""
         window = self._session()
-        mins = max(
-            0,
-            int((window.end_utc - datetime.now(timezone.utc)).total_seconds() / 60),
-        )
+        return f"сессия {window.name} ({window.end_hhmm} МСК), стоп до полуночи МСК"
+
+    def _trading_day_block_text(self) -> str:
+        mins = self._minutes_until_utc_reset()
         hours, minutes = divmod(mins, 60)
         return (
-            f"До конца сессии {window.name} ({window.end_hhmm} МСК) "
-            f"через {hours}ч {minutes}м"
+            f"до полуночи МСК через {hours}ч {minutes}м "
+            f"(сессии 01:00/09:00/12:00/19:00/20:00 стоп не снимают)"
         )
 
     def _next_trading_day_midnight_utc(self) -> datetime:
@@ -428,8 +455,16 @@ class RiskGuard:
     def _daily_loss_reason(self) -> str:
         s = self.day_stats
         if self.max_daily_loss_usdt > 0 and s.net_pnl_usdt <= -self.max_daily_loss_usdt:
-            return f"Дневной лимит убытка ${abs(s.net_pnl_usdt):.2f} (лимит ${self.max_daily_loss_usdt:.0f})"
-        return f"Дневной лимит убытка {abs(s.net_pnl_pct):.1f}% (лимит {self.max_daily_loss_pct:.0f}%)"
+            detail = (
+                f"Дневной лимит убытка ${abs(s.net_pnl_usdt):.2f} "
+                f"(лимит ${self.max_daily_loss_usdt:.0f})"
+            )
+        else:
+            detail = (
+                f"Дневной лимит убытка {abs(s.net_pnl_pct):.1f}% "
+                f"(лимит {self.max_daily_loss_pct:.0f}%)"
+            )
+        return named_stop_reason(StopKind.DAILY_LOSS, detail)
 
     def _symbol_loss_reason(self, symbol: str) -> str:
         cap = int(self.max_symbol_losses_per_day or 0)
@@ -439,9 +474,22 @@ class RiskGuard:
         n = int(self._symbol_losses_today.get(sym, 0))
         if n < cap:
             return ""
-        return (
+        return named_stop_reason(
+            StopKind.SYMBOL_LOSS,
             f"{sym}: уже {n} убыточных закрытий за торговый день (лимит {cap}) — "
-            f"до конца дня эту монету не берём"
+            f"до конца дня эту монету не берём",
+        )
+
+    def _concentration_reason(self) -> str:
+        return named_stop_reason(
+            StopKind.CONCENTRATION,
+            f"Макс. позиций: {self.max_positions}",
+        )
+
+    def _trade_limit_reason(self) -> str:
+        return named_stop_reason(
+            StopKind.TRADE_LIMIT,
+            f"Лимит сделок: {self.day_stats.trades}",
         )
 
     def fast_path_block(self, symbol: str) -> Tuple[bool, str]:
@@ -482,22 +530,25 @@ class RiskGuard:
     def _check_auto_stop(self) -> None:
         if self._consecutive_losses >= self.max_consecutive_losses:
             self._trigger_stop(
-                f"{self._consecutive_losses} убытков подряд",
+                named_stop_reason(
+                    StopKind.CONSECUTIVE,
+                    f"{self._consecutive_losses} убытков подряд",
+                ),
                 StopKind.CONSECUTIVE,
             )
         elif self._daily_loss_exceeded():
             self._trigger_stop(self._daily_loss_reason(), StopKind.DAILY_LOSS)
         elif self.max_trades_per_day > 0 and self.day_stats.trades >= self.max_trades_per_day:
-            self._trigger_stop(f"Лимит сделок: {self.day_stats.trades}", StopKind.TRADE_LIMIT)
+            self._trigger_stop(self._trade_limit_reason(), StopKind.TRADE_LIMIT)
 
     def _trigger_stop(self, reason: str, kind: StopKind) -> None:
         if self.status not in (GuardStatus.STOPPED, GuardStatus.EMERGENCY):
             self.status = GuardStatus.STOPPED
-            self.stop_reason = reason
+            self.stop_reason = named_stop_reason(kind, reason)
             self.stop_kind = kind
             self.auto_stop_time = datetime.now(timezone.utc)
             if self._notify:
-                self._notify(f"AUTO-STOP: {reason}")
+                self._notify(f"AUTO-STOP: {self.stop_reason}")
 
     def _minutes_until_utc_reset(self) -> int:
         delta = self._next_trading_day_midnight_utc() - datetime.now(timezone.utc)
@@ -520,29 +571,44 @@ class RiskGuard:
             if self.daily_loss_blocks_until_next_day:
                 return (
                     False,
-                    f"{self._daily_loss_reason()}. {self._session_block_text()}",
+                    f"{self._daily_loss_reason()}. {self._trading_day_block_text()}",
                 )
 
         if self.stop_kind == StopKind.DAILY_LOSS and self.daily_loss_blocks_until_next_day:
             return (
                 False,
-                f"{self.stop_reason or self._daily_loss_reason()}. {self._session_block_text()}",
+                f"{self.stop_reason or self._daily_loss_reason()}. {self._trading_day_block_text()}",
             )
 
+        if (
+            self.stop_kind in DAY_LOCKED_STOP_KINDS
+            and self.stop_kind != StopKind.SYMBOL_LOSS
+            and self.stop_kind != StopKind.CONCENTRATION
+            and self.day_stats.date == self._trading_day()
+        ):
+            if self.stop_kind == StopKind.TRADE_LIMIT:
+                return (
+                    False,
+                    f"{self.stop_reason or self._trade_limit_reason()}. {self._trading_day_block_text()}",
+                )
+
         if self.status == GuardStatus.STOPPED and self.auto_stop_time:
-            if self.stop_kind in (StopKind.DAILY_LOSS, StopKind.TRADE_LIMIT):
-                if self.daily_loss_blocks_until_next_day and self.stop_kind == StopKind.DAILY_LOSS:
-                    return False, f"Дневной стоп. {self._session_block_text()}"
-                if self.stop_kind == StopKind.TRADE_LIMIT and self.day_stats.date == self._trading_day():
-                    mins = self._minutes_until_utc_reset()
-                    h, m = divmod(mins, 60)
-                    return False, f"Лимит сделок на сегодня. Сброс через {h}ч {m}м"
+            if self.stop_kind in DAY_LOCKED_STOP_KINDS and self.day_stats.date == self._trading_day():
+                if self.stop_kind == StopKind.DAILY_LOSS:
+                    return False, f"{self._daily_loss_reason()}. {self._trading_day_block_text()}"
+                if self.stop_kind == StopKind.TRADE_LIMIT:
+                    return False, f"{self._trade_limit_reason()}. {self._trading_day_block_text()}"
+                return False, f"{self.stop_reason}. {self._trading_day_block_text()}"
 
             elapsed = (datetime.now(timezone.utc) - self.auto_stop_time).total_seconds()
             pause_sec = self.cooldown_after_stop_sec
             if elapsed < pause_sec:
                 left = int((pause_sec - elapsed) / 60)
-                return False, f"Пауза после стопа, осталось {left} мин"
+                return False, named_stop_reason(
+                    self.stop_kind,
+                    f"Пауза после стопа, осталось {left} мин",
+                )
+            # Дневные краны сюда не доходят: их держит DAY_LOCKED до полуночи МСК.
             self.status = GuardStatus.ACTIVE
             self.stop_reason = ""
             self.stop_kind = StopKind.NONE
@@ -551,7 +617,7 @@ class RiskGuard:
 
         sym_reason = self._symbol_loss_reason(symbol)
         if sym_reason:
-            return False, sym_reason
+            return False, f"{sym_reason}. {self._trading_day_block_text()}"
 
         if self.last_loss_time:
             elapsed = (datetime.now(timezone.utc) - self.last_loss_time).total_seconds()
@@ -559,10 +625,13 @@ class RiskGuard:
                 return False, f"Кулдаун после убытка: {int(self.cooldown_after_loss_sec - elapsed)} сек"
 
         if self.open_positions_count >= self.max_positions:
-            return False, f"Макс. позиций: {self.max_positions}"
+            return False, self._concentration_reason()
 
         if self.max_trades_per_day > 0 and self.day_stats.trades >= self.max_trades_per_day:
-            return False, f"Лимит сделок на сегодня: {self.day_stats.trades}/{self.max_trades_per_day}"
+            return False, (
+                f"{self._trade_limit_reason()} "
+                f"{self.day_stats.trades}/{self.max_trades_per_day}. {self._trading_day_block_text()}"
+            )
 
         return True, ""
 

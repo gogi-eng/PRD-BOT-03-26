@@ -144,12 +144,17 @@ def test_one_jsonl_line_per_blocked_entry(tmp_path: Path):
     ]
     hour = parsed[0]
     assert hour["symbol"] == "BTCUSDT"
+    assert hour["verdict"] == "BLOCK"
     assert hour["reason"] == "час 17 заблокирован"
+    assert hour["reasons"] == ["час 17 заблокирован"]
     assert hour["mark_price"] == 95000.0
     assert hour["intended_size"] == 0.001
     assert hour["side"] == "Buy"
     assert hour["note"] == "Журнал отказов до ордера. Из этой строки ордер не ставится."
     assert parsed[4]["reason"] == "номинал ниже 5 USDT"
+    assert parsed[4]["reasons"] == ["номинал ниже 5 USDT"]
+    assert parsed[1]["verdict"] == "BLOCK"
+    assert "дневной лимит" in parsed[1]["reasons"]
     assert journal.maybe_record(
         symbol="BTCUSDT",
         reason="quality_gate: confidence 0.40 < 0.85",

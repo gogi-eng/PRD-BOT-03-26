@@ -12,7 +12,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Mapping, NoReturn, Optional
+from typing import Any, Literal, Mapping, NoReturn, Optional, Sequence
 
 logger = logging.getLogger("prd_agent.reject_journal")
 
@@ -25,6 +25,7 @@ RejectSource = Literal[
     "hour",
     "notional",
 ]
+RejectVerdict = Literal["PASS", "BLOCK"]
 
 SOURCES: tuple[RejectSource, ...] = (
     "hour",
@@ -130,6 +131,11 @@ def _is_risk_guard_reason(reason: str) -> bool:
         "auto-stop",
         "riskguard",
         "risk_guard",
+        "[daily_loss]",
+        "[symbol_loss]",
+        "[concentration]",
+        "[trade_limit]",
+        "[consecutive]",
     )
     return any(item in text for item in needles)
 
@@ -200,7 +206,11 @@ def plain_reason(source: RejectSource, reason: str) -> str:
         return "TimesFM против входа"
     if source == "risk_guard":
         lowered = raw.lower()
-        if any(item in lowered for item in ("дневн", "лимит сделок", "убыточн")):
+        if "[symbol_loss]" in lowered or ("убыточн" in lowered and "монет" in lowered):
+            return "замок убытков по монете"
+        if "[concentration]" in lowered or "макс. позиций" in lowered or "макс позиций" in lowered:
+            return "потолок концентрации"
+        if any(item in lowered for item in ("дневн", "лимит сделок", "[daily_loss]", "[trade_limit]")):
             return "дневной лимит"
         return raw or "риск не пустил"
     if source == "supervisor_v4":
@@ -208,6 +218,20 @@ def plain_reason(source: RejectSource, reason: str) -> str:
     if source == "scanner":
         return raw or "сканер не пустил"
     return _assert_never(source)
+
+
+def _plain_reasons(
+    source: RejectSource,
+    reason: str,
+    extra_reasons: Optional[Sequence[str]] = None,
+) -> list[str]:
+    primary = plain_reason(source, reason)
+    out: list[str] = []
+    for item in (primary, *(extra_reasons or ())):
+        text = str(item or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out or [primary]
 
 
 def build_row(
@@ -219,14 +243,19 @@ def build_row(
     side: str = "",
     source: RejectSource,
     ts: Optional[str] = None,
+    verdict: RejectVerdict = "BLOCK",
+    extra_reasons: Optional[Sequence[str]] = None,
 ) -> dict[str, Any]:
     stamp = ts or datetime.now(timezone.utc).isoformat()
+    reasons = _plain_reasons(source, reason, extra_reasons)
     return {
         "ts": stamp,
         "symbol": str(symbol or "").upper(),
         "side": str(side or "").strip(),
         "source": source,
-        "reason": plain_reason(source, reason),
+        "verdict": "PASS" if verdict == "PASS" else "BLOCK",
+        "reason": reasons[0],
+        "reasons": reasons,
         "mark_price": round(_finite_float(mark_price), 8),
         "intended_size": round(_finite_float(intended_size), 8),
         "note": _NOTE,
@@ -254,6 +283,8 @@ class RejectJournal:
         side: str = "",
         source: str = "",
         extra: Optional[Mapping[str, Any]] = None,
+        verdict: RejectVerdict = "BLOCK",
+        extra_reasons: Optional[Sequence[str]] = None,
     ) -> Optional[dict[str, Any]]:
         resolved = classify_source(reason, source)
         if resolved is None:
@@ -266,6 +297,8 @@ class RejectJournal:
             side=side,
             source=resolved,
             extra=extra,
+            verdict=verdict,
+            extra_reasons=extra_reasons,
         )
 
     def record(
@@ -278,6 +311,8 @@ class RejectJournal:
         side: str = "",
         source: RejectSource,
         extra: Optional[Mapping[str, Any]] = None,
+        verdict: RejectVerdict = "BLOCK",
+        extra_reasons: Optional[Sequence[str]] = None,
     ) -> Optional[dict[str, Any]]:
         sym = str(symbol or "").upper().strip()
         if not sym:
@@ -291,6 +326,8 @@ class RejectJournal:
             intended_size=intended_size,
             side=side,
             source=source,
+            verdict=verdict,
+            extra_reasons=extra_reasons,
         )
         if extra:
             for key, value in extra.items():
