@@ -183,29 +183,12 @@ async def evaluate_pending_market_setups(agent: Any) -> None:
         if not outcome:
             keep.append(item)
             continue
-        event = {
-            "checked_at": now.isoformat(),
-            "id": item.get("id", ""),
-            "symbol": symbol,
-            "scenario": setup.get("scenario", ""),
-            "entry_price": setup.get("price"),
-            "current_price": current_price,
-            "target": setup.get("target"),
-            "invalidation": setup.get("invalidation"),
-            "score": setup.get("score"),
-            "range_pct": setup.get("range_pct"),
-            "atr_pct": setup.get("atr_pct"),
-            "volume_ratio": setup.get("volume_ratio"),
-            "outcome": outcome,
-            "filters": {
-                "min_score_to_notify": agent.market_scanner_min_score_to_notify,
-                "min_volume_ratio": agent.market_scanner_min_volume_ratio,
-                "max_range_pct": agent.market_scanner_max_range_pct,
-                "max_atr_pct": agent.market_scanner_max_atr_pct,
-            },
-        }
-        events.append(event)
-        agent._append_market_scanner_event(event)
+        # Гипотетический исход сетапа в обучение не идёт — только закрытая сделка сканера.
+        logger.info(
+            "Market learning skip unverified setup %s outcome=%s",
+            symbol,
+            outcome,
+        )
         changed = True
 
     if changed or len(keep) != len(pending):

@@ -66,7 +66,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prd_agent.market.scanner_learning import (
-    is_scanner_trade_source,
+    is_verified_closed_lesson,
     learning_events_cap,
     merge_learning_events,
     prefer_newer_filters,
@@ -76,6 +76,7 @@ from prd_agent.market.scanner_learning import (
 )
 from prd_agent.analysis.reject_journal import MIN_NOTIONAL_USDT, RejectJournal
 from prd_agent.risk.fast_entry_guard import fast_entry_block_reason
+from prd_agent.signals.ttl import SIGNAL_TTL_SECONDS
 from prd_agent.risk.signal_notional import plan_signal_notional
 
 _TG_LOGGING_CONFIGURED = False
@@ -1770,15 +1771,16 @@ class TelegramSignalAgent:
             rows[fingerprint] = utc_now().isoformat()
 
     def _is_recent_message(self, message_dt: datetime | None) -> bool:
-        if self.lookback_hours <= 0:
-            return True
         if message_dt is None:
             return False
         dt = message_dt
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         age_sec = (utc_now() - dt.astimezone(timezone.utc)).total_seconds()
-        return age_sec <= self.lookback_hours * 3600
+        ttl_sec = SIGNAL_TTL_SECONDS
+        if self.lookback_hours > 0:
+            ttl_sec = min(ttl_sec, int(self.lookback_hours * 3600))
+        return age_sec <= ttl_sec
 
     def _channel_rating(self, source: str) -> dict[str, Any]:
         key = normalize_chat_name(source)
@@ -2518,6 +2520,7 @@ class TelegramSignalAgent:
         )
         if day_block:
             LOG.info("Дневной стоп %s %s: %s", signal.symbol, signal.side, day_block)
+            self._journal_blocked_entry(signal, day_block, source="risk_guard")
             return {"success": False, "orderId": "", "error": day_block}
         cap = int(self.auto_execute_max_open_positions or 0)
         if cap > 0:
@@ -4089,6 +4092,8 @@ class TelegramSignalAgent:
                 continue
             if not isinstance(event, dict) or event.get("outcome") not in {"win", "loss", "neutral"}:
                 continue
+            if str(event.get("kind") or "closed_trade") != "closed_trade":
+                continue
             event_id = str(event.get("id", ""))
             if not event_id or event_id in known_ids:
                 continue
@@ -4165,7 +4170,7 @@ class TelegramSignalAgent:
         """Закрытая сделка MARKET/SPIKE SCANNER дописывает урок. Старые уроки остаются."""
         if not self.market_scanner_learning_enabled:
             return False
-        if not is_scanner_trade_source(source):
+        if not is_verified_closed_lesson(source=source, order_id=order_id):
             return False
         if not isinstance(self.state, dict):
             self.state = {}

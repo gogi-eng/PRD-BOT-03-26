@@ -15,7 +15,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from prd_agent.entry.entry_engine_bridge import EntryEngineBridge, should_apply_zone_entry
+from prd_agent.signals.confidence_filter import passes_emit_gate
 from prd_agent.signals.telegram_inbox import TelegramInbox
+from prd_agent.signals.ttl import filter_live_signals, oldest_created_at
 from prd_agent.signals.types import UnifiedSignal
 from prd_agent.signals.whale_news_agent import WhaleNewsAgent, MacroSignal
 
@@ -305,6 +307,12 @@ class SignalRouter:
             else:
                 source = "telegram"
                 reason = str(parsed.get("channel") or "telegram_inbox")
+            created = str(
+                parsed.get("created_at")
+                or parsed.get("message_time_utc")
+                or parsed.get("timestamp")
+                or ""
+            ).strip()
             sig = UnifiedSignal(
                 symbol=sym,
                 side=side,
@@ -315,6 +323,7 @@ class SignalRouter:
                 take_profit=float(parsed.get("take_profit", parsed.get("tp", 0)) or 0),
                 reason=reason,
                 raw=parsed,
+                created_at=created or datetime.now(timezone.utc).isoformat(),
             )
             out.append(sig)
             self._persist(sig)
@@ -594,10 +603,11 @@ class SignalRouter:
                     take_profit=tp,
                     reason=" | ".join(reasons[:3]),
                     raw=merged_raw,
+                    created_at=oldest_created_at(group),
                 )
             )
         merged.sort(key=lambda x: x.confidence, reverse=True)
-        return merged
+        return filter_live_signals(merged)
 
     async def collect_all(self, exchange, symbols: List[str]) -> List[UnifiedSignal]:
         tg = self.collect_telegram_signals()
@@ -662,9 +672,8 @@ class SignalRouter:
                 whale = res
             else:
                 ext = res
-        from prd_agent.signals.confidence_filter import passes_emit_gate
-
-        merged = self.merge_and_rank(own + ta + tg + whale + ext)
+        live = filter_live_signals(own + ta + tg + whale + ext)
+        merged = self.merge_and_rank(live)
         merged = [s for s in merged if passes_emit_gate(s, self.cfg)]
         if own or ta or tg or whale or ext:
             logger.info(

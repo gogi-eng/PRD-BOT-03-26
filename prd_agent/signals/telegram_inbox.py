@@ -97,6 +97,9 @@ class TelegramInbox:
                 conf /= 100.0
             if conf > 0 and conf < self._min_conf:
                 return None
+            for key in ("created_at", "message_time_utc", "timestamp", "ts"):
+                if not flat.get(key) and row.get(key):
+                    flat[key] = row.get(key)
             return flat
         nested = row.get("signal")
         review = row.get("review") if isinstance(row.get("review"), dict) else {}
@@ -126,6 +129,14 @@ class TelegramInbox:
         ok_lv, _ = signal_levels_plausible(probe)
         if not ok_lv:
             return None
+        created = (
+            nested.get("created_at")
+            or nested.get("message_time_utc")
+            or row.get("created_at")
+            or row.get("message_time_utc")
+            or row.get("timestamp")
+            or ""
+        )
         return {
             "symbol": sym,
             "side": side,
@@ -136,6 +147,8 @@ class TelegramInbox:
             "channel": nested.get("source") or row.get("channel"),
             "message_id": nested.get("message_id"),
             "reason": str(review.get("reason", nested.get("reason", "")))[:200],
+            "created_at": str(created or ""),
+            "message_time_utc": str(nested.get("message_time_utc") or created or ""),
         }
 
     def _parse_text_signal(self, text: str) -> Optional[Dict[str, Any]]:
